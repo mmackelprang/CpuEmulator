@@ -1,6 +1,6 @@
 # CpuEmulator
 
-A research-stage project to build a **pluggable, multi-architecture CPU-emulation framework in modern C#**, using the .NET runtime's own JIT as a dynamic-recompilation backend (translate guest machine code → .NET IL at runtime → let RyuJIT compile to native), with an interpreter tier as the always-available correctness oracle.
+A project to build a **pluggable, multi-architecture CPU-emulation framework in modern C#**, using the .NET runtime's own JIT as a dynamic-recompilation backend (translate guest machine code → .NET IL at runtime → let RyuJIT compile to native), with an interpreter tier as the always-available correctness oracle.
 
 ## Goals
 
@@ -10,16 +10,20 @@ A research-stage project to build a **pluggable, multi-architecture CPU-emulatio
 
 ## Status
 
-**Research phase.** No production code yet. The design rationale, prior-art survey, codegen-backend analysis, and a proposed reference architecture live in:
+Milestone 1 in progress. `CpuEmulator.Core` (contracts: CPU, bus, peripherals,
+scheduler, machine composition) is implemented and unit-tested. Next: the Roslyn
+source generator and the 6502 spec.
 
-- [`docs/research/emulation-framework-research.md`](docs/research/emulation-framework-research.md)
+- Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
+- Research: `docs/research/emulation-framework-research.md`
+
+Build and test: `dotnet test`
 
 ## Next steps
 
-1. Architect ADR locking the **JIT-vs-NativeAOT** decision and the core interface contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `IScheduler`, `IInterruptController`).
-2. Milestone 1 plan: 6502 interpreter + bus + RAM/ROM + one UART, validated against the [SingleStepTests/ProcessorTests](https://github.com/SingleStepTests/ProcessorTests) cycle-accurate vectors.
-3. Milestone 2: add the IL-JIT tier for the 6502 and prove parity + speedup.
-4. Milestone 3: add Z80 by writing only a spec — proving the pluggable abstraction.
+1. Finish Milestone 1: source-generated 6502 interpreter + one UART, validated against the [SingleStepTests/ProcessorTests](https://github.com/SingleStepTests/ProcessorTests) cycle-accurate vectors.
+2. Milestone 2: add the IL-JIT tier for the 6502 and prove parity + speedup.
+3. Milestone 3: add Z80 by writing only a spec — proving the pluggable abstraction.
 
 ## License
 

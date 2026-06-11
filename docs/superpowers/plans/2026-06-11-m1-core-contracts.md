@@ -52,6 +52,8 @@ tests/CpuEmulator.Tests/
     MachineRunTests.cs
 ```
 
+> **Note:** the .NET 10 SDK's `dotnet new sln` produces the modern XML solution format, so the repo has `CpuEmulator.slnx` rather than `CpuEmulator.sln`.
+
 Design notes locked by this plan:
 
 - **Page size is 256 bytes** (`PageShift = 8`). Natural for 8-bit machines; a 64 KiB space is 256 entries. Mapping granularity = page granularity; sub-page decode is the peripheral's job (authentic partial decode — an Apple I mirrors its PIA across a page the same way). Address spaces support 8–24 bits; 32-bit spaces need a two-level table and are explicitly out of scope until a 32-bit CPU exists.
@@ -216,6 +218,7 @@ namespace CpuEmulator.Core;
 public sealed class MachineConfigurationException : EmulationException
 {
     public MachineConfigurationException(string message) : base(message) { }
+    public MachineConfigurationException(string message, Exception inner) : base(message, inner) { }
 }
 ```
 
@@ -229,6 +232,7 @@ namespace CpuEmulator.Core;
 public sealed class StrictBusViolationException : EmulationException
 {
     public StrictBusViolationException(string message) : base(message) { }
+    public StrictBusViolationException(string message, Exception inner) : base(message, inner) { }
 }
 ```
 
@@ -259,7 +263,7 @@ public interface ICpuCore
     /// <summary>
     /// Run instructions until <paramref name="cycleBudget"/> is exhausted, decrementing it
     /// by cycles actually executed. May overshoot by at most one instruction (budget may
-    /// go slightly negative).
+    /// go slightly negative). The decrement always equals the increase in <see cref="CycleCount"/>.
     /// </summary>
     void Run(ref long cycleBudget);
 
@@ -269,7 +273,12 @@ public interface ICpuCore
     /// <summary>Register names for generic state introspection (test harness, debugger).</summary>
     IReadOnlyList<string> RegisterNames { get; }
 
+    /// <summary>Get a register's current value, zero-extended to 64 bits.</summary>
+    /// <exception cref="ArgumentException">The name is not in <see cref="RegisterNames"/>.</exception>
     ulong GetRegister(string name);
+
+    /// <summary>Set a register. Values are truncated to the register's natural width.</summary>
+    /// <exception cref="ArgumentException">The name is not in <see cref="RegisterNames"/>.</exception>
     void SetRegister(string name, ulong value);
 }
 ```
@@ -344,9 +353,11 @@ public interface IInterruptLine
 namespace CpuEmulator.Core;
 
 /// <summary>
-/// The machine's clock: a cycle counter plus an event queue. Deliberately minimal in M1;
-/// grows with the timer milestone. Defining it now prevents peripherals from inventing
-/// their own notion of time.
+/// The machine's clock as seen by devices: a cycle counter plus an event queue.
+/// Deliberately minimal in M1; grows with the timer milestone. Defining it now prevents
+/// peripherals from inventing their own notion of time.
+/// Advancing time is the machine driver's job — the concrete CycleScheduler.AdvanceTo —
+/// and is intentionally absent from this consumer-facing contract.
 /// </summary>
 public interface IScheduler
 {
@@ -354,9 +365,6 @@ public interface IScheduler
 
     /// <summary>Schedule a callback at an absolute cycle (must not be in the past).</summary>
     void ScheduleAt(long cycle, Action callback);
-
-    /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order.</summary>
-    void AdvanceTo(long cycle);
 }
 ```
 
@@ -888,6 +896,8 @@ git add tests/CpuEmulator.Tests
 git commit -m "test: pin open-bus, strict-mode, and mapping-validation policies"
 ```
 
+> **Post-review amendments (applied after Tasks 3–5):** Write8-wrap and zero-length-peripheral tests added; MapMemory/MapPeripheral gained null guards and validate-then-commit atomic mapping (`EnsureRangeUnmapped` replaces per-page `EnsureUnmapped`); out-of-range message now computes its end address in ulong; IAddressSpace.Read8/Write8 document masking + open-bus/strict policy. Test count: 20 → 22.
+
 ---
 
 ### Task 6: CycleScheduler
@@ -1021,6 +1031,7 @@ public sealed class CycleScheduler : IScheduler
         _queue.Enqueue(callback, cycle);
     }
 
+    /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order. Machine-driver only — not part of <see cref="IScheduler"/>.</summary>
     public void AdvanceTo(long cycle)
     {
         while (_queue.TryPeek(out _, out long due) && due <= cycle)
@@ -1146,6 +1157,8 @@ Expected: PASS (2 tests).
 git add src/CpuEmulator.Core tests/CpuEmulator.Tests
 git commit -m "feat: add InterruptLine forwarding to CPU line inputs"
 ```
+
+> **Post-review amendments (applied after Tasks 6–7):** CycleScheduler gained a monotonic sequence tie-break — `PriorityQueue<Action, (long Cycle, ulong Seq)>` — so same-cycle events fire in FIFO scheduling order (PriorityQueue's equal-priority order is unspecified and can drift across .NET versions, which would break deterministic bus traces). ScheduleAt's `== CurrentCycle` boundary (allowed, fires on next/current advance) and AdvanceTo's no-op/exception semantics are now documented and pinned by 4 new scheduler tests; 2 InterruptLine edge tests (re-assert, release-without-assert) added. Test count: 31 → 37.
 
 ---
 
@@ -1329,6 +1342,19 @@ public class MachineBuilderTests
     }
 
     [Fact]
+    public void Irq_asserted_during_cpu_construction_is_replayed_at_bind()
+    {
+        FakeCpu? cpu = null;
+        var machine = Machine.Create("test")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithCpu(ctx => { ctx.IrqLine.Assert(); cpu = new FakeCpu(); return cpu; })
+            .Build();
+
+        Assert.True(cpu!.IrqAsserted);
+        Assert.True(machine.IrqLine.IsAsserted);
+    }
+
+    [Fact]
     public void Space_lookup_for_undeclared_kind_throws()
     {
         var machine = MinimalBuilder().Build();
@@ -1446,10 +1472,11 @@ public sealed class Machine : IMachineContext
     private readonly Dictionary<AddressSpaceKind, AddressSpace> _spaces = [];
     private readonly LateBoundLine _irqTarget = new();
     private readonly LateBoundLine _nmiTarget = new();
+    private readonly CycleScheduler _scheduler;
 
     public string Name { get; }
     public ICpuCore Cpu { get; }
-    public IScheduler Scheduler { get; }
+    public IScheduler Scheduler => _scheduler;
     public IInterruptLine IrqLine { get; }
     public IInterruptLine NmiLine { get; }
 
@@ -1463,7 +1490,7 @@ public sealed class Machine : IMachineContext
         Func<IMachineContext, ICpuCore> cpuFactory)
     {
         Name = name;
-        Scheduler = new CycleScheduler();
+        _scheduler = new CycleScheduler();
         IrqLine = new InterruptLine(_irqTarget.Set);
         NmiLine = new InterruptLine(_nmiTarget.Set);
 
@@ -1475,8 +1502,8 @@ public sealed class Machine : IMachineContext
 
         // Phase 2: create the CPU (it may capture spaces), then bind interrupt lines to it.
         Cpu = cpuFactory(this);
-        _irqTarget.Target = Cpu.SetIrqLine;
-        _nmiTarget.Target = Cpu.SetNmiLine;
+        _irqTarget.Bind(Cpu.SetIrqLine);
+        _nmiTarget.Bind(Cpu.SetNmiLine);
 
         // Phase 3: map peripherals, then Realize them in registration order.
         foreach (var (kind, start, length, peripheral) in peripheralDefs)
@@ -1507,7 +1534,7 @@ public sealed class Machine : IMachineContext
             if (Cpu.CycleCount == before)
                 throw new EmulationException(
                     $"CPU '{Cpu.Architecture}' made no progress during Run; aborting to avoid a hang.");
-            Scheduler.AdvanceTo(Cpu.CycleCount);
+            _scheduler.AdvanceTo(Cpu.CycleCount);
         }
     }
 
@@ -1516,11 +1543,26 @@ public sealed class Machine : IMachineContext
             ? space
             : throw new MachineConfigurationException($"Machine '{Name}' has no {kind} address space.");
 
-    /// <summary>Lets interrupt lines exist before the CPU does (CPU factory may consult them).</summary>
+    /// <summary>Lets interrupt lines exist before the CPU does (the CPU factory may consult
+    /// or even assert them). Binding replays the line's current state so an assert raised
+    /// during CPU construction is not lost.</summary>
     private sealed class LateBoundLine
     {
-        public Action<bool>? Target;
-        public void Set(bool value) => Target?.Invoke(value);
+        private Action<bool>? _target;
+        private bool _lastValue;
+
+        public void Set(bool value)
+        {
+            _lastValue = value;
+            _target?.Invoke(value);
+        }
+
+        public void Bind(Action<bool> target)
+        {
+            _target = target;
+            if (_lastValue)
+                target(true);
+        }
     }
 }
 ```
@@ -1536,6 +1578,8 @@ Expected: PASS (12 tests).
 git add src/CpuEmulator.Core tests/CpuEmulator.Tests
 git commit -m "feat: add Machine container and fluent MachineBuilder with two-phase lifecycle"
 ```
+
+> **Post-review amendment (applied at Task 8):** `LateBoundLine` gained bind-time state replay — `Bind(target)` invokes the target with `true` if the line was asserted before the CPU existed (e.g. by the CPU factory itself), so no assert is lost in the construction window. Pinned by `Irq_asserted_during_cpu_construction_is_replayed_at_bind`.
 
 ---
 
@@ -1674,6 +1718,8 @@ git add tests/CpuEmulator.Tests
 git commit -m "test: pin Machine.Run budget, scheduler-advance, and no-progress semantics"
 ```
 
+> **Post-review amendments (applied after Tasks 8–9):** `Machine.Run` now returns the cycles actually executed (host pacing needs the overshoot delta); CPU factory returning null throws `MachineConfigurationException` (spec-§7 policy) instead of NRE; the no-progress guard tightened to `<=` (catches non-monotonic CycleCount); `LateBoundLine` doc notes it replays level, not edges; `Build()` doc notes a throwing Build still consumes the builder. New `OvershootingCpu` double + 3 tests pin overshoot termination/return value/scheduler-catchup and IRQ-during-Realize. Test count: 55 → 58 (→ 59 with the later null-CPU-factory pin test).
+
 ---
 
 ### Task 10: Full verification, push, PR
@@ -1684,7 +1730,7 @@ git commit -m "test: pin Machine.Run budget, scheduler-advance, and no-progress 
 - [ ] **Step 1: Run the full suite with AOT analyzers**
 
 Run: `dotnet build && dotnet test`
-Expected: build succeeds with zero warnings (warnings are errors, and `IsAotCompatible` makes trim/AOT violations warnings); all ~47 tests pass.
+Expected: build succeeds with zero warnings (warnings are errors, and `IsAotCompatible` makes trim/AOT violations warnings); all 59 tests pass.
 
 - [ ] **Step 2: Update README.** Append to `README.md`:
 
