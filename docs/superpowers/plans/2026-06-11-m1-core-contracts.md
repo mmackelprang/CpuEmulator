@@ -216,6 +216,7 @@ namespace CpuEmulator.Core;
 public sealed class MachineConfigurationException : EmulationException
 {
     public MachineConfigurationException(string message) : base(message) { }
+    public MachineConfigurationException(string message, Exception inner) : base(message, inner) { }
 }
 ```
 
@@ -229,6 +230,7 @@ namespace CpuEmulator.Core;
 public sealed class StrictBusViolationException : EmulationException
 {
     public StrictBusViolationException(string message) : base(message) { }
+    public StrictBusViolationException(string message, Exception inner) : base(message, inner) { }
 }
 ```
 
@@ -259,7 +261,7 @@ public interface ICpuCore
     /// <summary>
     /// Run instructions until <paramref name="cycleBudget"/> is exhausted, decrementing it
     /// by cycles actually executed. May overshoot by at most one instruction (budget may
-    /// go slightly negative).
+    /// go slightly negative). The decrement always equals the increase in <see cref="CycleCount"/>.
     /// </summary>
     void Run(ref long cycleBudget);
 
@@ -269,7 +271,12 @@ public interface ICpuCore
     /// <summary>Register names for generic state introspection (test harness, debugger).</summary>
     IReadOnlyList<string> RegisterNames { get; }
 
+    /// <summary>Get a register's current value, zero-extended to 64 bits.</summary>
+    /// <exception cref="ArgumentException">The name is not in <see cref="RegisterNames"/>.</exception>
     ulong GetRegister(string name);
+
+    /// <summary>Set a register. Values are truncated to the register's natural width.</summary>
+    /// <exception cref="ArgumentException">The name is not in <see cref="RegisterNames"/>.</exception>
     void SetRegister(string name, ulong value);
 }
 ```
@@ -344,9 +351,11 @@ public interface IInterruptLine
 namespace CpuEmulator.Core;
 
 /// <summary>
-/// The machine's clock: a cycle counter plus an event queue. Deliberately minimal in M1;
-/// grows with the timer milestone. Defining it now prevents peripherals from inventing
-/// their own notion of time.
+/// The machine's clock as seen by devices: a cycle counter plus an event queue.
+/// Deliberately minimal in M1; grows with the timer milestone. Defining it now prevents
+/// peripherals from inventing their own notion of time.
+/// Advancing time is the machine driver's job — the concrete CycleScheduler.AdvanceTo —
+/// and is intentionally absent from this consumer-facing contract.
 /// </summary>
 public interface IScheduler
 {
@@ -354,9 +363,6 @@ public interface IScheduler
 
     /// <summary>Schedule a callback at an absolute cycle (must not be in the past).</summary>
     void ScheduleAt(long cycle, Action callback);
-
-    /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order.</summary>
-    void AdvanceTo(long cycle);
 }
 ```
 
@@ -1021,6 +1027,7 @@ public sealed class CycleScheduler : IScheduler
         _queue.Enqueue(callback, cycle);
     }
 
+    /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order. Machine-driver only — not part of <see cref="IScheduler"/>.</summary>
     public void AdvanceTo(long cycle)
     {
         while (_queue.TryPeek(out _, out long due) && due <= cycle)
@@ -1446,10 +1453,11 @@ public sealed class Machine : IMachineContext
     private readonly Dictionary<AddressSpaceKind, AddressSpace> _spaces = [];
     private readonly LateBoundLine _irqTarget = new();
     private readonly LateBoundLine _nmiTarget = new();
+    private readonly CycleScheduler _scheduler;
 
     public string Name { get; }
     public ICpuCore Cpu { get; }
-    public IScheduler Scheduler { get; }
+    public IScheduler Scheduler => _scheduler;
     public IInterruptLine IrqLine { get; }
     public IInterruptLine NmiLine { get; }
 
@@ -1463,7 +1471,7 @@ public sealed class Machine : IMachineContext
         Func<IMachineContext, ICpuCore> cpuFactory)
     {
         Name = name;
-        Scheduler = new CycleScheduler();
+        _scheduler = new CycleScheduler();
         IrqLine = new InterruptLine(_irqTarget.Set);
         NmiLine = new InterruptLine(_nmiTarget.Set);
 
@@ -1507,7 +1515,7 @@ public sealed class Machine : IMachineContext
             if (Cpu.CycleCount == before)
                 throw new EmulationException(
                     $"CPU '{Cpu.Architecture}' made no progress during Run; aborting to avoid a hang.");
-            Scheduler.AdvanceTo(Cpu.CycleCount);
+            _scheduler.AdvanceTo(Cpu.CycleCount);
         }
     }
 

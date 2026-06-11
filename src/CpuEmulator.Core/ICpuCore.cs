@@ -20,7 +20,7 @@ public interface ICpuCore
     /// <summary>
     /// Run instructions until <paramref name="cycleBudget"/> is exhausted, decrementing it
     /// by cycles actually executed. May overshoot by at most one instruction (budget may
-    /// go slightly negative).
+    /// go slightly negative). The decrement always equals the increase in <see cref="CycleCount"/>.
     /// </summary>
     void Run(ref long cycleBudget);
 
@@ -30,6 +30,11 @@ public interface ICpuCore
     /// <summary>Register names for generic state introspection (test harness, debugger).</summary>
     IReadOnlyList<string> RegisterNames { get; }
 
+    /// <summary>Get a register's current value, zero-extended to 64 bits.</summary>
+    /// <exception cref="ArgumentException">The name is not in <see cref="RegisterNames"/>.</exception>
     ulong GetRegister(string name);
+
+    /// <summary>Set a register. Values are truncated to the register's natural width.</summary>
+    /// <exception cref="ArgumentException">The name is not in <see cref="RegisterNames"/>.</exception>
     void SetRegister(string name, ulong value);
 }

@@ -4,4 +4,5 @@ namespace CpuEmulator.Core;
 public sealed class MachineConfigurationException : EmulationException
 {
     public MachineConfigurationException(string message) : base(message) { }
+    public MachineConfigurationException(string message, Exception inner) : base(message, inner) { }
 }

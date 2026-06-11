@@ -5,4 +5,5 @@ namespace CpuEmulator.Core;
 public sealed class StrictBusViolationException : EmulationException
 {
     public StrictBusViolationException(string message) : base(message) { }
+    public StrictBusViolationException(string message, Exception inner) : base(message, inner) { }
 }
