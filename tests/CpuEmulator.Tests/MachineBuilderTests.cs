@@ -158,6 +158,27 @@ public class MachineBuilderTests
         Assert.Equal(1, cpu.ResetCount);
     }
 
+    [Fact]
+    public void Irq_asserted_during_realize_reaches_the_cpu()
+    {
+        var cpu = new FakeCpu();
+        Machine.Create("test")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithPeripheral(AddressSpaceKind.Program, 0xD000, 0x100, new IrqAssertingPeripheral())
+            .WithCpu(_ => cpu)
+            .Build();
+
+        Assert.True(cpu.IrqAsserted);
+    }
+
+    private sealed class IrqAssertingPeripheral : IPeripheral
+    {
+        public string Name => "irq-asserter";
+        public void Realize(IMachineContext context) => context.IrqLine.Assert();
+        public uint Read(uint offset, AccessWidth width) => 0;
+        public void Write(uint offset, AccessWidth width, uint value) { }
+    }
+
     private static Machine MachineWith(FakeCpu cpu) =>
         Machine.Create("test")
             .WithAddressSpace(AddressSpaceKind.Program, 16)

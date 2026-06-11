@@ -47,6 +47,7 @@ public sealed class MachineBuilder
         return this;
     }
 
+    /// <summary>Construct the machine. May only be called once; a Build() that throws still consumes the builder.</summary>
     public Machine Build()
     {
         if (_built)

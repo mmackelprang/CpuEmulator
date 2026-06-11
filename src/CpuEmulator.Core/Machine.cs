@@ -39,7 +39,8 @@ public sealed class Machine : IMachineContext
             GetSpace(kind).MapMemory(start, backing, writable);
 
         // Phase 2: create the CPU (it may capture spaces), then bind interrupt lines to it.
-        Cpu = cpuFactory(this);
+        Cpu = cpuFactory(this) ?? throw new MachineConfigurationException(
+            $"Machine '{name}': CPU factory returned null.");
         _irqTarget.Bind(Cpu.SetIrqLine);
         _nmiTarget.Bind(Cpu.SetNmiLine);
 
@@ -55,25 +56,28 @@ public sealed class Machine : IMachineContext
     public void Reset() => Cpu.Reset();
 
     /// <summary>
-    /// Run the machine for a cycle budget. M1 semantics are coarse: the CPU runs a slice,
-    /// then the scheduler catches up to the CPU's cycle count. The timer milestone will
+    /// Run the machine for a cycle budget and return the cycles actually executed (which may
+    /// exceed the budget by up to one instruction). M1 semantics are coarse: the CPU runs a
+    /// slice, then the scheduler catches up to the CPU's cycle count. The timer milestone will
     /// chunk CPU slices to the next pending event for tighter event timing.
     /// </summary>
-    public void Run(long cycles)
+    public long Run(long cycles)
     {
+        long start = Cpu.CycleCount;
         if (cycles <= 0)
-            return;
-        long target = Cpu.CycleCount + cycles;
+            return 0;
+        long target = start + cycles;
         while (Cpu.CycleCount < target)
         {
             long before = Cpu.CycleCount;
             long budget = target - Cpu.CycleCount;
             Cpu.Run(ref budget);
-            if (Cpu.CycleCount == before)
+            if (Cpu.CycleCount <= before)
                 throw new EmulationException(
                     $"CPU '{Cpu.Architecture}' made no progress during Run; aborting to avoid a hang.");
             _scheduler.AdvanceTo(Cpu.CycleCount);
         }
+        return Cpu.CycleCount - start;
     }
 
     private AddressSpace GetSpace(AddressSpaceKind kind) =>
@@ -83,7 +87,9 @@ public sealed class Machine : IMachineContext
 
     /// <summary>Lets interrupt lines exist before the CPU does (the CPU factory may consult
     /// or even assert them). Binding replays the line's current state so an assert raised
-    /// during CPU construction is not lost.</summary>
+    /// during CPU construction is not lost. Replays level, not edges — a pulse (assert then
+    /// release) during the construction window is intentionally invisible; only the final
+    /// level is forwarded at bind.</summary>
     private sealed class LateBoundLine
     {
         private Action<bool>? _target;

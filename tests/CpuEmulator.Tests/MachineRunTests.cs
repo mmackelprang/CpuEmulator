@@ -80,4 +80,29 @@ public class MachineRunTests
         var ex = Assert.Throws<EmulationException>(() => machine.Run(100));
         Assert.Contains("no progress", ex.Message);
     }
+
+    [Fact]
+    public void Run_with_an_overshooting_cpu_terminates_and_reports_actual_cycles()
+    {
+        var cpu = new OvershootingCpu();
+        var machine = MachineWith(cpu);
+        bool fired = false;
+        machine.Scheduler.ScheduleAt(103, () => fired = true);
+
+        long executed = machine.Run(100);
+
+        Assert.Equal(105, executed);                       // 15 × 7-cycle instructions
+        Assert.Equal(105, cpu.CycleCount);
+        Assert.Equal(105, machine.Scheduler.CurrentCycle); // scheduler lands on actual count
+        Assert.True(fired);                                // event past the budget edge still fires
+    }
+
+    [Fact]
+    public void Run_returns_cycles_executed_for_an_exact_cpu()
+    {
+        var cpu = new FakeCpu();
+        var machine = MachineWith(cpu);
+
+        Assert.Equal(100, machine.Run(100));
+    }
 }

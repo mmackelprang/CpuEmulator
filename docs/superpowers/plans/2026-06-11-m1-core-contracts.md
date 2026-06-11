@@ -1716,6 +1716,8 @@ git add tests/CpuEmulator.Tests
 git commit -m "test: pin Machine.Run budget, scheduler-advance, and no-progress semantics"
 ```
 
+> **Post-review amendments (applied after Tasks 8–9):** `Machine.Run` now returns the cycles actually executed (host pacing needs the overshoot delta); CPU factory returning null throws `MachineConfigurationException` (spec-§7 policy) instead of NRE; the no-progress guard tightened to `<=` (catches non-monotonic CycleCount); `LateBoundLine` doc notes it replays level, not edges; `Build()` doc notes a throwing Build still consumes the builder. New `OvershootingCpu` double + 3 tests pin overshoot termination/return value/scheduler-catchup and IRQ-during-Realize. Test count: 55 → 58.
+
 ---
 
 ### Task 10: Full verification, push, PR
