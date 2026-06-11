@@ -171,6 +171,16 @@ public class MachineBuilderTests
         Assert.True(cpu.IrqAsserted);
     }
 
+    [Fact]
+    public void Cpu_factory_returning_null_throws_configuration_exception()
+    {
+        var builder = Machine.Create("test")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithCpu(_ => null!);
+
+        Assert.Throws<MachineConfigurationException>(() => builder.Build());
+    }
+
     private sealed class IrqAssertingPeripheral : IPeripheral
     {
         public string Name => "irq-asserter";
