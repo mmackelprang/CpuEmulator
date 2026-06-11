@@ -66,7 +66,7 @@ public class CycleSchedulerTests
         scheduler.AdvanceTo(100);
 
         Assert.Throws<ArgumentOutOfRangeException>(
-            (Action)(() => scheduler.ScheduleAt(99, () => { })));
+            () => scheduler.ScheduleAt(99, () => { }));
     }
 
     [Fact]
