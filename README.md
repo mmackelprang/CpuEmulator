@@ -21,6 +21,17 @@ A research-stage project to build a **pluggable, multi-architecture CPU-emulatio
 3. Milestone 2: add the IL-JIT tier for the 6502 and prove parity + speedup.
 4. Milestone 3: add Z80 by writing only a spec — proving the pluggable abstraction.
 
+## Status
+
+Milestone 1 in progress. `CpuEmulator.Core` (contracts: CPU, bus, peripherals,
+scheduler, machine composition) is implemented and unit-tested. Next: the Roslyn
+source generator and the 6502 spec.
+
+- Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
+- Research: `docs/research/emulation-framework-research.md`
+
+Build and test: `dotnet test`
+
 ## License
 
 TBD.
