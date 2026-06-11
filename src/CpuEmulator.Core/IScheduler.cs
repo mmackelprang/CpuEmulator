@@ -11,6 +11,9 @@ public interface IScheduler
 {
     long CurrentCycle { get; }
 
-    /// <summary>Schedule a callback at an absolute cycle (must not be in the past).</summary>
+    /// <summary>Schedule a callback at an absolute cycle. Scheduling in the past throws
+    /// <see cref="ArgumentOutOfRangeException"/> (argument precondition, not an emulation fault);
+    /// scheduling at the current cycle is allowed and fires on the next advance — or within the
+    /// current one if called from a callback. Same-cycle callbacks fire in FIFO order.</summary>
     void ScheduleAt(long cycle, Action callback);
 }

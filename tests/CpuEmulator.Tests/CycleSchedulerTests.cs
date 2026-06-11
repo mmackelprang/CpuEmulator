@@ -89,4 +89,63 @@ public class CycleSchedulerTests
         Assert.Equal(10, seen);
         Assert.Equal(100, scheduler.CurrentCycle);
     }
+
+    [Fact]
+    public void Same_cycle_events_fire_in_scheduling_order()
+    {
+        var scheduler = new CycleScheduler();
+        var log = new List<string>();
+        scheduler.ScheduleAt(10, () => log.Add("a"));
+        scheduler.ScheduleAt(10, () => log.Add("b"));
+        scheduler.ScheduleAt(10, () => log.Add("c"));
+        scheduler.ScheduleAt(10, () => log.Add("d"));
+
+        scheduler.AdvanceTo(10);
+
+        Assert.Equal(["a", "b", "c", "d"], log);
+    }
+
+    [Fact]
+    public void Scheduling_at_the_current_cycle_fires_on_the_next_advance()
+    {
+        var scheduler = new CycleScheduler();
+        scheduler.AdvanceTo(100);
+        bool fired = false;
+        scheduler.ScheduleAt(100, () => fired = true);
+
+        scheduler.AdvanceTo(100);
+
+        Assert.True(fired);
+    }
+
+    [Fact]
+    public void Callback_scheduling_at_its_own_cycle_fires_within_the_same_advance()
+    {
+        var scheduler = new CycleScheduler();
+        var log = new List<string>();
+        scheduler.ScheduleAt(10, () =>
+        {
+            log.Add("first");
+            scheduler.ScheduleAt(10, () => log.Add("second"));
+        });
+
+        scheduler.AdvanceTo(100);
+
+        Assert.Equal(["first", "second"], log);
+        Assert.Equal(100, scheduler.CurrentCycle);
+    }
+
+    [Fact]
+    public void AdvanceTo_at_or_below_current_cycle_is_a_no_op()
+    {
+        var scheduler = new CycleScheduler();
+        scheduler.AdvanceTo(50);
+        bool fired = false;
+        scheduler.ScheduleAt(60, () => fired = true);
+
+        scheduler.AdvanceTo(40);
+
+        Assert.False(fired);
+        Assert.Equal(50, scheduler.CurrentCycle);
+    }
 }

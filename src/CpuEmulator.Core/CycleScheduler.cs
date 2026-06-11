@@ -1,9 +1,11 @@
 namespace CpuEmulator.Core;
 
-/// <summary>Minimal M1 scheduler: a cycle counter plus a priority-queue event list.</summary>
+/// <summary>Minimal M1 scheduler: a cycle counter plus a priority-queue event list.
+/// Same-cycle events fire in FIFO (scheduling) order.</summary>
 public sealed class CycleScheduler : IScheduler
 {
-    private readonly PriorityQueue<Action, long> _queue = new();
+    private readonly PriorityQueue<Action, (long Cycle, ulong Seq)> _queue = new();
+    private ulong _nextSeq;
 
     public long CurrentCycle { get; private set; }
 
@@ -11,18 +13,20 @@ public sealed class CycleScheduler : IScheduler
     {
         ArgumentNullException.ThrowIfNull(callback);
         ArgumentOutOfRangeException.ThrowIfLessThan(cycle, CurrentCycle);
-        _queue.Enqueue(callback, cycle);
+        _queue.Enqueue(callback, (cycle, _nextSeq++));
     }
 
-    /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order.
-    /// Machine-driver only — not part of <see cref="IScheduler"/>.</summary>
+    /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order
+    /// (FIFO within a cycle). Machine-driver only — not part of <see cref="IScheduler"/>.
+    /// Targets at or below <see cref="CurrentCycle"/> fire nothing and do not move time.
+    /// If a callback throws, its event is already consumed, <see cref="CurrentCycle"/> rests at
+    /// that event's cycle, and the remaining queue is intact.</summary>
     public void AdvanceTo(long cycle)
     {
-        while (_queue.TryPeek(out _, out long due) && due <= cycle)
+        while (_queue.TryPeek(out _, out (long Cycle, ulong Seq) due) && due.Cycle <= cycle)
         {
-            _queue.TryDequeue(out Action? callback, out long at);
-            CurrentCycle = at;
-            callback!();
+            CurrentCycle = due.Cycle;
+            _queue.Dequeue()();
         }
         if (cycle > CurrentCycle)
             CurrentCycle = cycle;

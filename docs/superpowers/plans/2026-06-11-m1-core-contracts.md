@@ -1156,6 +1156,8 @@ git add src/CpuEmulator.Core tests/CpuEmulator.Tests
 git commit -m "feat: add InterruptLine forwarding to CPU line inputs"
 ```
 
+> **Post-review amendments (applied after Tasks 6–7):** CycleScheduler gained a monotonic sequence tie-break — `PriorityQueue<Action, (long Cycle, ulong Seq)>` — so same-cycle events fire in FIFO scheduling order (PriorityQueue's equal-priority order is unspecified and can drift across .NET versions, which would break deterministic bus traces). ScheduleAt's `== CurrentCycle` boundary (allowed, fires on next/current advance) and AdvanceTo's no-op/exception semantics are now documented and pinned by 4 new scheduler tests; 2 InterruptLine edge tests (re-assert, release-without-assert) added. Test count: 31 → 37.
+
 ---
 
 ### Task 8: Machine + MachineBuilder — composition and lifecycle
