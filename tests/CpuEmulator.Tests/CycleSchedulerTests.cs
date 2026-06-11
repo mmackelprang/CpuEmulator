@@ -136,7 +136,7 @@ public class CycleSchedulerTests
     }
 
     [Fact]
-    public void AdvanceTo_at_or_below_current_cycle_is_a_no_op()
+    public void AdvanceTo_below_current_cycle_is_a_no_op()
     {
         var scheduler = new CycleScheduler();
         scheduler.AdvanceTo(50);

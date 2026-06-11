@@ -18,7 +18,8 @@ public sealed class CycleScheduler : IScheduler
 
     /// <summary>Advance time to <paramref name="cycle"/>, firing due callbacks in cycle order
     /// (FIFO within a cycle). Machine-driver only — not part of <see cref="IScheduler"/>.
-    /// Targets at or below <see cref="CurrentCycle"/> fire nothing and do not move time.
+    /// Targets below <see cref="CurrentCycle"/> fire nothing and do not move time; a target at
+    /// <see cref="CurrentCycle"/> fires events pending at exactly that cycle.
     /// If a callback throws, its event is already consumed, <see cref="CurrentCycle"/> rests at
     /// that event's cycle, and the remaining queue is intact.</summary>
     public void AdvanceTo(long cycle)
