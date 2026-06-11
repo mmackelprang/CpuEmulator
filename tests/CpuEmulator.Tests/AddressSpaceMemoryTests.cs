@@ -64,4 +64,15 @@ public class AddressSpaceMemoryTests
 
         Assert.Equal(0x99, space.Read8(0x1_0042)); // 17-bit address masks to 16 bits
     }
+
+    [Fact]
+    public void Write_address_above_space_width_wraps()
+    {
+        var space = NewSpace();
+        space.MapMemory(0x0000, new byte[0x100], writable: true);
+
+        space.Write8(0x1_0042, 0x77); // 17-bit address masks to 16 bits
+
+        Assert.Equal(0x77, space.Read8(0x0042));
+    }
 }

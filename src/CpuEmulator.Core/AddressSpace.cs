@@ -44,13 +44,14 @@ public sealed class AddressSpace : IAddressSpace
 
     public void MapMemory(uint start, byte[] backing, bool writable)
     {
+        ArgumentNullException.ThrowIfNull(backing);
         ValidateRange(start, (uint)backing.Length);
         int firstPage = (int)(start >> PageShift);
         int pageCount = backing.Length >> PageShift;
+        EnsureRangeUnmapped(firstPage, pageCount, start);
         for (int i = 0; i < pageCount; i++)
         {
             ref PageEntry page = ref _pages[firstPage + i];
-            EnsureUnmapped(in page, start + (uint)(i << PageShift));
             page.Backing = backing;
             page.BackingOffset = i << PageShift;
             page.Writable = writable;
@@ -59,13 +60,14 @@ public sealed class AddressSpace : IAddressSpace
 
     public void MapPeripheral(uint start, uint length, IPeripheral peripheral)
     {
+        ArgumentNullException.ThrowIfNull(peripheral);
         ValidateRange(start, length);
         int firstPage = (int)(start >> PageShift);
         int pageCount = (int)(length >> PageShift);
+        EnsureRangeUnmapped(firstPage, pageCount, start);
         for (int i = 0; i < pageCount; i++)
         {
             ref PageEntry page = ref _pages[firstPage + i];
-            EnsureUnmapped(in page, start + (uint)(i << PageShift));
             page.Handler = peripheral;
             page.HandlerBase = start;
         }
@@ -116,13 +118,17 @@ public sealed class AddressSpace : IAddressSpace
                 $"Mapping start 0x{start:X} is not {PageSize}-byte page aligned.");
         if (start > AddressMask || length - 1 > AddressMask - start)
             throw new MachineConfigurationException(
-                $"Mapping 0x{start:X}..0x{start + (length - 1):X} exceeds the {AddressBits}-bit address space.");
+                $"Mapping 0x{start:X}..0x{(ulong)start + length - 1:X} exceeds the {AddressBits}-bit address space.");
     }
 
-    private static void EnsureUnmapped(in PageEntry page, uint pageAddress)
+    private void EnsureRangeUnmapped(int firstPage, int pageCount, uint start)
     {
-        if (page.Backing is not null || page.Handler is not null)
-            throw new MachineConfigurationException(
-                $"Page at 0x{pageAddress:X} is already mapped; overlapping mappings are not allowed.");
+        for (int i = 0; i < pageCount; i++)
+        {
+            ref readonly PageEntry page = ref _pages[firstPage + i];
+            if (page.Backing is not null || page.Handler is not null)
+                throw new MachineConfigurationException(
+                    $"Page at 0x{start + (uint)(i << PageShift):X} is already mapped; overlapping mappings are not allowed.");
+        }
     }
 }

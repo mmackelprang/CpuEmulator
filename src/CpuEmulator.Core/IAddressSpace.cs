@@ -9,7 +9,12 @@ public interface IAddressSpace
     AddressSpaceKind Kind { get; }
     int AddressBits { get; }
 
+    /// <summary>Read one byte. Addresses are masked to <see cref="AddressBits"/> (the bus wraps).
+    /// Reads from unmapped addresses return the space's open-bus value (or throw in strict mode).</summary>
     byte Read8(uint address);
+
+    /// <summary>Write one byte. Addresses are masked to <see cref="AddressBits"/> (the bus wraps).
+    /// Writes to unmapped addresses or read-only memory are ignored (or throw in strict mode).</summary>
     void Write8(uint address, byte value);
 
     /// <summary>Map RAM (<paramref name="writable"/>=true) or ROM (false). The backing

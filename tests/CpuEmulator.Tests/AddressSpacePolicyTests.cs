@@ -87,6 +87,13 @@ public class AddressSpacePolicyTests
     }
 
     [Fact]
+    public void Zero_length_peripheral_mapping_throws()
+    {
+        Assert.Throws<MachineConfigurationException>(
+            () => NewSpace().MapPeripheral(0xD000, 0, new RecordingPeripheral()));
+    }
+
+    [Fact]
     public void Address_bits_outside_8_to_24_throw()
     {
         Assert.Throws<MachineConfigurationException>(

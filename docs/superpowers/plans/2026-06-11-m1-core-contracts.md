@@ -894,6 +894,8 @@ git add tests/CpuEmulator.Tests
 git commit -m "test: pin open-bus, strict-mode, and mapping-validation policies"
 ```
 
+> **Post-review amendments (applied after Tasks 3–5):** Write8-wrap and zero-length-peripheral tests added; MapMemory/MapPeripheral gained null guards and validate-then-commit atomic mapping (`EnsureRangeUnmapped` replaces per-page `EnsureUnmapped`); out-of-range message now computes its end address in ulong; IAddressSpace.Read8/Write8 document masking + open-bus/strict policy. Test count: 20 → 22.
+
 ---
 
 ### Task 6: CycleScheduler
