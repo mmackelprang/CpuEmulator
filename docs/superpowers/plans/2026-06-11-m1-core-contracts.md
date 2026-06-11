@@ -1340,6 +1340,19 @@ public class MachineBuilderTests
     }
 
     [Fact]
+    public void Irq_asserted_during_cpu_construction_is_replayed_at_bind()
+    {
+        FakeCpu? cpu = null;
+        var machine = Machine.Create("test")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithCpu(ctx => { ctx.IrqLine.Assert(); cpu = new FakeCpu(); return cpu; })
+            .Build();
+
+        Assert.True(cpu!.IrqAsserted);
+        Assert.True(machine.IrqLine.IsAsserted);
+    }
+
+    [Fact]
     public void Space_lookup_for_undeclared_kind_throws()
     {
         var machine = MinimalBuilder().Build();
@@ -1487,8 +1500,8 @@ public sealed class Machine : IMachineContext
 
         // Phase 2: create the CPU (it may capture spaces), then bind interrupt lines to it.
         Cpu = cpuFactory(this);
-        _irqTarget.Target = Cpu.SetIrqLine;
-        _nmiTarget.Target = Cpu.SetNmiLine;
+        _irqTarget.Bind(Cpu.SetIrqLine);
+        _nmiTarget.Bind(Cpu.SetNmiLine);
 
         // Phase 3: map peripherals, then Realize them in registration order.
         foreach (var (kind, start, length, peripheral) in peripheralDefs)
@@ -1528,11 +1541,26 @@ public sealed class Machine : IMachineContext
             ? space
             : throw new MachineConfigurationException($"Machine '{Name}' has no {kind} address space.");
 
-    /// <summary>Lets interrupt lines exist before the CPU does (CPU factory may consult them).</summary>
+    /// <summary>Lets interrupt lines exist before the CPU does (the CPU factory may consult
+    /// or even assert them). Binding replays the line's current state so an assert raised
+    /// during CPU construction is not lost.</summary>
     private sealed class LateBoundLine
     {
-        public Action<bool>? Target;
-        public void Set(bool value) => Target?.Invoke(value);
+        private Action<bool>? _target;
+        private bool _lastValue;
+
+        public void Set(bool value)
+        {
+            _lastValue = value;
+            _target?.Invoke(value);
+        }
+
+        public void Bind(Action<bool> target)
+        {
+            _target = target;
+            if (_lastValue)
+                target(true);
+        }
     }
 }
 ```
@@ -1540,7 +1568,7 @@ public sealed class Machine : IMachineContext
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `dotnet test --filter "FullyQualifiedName~MachineBuilderTests"`
-Expected: PASS (12 tests).
+Expected: PASS (13 tests).
 
 - [ ] **Step 6: Commit**
 
@@ -1548,6 +1576,8 @@ Expected: PASS (12 tests).
 git add src/CpuEmulator.Core tests/CpuEmulator.Tests
 git commit -m "feat: add Machine container and fluent MachineBuilder with two-phase lifecycle"
 ```
+
+> **Post-review amendment (applied at Task 8):** `LateBoundLine` gained bind-time state replay — `Bind(target)` invokes the target with `true` if the line was asserted before the CPU existed (e.g. by the CPU factory itself), so no assert is lost in the construction window. Pinned by `Irq_asserted_during_cpu_construction_is_replayed_at_bind`.
 
 ---
 
