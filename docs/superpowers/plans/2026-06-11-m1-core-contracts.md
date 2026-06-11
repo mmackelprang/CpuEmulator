@@ -52,6 +52,8 @@ tests/CpuEmulator.Tests/
     MachineRunTests.cs
 ```
 
+> **Note:** the .NET 10 SDK's `dotnet new sln` produces the modern XML solution format, so the repo has `CpuEmulator.slnx` rather than `CpuEmulator.sln`.
+
 Design notes locked by this plan:
 
 - **Page size is 256 bytes** (`PageShift = 8`). Natural for 8-bit machines; a 64 KiB space is 256 entries. Mapping granularity = page granularity; sub-page decode is the peripheral's job (authentic partial decode — an Apple I mirrors its PIA across a page the same way). Address spaces support 8–24 bits; 32-bit spaces need a two-level table and are explicitly out of scope until a 32-bit CPU exists.
@@ -1716,7 +1718,7 @@ git add tests/CpuEmulator.Tests
 git commit -m "test: pin Machine.Run budget, scheduler-advance, and no-progress semantics"
 ```
 
-> **Post-review amendments (applied after Tasks 8–9):** `Machine.Run` now returns the cycles actually executed (host pacing needs the overshoot delta); CPU factory returning null throws `MachineConfigurationException` (spec-§7 policy) instead of NRE; the no-progress guard tightened to `<=` (catches non-monotonic CycleCount); `LateBoundLine` doc notes it replays level, not edges; `Build()` doc notes a throwing Build still consumes the builder. New `OvershootingCpu` double + 3 tests pin overshoot termination/return value/scheduler-catchup and IRQ-during-Realize. Test count: 55 → 58.
+> **Post-review amendments (applied after Tasks 8–9):** `Machine.Run` now returns the cycles actually executed (host pacing needs the overshoot delta); CPU factory returning null throws `MachineConfigurationException` (spec-§7 policy) instead of NRE; the no-progress guard tightened to `<=` (catches non-monotonic CycleCount); `LateBoundLine` doc notes it replays level, not edges; `Build()` doc notes a throwing Build still consumes the builder. New `OvershootingCpu` double + 3 tests pin overshoot termination/return value/scheduler-catchup and IRQ-during-Realize. Test count: 55 → 58 (→ 59 with the later null-CPU-factory pin test).
 
 ---
 
@@ -1728,7 +1730,7 @@ git commit -m "test: pin Machine.Run budget, scheduler-advance, and no-progress 
 - [ ] **Step 1: Run the full suite with AOT analyzers**
 
 Run: `dotnet build && dotnet test`
-Expected: build succeeds with zero warnings (warnings are errors, and `IsAotCompatible` makes trim/AOT violations warnings); all ~47 tests pass.
+Expected: build succeeds with zero warnings (warnings are errors, and `IsAotCompatible` makes trim/AOT violations warnings); all 59 tests pass.
 
 - [ ] **Step 2: Update README.** Append to `README.md`:
 
