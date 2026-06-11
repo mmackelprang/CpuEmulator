@@ -1568,7 +1568,7 @@ public sealed class Machine : IMachineContext
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `dotnet test --filter "FullyQualifiedName~MachineBuilderTests"`
-Expected: PASS (13 tests).
+Expected: PASS (12 tests).
 
 - [ ] **Step 6: Commit**
 
