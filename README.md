@@ -24,8 +24,17 @@ is committed importer output: `tools/CpuEmulator.SpecImporter` generates it from
 file to fresh tool output. Vectors and the Klaus binary are fetched on demand
 (`tools/get-test-vectors.ps1`/`.sh`, `tools/get-klaus.ps1`/`.sh`), never vendored; the
 TomHarte theories sample 200 cases/opcode by default and run all 10,000 under
-`CPUEMULATOR_UAT=full`. Next: the monitor, the datasheet-extraction runbook (M1 item 6),
-then peripherals + console host (chunk 4).
+`CPUEMULATOR_UAT=full`. **The machine-language monitor is live as the acceptance surface**:
+load/save memory and files, hex-dump/modify, disassemble, assemble single instructions at an
+address (with branch-target resolution), inspect/set registers, interrupt-aware single-step,
+run/run-until with trap detection — a CPU-agnostic engine + line-oriented REPL in
+`CpuEmulator.Monitor` (AOT-clean, Core-only), surfaced per-CPU through the generated
+`IMonitorSupport`. The **single-instruction assembler is the fifth generated artifact**, the
+exact inverse of the disassembler from the same spec table, pinned by a 151-opcode roundtrip
+identity test (`assemble(disassemble(op)) == op-bytes`); monitor-driven UAT sessions
+(assemble/run/inspect/disassemble, Klaus-via-monitor) run in the suite under
+`--filter "Category=UAT"`. Next: the datasheet-extraction runbook (M1 item 6), then
+peripherals + console host (chunk 4).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`
