@@ -5,10 +5,10 @@ namespace CpuEmulator.Host;
 /// Program.Main is thin console glue over it. Addresses follow the monitor convention:
 /// hex with an optional <c>$</c> prefix.
 /// </summary>
-public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint? Pc)
+public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint? Pc, bool Terminal)
 {
     public const string Usage =
-        "usage: CpuEmulator.Host [--demo | --load <bin> [--at $addr] [--pc $addr]]";
+        "usage: CpuEmulator.Host [--demo | [--terminal] [--load <bin> [--at $addr] [--pc $addr]]]";
 
     private const uint DefaultLoadAt = 0x0200;
 
@@ -21,12 +21,14 @@ public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint?
     public static bool TryParse(string[] args, out HostOptions options, out string? error)
     {
         bool demo = false;
+        bool terminal = false;
         string? loadPath = null;
         uint loadAt = DefaultLoadAt;
         uint? pc = null;
         bool sawAt = false, sawPc = false;
 
-        options = new HostOptions(Demo: false, LoadPath: null, LoadAt: DefaultLoadAt, Pc: null);
+        options = new HostOptions(Demo: false, LoadPath: null, LoadAt: DefaultLoadAt, Pc: null,
+                                  Terminal: false);
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -34,6 +36,10 @@ public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint?
             {
                 case "--demo":
                     demo = true;
+                    break;
+
+                case "--terminal":
+                    terminal = true;
                     break;
 
                 case "--load":
@@ -66,12 +72,14 @@ public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint?
 
         if (demo && loadPath is not null)
             return Fail("--demo and --load are mutually exclusive", out error);
+        if (demo && terminal)
+            return Fail("--demo and --terminal are mutually exclusive", out error);
         if (loadPath is null && sawAt)
             return Fail("--at requires --load", out error);
         if (loadPath is null && sawPc)
             return Fail("--pc requires --load", out error);
 
-        options = new HostOptions(demo, loadPath, loadAt, pc);
+        options = new HostOptions(demo, loadPath, loadAt, pc, terminal);
         error = null;
         return true;
     }

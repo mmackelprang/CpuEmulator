@@ -172,6 +172,49 @@ After loading, the host drops into the monitor REPL. Use `g` to run the loaded p
 
 ---
 
+## Terminal mode (--terminal)
+
+`--terminal` opens a raw per-keystroke terminal onto the guest instead of the line-oriented monitor: every key you press becomes a byte in the UART rx queue immediately (no Enter needed), and guest UART output prints as it is transmitted. The demo ROM's echo loop makes this feel like a serial terminal session.
+
+```
+dotnet run --project src/CpuEmulator.Host -- --terminal
+```
+
+A session — boot, watch the hello, type `AB` at the echo loop, leave with Ctrl-]:
+
+```
+CpuEmulator — Breadboard6502
+6502 · RAM $0000-$CFFF · UART $D000 (DATA/STATUS/CTRL) · timer $D100 · ROM $E000-$FFFF (demo)
+UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
+(terminal — Ctrl-] exits to the monitor)
+Hello from Breadboard6502!
+AB* q
+```
+
+The `AB` is the guest's echo (keystrokes are not locally echoed — what you see is what the guest transmitted). **Ctrl-]** (the telnet escape) leaves the terminal and falls through to the monitor `*` prompt — the machine state is intact, so you can inspect memory, then `q` to quit.
+
+`--terminal --load prog.bin --pc $0300` is a legal combo: load a binary, set PC, free-run it under the terminal.
+
+### Key mapping
+
+| Key | Guest byte |
+|---|---|
+| Printable ASCII (`0x20`–`0x7E`) | the character's byte |
+| Enter | `0x0D` (CR) — platform-identical (mapped by key, not by the platform's `\r`/`\n` KeyChar) |
+| Backspace | `0x08` |
+| Tab | `0x09` |
+| Esc | `0x1B` — passes through as a byte (the exit key is Ctrl-], not Esc) |
+| Ctrl+A … Ctrl+Z | `0x01`–`0x1A` — **including Ctrl+C = `0x03`, which reaches the guest** (terminal mode only) |
+| **Ctrl+]** | *exit to the monitor prompt* (not guest input) |
+| Arrows, F-keys (zero KeyChar) | dropped silently |
+
+### Caveats
+
+- **Encoding:** guest tx bytes are written as characters by identity (Latin-1 cast); your console renders them through its codepage. Printable ASCII and CR/LF are honest everywhere; bytes ≥ `0x80` render however your codepage says.
+- **Interactive-only:** raw key polling needs a real console. Under redirected stdin, `--terminal` prints `? --terminal needs an interactive console: …` and exits with code 2.
+
+---
+
 ## Known behaviors
 
 These behaviors are deliberate, not bugs. The canonical reference (with examples) is [Monitor Reference — known behaviors](monitor-reference.md#known-behaviors); in brief:
@@ -179,5 +222,5 @@ These behaviors are deliberate, not bugs. The canonical reference (with examples
 - **Monitor display reads are side-effect-free over honest devices** — `m`/`d`/`s` peek where the device implements `TryPeek` (the UART and the timer do): `m $D000` shows the rx queue head without consuming it. Devices without an honest peek fall back to live-bus reads; `l`/`w` and guest execution always use the real bus.
 - **`a` and `m`-writes over ROM land nothing** — the ROM window is read-only; the echo shows what is really there.
 - **`i` injects verbatim, nothing appended** — no CR/LF is added, and there is currently no escape syntax for control bytes (recorded backlog). Quotes are stripped and carry leading/trailing spaces: `i "HI"` injects 2 bytes; `i " HI "` injects 4.
-- **Ctrl+C kills the process** — bounded `g` budgets (default 1,000,000 cycles) are the runaway protection.
+- **Ctrl+C kills the process in REPL mode** — bounded `g` budgets (default 1,000,000 cycles) are the runaway protection. **In terminal mode (`--terminal`) Ctrl+C is a guest byte** (`0x03`) instead — leave the terminal with Ctrl-] first if you want Ctrl+C to mean "kill".
 - **UART output interleaves with stop lines** — guest output prints inline via raw passthrough, so `HIbudget exhausted…` means `HI` arrived before the stop line.
