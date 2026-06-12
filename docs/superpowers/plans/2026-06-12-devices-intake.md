@@ -1267,7 +1267,7 @@ dotnet run … -- --terminal (redirected stdin)
 
 Baseline 897 → **994 actual** (+97) vs the ~981 estimate (+~84). Per task (theory rows
 counted individually): T1 +20 (est ~15+1 — richer cancel/time-source coverage), T2 +7
-(~8), T3 +14 net (~13+2), T4 +11 net (~10, after the two authorized row removals), G1
+(~8), T3 +14 net (~13+2), T4 +10 net (~10, after the two authorized row removals), G1
 fixes +0 (rewrites), T5 +24 (~20 — the ±1 timestamp pin and the throw-before-Realize
 split out), terminal +20 (~11 — 9 extra key-mapping theory rows), breadboard +2 net
 (relocation + 2 new), T8 +0 (pure moves). Delta +13 over estimate, all richer pins —
@@ -1305,7 +1305,20 @@ renamed `LowRamLength` (G1 reviewer note, landed with Task 5's boundary move as 
 
 - **Verify-after-write for `a`** + side-effect-free Poke: feasible now, monitor-v3
   backlog (feature decision, not transparency fix).
-- **Timer COUNT readback**: needs a wider register window — timer-v2 ideas.
+- **Timer COUNT readback**: needs a wider register window — timer-v2 ideas. Also
+  timer-v2 (G2 review): **repeat-bit-set while a one-shot fire is pending** leaves the
+  timer enabled-but-dormant after the fire (flags apply at the fire, nothing re-arms) —
+  faithful to the plan literal, documented in breadboard6502.md; decide re-arm-at-fire
+  vs document-only in timer-v2.
+- **M2 design sheet (G2 review): JIT vs device-honest time + chunked Run.** Three
+  pinned contracts assume interpreter granularity: (a) the write-cycle-exact enable
+  timestamp needs `_cycles` current at each bus transaction — a JIT batching cycle
+  updates at block exit breaks the pin; (b) chunked `Machine.Run` hands the core
+  budgets as small as the gap to the next event — a block-compiled core must deopt at
+  slice edges or stretch "IRQ at the very next instruction boundary" to next-block;
+  (c) a short-period repeating timer fragments every `Run` into period-sized slices —
+  JIT enter/exit per 64 cycles would dominate; M2 likely needs in-block event-horizon
+  checks or batched slices.
 - **Reset propagation to peripherals** (`Machine.Reset` resets the CPU only; timers tick
   across guest reset) — M-next design question.
 - **Terminal re-entry (`t` REPL command)**: stays rejected (host-v3 on real demand).

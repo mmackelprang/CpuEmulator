@@ -61,6 +61,7 @@ The `IntervalTimer` is mapped at `$D100`–`$D1FF` with the same partial decode 
 - IRQ is level-shaped: asserted while `fired && irq-enable`. The handler's write-1-clear to STATUS drops the level before `RTI`.
 - **Every timer read is side-effect-free** — that is *why* STATUS is write-1-clear rather than read-clear. Monitor dumps over the timer page show honest values and perturb nothing.
 - COUNT readback is deliberately not provided: the 4-register window is full. Recorded with timer-v2 ideas.
+- **Edge worth knowing:** setting the repeat bit while a *one-shot* fire is already pending (CTRL `0x01` → `0x05` mid-flight) does not re-arm the schedule — the pending fire still lands, but with repeat now set it neither chains (one-shots schedule no chain) nor self-clears the enable bit, leaving CTRL reading enabled with nothing scheduled. Disable then re-enable to arm the repeat. ("Repeat changes apply at the next enable or fire" — in this corner the *flags* apply at the fire, not a re-arm. Recorded with timer-v2 ideas.)
 
 ---
 

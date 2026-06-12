@@ -206,6 +206,8 @@ The `AB` is the guest's echo (keystrokes are not locally echoed — what you see
 | Esc | `0x1B` — passes through as a byte (the exit key is Ctrl-], not Esc) |
 | Ctrl+A … Ctrl+Z | `0x01`–`0x1A` — **including Ctrl+C = `0x03`, which reaches the guest** (terminal mode only) |
 | **Ctrl+]** | *exit to the monitor prompt* (not guest input) |
+| Other C0 controls reported as KeyChars (`0x1C`, `0x1E`, `0x1F`) | pass through as their byte |
+| DEL (`0x7F`) and non-ASCII KeyChars | dropped silently |
 | Arrows, F-keys (zero KeyChar) | dropped silently |
 
 ### Caveats
