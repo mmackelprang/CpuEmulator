@@ -342,6 +342,13 @@ public sealed class UndefinedOpcodeException(byte opcode, uint address)
 
 - [ ] **Step 4: Commit** — `feat: add CPU spec DSL types and undefined-opcode policy`
 
+> **Post-review amendments (applied after Tasks 1–2):** `Flag` enum members carry explicit
+> hardware bit positions (C=0, Z=1, I=2, D=3, V=6, N=7) so masks derive directly from values;
+> UndefinedOpcodeException doc no longer mislabels the Throw default as "opt-in";
+> InstructionDef documents its types as inert syntax carriers. Accepted divergence from design
+> spec §5: addressing modes are a closed `AddrMode` enum rather than a `Mode(...)` combinator —
+> revisit only when a second architecture (M3) needs open-ended modes.
+
 ---
 
 ### Task 3: Generator test harness + generator skeleton
