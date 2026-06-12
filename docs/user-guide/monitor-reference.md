@@ -25,7 +25,7 @@ The prompt is `* ` when running interactively. In headless/test mode (no `prompt
 | `r` | Print the registers line. |
 | `r NAME=VALUE` | Set a register by name, then print the registers line. |
 | `s [N]` | Step `N` instructions (default 1). Prints a two-line step report for each. |
-| `g [$ADDR] [until $TARGET] [BUDGET]` | Optionally set PC to `$ADDR`; run for `BUDGET` cycles (default 1,000,000; decimal). With `until $TARGET`: stop when `$TARGET` is reached or PC traps (per-instruction checks — `until` form only); without `until`, the run always consumes the full budget. |
+| `g [$ADDR] [until $TARGET] [BUDGET]` | Optionally set PC to `$ADDR`; run for `BUDGET` cycles (default 1,000,000; decimal). With `until $TARGET`: stop when `$TARGET` is reached or PC traps (per-instruction checks — `until` form only); without `until`, the run always consumes the full budget, stopping at the first instruction boundary at or past it (may overshoot by up to one instruction — `g 200` can report 203 cycles). |
 | `i TEXT` | Inject the characters in `TEXT` (low byte of each) to the UART input queue. Surrounding `"…"` are stripped — useful to carry leading/trailing spaces. Nothing appended. |
 | `l ADDR PATH` | Load a raw binary file at `ADDR`. `PATH` is the rest of the line and may contain spaces. |
 | `w ADDR LEN PATH` | Save `LEN` bytes from `ADDR` to a raw binary file. |
@@ -97,7 +97,7 @@ When an interrupt is serviced instead of an instruction, line 1 reads:
 {pc:X4}: (interrupt serviced)
 ```
 
-followed by the registers line after the service: the 7-cycle sequence pushes PC and P (S drops by 3), sets the I flag, and loads PC from the interrupt vector's contents. The `InterruptPending` flag is sampled before the step; when true, the step report says `(interrupt serviced)` regardless of what instruction sits at PC. (The host REPL has no command to assert interrupt lines — lines are host/peripheral domain — so this report appears in embedded-monitor scenarios; it is pinned by the `MonitorEngineExecutionTests`/`MonitorReplTests` suite.)
+followed by the registers line after the service: the 7-cycle sequence pushes PC and P (S drops by 3), sets the I flag, and loads PC from the interrupt vector's contents. The `InterruptPending` flag is sampled before the step; when true, the step report says `(interrupt serviced)` regardless of what instruction sits at PC. (Live on the host REPL since the device chunk: enable the UART rx-IRQ with `m D002: 01`, inject a byte with `i`, clear I with `r P=30`, and `s` reports `(interrupt serviced)`. Also pinned by the `MonitorEngineExecutionTests`/`MonitorReplTests` suite.)
 
 ### `g` stop lines
 
