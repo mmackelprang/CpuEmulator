@@ -71,7 +71,11 @@ internal static class TomHarteRunner
     {
         ulong actual = cpu.GetRegister(name);
         if (actual != expected)
-            problems.Add($"{name}: expected {expected:X2}, got {actual:X2}");
+        {
+            // 16-bit PC prints 4 hex digits; the 8-bit registers print 2.
+            string fmt = name == "PC" ? "X4" : "X2";
+            problems.Add($"{name}: expected {expected.ToString(fmt)}, got {actual.ToString(fmt)}");
+        }
     }
 
     private static string Format(

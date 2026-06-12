@@ -1,11 +1,10 @@
-using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
-using CpuEmulator.Tests.Mos6502;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace CpuEmulator.Tests.TomHarte;
 
-public class Mos6502TomHarteTests
+public class Mos6502TomHarteTests(ITestOutputHelper output)
 {
     /// <summary>
     /// ADC/SBC opcodes — decimal-mode (D set) cases are skipped in 3b-i because
@@ -61,6 +60,11 @@ public class Mos6502TomHarteTests
                 if (failures.Count >= 3) break; // enough signal; don't flood the log
             }
         }
+
+        // One telemetry line per opcode, green or red — Task 10's UAT gate records
+        // total cases executed + decimal-skip counts in the PR body, and a passing
+        // run must still surface those numbers (review finding, 3b-i tasks 8-9).
+        output.WriteLine($"{opcode:x2}: ran {run}, skipped-decimal {skippedDecimal}");
 
         Assert.True(run > 0, "no cases ran — sampling/skip logic is broken");
         if (failures.Count > 0)

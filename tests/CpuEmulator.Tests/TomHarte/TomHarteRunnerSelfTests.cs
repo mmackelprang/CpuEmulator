@@ -1,4 +1,3 @@
-using CpuEmulator.Tests.Mos6502;
 using Xunit;
 
 namespace CpuEmulator.Tests.TomHarte;
@@ -6,7 +5,9 @@ namespace CpuEmulator.Tests.TomHarte;
 /// <summary>
 /// Vector-free self-tests for TomHarteRunner and TomHarteLoader.
 /// These run even without the SingleStepTests vectors — they pin the differ
-/// using synthetic cases built inline.
+/// using synthetic cases built inline. Every divergence class the differ can
+/// report is pinned here: register mismatch, RAM mismatch, cycle-count mismatch,
+/// and per-cycle address/value/kind divergence.
 ///
 /// Synthetic case: LDA #$42 (opcode A9 42) at 0x0200.
 ///   Initial: PC=0x0200, A=0x00, all others=0; RAM: [0x0200]=0xA9, [0x0201]=0x42
@@ -22,7 +23,8 @@ public class TomHarteRunnerSelfTests
         ushort? overrideFinalA    = null,
         ushort? overrideFinalPc   = null,
         byte?   overrideFinalP    = null,
-        TomHarteCycle[]? overrideCycles = null)
+        TomHarteRam[]?   overrideFinalRam = null,
+        TomHarteCycle[]? overrideCycles   = null)
     {
         // Initial: all regs zero, opcode + operand in RAM
         var initial = new TomHarteState(
@@ -36,7 +38,7 @@ public class TomHarteRunnerSelfTests
             A: (byte)(overrideFinalA ?? 0x42),
             X: 0x00, Y: 0x00,
             P: overrideFinalP ?? 0x00,
-            Ram: [new(0x0200, 0xA9), new(0x0201, 0x42)]);
+            Ram: overrideFinalRam ?? [new(0x0200, 0xA9), new(0x0201, 0x42)]);
 
         var cycles = overrideCycles ??
         [
@@ -69,7 +71,20 @@ public class TomHarteRunnerSelfTests
         Assert.Contains("A: expected", result);
     }
 
-    // ─── cycle trace divergence ──────────────────────────────────────────
+    // ─── final-RAM mismatch ──────────────────────────────────────────────
+
+    [Fact]
+    public void Tampered_final_RAM_reports_ram_mismatch()
+    {
+        // Expected final RAM claims [0x0201]=0x43 but the emulator never writes — RAM keeps 0x42
+        var wrongRam = new TomHarteRam[] { new(0x0200, 0xA9), new(0x0201, 0x43) };
+        var testCase = LdaImmediateCase(overrideFinalRam: wrongRam);
+        string? result = TomHarteRunner.RunCase(testCase);
+        Assert.NotNull(result);
+        Assert.Contains("RAM[0201]: expected 43, got 42", result);
+    }
+
+    // ─── cycle trace divergence: address / value / kind ──────────────────
 
     [Fact]
     public void Tampered_expected_cycle_address_reports_bus_trace_diverges()
@@ -88,6 +103,38 @@ public class TomHarteRunnerSelfTests
         // Table should render both columns
         Assert.Contains("expected", result);
         Assert.Contains("actual", result);
+    }
+
+    [Fact]
+    public void Tampered_expected_cycle_value_reports_bus_trace_diverges()
+    {
+        // Right address, wrong VALUE on the bus at cycle 2 — must diverge (the differ
+        // compares value, not just address; review-probed divergence class, now pinned).
+        var wrongCycles = new TomHarteCycle[]
+        {
+            new(0x0200, 0xA9, IsRead: true),
+            new(0x0201, 0x99, IsRead: true), // wrong value
+        };
+        var testCase = LdaImmediateCase(overrideCycles: wrongCycles);
+        string? result = TomHarteRunner.RunCase(testCase);
+        Assert.NotNull(result);
+        Assert.Contains("bus trace diverges at cycle 2", result);
+    }
+
+    [Fact]
+    public void Tampered_expected_cycle_kind_reports_bus_trace_diverges()
+    {
+        // Right address + value, but expected says WRITE where the emulator reads —
+        // must diverge (the differ compares read/write kind; review-probed class, now pinned).
+        var wrongCycles = new TomHarteCycle[]
+        {
+            new(0x0200, 0xA9, IsRead: true),
+            new(0x0201, 0x42, IsRead: false), // read flipped to write
+        };
+        var testCase = LdaImmediateCase(overrideCycles: wrongCycles);
+        string? result = TomHarteRunner.RunCase(testCase);
+        Assert.NotNull(result);
+        Assert.Contains("bus trace diverges at cycle 2", result);
     }
 
     // ─── cycle count mismatch ─────────────────────────────────────────────
@@ -137,12 +184,10 @@ public class TomHarteRunnerSelfTests
             ]
             """;
 
-        using var stream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
-        // Write to temp file (TomHarteLoader.LoadFile takes a path)
-        string tmp = System.IO.Path.GetTempFileName();
+        string tmp = Path.GetTempFileName();
         try
         {
-            System.IO.File.WriteAllText(tmp, json);
+            File.WriteAllText(tmp, json);
             var cases = TomHarteLoader.LoadFile(tmp);
             Assert.Single(cases);
             var c = cases[0];
@@ -156,7 +201,7 @@ public class TomHarteRunnerSelfTests
         }
         finally
         {
-            System.IO.File.Delete(tmp);
+            File.Delete(tmp);
         }
     }
 }
