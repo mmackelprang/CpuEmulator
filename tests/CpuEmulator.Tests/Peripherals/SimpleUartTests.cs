@@ -177,10 +177,11 @@ public class SimpleUartTests
     // item. These tests make the behavior deliberate, not accidental.
 
     [Fact]
-    public void Bus_read_over_DATA_dequeues_rx_the_documented_monitor_perturbation()
+    public void Bus_read_over_DATA_dequeues_rx_the_hardware_truth()
     {
-        // Documented known behavior: a bus read at the DATA offset (& 0x03 == 0) is a
-        // destructive rx dequeue. Monitor hex dumps trigger this path — recorded M1 behavior.
+        // Hardware truth: a bus read at the DATA offset (& 0x03 == 0) is a destructive rx
+        // dequeue — real UARTs work the same way. The monitor's display path (m/d/s) no
+        // longer takes this path (it peeks instead), but live bus reads still dequeue.
         var uart = new SimpleUart();
         uart.FeedInput((byte)'A');
         uart.FeedInput((byte)'B');
@@ -194,13 +195,13 @@ public class SimpleUartTests
 
         var space = machine.Space(AddressSpaceKind.Program);
 
-        // First dump-shaped read at $D000 (offset 0 → DATA): consumes 'A'
+        // First live bus read at $D000 (offset 0 → DATA): consumes 'A'
         uint first = space.Read8(0xD000);
         Assert.Equal((uint)'A', first);
         // STATUS bit0 still set — 'B' is still queued
         Assert.Equal(0x03u, space.Read8(0xD001));
 
-        // Second dump-shaped read at $D000: consumes 'B'
+        // Second live bus read at $D000: consumes 'B'
         uint second = space.Read8(0xD000);
         Assert.Equal((uint)'B', second);
         // STATUS bit0 now clear — queue drained
@@ -208,12 +209,11 @@ public class SimpleUartTests
     }
 
     [Fact]
-    public void Monitor_m_command_over_DATA_dequeues()
+    public void Monitor_m_command_over_DATA_peeks_without_dequeuing()
     {
-        // Documented known behavior: the monitor 'm' hex dump command reads live bus
-        // addresses. A dump over the DATA register (offset 0) is a destructive rx read —
-        // the monitor reads go through the live bus. Peek API stays monitor-v2 backlog;
-        // this pin makes the behavior deliberate, not accidental.
+        // PR #8 perturbation pin, flipped to guard the Peek fix: the monitor 'm' command
+        // now uses TryPeek (side-effect-free). A dump over DATA shows the head byte without
+        // dequeuing it. Both bytes remain in the queue after the monitor read.
         var uart = new SimpleUart();
         uart.FeedInput((byte)'A');
         uart.FeedInput((byte)'B');
@@ -228,7 +228,7 @@ public class SimpleUartTests
 
         var engine = new MonitorEngine(cpu, space, cpu);
 
-        // 'm d000 1' dumps 1 byte starting at $D000 — that is a DATA read, which dequeues 'A'
+        // 'm d000 1' dumps 1 byte starting at $D000 — now a side-effect-free peek
         var output = new StringWriter();
         new MonitorRepl(engine, new StringReader("m d000 1\nq"), output).Run();
         string text = output.ToString();
@@ -237,9 +237,51 @@ public class SimpleUartTests
         Assert.Contains("D000:", text);
         Assert.Contains("41", text);
 
-        // The queue should now hold only 'B' — 'A' was consumed by the monitor read
+        // BOTH bytes remain queued — the monitor peek did not dequeue 'A'
+        Assert.Equal((uint)'A', uart.Read(0, AccessWidth.Byte));
         Assert.Equal((uint)'B', uart.Read(0, AccessWidth.Byte));
-        // Queue is now drained after reading 'B'
-        Assert.Equal(0x02u, uart.Read(1, AccessWidth.Byte));
+    }
+
+    // ── Honest peek (v1 registers) ────────────────────────────────────────────
+
+    [Fact]
+    public void TryPeek_DATA_returns_head_without_dequeuing()
+    {
+        var uart = new SimpleUart();
+        uart.FeedInput((byte)'A');
+        uart.FeedInput((byte)'B');
+
+        bool ok1 = uart.TryPeek(0, out byte v1);
+        bool ok2 = uart.TryPeek(0, out byte v2);
+
+        Assert.True(ok1);
+        Assert.True(ok2);
+        Assert.Equal((byte)'A', v1);
+        Assert.Equal((byte)'A', v2); // head, not dequeued
+
+        // Live reads still yield A then B
+        Assert.Equal((uint)'A', uart.Read(0, AccessWidth.Byte));
+        Assert.Equal((uint)'B', uart.Read(0, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void TryPeek_DATA_empty_returns_zero()
+    {
+        var uart = new SimpleUart();
+        bool ok = uart.TryPeek(0, out byte value);
+        Assert.True(ok);
+        Assert.Equal(0x00, value);
+    }
+
+    [Fact]
+    public void TryPeek_STATUS_matches_read()
+    {
+        var uart = new SimpleUart();
+        uart.FeedInput(0x41);
+
+        uint readStatus = uart.Read(1, AccessWidth.Byte);
+        uart.TryPeek(1, out byte peekStatus);
+
+        Assert.Equal((byte)readStatus, peekStatus);
     }
 }

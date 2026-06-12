@@ -47,4 +47,17 @@ public sealed class SimpleUart : IPeripheral
             OnTransmit?.Invoke(unchecked((byte)value));        // DATA: transmit
         // STATUS/reserved writes ignored
     }
+
+    /// <summary>Side-effect-free peek: DATA returns the queue head without dequeuing
+    /// (0x00 if empty); STATUS returns the same ready bits as Read; others return 0x00.</summary>
+    public bool TryPeek(uint offset, out byte value)
+    {
+        value = (offset & 0x03) switch
+        {
+            0 => _rx.TryPeek(out byte head) ? head : (byte)0x00,
+            1 => (byte)((_rx.IsEmpty ? 0x00 : 0x01) | 0x02),
+            _ => 0x00,
+        };
+        return true;
+    }
 }
