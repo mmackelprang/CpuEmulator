@@ -10,11 +10,13 @@ A project to build a **pluggable, multi-architecture CPU-emulation framework in 
 
 ## Status
 
-Milestone 1 in progress. `CpuEmulator.Core` (contracts) and the Roslyn source-generator
-front-end are implemented and tested: CPU specs are typed C# tables, parsed with build-time
-diagnostics, generating state/introspection/dispatch for `Mos6502Cpu`. Next: per-opcode
-interpreter emission (chunk 2b), then the spec-importer tool (chunk 3a) and the full 6502 +
-SingleStepTests validation (chunk 3b).
+Milestone 1 in progress. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
+implemented and tested: CPU specs are typed C# tables, parsed with build-time diagnostics,
+and the generator now emits a working interpreter — the 11-opcode 6502 subset executes with
+cycle-exact bus traces (loads, stores, jumps, branches including page-cross timing, dummy
+reads and all), plus a generated disassembler, pinned by literal cycle-by-cycle trace tests.
+Next: the spec-importer tool (chunk 3a), then the full 6502 + SingleStepTests validation
+(chunk 3b), then peripherals + console host (chunk 4).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`
