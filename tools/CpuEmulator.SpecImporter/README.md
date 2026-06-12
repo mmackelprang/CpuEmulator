@@ -31,6 +31,8 @@ set). The dataset is independently verified by:
 3. The 11-opcode regression anchor against the live hand-written `Mos6502Spec`.
 4. Chunk 3b's TomHarte test-vector gate (covers every opcode exhaustively).
 
+Each row may include an optional `"source"` string field (e.g. `"MOS hardware manual p.143, table A-1"`) that cites the datasheet or document from which the entry was extracted; the field is `null` when absent and is carried through to `OpcodeEntry.Source` for use by future extraction tooling.
+
 Notable encoding decisions:
 - `JMP Indirect` (0x6C): 5 cycles (not 6 — the 6-cycle figure is a common
   misquote; the actual 6502 takes 5 cycles for JMP (ind)).

@@ -187,4 +187,33 @@ public class OpcodeDatasetTests
         var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse("not json"));
         Assert.Contains("malformed", ex.Message);
     }
+
+    // ─── provenance (source) field ───────────────────────────────────────
+
+    [Fact]
+    public void Source_Field_Roundtrips_When_Present()
+    {
+        var json = """
+            [
+              { "opcode": "0xA9", "mnemonic": "LDA", "mode": "Immediate", "bytes": 2, "cycles": 2, "pageCrossPenalty": false, "source": "datasheet p.1" }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        Assert.Single(entries);
+        Assert.Equal("datasheet p.1", entries[0].Source);
+    }
+
+    [Fact]
+    public void Source_Field_Is_Null_When_Absent()
+    {
+        // Back-compat: rows without "source" (including the vendored 151-row file) must load with Source == null.
+        var json = """
+            [
+              { "opcode": "0xA9", "mnemonic": "LDA", "mode": "Immediate", "bytes": 2, "cycles": 2, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        Assert.Single(entries);
+        Assert.Null(entries[0].Source);
+    }
 }
