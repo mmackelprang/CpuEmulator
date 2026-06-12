@@ -209,6 +209,7 @@ public class ModeOpValidationTests
             """));
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.AllErrors); // emitted body must also COMPILE
     }
 
     [Fact]
@@ -222,6 +223,7 @@ public class ModeOpValidationTests
             """));
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.AllErrors); // emitted body must also COMPILE
     }
 
     [Fact]
@@ -235,6 +237,7 @@ public class ModeOpValidationTests
             """));
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.AllErrors); // emitted body must also COMPILE (exercises WriteBus)
     }
 
     [Fact]
@@ -248,6 +251,7 @@ public class ModeOpValidationTests
             """));
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.AllErrors); // emitted body must also COMPILE
     }
 
     [Fact]

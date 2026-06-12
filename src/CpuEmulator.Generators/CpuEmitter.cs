@@ -269,9 +269,9 @@ internal static class CpuEmitter
                 sb.AppendLine($"        uint ptr = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        _ = ReadBus(ptr); // dummy read at unindexed ptr");
-                sb.AppendLine($"        uint elo = ReadBus((ptr + X) & 0xFF);");
-                sb.AppendLine($"        uint ehi = ReadBus((ptr + X + 1) & 0xFF);");
-                sb.AppendLine($"        uint ea = elo | (ehi << 8);");
+                sb.AppendLine($"        uint lo = ReadBus((ptr + X) & 0xFF);");
+                sb.AppendLine($"        uint hi = ReadBus((ptr + X + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = lo | (hi << 8);");
                 sb.AppendLine($"        byte data = ReadBus(ea);");
                 sb.AppendLine($"        {target} = data;");
                 break;
@@ -407,9 +407,9 @@ internal static class CpuEmitter
                 sb.AppendLine($"        uint ptr = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        _ = ReadBus(ptr); // dummy read at unindexed ptr");
-                sb.AppendLine($"        uint elo = ReadBus((ptr + X) & 0xFF);");
-                sb.AppendLine($"        uint ehi = ReadBus((ptr + X + 1) & 0xFF);");
-                sb.AppendLine($"        uint ea = elo | (ehi << 8);");
+                sb.AppendLine($"        uint lo = ReadBus((ptr + X) & 0xFF);");
+                sb.AppendLine($"        uint hi = ReadBus((ptr + X + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = lo | (hi << 8);");
                 sb.AppendLine($"        WriteBus(ea, {source});");
                 break;
             case "IndirectY":
