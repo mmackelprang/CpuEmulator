@@ -130,13 +130,13 @@ public sealed class SemanticsMap
 
     private static void ParseCalls(string mnemonic, string inner)
     {
-        // Split by '),': each token (after restoring the ')') is one call
-        // This handles nested parens if needed, but 6502 DSL has at most
-        // one level of nesting.
+        // Scan call-by-call: factory name up to '(', args up to the FIRST ')'.
+        // No nested-paren support — the argument whitelist (Reg.*/Flag.*/bool)
+        // forbids parens anyway, so nesting can never appear in valid input.
         var remaining = inner;
         while (remaining.Length > 0)
         {
-            // Find the matching closing paren
+            // Find the factory call boundaries (first '(' and first ')')
             var openParen = remaining.IndexOf('(');
             if (openParen < 0)
                 throw new InvalidDataException(

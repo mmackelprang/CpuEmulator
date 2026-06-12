@@ -25,7 +25,8 @@ Illegal/undocumented opcodes are intentionally excluded.
 matrix as tabulated by the NESdev/6502.org communities (the standard reference
 set). The dataset is independently verified by:
 
-1. Loader validation (count = 151, unique opcodes, mode/byte-count consistency).
+1. Loader validation (non-empty, unique opcodes, mode/byte-count consistency);
+   the count = 151 is pinned by `OpcodeDatasetTests.Loads_Exactly_151_Entries`.
 2. Spot-row unit tests (OpcodeDatasetTests.cs).
 3. The 11-opcode regression anchor against the live hand-written `Mos6502Spec`.
 4. Chunk 3b's TomHarte test-vector gate (covers every opcode exhaustively).
