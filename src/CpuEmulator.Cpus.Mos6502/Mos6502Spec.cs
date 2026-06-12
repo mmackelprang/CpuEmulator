@@ -172,5 +172,51 @@ public static class Mos6502Spec
         // BIT (2 rows)
         Insn(0x24, "BIT", AddrMode.ZeroPage,  [Bit()]),
         Insn(0x2C, "BIT", AddrMode.Absolute,  [Bit()]),
+
+        // ── RMW class ────────────────────────────────────────────────────────
+
+        // ASL (5 rows: accumulator + 4 memory)
+        Insn(0x0A, "ASL", AddrMode.Accumulator, [ShiftLeft()]),
+        Insn(0x06, "ASL", AddrMode.ZeroPage,    [ShiftLeft()]),
+        Insn(0x16, "ASL", AddrMode.ZeroPageX,   [ShiftLeft()]),
+        Insn(0x0E, "ASL", AddrMode.Absolute,    [ShiftLeft()]),
+        Insn(0x1E, "ASL", AddrMode.AbsoluteX,   [ShiftLeft()]),
+
+        // LSR (5 rows)
+        Insn(0x4A, "LSR", AddrMode.Accumulator, [ShiftRight()]),
+        Insn(0x46, "LSR", AddrMode.ZeroPage,    [ShiftRight()]),
+        Insn(0x56, "LSR", AddrMode.ZeroPageX,   [ShiftRight()]),
+        Insn(0x4E, "LSR", AddrMode.Absolute,    [ShiftRight()]),
+        Insn(0x5E, "LSR", AddrMode.AbsoluteX,   [ShiftRight()]),
+
+        // ROL (5 rows)
+        Insn(0x2A, "ROL", AddrMode.Accumulator, [RotateLeft()]),
+        Insn(0x26, "ROL", AddrMode.ZeroPage,    [RotateLeft()]),
+        Insn(0x36, "ROL", AddrMode.ZeroPageX,   [RotateLeft()]),
+        Insn(0x2E, "ROL", AddrMode.Absolute,    [RotateLeft()]),
+        Insn(0x3E, "ROL", AddrMode.AbsoluteX,   [RotateLeft()]),
+
+        // ROR (5 rows)
+        Insn(0x6A, "ROR", AddrMode.Accumulator, [RotateRight()]),
+        Insn(0x66, "ROR", AddrMode.ZeroPage,    [RotateRight()]),
+        Insn(0x76, "ROR", AddrMode.ZeroPageX,   [RotateRight()]),
+        Insn(0x6E, "ROR", AddrMode.Absolute,    [RotateRight()]),
+        Insn(0x7E, "ROR", AddrMode.AbsoluteX,   [RotateRight()]),
+
+        // INC (4 rows)
+        Insn(0xE6, "INC", AddrMode.ZeroPage,  [IncrementMem()]),
+        Insn(0xF6, "INC", AddrMode.ZeroPageX, [IncrementMem()]),
+        Insn(0xEE, "INC", AddrMode.Absolute,  [IncrementMem()]),
+        Insn(0xFE, "INC", AddrMode.AbsoluteX, [IncrementMem()]),
+
+        // DEC (4 rows)
+        Insn(0xC6, "DEC", AddrMode.ZeroPage,  [DecrementMem()]),
+        Insn(0xD6, "DEC", AddrMode.ZeroPageX, [DecrementMem()]),
+        Insn(0xCE, "DEC", AddrMode.Absolute,  [DecrementMem()]),
+        Insn(0xDE, "DEC", AddrMode.AbsoluteX, [DecrementMem()]),
+
+        // DEX / DEY (register class)
+        Insn(0xCA, "DEX", AddrMode.Implied, [Decrement(Reg.X), SetNZ(Reg.X)]),
+        Insn(0x88, "DEY", AddrMode.Implied, [Decrement(Reg.Y), SetNZ(Reg.Y)]),
     ];
 }
