@@ -120,8 +120,14 @@ the cycle it would on silicon; the cycle counter advances per micro-op; the bus 
 (including dummy reads) in real order. Dispatch is a
 `delegate*<ref Mos6502State, Bus, void>[256]` table — zero-alloc, AOT-safe.
 
-IRQ/NMI are sampled at **instruction boundaries** in M1. The 6502's mid-instruction sampling
-quirks are a documented deviation, revisited when a real machine needs them (phase A).
+IRQ/NMI are sampled **and serviced** at instruction boundaries (since 3b-ii): NMI is
+edge-latched (rising edge of `SetNmiLine`; the latch clears when serviced and on Reset),
+IRQ is level-sensitive gated by the I flag, and NMI wins when both are pending. The service
+sequence is the authentic 7 cycles — two dummy reads at PC, push PCH/PCL/P with B clear,
+vector fetch from $FFFA/$FFFB (NMI) or $FFFE/$FFFF (IRQ), I set. The 6502's
+**mid-instruction** sampling quirks (branch-cycle polling, the CLI/SEI/PLP one-instruction
+I-flag delay, BRK/NMI vector hijacking) remain a documented deviation, revisited when a
+phase-A machine needs them.
 
 ### Tier 1 — IL-JIT (M2, the speed path; lives entirely in `CpuEmulator.Jit`)
 

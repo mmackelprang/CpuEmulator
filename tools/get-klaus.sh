@@ -23,5 +23,4 @@ if [ "$SIZE" -ne 65536 ]; then
     exit 1
 fi
 
-chmod +x "$BIN"
 echo "Klaus binary fetched to $BIN"

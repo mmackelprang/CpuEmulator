@@ -14,7 +14,7 @@ $url = "https://raw.githubusercontent.com/Klaus2m5/6502_65C02_functional_tests/m
 Invoke-WebRequest -Uri $url -OutFile $binPath
 if ((Get-Item $binPath).Length -ne 65536) {
     Remove-Item $binPath
+    # Write-Error terminates under $ErrorActionPreference = "Stop" and exits non-zero.
     Write-Error "downloaded image is not 64 KiB — refusing to cache it"
-    exit 1
 }
 Write-Host "Klaus binary fetched to $binPath"

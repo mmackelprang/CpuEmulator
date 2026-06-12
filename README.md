@@ -12,19 +12,20 @@ A project to build a **pluggable, multi-architecture CPU-emulation framework in 
 
 Milestone 1 in progress. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
 implemented and tested: CPU specs are typed C# tables, parsed with build-time diagnostics,
-and the generator emits a working interpreter plus a disassembler. The 6502 now executes
-**149 of 151 documented opcodes cycle-exactly** (everything except BRK and RTI — chunk 3b-ii):
-all 13 addressing modes, ALU/RMW/stack/flag/flow vocabulary, silicon-true dummy reads and
-dummy writes, the JMP ($xxFF) page-wrap bug, and hardware-true P phantom bits on PHP/PLP —
-validated **per-cycle against the TomHarte/SingleStepTests vectors** (~1.41M cases swept; the
-~80k decimal-mode ADC/SBC cases are counted skips until 3b-ii lands BCD). `Mos6502Spec.cs` is
-committed importer output: `tools/CpuEmulator.SpecImporter` generates it from the curated
-151-opcode dataset + 54-mnemonic semantics map, and a byte-equality test pins the committed
-file to fresh tool output. Vectors are fetched on demand (`tools/get-test-vectors.ps1`/`.sh`),
-never vendored; the TomHarte theories sample 200 cases/opcode by default and run all 10,000
-under `CPUEMULATOR_UAT=full`. Next: 3b-ii (BCD, BRK/RTI + interrupts, full-151 green, Klaus
-functional test), then the monitor, the datasheet-extraction runbook (M1 item 6), and
-peripherals + console host (chunk 4).
+and the generator emits a working interpreter plus a disassembler. **The 6502 is complete:
+151/151 documented opcodes cycle-exact** — all 13 addressing modes, ALU/RMW/stack/flag/flow
+vocabulary, NMOS decimal-mode ADC/SBC, BRK/RTI, silicon-true dummy reads and dummy writes,
+the JMP ($xxFF) page-wrap bug, hardware-true P phantom bits, and IRQ/NMI servicing at
+instruction boundaries (NMI edge-latched, IRQ level-sensitive gated by I) — validated
+**per-cycle against the full TomHarte/SingleStepTests sweep (1,510,000 cases, zero skips)**
+and the **Klaus Dörmann functional test run to its documented success trap**. `Mos6502Spec.cs`
+is committed importer output: `tools/CpuEmulator.SpecImporter` generates it from the curated
+151-opcode dataset + 56-mnemonic semantics map, and a byte-equality test pins the committed
+file to fresh tool output. Vectors and the Klaus binary are fetched on demand
+(`tools/get-test-vectors.ps1`/`.sh`, `tools/get-klaus.ps1`/`.sh`), never vendored; the
+TomHarte theories sample 200 cases/opcode by default and run all 10,000 under
+`CPUEMULATOR_UAT=full`. Next: the monitor, the datasheet-extraction runbook (M1 item 6),
+then peripherals + console host (chunk 4).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`

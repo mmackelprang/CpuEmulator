@@ -15,7 +15,7 @@ internal static class CpuEmitter
         sb.AppendLine("// SetIrqLine(bool), SetNmiLine(bool), byte ReadBus(uint address)");
         sb.AppendLine("// (which increments _cycles), WriteBus(uint, byte) (which increments _cycles),");
         sb.AppendLine("// HandleUndefinedOpcode(byte opcode), and");
-        sb.AppendLine("// private partial bool TryServiceInterrupt() (return false when no interrupt is pending),");
+        sb.AppendLine("// private partial bool TryServiceInterrupt() (return false when no interrupt is pending).");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine($"namespace {model.Namespace};");
