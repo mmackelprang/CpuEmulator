@@ -29,6 +29,8 @@ public static class Mos6502Spec
         Insn(0xAD, "LDA", AddrMode.Absolute,  [Load(Reg.A), SetNZ(Reg.A)]),
         Insn(0xBD, "LDA", AddrMode.AbsoluteX, [Load(Reg.A), SetNZ(Reg.A)]),
         Insn(0xB9, "LDA", AddrMode.AbsoluteY, [Load(Reg.A), SetNZ(Reg.A)]),
+        Insn(0xA1, "LDA", AddrMode.IndirectX, [Load(Reg.A), SetNZ(Reg.A)]),
+        Insn(0xB1, "LDA", AddrMode.IndirectY, [Load(Reg.A), SetNZ(Reg.A)]),
 
         // LDX
         Insn(0xA2, "LDX", AddrMode.Immediate, [Load(Reg.X), SetNZ(Reg.X)]),
@@ -52,6 +54,8 @@ public static class Mos6502Spec
         Insn(0x8D, "STA", AddrMode.Absolute,  [Store(Reg.A)]),
         Insn(0x9D, "STA", AddrMode.AbsoluteX, [Store(Reg.A)]),
         Insn(0x99, "STA", AddrMode.AbsoluteY, [Store(Reg.A)]),
+        Insn(0x81, "STA", AddrMode.IndirectX, [Store(Reg.A)]),
+        Insn(0x91, "STA", AddrMode.IndirectY, [Store(Reg.A)]),
 
         // STX
         Insn(0x86, "STX", AddrMode.ZeroPage,  [Store(Reg.X)]),
@@ -80,6 +84,7 @@ public static class Mos6502Spec
         // ── Jump class ───────────────────────────────────────────────────────
 
         Insn(0x4C, "JMP", AddrMode.Absolute, [Jump()]),
+        Insn(0x6C, "JMP", AddrMode.Indirect, [Jump()]),
 
         // ── Branch class ─────────────────────────────────────────────────────
 
