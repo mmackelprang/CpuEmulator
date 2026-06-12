@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace CpuEmulator.SpecImporter;
@@ -25,15 +26,23 @@ public sealed class SemanticsMap
     public IReadOnlyDictionary<string, string> Mnemonics { get; init; } =
         new Dictionary<string, string>();
 
-    // ─── vocabulary whitelist ────────────────────────────────────────────
-    // Mirrors the DSL factory names in CpuEmulator.Core.Specification.Spec.
-    // SYNC HAZARD: if the DSL grows new factories this list must grow too.
-    // The same hazard exists for the AddrMode / Reg / Flag enum mirrors in
-    // the generator (recorded in the 2b review, carried to 3b).
-    private static readonly HashSet<string> AllowedFactories =
-    [
-        "Load", "Store", "Transfer", "Increment", "SetNZ", "Jump", "BranchIf"
-    ];
+    // ─── vocabulary whitelist + arity table ──────────────────────────────
+    // Mirrors the DSL factory names AND parameter counts in
+    // CpuEmulator.Core.Specification.Spec.
+    // SYNC HAZARD: if the DSL grows new factories (or changes signatures)
+    // this table must change too. The same hazard exists for the
+    // AddrMode / Reg / Flag enum mirrors in the generator (recorded in the
+    // 2b review, carried to 3b).
+    private static readonly Dictionary<string, int> FactoryArity = new()
+    {
+        ["Load"]      = 1,  // Load(Reg)
+        ["Store"]     = 1,  // Store(Reg)
+        ["Transfer"]  = 2,  // Transfer(Reg, Reg)
+        ["Increment"] = 1,  // Increment(Reg)
+        ["SetNZ"]     = 1,  // SetNZ(Reg)
+        ["Jump"]      = 0,  // Jump()
+        ["BranchIf"]  = 2,  // BranchIf(Flag, bool)
+    };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────
     // Accepts: Reg.<word>, Flag.<word>, true, false  (no full parser — the
@@ -47,8 +56,12 @@ public sealed class SemanticsMap
         PropertyNameCaseInsensitive = true,
     };
 
-    // ─── serialization DTO ───────────────────────────────────────────────
+    // ─── serialization DTOs ──────────────────────────────────────────────
+    // Disallow unknown members: this is a curated, hand-edited file — a
+    // typo'd key (e.g. "mnemonic" for "mnemonics") must fail loudly rather
+    // than be silently skipped leaving the real field at its default.
 
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     private sealed class SemanticsMapDto
     {
         public string Architecture  { get; set; } = "";
@@ -58,6 +71,7 @@ public sealed class SemanticsMap
         public Dictionary<string, string> Mnemonics { get; set; } = [];
     }
 
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     private sealed class RegisterConfigDto
     {
         public string Name { get; set; } = "";
@@ -92,6 +106,17 @@ public sealed class SemanticsMap
 
         if (dto is null)
             throw new InvalidDataException("Semantics map is null.");
+
+        // Non-empty config — an empty/missing field would make Task 4 emit
+        // garbage (e.g. "namespace ;") far from the cause. Fail at load.
+        if (string.IsNullOrWhiteSpace(dto.Architecture))
+            throw new InvalidDataException("Semantics map: 'architecture' must be non-empty.");
+        if (string.IsNullOrWhiteSpace(dto.Namespace))
+            throw new InvalidDataException("Semantics map: 'namespace' must be non-empty.");
+        if (string.IsNullOrWhiteSpace(dto.SpecClassName))
+            throw new InvalidDataException("Semantics map: 'specClassName' must be non-empty.");
+        if (dto.Mnemonics.Count == 0)
+            throw new InvalidDataException("Semantics map: 'mnemonics' must be non-empty.");
 
         // Validate each mnemonic's ops text
         foreach (var (mnemonic, opsText) in dto.Mnemonics)
@@ -144,10 +169,10 @@ public sealed class SemanticsMap
 
             var factoryName = remaining[..openParen].Trim();
 
-            if (!AllowedFactories.Contains(factoryName))
+            if (!FactoryArity.TryGetValue(factoryName, out var arity))
                 throw new InvalidDataException(
                     $"Ops text for '{mnemonic}': unknown factory '{factoryName}'. " +
-                    $"Allowed: {string.Join(", ", AllowedFactories)}.");
+                    $"Allowed: {string.Join(", ", FactoryArity.Keys)}.");
 
             var closeParen = remaining.IndexOf(')', openParen);
             if (closeParen < 0)
@@ -155,21 +180,31 @@ public sealed class SemanticsMap
                     $"Ops text for '{mnemonic}': unclosed '(' after factory '{factoryName}'.");
 
             var argsText = remaining[(openParen + 1)..closeParen].Trim();
-            ValidateArgs(mnemonic, factoryName, argsText);
+            ValidateArgs(mnemonic, factoryName, arity, argsText);
 
-            // Advance past this call (and any trailing comma + whitespace)
+            // Advance past this call. Anything that follows must be a ','
+            // separator — a missing comma would otherwise emit as invalid C#.
             remaining = remaining[(closeParen + 1)..].TrimStart();
-            if (remaining.StartsWith(','))
+            if (remaining.Length > 0)
+            {
+                if (!remaining.StartsWith(','))
+                    throw new InvalidDataException(
+                        $"Ops text for '{mnemonic}': expected ',' between calls, got '{remaining}'.");
                 remaining = remaining[1..].TrimStart();
+            }
         }
     }
 
-    private static void ValidateArgs(string mnemonic, string factory, string argsText)
+    private static void ValidateArgs(string mnemonic, string factory, int arity, string argsText)
     {
-        if (argsText.Length == 0)
-            return; // Jump() takes no args
+        string[] args = argsText.Length == 0
+            ? []
+            : argsText.Split(',');
 
-        var args = argsText.Split(',');
+        if (args.Length != arity)
+            throw new InvalidDataException(
+                $"Ops text for '{mnemonic}': '{factory}' expects {arity} argument(s), got {args.Length}.");
+
         foreach (var rawArg in args)
         {
             var arg = rawArg.Trim();

@@ -110,7 +110,8 @@ public class SemanticsMapTests
               }
             }
             """;
-        Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("unknown factory", ex.Message);
     }
 
     [Fact]
@@ -128,7 +129,8 @@ public class SemanticsMapTests
               }
             }
             """;
-        Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("invalid argument", ex.Message);
     }
 
     [Fact]
@@ -146,7 +148,8 @@ public class SemanticsMapTests
               }
             }
             """;
-        Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("bracketed", ex.Message);
     }
 
     [Fact]
@@ -156,5 +159,75 @@ public class SemanticsMapTests
         var map = SemanticsMap.Load(SemanticsPath);
         var ops = map.Mnemonics["NOP"];
         Assert.Equal("[]", ops);
+    }
+
+    // ─── loader strictness (quality-review items 1–4) ────────────────────
+
+    [Fact]
+    public void Rejects_Empty_Config()
+    {
+        // "{}" deserializes but every config field is empty — Task 4 would
+        // emit "namespace ;"-grade garbage far from the cause. Fail at load.
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse("{}"));
+        Assert.Contains("architecture", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Unknown_Json_Member()
+    {
+        // "mnemonic" (singular) is a typo for "mnemonics" — must be rejected,
+        // not silently ignored leaving the map empty.
+        var json = """
+            {
+              "architecture": "mos6502",
+              "namespace": "CpuEmulator.Cpus.Mos6502",
+              "specClassName": "Mos6502Spec",
+              "registers": [],
+              "mnemonic": {
+                "LDA": "[Load(Reg.A)]"
+              }
+            }
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("mnemonic", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Missing_Comma_Between_Calls()
+    {
+        var json = """
+            {
+              "architecture": "mos6502",
+              "namespace": "CpuEmulator.Cpus.Mos6502",
+              "specClassName": "Mos6502Spec",
+              "registers": [],
+              "mnemonics": {
+                "LDA": "[Load(Reg.A) SetNZ(Reg.A)]"
+              }
+            }
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("','", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("[Jump(Reg.A)]")]       // Jump takes 0 args
+    [InlineData("[BranchIf(Flag.Z)]")]  // BranchIf takes 2 args
+    [InlineData("[Load()]")]            // Load takes 1 arg
+    public void Rejects_Wrong_Arity(string opsText)
+    {
+        var json = $$"""
+            {
+              "architecture": "mos6502",
+              "namespace": "CpuEmulator.Cpus.Mos6502",
+              "specClassName": "Mos6502Spec",
+              "registers": [],
+              "mnemonics": {
+                "XXX": "{{opsText}}"
+              }
+            }
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("argument", ex.Message);
     }
 }

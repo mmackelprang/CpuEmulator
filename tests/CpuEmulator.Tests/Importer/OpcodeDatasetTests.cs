@@ -104,7 +104,8 @@ public class OpcodeDatasetTests
               { "opcode": "0xA9", "mnemonic": "LDA", "mode": "ZeroPage",  "bytes": 2, "cycles": 3, "pageCrossPenalty": false }
             ]
             """;
-        Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("Duplicate opcode", ex.Message);
     }
 
     [Fact]
@@ -115,7 +116,8 @@ public class OpcodeDatasetTests
               { "opcode": "0xA9", "mnemonic": "LDA", "mode": "SuperMode", "bytes": 2, "cycles": 2, "pageCrossPenalty": false }
             ]
             """;
-        Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("Unknown mode", ex.Message);
     }
 
     [Fact]
@@ -127,6 +129,62 @@ public class OpcodeDatasetTests
               { "opcode": "0xA9", "mnemonic": "LDA", "mode": "Immediate", "bytes": 3, "cycles": 2, "pageCrossPenalty": false }
             ]
             """;
-        Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("Byte count mismatch", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Missing_Required_Field()
+    {
+        // No "opcode" field — must fail loudly, not deserialize to null and
+        // sail through validation (curated hand-edited file; nulls must not
+        // reach the Task 4 emitter).
+        var json = """
+            [
+              { "mnemonic": "LDA", "mode": "Immediate", "bytes": 2, "cycles": 2, "pageCrossPenalty": false }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("opcode", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Unknown_Json_Member()
+    {
+        // A typo'd key ("pageCrossPenality") must be rejected, not silently
+        // ignored leaving the real field at its default.
+        var json = """
+            [
+              { "opcode": "0xA9", "mnemonic": "LDA", "mode": "Immediate", "bytes": 2, "cycles": 2, "pageCrossPenality": true }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("pageCrossPenality", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Invalid_Opcode_Format()
+    {
+        var json = """
+            [
+              { "opcode": "0xZZ", "mnemonic": "LDA", "mode": "Immediate", "bytes": 2, "cycles": 2, "pageCrossPenalty": false }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("format", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Empty_Array()
+    {
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse("[]"));
+        Assert.Contains("empty", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_Malformed_Json()
+    {
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse("not json"));
+        Assert.Contains("malformed", ex.Message);
     }
 }

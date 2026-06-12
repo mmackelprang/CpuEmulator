@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace CpuEmulator.SpecImporter;
 
@@ -40,11 +41,30 @@ public static class OpcodeDataset
         "IndirectX", "IndirectY", "Indirect", "Relative"
     ];
 
+    private static readonly Regex OpcodeFormat =
+        new("^0x[0-9A-Fa-f]{2}$", RegexOptions.Compiled);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
     };
+
+    // Strict deserialization DTO. This is a curated, hand-edited file:
+    // - unknown members (typo'd keys) must fail loudly, not be silently
+    //   skipped leaving the real field at its default (Disallow);
+    // - missing members surface as nulls which the validation below rejects
+    //   with row context, instead of flowing into the emitter.
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    private sealed class OpcodeEntryDto
+    {
+        public string? Opcode { get; set; }
+        public string? Mnemonic { get; set; }
+        public string? Mode { get; set; }
+        public int?    Bytes { get; set; }
+        public int?    Cycles { get; set; }
+        public bool?   PageCrossPenalty { get; set; }
+    }
 
     /// <summary>Loads the dataset from a file path.</summary>
     public static OpcodeEntry[] Load(string path)
@@ -59,38 +79,62 @@ public static class OpcodeDataset
     /// </summary>
     public static OpcodeEntry[] Parse(string json)
     {
-        OpcodeEntry[]? entries;
+        OpcodeEntryDto[]? dtos;
         try
         {
-            entries = JsonSerializer.Deserialize<OpcodeEntry[]>(json, JsonOptions);
+            dtos = JsonSerializer.Deserialize<OpcodeEntryDto[]>(json, JsonOptions);
         }
         catch (JsonException ex)
         {
             throw new InvalidDataException($"Opcode dataset JSON is malformed: {ex.Message}", ex);
         }
 
-        if (entries is null || entries.Length == 0)
+        if (dtos is null || dtos.Length == 0)
             throw new InvalidDataException("Opcode dataset is empty.");
 
+        var entries = new OpcodeEntry[dtos.Length];
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < entries.Length; i++)
+        for (var i = 0; i < dtos.Length; i++)
         {
-            var e = entries[i];
-            var ctx = $"row {i} ({e.Opcode} {e.Mnemonic} {e.Mode})";
+            var d = dtos[i];
+            var ctx = $"row {i} ({d.Opcode ?? "?"} {d.Mnemonic ?? "?"} {d.Mode ?? "?"})";
+
+            // Required fields — a missing key deserializes to null and must
+            // be rejected here, never passed through to the emitter.
+            if (d.Opcode is null)
+                throw new InvalidDataException($"Missing required field 'opcode' at {ctx}.");
+            if (d.Mnemonic is null)
+                throw new InvalidDataException($"Missing required field 'mnemonic' at {ctx}.");
+            if (d.Mode is null)
+                throw new InvalidDataException($"Missing required field 'mode' at {ctx}.");
+            if (d.Bytes is null)
+                throw new InvalidDataException($"Missing required field 'bytes' at {ctx}.");
+            if (d.Cycles is null)
+                throw new InvalidDataException($"Missing required field 'cycles' at {ctx}.");
+            if (d.PageCrossPenalty is null)
+                throw new InvalidDataException($"Missing required field 'pageCrossPenalty' at {ctx}.");
+
+            // Opcode format: exactly "0xNN" hex
+            if (!OpcodeFormat.IsMatch(d.Opcode))
+                throw new InvalidDataException(
+                    $"Opcode format invalid at {ctx}: expected '0xNN' (two hex digits), got '{d.Opcode}'.");
 
             // Unique opcode
-            if (!seen.Add(e.Opcode))
-                throw new InvalidDataException($"Duplicate opcode {e.Opcode} at {ctx}.");
+            if (!seen.Add(d.Opcode))
+                throw new InvalidDataException($"Duplicate opcode {d.Opcode} at {ctx}.");
 
             // Mode vocabulary
-            if (!ValidModes.Contains(e.Mode))
-                throw new InvalidDataException($"Unknown mode '{e.Mode}' at {ctx}.");
+            if (!ValidModes.Contains(d.Mode))
+                throw new InvalidDataException($"Unknown mode '{d.Mode}' at {ctx}.");
 
             // Byte-count consistency
-            var expectedBytes = ExpectedBytes(e.Mode);
-            if (e.Bytes != expectedBytes)
+            var expectedBytes = ExpectedBytes(d.Mode);
+            if (d.Bytes.Value != expectedBytes)
                 throw new InvalidDataException(
-                    $"Byte count mismatch at {ctx}: mode {e.Mode} requires {expectedBytes} bytes, got {e.Bytes}.");
+                    $"Byte count mismatch at {ctx}: mode {d.Mode} requires {expectedBytes} bytes, got {d.Bytes}.");
+
+            entries[i] = new OpcodeEntry(
+                d.Opcode, d.Mnemonic, d.Mode, d.Bytes.Value, d.Cycles.Value, d.PageCrossPenalty.Value);
         }
 
         return entries;
