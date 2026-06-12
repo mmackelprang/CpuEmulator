@@ -37,7 +37,8 @@ Target: **.NET 10 (LTS)**, xUnit for tests, `unsafe` enabled only where `delegat
 CpuEmulator.Core         — contracts + runtime primitives (AOT-clean, zero Reflection.Emit)
 CpuEmulator.Generators   — Roslyn source generator (netstandard2.0, build-time only)
 CpuEmulator.Cpus.Mos6502 — the 6502 spec tables; generated tiers land here
-CpuEmulator.Peripherals  — Ram, Rom, SimpleUart (Timer, IrqController in later milestones)
+CpuEmulator.Peripherals  — SimpleUart (Timer, IrqController in later milestones; Ram/Rom
+                           are MachineBuilder fast-path mappings, not IPeripheral devices)
 CpuEmulator.Monitor      — CPU-agnostic machine-language monitor: engine + REPL (AOT-clean)
 CpuEmulator.Jit          — Tier-1 block compiler (Reflection.Emit lives ONLY here)
 CpuEmulator.Host         — console host: boots a 6502 board, UART ↔ stdio
@@ -217,7 +218,9 @@ Each numbered item ≈ one PR-sized chunk on a branch.
      e2e generator gate → SingleStepTests sweeps where vectors exist. Extraction eliminates
      transcription and drafts semantics; per-family micro-op vocabulary and mode cycle-templates
      remain hand work by design.
-  7. Peripherals (Ram/Rom/SimpleUart) + Host (with monitor REPL) + Klaus demo running.
+  7. Peripherals (SimpleUart; Ram/Rom realized as MachineBuilder fast-path mappings —
+     recorded deviation, PR #8) + Host (with monitor REPL) + Klaus demo running. DELIVERED:
+     the `Breadboard6502` live host, PR #8.
 - **M2 — the JIT**
   8. Block compiler + cache + fastmem split.
   9. Parity harness + benchmarks.

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Not IsAotCompatible: this is an Exe (app), not a library.
+    All project references are AOT-clean (Core, Cpus.Mos6502, Peripherals, Monitor),
+    so PublishAot remains possible if needed — deliberately not set here.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CpuEmulator.Core\CpuEmulator.Core.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Monitor\CpuEmulator.Monitor.csproj" />
+  </ItemGroup>
+
+</Project>
