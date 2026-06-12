@@ -20,6 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Seeded fixture for cross-source diff tests (test-only; not in the tools data/ directory). -->
+    <Content Include="Importer\data\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\CpuEmulator.Core\CpuEmulator.Core.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Generators\CpuEmulator.Generators.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
