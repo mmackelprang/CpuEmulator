@@ -75,10 +75,10 @@ public class SpecFileEmitterTests
         Assert.Equal(ExpectedEmitted, report.Emitted);
     }
 
-    // ─── per-mnemonic missing-semantics inventory (plan: report includes it) ──
+    // ─── per-mnemonic missing-semantics inventory (3b-ii: every mnemonic maps) ──
 
     [Fact]
-    public void Report_Inventory_Lists_Missing_Semantics_Per_Mnemonic()
+    public void Report_Inventory_Is_Empty()
     {
         var (_, report) = RunEngine();
         Assert.Empty(report.MissingSemanticsInventory);

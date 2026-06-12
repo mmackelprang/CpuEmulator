@@ -542,7 +542,7 @@ internal static class CpuEmitter
                 sb.AppendLine("            // intermediate BCD sum (before the +0x60 correction); C from the corrected sum.");
                 sb.AppendLine("            // Locals named from the reserved set ('before'=low nibble, 'sum'=BCD sum) to");
                 sb.AppendLine("            // avoid colliding with the operand-resolution 'lo'/'hi' in memory modes.");
-                sb.AppendLine("            int before = (A & 0x0F) + (data & 0x0F) + (" + p + " & 0x01);");
+                sb.AppendLine($"            int before = (A & 0x0F) + (data & 0x0F) + ({p} & 0x01);");
                 sb.AppendLine("            if (before >= 0x0A)");
                 sb.AppendLine("                before = ((before + 0x06) & 0x0F) + 0x10;");
                 sb.AppendLine("            int sum = (A & 0xF0) + (data & 0xF0) + before;");
@@ -572,7 +572,7 @@ internal static class CpuEmitter
                 sb.AppendLine("            // result byte receives the BCD correction.");
                 sb.AppendLine("            // Locals named from the reserved set ('before'=low nibble, 'sum'=BCD sum) to");
                 sb.AppendLine("            // avoid colliding with the operand-resolution 'lo'/'hi' in memory modes.");
-                sb.AppendLine("            int before = (A & 0x0F) - (data & 0x0F) + (" + p + " & 0x01) - 1;");
+                sb.AppendLine($"            int before = (A & 0x0F) - (data & 0x0F) + ({p} & 0x01) - 1;");
                 sb.AppendLine("            if (before < 0)");
                 sb.AppendLine("                before = ((before - 0x06) & 0x0F) - 0x10;");
                 sb.AppendLine("            int sum = (A & 0xF0) - (data & 0xF0) + before;");

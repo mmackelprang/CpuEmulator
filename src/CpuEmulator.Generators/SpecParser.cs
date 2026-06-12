@@ -459,12 +459,11 @@ internal static class SpecParser
                 || flowTouchesStatus)
             && !hasStatus)
         {
-            string label = flowTouchesStatus
-                ? "flow"
-                : instructionClass.ToString().ToLowerInvariant();
+            string message = flowTouchesStatus
+                ? $"flow op '{firstOpKind}' requires a Status-role register"
+                : $"{instructionClass.ToString().ToLowerInvariant()} class requires a Status-role register";
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
-                location, mnemonic,
-                $"{label} class requires a Status-role register"));
+                location, mnemonic, message));
             return false;
         }
 
