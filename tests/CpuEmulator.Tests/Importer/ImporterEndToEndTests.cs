@@ -68,6 +68,7 @@ public class ImporterEndToEndTests
                 private void WriteBus(uint address, byte value) { _cycles++; _bus.Write8(address, value); }
                 private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
                 private partial bool TryServiceInterrupt() => false;
+                public partial bool InterruptPending => false;
             }
             """;
 
@@ -103,6 +104,7 @@ public class ImporterEndToEndTests
                 private void WriteBus(uint address, byte value) { _cycles++; _bus.Write8(address, value); }
                 private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
                 private partial bool TryServiceInterrupt() => false;
+                public partial bool InterruptPending => false;
             }
             """;
 

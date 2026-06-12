@@ -70,6 +70,11 @@ public sealed partial class Mos6502Cpu
     /// vector fetch ($FFFA/$FFFB for NMI, $FFFE/$FFFF for IRQ), I set.
     /// Mid-instruction sampling quirks (CLI/SEI/PLP delay, branch polling, BRK hijacking)
     /// are a recorded M1 deviation — see spec §6.</summary>
+    /// <summary>True exactly when the next Step will service an interrupt — the same
+    /// predicate <see cref="TryServiceInterrupt"/> gates on (IMonitorSupport contract:
+    /// step displays say "interrupt serviced", not the instruction that will not run).</summary>
+    public partial bool InterruptPending => _nmiPending || (_irqLine && (P & 0x04) == 0);
+
     private partial bool TryServiceInterrupt()
     {
         bool nmi = _nmiPending;
