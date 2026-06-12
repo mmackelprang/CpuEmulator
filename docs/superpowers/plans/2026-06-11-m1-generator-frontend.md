@@ -1290,6 +1290,13 @@ public class InstructionParsingTests
 
 - [ ] **Step 7: Commit** — `feat: parse instruction tables and emit Step/Run with undefined dispatch`
 
+> **Post-review amendments (applied at Task 5):** CPUGEN008 added — micro-op register
+> references are cross-checked against the Registers table at parse time instead of surfacing
+> as CS0103 in generated code. Accepted risk, recorded: factory calls are matched by simple
+> name only (no semantic-model binding check); within the constrained-DSL contract anything
+> else is already a CPUGEN diagnostic, and a user-defined same-name helper in a spec class is
+> considered out of contract for M1.
+
 ---
 
 ### Task 6: The real Mos6502 — spec table, hand-written partial, behavioral tests

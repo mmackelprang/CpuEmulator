@@ -49,7 +49,7 @@ public class GeneratorHappyPathTests
     {
         var result = GeneratorTestHost.Run(ValidSpecSource);
 
-        Assert.Empty(result.GeneratorDiagnostics); // strengthened in Task 5
+        Assert.Empty(result.AllErrors);
         var tree = Assert.Single(result.GeneratedTrees);
         Assert.EndsWith("Tiny6502Cpu.g.cs", tree.FilePath);
         Assert.Contains("partial class Tiny6502Cpu", result.GeneratedText);
@@ -65,7 +65,7 @@ public class GeneratorHappyPathTests
 
         var result = GeneratorTestHost.Run(source);
 
-        Assert.Empty(result.GeneratorDiagnostics); // strengthened in Task 5
+        Assert.Empty(result.AllErrors);
         Assert.Contains("partial class WeirdName", result.GeneratedText);
     }
 

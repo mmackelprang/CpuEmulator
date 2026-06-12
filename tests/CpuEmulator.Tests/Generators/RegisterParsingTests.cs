@@ -21,7 +21,7 @@ public class RegisterParsingTests
     {
         var result = GeneratorTestHost.Run(GeneratorHappyPathTests.ValidSpecSource);
 
-        Assert.Empty(result.GeneratorDiagnostics); // CS gap closes in Task 5
+        Assert.Empty(result.AllErrors);
         Assert.Contains("public byte A;", result.GeneratedText);
         Assert.Contains("public ushort PC;", result.GeneratedText);
         Assert.Contains("""["A", "X", "S", "P", "PC"]""", result.GeneratedText);

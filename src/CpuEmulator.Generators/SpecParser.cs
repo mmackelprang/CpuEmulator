@@ -8,6 +8,17 @@ namespace CpuEmulator.Generators;
 
 internal static class SpecParser
 {
+    private static readonly Dictionary<string, int> s_microOpArity = new(System.StringComparer.Ordinal)
+    {
+        ["Load"] = 1, ["Store"] = 1, ["Transfer"] = 2, ["Increment"] = 1,
+        ["SetNZ"] = 1, ["Jump"] = 0, ["BranchIf"] = 2,
+    };
+
+    private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
+    {
+        "Implied", "Immediate", "ZeroPage", "Absolute", "Relative",
+    };
+
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
     {
         var classDecl = (ClassDeclarationSyntax)context.TargetNode;
@@ -35,8 +46,22 @@ internal static class SpecParser
         if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
-        var model = new SpecModel(ns, cpuName, architecture,
-            registers, ImmutableArray<InstructionModel>.Empty);
+        var instructions = ParseInstructions(classDecl, specName, diagnostics);
+
+        // Cross-check: micro-op register arguments must match declared register names.
+        var registerNames = new HashSet<string>(registers.Select(r => r.Name), System.StringComparer.Ordinal);
+        var regMembers = new HashSet<string>(System.StringComparer.Ordinal) { "A", "X", "Y", "S" };
+        foreach (var instruction in instructions)
+            foreach (var op in instruction.Ops)
+                foreach (var arg in op.Args)
+                    if (regMembers.Contains(arg) && !registerNames.Contains(arg))
+                        diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownRegisterInOp,
+                            classDecl.Identifier.GetLocation(), arg));
+
+        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+            return new ParsedSpec(null, diagnostics.ToImmutable());
+
+        var model = new SpecModel(ns, cpuName, architecture, registers, instructions);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -110,6 +135,130 @@ internal static class SpecParser
 
         return registers.ToImmutable();
     }
+
+    private static ImmutableArray<InstructionModel> ParseInstructions(
+        ClassDeclarationSyntax classDecl,
+        string specName,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        var field = FindArrayField(classDecl, "Instructions");
+        if (field?.Declaration.Variables[0].Initializer?.Value is not CollectionExpressionSyntax collection)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                SpecDiagnostics.MissingInstructions, classDecl.Identifier.GetLocation(), specName));
+            return ImmutableArray<InstructionModel>.Empty;
+        }
+
+        var instructions = ImmutableArray.CreateBuilder<InstructionModel>();
+        var seenOpcodes = new HashSet<int>();
+
+        foreach (var element in collection.Elements)
+        {
+            if (element is not ExpressionElementSyntax { Expression: InvocationExpressionSyntax invocation } ||
+                InvokedName(invocation) != "Insn" ||
+                invocation.ArgumentList.Arguments.Count != 4)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    "expected Insn(opcode, \"MNEMONIC\", AddrMode.X, [micro-ops])"));
+                continue;
+            }
+
+            var args = invocation.ArgumentList.Arguments;
+            int? opcode = LiteralInt(args[0].Expression);
+            string? mnemonic = LiteralString(args[1].Expression);
+            string? mode = EnumMemberName(args[2].Expression, "AddrMode");
+
+            if (opcode is null || mnemonic is null)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    "opcode and mnemonic must be literals"));
+                continue;
+            }
+            if (mode is null || !s_addrModes.Contains(mode))
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    "third argument must be a known AddrMode member"));
+                continue;
+            }
+            if (opcode is < 0 or > 0xFF || !seenOpcodes.Add(opcode.Value))
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.DuplicateOpcode,
+                    element.GetLocation(), opcode.Value.ToString("X2")));
+                continue;
+            }
+
+            if (args[3].Expression is not CollectionExpressionSyntax opsCollection ||
+                ParseOps(opsCollection, diagnostics) is not { } ops)
+            {
+                continue; // ParseOps reported the diagnostic
+            }
+
+            instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, ops));
+        }
+
+        return instructions.ToImmutable();
+    }
+
+    private static ImmutableArray<OpModel>? ParseOps(
+        CollectionExpressionSyntax collection,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        var ops = ImmutableArray.CreateBuilder<OpModel>();
+        foreach (var element in collection.Elements)
+        {
+            if (element is not ExpressionElementSyntax { Expression: InvocationExpressionSyntax invocation } ||
+                InvokedName(invocation) is not { } kind)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
+                    element.GetLocation(), Truncate(element.ToString())));
+                return null;
+            }
+
+            if (!s_microOpArity.TryGetValue(kind, out int arity) ||
+                invocation.ArgumentList.Arguments.Count != arity)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
+                    element.GetLocation(), kind));
+                return null;
+            }
+
+            var opArgs = ImmutableArray.CreateBuilder<string>();
+            foreach (var argument in invocation.ArgumentList.Arguments)
+            {
+                string? value =
+                    EnumMemberName(argument.Expression, "Reg") ??
+                    EnumMemberName(argument.Expression, "Flag") ??
+                    BoolLiteral(argument.Expression);
+                if (value is null)
+                {
+                    diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
+                        argument.GetLocation(), Truncate(argument.ToString())));
+                    return null;
+                }
+                opArgs.Add(value);
+            }
+
+            ops.Add(new OpModel(kind, opArgs.ToImmutable()));
+        }
+        return ops.ToImmutable();
+    }
+
+    private static string? InvokedName(InvocationExpressionSyntax invocation) =>
+        invocation.Expression switch
+        {
+            IdentifierNameSyntax id => id.Identifier.Text,
+            MemberAccessExpressionSyntax { Name: IdentifierNameSyntax id } => id.Identifier.Text,
+            _ => null,
+        };
+
+    private static string? BoolLiteral(ExpressionSyntax expression) =>
+        expression is LiteralExpressionSyntax { Token.Value: bool b } ? (b ? "true" : "false") : null;
+
+    private static string Truncate(string text) =>
+        text.Length <= 60 ? text : text.Substring(0, 57) + "...";
 
     private static FieldDeclarationSyntax? FindArrayField(ClassDeclarationSyntax classDecl, string name) =>
         classDecl.Members.OfType<FieldDeclarationSyntax>()

@@ -23,7 +23,7 @@ internal static class CpuEmitter
         sb.AppendLine();
         sb.AppendLine("    internal long _cycles;");
         sb.AppendLine("    public long CycleCount => _cycles;");
-        EmitBody(sb, model);   // Tasks 4-5 grow this
+        EmitBody(sb, model);
         sb.AppendLine("}");
         return sb.ToString();
     }
@@ -61,11 +61,48 @@ internal static class CpuEmitter
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
-        EmitExecution(sb, model);   // Task 5
+        EmitExecution(sb, model);
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model)
     {
-        // Task 5: Step / Run / Execute.
+        string pc = model.Registers.First(r => r.Role == "ProgramCounter").Name;
+
+        sb.AppendLine();
+        sb.AppendLine("    // Instruction table parsed from the spec (execution emitted in chunk 2b):");
+        foreach (var instruction in model.Instructions)
+            sb.AppendLine($"    //   0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode}");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Execute one instruction. Always advances CycleCount by at least one.</summary>");
+        sb.AppendLine("    public void Step()");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        byte opcode = ReadBus({pc});");
+        sb.AppendLine($"        {pc}++;");
+        sb.AppendLine("        Execute(opcode);");
+        sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    public void Run(ref long cycleBudget)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        while (cycleBudget > 0)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            long before = _cycles;");
+        sb.AppendLine("            Step();");
+        sb.AppendLine("            cycleBudget -= _cycles - before;");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    private void Execute(byte opcode)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (opcode)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // Per-opcode execution methods are emitted in chunk 2b.");
+        sb.AppendLine("            default:");
+        sb.AppendLine("                HandleUndefinedOpcode(opcode);");
+        sb.AppendLine("                break;");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
     }
 }
