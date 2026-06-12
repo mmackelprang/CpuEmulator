@@ -191,6 +191,10 @@ Two strictly separated failure domains:
   validation appropriate to its scope before merge — e.g. the full TomHarte sweep, the Klaus
   functional test, and monitor-driven end-to-end scenarios once available — in addition to the
   unit/integration suite and review gates.
+- **Feature documentation ships with every user-facing change** (decision 2026-06-12): any PR
+  that adds or changes user-visible behavior must include corresponding additions or updates to
+  `docs/user-guide/`. Documentation completeness is a merge gate enforced by the PR checklist
+  (`.github/pull_request_template.md`). Docs-only PRs are exempt from UAT requirements.
 
 ## 9. Milestones
 
