@@ -12,13 +12,18 @@ A project to build a **pluggable, multi-architecture CPU-emulation framework in 
 
 Milestone 1 in progress. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
 implemented and tested: CPU specs are typed C# tables, parsed with build-time diagnostics,
-and the generator now emits a working interpreter — the 11-opcode 6502 subset executes with
-cycle-exact bus traces (loads, stores, jumps, branches including page-cross timing, dummy
-reads and all), plus a generated disassembler, pinned by literal cycle-by-cycle trace tests.
-`tools/CpuEmulator.SpecImporter` generates spec tables from the curated 151-opcode dataset —
-33 rows emitted with today's 24-mnemonic vocabulary, the rest inventoried as TODOs; 3b
-expands the vocabulary and wires its output live. Next: the full 6502 + SingleStepTests
-validation (chunk 3b), then peripherals + console host (chunk 4).
+and the generator emits a working interpreter plus a disassembler. The 6502 now executes
+**149 of 151 documented opcodes cycle-exactly** (everything except BRK and RTI — chunk 3b-ii):
+all 13 addressing modes, ALU/RMW/stack/flag/flow vocabulary, silicon-true dummy reads and
+dummy writes, the JMP ($xxFF) page-wrap bug, and hardware-true P phantom bits on PHP/PLP —
+validated **per-cycle against the TomHarte/SingleStepTests vectors** (~1.41M cases swept; the
+~80k decimal-mode ADC/SBC cases are counted skips until 3b-ii lands BCD). `Mos6502Spec.cs` is
+committed importer output: `tools/CpuEmulator.SpecImporter` generates it from the curated
+151-opcode dataset + 54-mnemonic semantics map, and a byte-equality test pins the committed
+file to fresh tool output. Vectors are fetched on demand (`tools/get-test-vectors.ps1`/`.sh`),
+never vendored; the TomHarte theories sample 200 cases/opcode by default and run all 10,000
+under `CPUEMULATOR_UAT=full`. Next: 3b-ii (BCD, BRK/RTI + interrupts, full-151 green, Klaus
+functional test), then the monitor and peripherals + console host (chunk 4).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`
