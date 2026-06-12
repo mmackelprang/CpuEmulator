@@ -1,6 +1,6 @@
 # Adding a CPU
 
-A new CPU architecture is added by writing a **spec table** — a typed C# declaration of registers and instructions — and running the **spec importer** to generate the spec file from a curated dataset. The Roslyn source generator then produces five artifacts at build time from that table.
+A new CPU architecture is added by writing a **spec table** — a typed C# declaration of registers and instructions — and running the **spec importer** to generate the spec file from a curated dataset. The Roslyn source generator then produces the generated artifacts at build time from that table (four today; a fifth — the IL-emission tier — lands with M2).
 
 Source: `src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs`, `src/CpuEmulator.Generators/`, `tools/CpuEmulator.SpecImporter/`
 
@@ -12,7 +12,7 @@ Source: `src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs`, `src/CpuEmulator.Generato
 2. **Write a semantics map** — a JSON file (`mos6502-semantics.json` is the model) mapping each mnemonic to its micro-op expression string in the DSL vocabulary.
 3. **Run the importer** — generates the C# spec file from the two data files.
 4. **Write the hand-authored partial** — implement the CPU's reset, interrupt servicing, and bus wiring in a companion `partial class` file.
-5. **Build** — the Roslyn generator reads the spec table and emits the five generated artifacts.
+5. **Build** — the Roslyn generator reads the spec table and emits the generated artifacts.
 
 ---
 
@@ -40,8 +40,8 @@ public static class Mos6502Spec
     public static readonly InstructionDef[] Instructions =
     [
         Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
-        Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A, Operand), SetNZ(Reg.A)]),
-        Insn(0xBD, "LDA", AddrMode.AbsoluteX, [Load(Reg.A, Mem), SetNZ(Reg.A)]),
+        Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
+        Insn(0xBD, "LDA", AddrMode.AbsoluteX, [Load(Reg.A), SetNZ(Reg.A)]),
         // ... 151 rows total for the 6502
     ];
 }
@@ -56,7 +56,7 @@ public static class Mos6502Spec
 The spec importer (`tools/CpuEmulator.SpecImporter`) generates the spec table from two data files:
 
 - **`data/mos6502-opcodes.json`** — curated 151-opcode dataset. Each row has: opcode byte, mnemonic, addressing mode, byte count, cycle count, page-cross flag, and optional provenance citation.
-- **`data/mos6502-semantics.json`** — hand-authored map: mnemonic → micro-op expression string (e.g. `"LDA": "[Load(Reg.A, Operand), SetNZ(Reg.A)]"`).
+- **`data/mos6502-semantics.json`** — hand-authored map: mnemonic → micro-op expression string (e.g. `"LDA": "[Load(Reg.A), SetNZ(Reg.A)]"` — the addressing mode comes from the dataset row, so the semantics expression names only the destination register and flag effects).
 
 ### Regeneration command
 
@@ -73,19 +73,28 @@ The committed `Mos6502Spec.cs` is pinned to the tool output by the byte-equality
 
 ---
 
-## Five generated artifacts
+## Generated artifacts
 
-From one spec table the Roslyn generator emits five artifacts into `{Namespace}.{CpuName}.g.cs`:
+The design (spec §5) defines five artifacts from one spec table. **Four are generated today**; the IL-emission methods (artifact ③) land with the M2 JIT milestone. The generator emits everything into one file, `{Namespace}.{CpuName}.g.cs`:
 
-| # | Artifact | What it does |
-|---|---|---|
-| ① | CPU state struct | Strongly-typed register fields (`A`, `X`, `Y`, `S`, `P`, `PC`, `_cycles`); `GetRegister`/`SetRegister` for CPU-agnostic introspection |
-| ② | Tier-0 interpreter | Per-opcode methods behind a `delegate*[256]` dispatch table — zero-alloc, AOT-safe, cycle-exact (every bus transaction happens at the cycle it would on silicon) |
-| ③ | IL-emission methods | Per-opcode `DynamicMethod` emitters for the M2 JIT block compiler (not used until M2) |
-| ④ | Disassembler | `Disassemble(byte opcode, byte lo, byte hi) → string` — mnemonic + canonical operand text (e.g. `"LDA $E01E,X"`, `"BNE *-7"`) |
-| ⑤ | Single-instruction assembler | `TryAssemble(mnemonic, operandText, out bytes, out error) → bool` — the exact inverse of ④, from the same table |
+| # | Artifact | Status | What it does |
+|---|---|---|---|
+| ① | CPU register state + introspection | Generated | Strongly-typed register fields on the partial class (`A`, `X`, `Y`, `S`, `P`, `PC`, `_cycles`) plus `RegisterNames`/`GetRegister`/`SetRegister` for CPU-agnostic introspection |
+| ② | Tier-0 interpreter | Generated | Per-opcode methods dispatched by a generated `switch` over the opcode byte — zero-alloc, AOT-safe, cycle-exact (every bus transaction happens at the cycle it would on silicon) |
+| ③ | IL-emission methods | **M2 (not yet generated)** | Per-opcode IL emitters for the JIT block compiler |
+| ④ | Disassembler | Generated | `Disassemble(byte opcode, byte lo, byte hi) → string` — mnemonic + canonical operand text (e.g. `"LDA $E01E,X"`, `"BNE *-7"`) |
+| ⑤ | Single-instruction assembler | Generated | `TryAssemble(mnemonic, operandText, out bytes, out error) → bool` — the exact inverse of ④, from the same table (plus `InstructionLength` and the `IMonitorSupport` wiring) |
 
 Artifacts ④ and ⑤ are the inverse pair that makes `assemble(disassemble(op)) == op-bytes` for all 151 documented 6502 opcodes (the roundtrip keystone test `AssemblerRoundtripTests`).
+
+### Where the generated file lands
+
+The Mos6502 project sets `EmitCompilerGeneratedFiles`, so the generated source is written to disk for inspection — useful when debugging a new spec:
+
+```
+src/CpuEmulator.Cpus.Mos6502/obj/generated/CpuEmulator.Generators/
+    CpuEmulator.Generators.CpuSpecGenerator/CpuEmulator.Cpus.Mos6502.Mos6502Cpu.g.cs
+```
 
 ---
 

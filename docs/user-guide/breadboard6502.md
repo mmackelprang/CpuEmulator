@@ -76,7 +76,7 @@ E01B: 4C 0E E0  JMP $E00E
 
 ### What the ROM does
 
-**Print loop (`$E000`–`$E01B`):**
+**Print loop (`$E000`–`$E00B`):**
 
 1. `$E000 LDX #$00` — initialize index X = 0.
 2. `$E002 LDA $E01E,X` — load the next character from the message table.

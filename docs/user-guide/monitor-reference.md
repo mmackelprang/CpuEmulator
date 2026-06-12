@@ -25,7 +25,7 @@ The prompt is `* ` when running interactively. In headless/test mode (no `prompt
 | `r` | Print the registers line. |
 | `r NAME=VALUE` | Set a register by name, then print the registers line. |
 | `s [N]` | Step `N` instructions (default 1). Prints a two-line step report for each. |
-| `g [$ADDR] [until $TARGET] [BUDGET]` | Optionally set PC to `$ADDR`; run until `$TARGET` is reached, PC traps, or `BUDGET` cycles exhausted. Default budget: 1,000,000. `BUDGET` is decimal. |
+| `g [$ADDR] [until $TARGET] [BUDGET]` | Optionally set PC to `$ADDR`; run for `BUDGET` cycles (default 1,000,000; decimal). With `until $TARGET`: stop when `$TARGET` is reached or PC traps (per-instruction checks — `until` form only); without `until`, the run always consumes the full budget. |
 | `i TEXT` | Inject the characters in `TEXT` (low byte of each) to the UART input queue. Surrounding `"…"` are stripped — useful to carry leading/trailing spaces. Nothing appended. |
 | `l ADDR PATH` | Load a raw binary file at `ADDR`. `PATH` is the rest of the line and may contain spaces. |
 | `w ADDR LEN PATH` | Save `LEN` bytes from `ADDR` to a raw binary file. |
@@ -91,26 +91,27 @@ A=00 X=00 Y=00 S=FD P=36 PC=E002 CYC=9
 
 Line 1: `{pc:X4}: {disassembly}`. Line 2: the registers line after the step.
 
-When an interrupt is serviced instead of an instruction:
+When an interrupt is serviced instead of an instruction, line 1 reads:
 
 ```
-E000: (interrupt serviced)
-A=00 X=00 Y=00 S=F8 P=34 PC=FFFE CYC=14
+{pc:X4}: (interrupt serviced)
 ```
 
-The `InterruptPending` flag is sampled before the step; when true, the step report says `(interrupt serviced)` regardless of what instruction sits at PC.
+followed by the registers line after the service: the 7-cycle sequence pushes PC and P (S drops by 3), sets the I flag, and loads PC from the interrupt vector's contents. The `InterruptPending` flag is sampled before the step; when true, the step report says `(interrupt serviced)` regardless of what instruction sits at PC. (The host REPL has no command to assert interrupt lines — lines are host/peripheral domain — so this report appears in embedded-monitor scenarios; it is pinned by the `MonitorEngineExecutionTests`/`MonitorReplTests` suite.)
 
 ### `g` stop lines
 
 ```
 target $0205 reached after 6 cycles
-trapped at $3469 after 96241367 cycles
+trapped at $0200 after 3 cycles
 budget exhausted at $E011 after 1000 cycles
 ```
 
-- **target reached** — PC reached the `until $TARGET` address.
-- **trapped** — PC did not advance (JMP-to-self / branch-to-self idiom detected).
+- **target reached** — PC reached the `until $TARGET` address (`until` form only).
+- **trapped** — PC did not advance (JMP-to-self / branch-to-self idiom detected). Trap detection runs per-instruction and exists **only in the `until` form**; a plain `g BUDGET` always consumes the full budget.
 - **budget exhausted** — the cycle budget was consumed without hitting a target or trap.
+
+All three lines above are captured from real runs.
 
 ### `l` / `w` confirmations
 
@@ -217,20 +218,23 @@ The `$` prefix is optional on the value. Register names are case-insensitive. An
 
 ### `s` — step
 
+Captured from a fresh boot (`s 4` steps the first four demo-ROM instructions):
+
 ```
-* s
+* s 4
 E000: LDX #$00
 A=00 X=00 Y=00 S=FD P=36 PC=E002 CYC=9
-* s 3
 E002: LDA $E01E,X
 A=48 X=00 Y=00 S=FD P=34 PC=E005 CYC=13
 E005: BEQ *+7
 A=48 X=00 Y=00 S=FD P=34 PC=E007 CYC=15
-E007: STA $D000
+HE007: STA $D000
 A=48 X=00 Y=00 S=FD P=34 PC=E00A CYC=19
 ```
 
-Each step costs the cycle-exact count for the instruction. The 6502 is cycle-accurate per bus transaction. After three steps above, 4+2+4=10 cycles elapsed from CYC=9 to CYC=19.
+Each step costs the cycle-exact count for the instruction (the 6502 is cycle-accurate per bus transaction): LDX 2, LDA abs,X 4, BEQ not-taken 2, STA abs 4.
+
+Note the fourth report line reads `HE007: STA $D000` — the `H` is the byte the guest transmitted while `STA $D000` executed, printed inline by the raw UART passthrough before the report line (the report prints after the instruction runs). This interleaving is normal; see [known behaviors](#known-behaviors).
 
 ### `g` — run
 
@@ -255,14 +259,19 @@ Run until a target address:
 Atarget $0205 reached after 6 cycles
 ```
 
-Trap detection: if PC does not advance after a step, the run stops:
+Trap detection (`until` form only): if PC does not advance after an instruction, the run stops. Captured from a real session — a JMP-to-self assembled at `$0200`:
 
 ```
-* g $3469 until $3469 100
-target $3469 reached after 0 cycles
+* a $0200 JMP $0200
+0200: 4C 00 02  JMP $0200
+* g $0200 until $0300 100
+trapped at $0200 after 3 cycles
 ```
 
-(If already at the target, `g ... until` returns immediately with 0 cycles.)
+Two more `until`-form behaviors to know:
+
+- If PC is already at the target, `g ... until` returns immediately: `target $0205 reached after 0 cycles`.
+- A plain `g BUDGET` (no `until`) performs **no trap detection** — it always runs to the budget and prints `budget exhausted …`, even if the guest is parked on a JMP-to-self.
 
 ### `i` — inject UART input
 
@@ -282,17 +291,17 @@ If no input device is wired (engine constructed without the inject delegate): `?
 ### `l` — load file
 
 ```
-* l 0200 /path/to/prog.bin
-loaded $400 bytes at $0200
+* l 0200 snippet.bin
+loaded $3 bytes at $0200
 ```
 
-The path is the rest of the line and may include spaces. Load wraps at the address space mask — loading a 64 KiB image at `$0000` fills the entire 16-bit space.
+The path is the rest of the line and may include spaces; relative paths resolve against the host's working directory. Load wraps at the address space mask — loading a 64 KiB image at `$0000` fills the entire 16-bit space.
 
 ### `w` — save file
 
 ```
-* w 0200 100 /tmp/dump.bin
-wrote $100 bytes from $0200
+* w 0200 3 snippet.bin
+wrote $3 bytes from $0200
 ```
 
 ---

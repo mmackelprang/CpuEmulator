@@ -23,9 +23,13 @@ Expected output: `Build succeeded. 0 Warning(s) 0 Error(s)`.
 dotnet test
 ```
 
-Expected: `Passed! - Failed: 0, Passed: 848, Skipped: 0, Total: 848`.
+On a fresh clone (before fetching the optional external test vectors) expect:
 
-Tests that require external test vectors (TomHarte, Klaus) skip automatically when the vectors are not present. See [Testing](testing.md) for how to fetch them.
+```
+Passed! - Failed: 0, Passed: 694, Skipped: 4, Total: 698
+```
+
+The 4 skips are the vector-gated tests (TomHarte, Klaus) — they skip automatically with an actionable message when the vectors are not present. After fetching the vectors (see [Testing](testing.md)), the same command reports `Passed: 848, Skipped: 0, Total: 848` (the TomHarte theory expands to one row per opcode).
 
 ## First session — the Breadboard6502
 
@@ -98,12 +102,12 @@ Atarget $0205 reached after 6 cycles
 
 ### Save and reload memory
 
-Save a region to a file with `w ADDR LEN PATH` and load it back with `l ADDR PATH`:
+Save a region to a file with `w ADDR LEN PATH` and load it back with `l ADDR PATH` (relative paths resolve against the directory you launched the host from):
 
 ```
-* w 0200 3 /tmp/snippet.bin
+* w 0200 3 snippet.bin
 wrote $3 bytes from $0200
-* l 0200 /tmp/snippet.bin
+* l 0200 snippet.bin
 loaded $3 bytes at $0200
 ```
 
@@ -164,16 +168,16 @@ dotnet run --project src/CpuEmulator.Host -- --load prog.bin --at $0200 --pc $02
 
 `--at` defaults to `$0200`; `--pc` defaults to the reset vector address from ROM (`$E000`) unless explicitly set. Addresses may be given with or without a `$` prefix.
 
-After loading, the host drops into the monitor REPL. Use `g` to run the loaded program.
+After loading, the host drops into the monitor REPL. Use `g` to run the loaded program. (Don't have a binary yet? Assemble something in a monitor session and save it with `w` — see [Save and reload memory](#save-and-reload-memory) above.)
 
 ---
 
 ## Known behaviors
 
-These behaviors are deliberate and documented; they are not bugs:
+These behaviors are deliberate, not bugs. The canonical reference (with examples) is [Monitor Reference — known behaviors](monitor-reference.md#known-behaviors); in brief:
 
-- **Monitor memory commands go through the live bus.** `m $D000` reads the UART DATA register, which dequeues the next pending rx byte. If you dump DATA you consume input. Similarly, `d $D000` reads 1–3 bytes starting at DATA and consumes them. A peek/poke API that avoids side effects is backlog.
-- **`a` and `m`-writes over ROM land nothing.** The ROM window is read-only. `TryAssembleAt` over `$E000` reports success but the byte is not stored — the echo shows the ROM's real content. Verified by the `Assemble_over_rom_lands_nothing_the_documented_behavior` test.
-- **`i` injects verbatim — no newline appended.** `i HI` injects exactly two bytes: `H` and `I`. If the guest expects a line terminator, inject it explicitly (`i HI\r\n` injects 4 bytes). Surrounding double quotes are stripped — `i "HI"` injects the same two bytes; `i " HI "` injects four (space, H, I, space).
-- **Ctrl+C kills the process.** There is no handler — if the guest hangs, Ctrl+C is the escape hatch. For bounded test runs, use `g BUDGET` with a finite cycle count (the default is 1,000,000 cycles).
-- **UART output interleaves with stop lines.** The host wires the tx callback to `Console.Write` — output appears as the guest writes it, during `g`/`s`, before the stop line. This is the authentic serial-console feel; if you see `HIbudget exhausted…` the `HI` was transmitted by the guest before the budget check fired.
+- **Monitor memory commands go through the live bus** — `m`/`d` over the UART DATA register (`$D000`) consume pending input.
+- **`a` and `m`-writes over ROM land nothing** — the ROM window is read-only; the echo shows what is really there.
+- **`i` injects verbatim, nothing appended** — no CR/LF is added, and there is currently no escape syntax for control bytes (recorded backlog). Quotes are stripped and carry leading/trailing spaces: `i "HI"` injects 2 bytes; `i " HI "` injects 4.
+- **Ctrl+C kills the process** — bounded `g` budgets (default 1,000,000 cycles) are the runaway protection.
+- **UART output interleaves with stop lines** — guest output prints inline via raw passthrough, so `HIbudget exhausted…` means `HI` arrived before the stop line.

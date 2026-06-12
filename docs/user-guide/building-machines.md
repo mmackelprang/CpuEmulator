@@ -30,19 +30,19 @@ All builder methods return `this` for chaining. `Build()` may only be called onc
 
 ## Complete compilable example
 
-The following example builds a minimal 6502 machine: 4 KiB of RAM and a 256-byte ROM at `$FC00`:
+The following example builds a minimal 6502 machine: 4 KiB of RAM and a 256-byte ROM at `$FF00`:
 
 ```csharp
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
 
-// A tiny ROM image: LDA #$42 (A9 42) followed by JMP $FC00 (4C 00 FC)
-byte[] rom = [0xA9, 0x42, 0x4C, 0x00, 0xFC];
-// Pad to 256 bytes; reset vector at offset 0xFC/$FD = $FC00
+// A tiny ROM program: LDA #$42 (A9 42) followed by JMP $FF00 (4C 00 FF)
+byte[] rom = [0xA9, 0x42, 0x4C, 0x00, 0xFF];
+// Pad to 256 bytes; the reset vector lives at image offset $FC/$FD ($FFFC/$FFFD on the bus)
 var image = new byte[256];
 rom.CopyTo(image, 0);
 image[0xFC] = 0x00;   // RESET vector lo
-image[0xFD] = 0xFC;   // RESET vector hi -> $FC00
+image[0xFD] = 0xFF;   // RESET vector hi -> $FF00
 
 var machine = Machine.Create("tiny6502")
     .WithAddressSpace(AddressSpaceKind.Program, addressBits: 16)
@@ -51,11 +51,11 @@ var machine = Machine.Create("tiny6502")
     .WithCpu(ctx => new Mos6502Cpu(ctx.Space(AddressSpaceKind.Program)))
     .Build();
 
-machine.Reset();        // PC loads from $FFFC/$FFFD = $FC00
-machine.Run(1000);      // run for 1000 cycles
+machine.Reset();        // PC loads from $FFFC/$FFFD = $FF00
+machine.Run(1000);      // run for 1000 cycles; the program loops, leaving A = $42
 ```
 
-This example compiles and runs. The ROM maps to `$FF00`–`$FFFF`, which includes the 6502 vector table (`$FFFC`/`$FFFD`).
+This example compiles and runs. The ROM maps to `$FF00`–`$FFFF`, which includes the 6502 vector table (`$FFFC`/`$FFFD`), and the program loops within the ROM (`JMP $FF00`), so a bounded `Run` completes without faulting.
 
 ---
 

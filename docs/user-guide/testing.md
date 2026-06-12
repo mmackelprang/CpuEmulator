@@ -10,7 +10,9 @@ CpuEmulator has a layered test suite. The base suite requires no external data a
 dotnet test
 ```
 
-Expected: `Passed! - Failed: 0, Passed: 848, Skipped: 0, Total: 848`
+Expected with the external vectors fetched: `Passed! - Failed: 0, Passed: 848, Skipped: 0, Total: 848`
+
+On a fresh clone, before fetching vectors: `Passed: 694, Skipped: 4, Total: 698` — the 4 skips are the vector-gated tests (the sampled TomHarte theory, Klaus functional, and the two Klaus UAT sessions), and the TomHarte theory expands to one row per opcode (+150) once vectors are present.
 
 Tests that require external vectors skip cleanly with a message when the vectors are absent. No test fails due to missing vectors — it either passes or skips.
 
