@@ -30,9 +30,14 @@ public class Mos6502ProgramTests
         // cycles: LDX(2) + 5×INX(2) + 4×BNE-taken(3) + 1×BNE-not-taken(2) = 2+10+12+2 = 26
         var (cpu, _) = NewCpu(0xA2, 0xFB, 0xE8, 0xD0, 0xFD);
 
-        while (cpu.GetRegister("PC") != 0x0205)
+        // Bounded loop: a branch-polarity regression would oscillate PC forever and hang
+        // the test runner (xUnit has no default per-test timeout); the guard converts a
+        // hang into a clear assertion failure. Template for chunk-4's trap-loop boots.
+        int guard = 0;
+        while (cpu.GetRegister("PC") != 0x0205 && ++guard < 1000)
             cpu.Step();
 
+        Assert.Equal(0x0205ul, cpu.GetRegister("PC"));
         Assert.Equal(0ul, cpu.GetRegister("X"));
         Assert.Equal(26, cpu.CycleCount);
     }

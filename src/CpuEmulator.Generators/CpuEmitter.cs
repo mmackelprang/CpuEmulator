@@ -363,6 +363,11 @@ internal static class CpuEmitter
     ///   Absolute  → mnemonic + " $xxyy"  (e.g. "LDA $1234", hi then lo in address)
     ///   Relative  → mnemonic + " *±dd"   (e.g. "BNE *+5", "BNE *-4")
     ///   unknown   → "???"
+    /// Relative caveat: the rendered offset is the RAW operand byte (relative to the
+    /// post-operand PC), not conventional assembler <c>*</c> semantics (relative to the
+    /// instruction's own address) — the two differ by the 2-byte instruction length, so
+    /// bytes D0 FC render here as "BNE *-4" where a reference disassembler says "BNE *-2".
+    /// Keep in mind when diffing against reference disassemblies (3b).
     /// </summary>
     private static void EmitDisassembler(StringBuilder sb, SpecModel model)
     {

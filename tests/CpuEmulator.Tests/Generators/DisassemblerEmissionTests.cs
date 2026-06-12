@@ -17,6 +17,8 @@ public class DisassemblerEmissionTests
     [InlineData(0x4C, 0x00, 0x80, "JMP $8000")]
     [InlineData(0xD0, 0xFC, 0x00, "BNE *-4")]
     [InlineData(0xD0, 0x05, 0x00, "BNE *+5")]
+    [InlineData(0xD0, 0x80, 0x00, "BNE *-128")] // sbyte min: negative section of +0;-0
+    [InlineData(0xD0, 0x00, 0x00, "BNE *+0")]   // zero takes the POSITIVE section of +0;-0
     [InlineData(0xFF, 0x00, 0x00, "???")]
     public void Disassemble_formats_by_addressing_mode(byte opcode, byte lo, byte hi, string expected) =>
         Assert.Equal(expected, Mos6502Cpu.Disassemble(opcode, lo, hi));
