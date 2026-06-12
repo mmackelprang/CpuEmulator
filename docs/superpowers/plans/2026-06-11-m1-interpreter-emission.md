@@ -8,7 +8,11 @@
 
 **Tech Stack:** unchanged (net10.0, Roslyn 4.12.0, xUnit).
 
-**Plan series:** 1 ✅ (PR #1, merged) · 2a ✅ (PR #2, open) · **2b: this plan** · 3a importer · 3b full 6502 + TomHarte · 4 peripherals + host.
+**Plan series:** 1 ✅ (PR #1, merged) · 2a ✅ (PR #2, merged) · **2b: this plan** · 3a importer · 3b full 6502 + TomHarte · 4 peripherals + host.
+
+> **Stacking update (recorded at Task 8):** PR #2 (`feat/m1-generator-frontend`) merged while
+> this plan was in flight, so PR #3's base is `main` (merge-base is PR #2's tip, `b2a7fc3`;
+> the merge is clean) — not the stacked base the header and Task 8 originally named.
 
 **Recorded deviations this plan makes deliberately:**
 - **Dispatch stays a `switch`** (compiles to a jump table) rather than spec-§6's `delegate*[256]`. Zero-alloc and AOT-safe either way; the function-pointer table forces static per-opcode methods with an explicit `this` parameter for no measured benefit at 11 (or 151) opcodes. Revisit gate: M2 benchmarks (BenchmarkDotNet lands there anyway).
@@ -349,6 +353,19 @@ Mnemonic rule: must match `^[A-Z][A-Z0-9]{0,7}$` → else CPUGEN004 reason "mnem
 - Add CPUGEN010 to `AnalyzerReleases.Unshipped.md` and to `SpecDiagnostics.ById`.
 
 - [ ] **Step 4: Tests pass; full suite green. Commit** — `feat: validate mode/op classes (CPUGEN010), mnemonics, and flag members at parse time`
+
+> **Post-review amendments (applied after Task 2, pre-Task-3):**
+> - `6db21b4` — `EquatableArray<T>` wraps every collection in pipeline state so identical
+>   reparses hit the incremental cache (pinned by a trackIncrementalGeneratorSteps test);
+>   CPUGEN011 validates each micro-op argument against its expected kind (Reg vs Flag vs
+>   Bool), closing the `SetNZ(Flag.Z)` / `BranchIf(Reg.A, …)` emitter-crash hole at parse
+>   time; collision CPUGEN009 now reports per-collider at each class identifier via
+>   tree-free `LocationInfo` (the plan's code block above shows the original single
+>   `Location.None` diagnostic); diagnostic gating simplified to any-diagnostic-nulls-model.
+> - `a5ba39c` — critical test-infrastructure fix: raw string literals inherit their file's
+>   line endings, so CRLF-smudged needles silently no-op'd `Replace` and ran rejection tests
+>   against the unmodified valid spec. `GeneratorTestHost.ReplaceSection` now normalizes both
+>   sides to LF and asserts the replace fired; `.gitattributes` pins `*.cs` to LF.
 
 ---
 
