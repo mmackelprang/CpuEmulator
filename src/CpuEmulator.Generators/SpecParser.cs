@@ -25,16 +25,46 @@ internal static class SpecParser
 
     /// <summary>Per-op argument signatures; arity is the signature length. Each argument is
     /// parsed against its EXPECTED kind only (CPUGEN011 on mismatch) — no coalescing chain,
-    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.</summary>
+    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.
+    /// Allowed op names: Load, Store, Transfer, Increment, SetNZ, Jump, BranchIf,
+    /// Adc, Sbc, And, Ora, Eor, Compare, Bit,
+    /// ShiftLeft, ShiftRight, RotateLeft, RotateRight, IncrementMem, DecrementMem, Decrement,
+    /// Push, Pull, PushP, PullP, SetFlag, Jsr, Rts.</summary>
     private static readonly Dictionary<string, ArgKind[]> s_microOpSignatures = new(System.StringComparer.Ordinal)
     {
+        // Load/store/transfer/register
         ["Load"] = new[] { ArgKind.Reg },
         ["Store"] = new[] { ArgKind.Reg },
         ["Transfer"] = new[] { ArgKind.Reg, ArgKind.Reg },
         ["Increment"] = new[] { ArgKind.Reg },
         ["SetNZ"] = new[] { ArgKind.Reg },
+        // Jump/branch
         ["Jump"] = System.Array.Empty<ArgKind>(),
         ["BranchIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        // ALU (Task 5)
+        ["Adc"] = System.Array.Empty<ArgKind>(),
+        ["Sbc"] = System.Array.Empty<ArgKind>(),
+        ["And"] = System.Array.Empty<ArgKind>(),
+        ["Ora"] = System.Array.Empty<ArgKind>(),
+        ["Eor"] = System.Array.Empty<ArgKind>(),
+        ["Compare"] = new[] { ArgKind.Reg },
+        ["Bit"] = System.Array.Empty<ArgKind>(),
+        // RMW (Task 6)
+        ["ShiftLeft"] = System.Array.Empty<ArgKind>(),
+        ["ShiftRight"] = System.Array.Empty<ArgKind>(),
+        ["RotateLeft"] = System.Array.Empty<ArgKind>(),
+        ["RotateRight"] = System.Array.Empty<ArgKind>(),
+        ["IncrementMem"] = System.Array.Empty<ArgKind>(),
+        ["DecrementMem"] = System.Array.Empty<ArgKind>(),
+        ["Decrement"] = new[] { ArgKind.Reg },
+        // Stack / flag / flow (Task 7)
+        ["Push"] = new[] { ArgKind.Reg },
+        ["Pull"] = new[] { ArgKind.Reg },
+        ["PushP"] = System.Array.Empty<ArgKind>(),
+        ["PullP"] = System.Array.Empty<ArgKind>(),
+        ["SetFlag"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["Jsr"] = System.Array.Empty<ArgKind>(),
+        ["Rts"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -70,6 +100,46 @@ internal static class SpecParser
     private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)
     {
         "Transfer", "Increment", "SetNZ",
+        "Decrement",  // register-class use: DEX/DEY (op is register class, not rmw class)
+        "SetFlag",    // register-class use: CLC/SEC/CLI/SEI/CLV/CLD/SED
+    };
+
+    private static readonly HashSet<string> s_aluOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Adc", "Sbc", "And", "Ora", "Eor", "Compare", "Bit",
+    };
+
+    private static readonly HashSet<string> s_rmwOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "ShiftLeft", "ShiftRight", "RotateLeft", "RotateRight", "IncrementMem", "DecrementMem",
+    };
+
+    private static readonly HashSet<string> s_stackOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Push", "Pull", "PushP", "PullP",
+    };
+
+    private static readonly HashSet<string> s_flowOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Jsr", "Rts",
+    };
+
+    // Per-class allowed modes: load/alu share the same 9 modes; rmw has its own 5.
+    private static readonly HashSet<string> s_loadAluModes = new(System.StringComparer.Ordinal)
+    {
+        "Immediate", "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY", "IndirectX", "IndirectY",
+    };
+
+    private static readonly HashSet<string> s_storeModes = new(System.StringComparer.Ordinal)
+    {
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY", "IndirectX", "IndirectY",
+    };
+
+    private static readonly HashSet<string> s_rmwModes = new(System.StringComparer.Ordinal)
+    {
+        "ZeroPage", "ZeroPageX", "Absolute", "AbsoluteX", "Accumulator",
     };
 
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
@@ -375,7 +445,7 @@ internal static class SpecParser
             {
                 if (!s_registerOpKinds.Contains(ops[i].Kind))
                 {
-                    error = $"Load must be the first op and remaining ops must be register ops (Transfer/Increment/SetNZ), but found '{ops[i].Kind}' after Load";
+                    error = $"Load must be the first op and remaining ops must be register ops (Transfer/Increment/SetNZ/Decrement/SetFlag), but found '{ops[i].Kind}' after Load";
                     return null;
                 }
             }
@@ -412,12 +482,56 @@ internal static class SpecParser
             return InstructionClass.Branch;
         }
 
+        // ALU class: exactly one ALU op, nothing else
+        if (s_aluOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "alu class must contain exactly one op (Adc/Sbc/And/Ora/Eor/Compare/Bit)";
+                return null;
+            }
+            return InstructionClass.Alu;
+        }
+
+        // RMW class: exactly one RMW op, nothing else
+        if (s_rmwOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "rmw class must contain exactly one op (ShiftLeft/ShiftRight/RotateLeft/RotateRight/IncrementMem/DecrementMem)";
+                return null;
+            }
+            return InstructionClass.Rmw;
+        }
+
+        // Stack class: exactly one stack op
+        if (s_stackOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "stack class must contain exactly one op (Push/Pull/PushP/PullP) — NZ is baked into Pull";
+                return null;
+            }
+            return InstructionClass.Stack;
+        }
+
+        // Flow class: exactly one flow op
+        if (s_flowOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "flow class must contain exactly one op (Jsr/Rts)";
+                return null;
+            }
+            return InstructionClass.Flow;
+        }
+
         // All must be register ops
         foreach (var op in ops)
         {
             if (!s_registerOpKinds.Contains(op.Kind))
             {
-                error = $"op '{op.Kind}' is not valid here; expected a load/store/jump/branch op first, or only register ops (Transfer/Increment/SetNZ)";
+                error = $"op '{op.Kind}' is not valid here; expected a load/store/jump/branch/alu/rmw/stack/flow op first, or only register ops (Transfer/Increment/SetNZ/Decrement/SetFlag)";
                 return null;
             }
         }
@@ -432,46 +546,58 @@ internal static class SpecParser
         _ => null,
     };
 
-    private static string? ValidateModeForClass(string mode, InstructionClass opClass) => (opClass, mode) switch
+    private static string? ValidateModeForClass(string mode, InstructionClass opClass)
     {
-        // register class: Implied only
-        (InstructionClass.Register, "Implied") => null,
-        (InstructionClass.Register, _) => "register-class ops (Transfer/Increment/SetNZ or empty) require Implied mode",
+        return opClass switch
+        {
+            // register class: Implied only
+            InstructionClass.Register =>
+                mode == "Implied" ? null
+                : "register-class ops (Transfer/Increment/SetNZ/Decrement/SetFlag or empty) require Implied mode",
 
-        // load class: Immediate + all memory modes (9 modes)
-        (InstructionClass.Load, "Immediate") => null,
-        (InstructionClass.Load, "ZeroPage") => null,
-        (InstructionClass.Load, "ZeroPageX") => null,
-        (InstructionClass.Load, "ZeroPageY") => null,
-        (InstructionClass.Load, "Absolute") => null,
-        (InstructionClass.Load, "AbsoluteX") => null,
-        (InstructionClass.Load, "AbsoluteY") => null,
-        (InstructionClass.Load, "IndirectX") => null,
-        (InstructionClass.Load, "IndirectY") => null,
-        (InstructionClass.Load, _) => "Load requires a memory or immediate addressing mode",
+            // load class: Immediate + all 8 memory modes (9 total)
+            InstructionClass.Load =>
+                s_loadAluModes.Contains(mode) ? null
+                : "Load requires a memory or immediate addressing mode",
 
-        // store class: all memory modes (8 modes — no Immediate)
-        (InstructionClass.Store, "ZeroPage") => null,
-        (InstructionClass.Store, "ZeroPageX") => null,
-        (InstructionClass.Store, "ZeroPageY") => null,
-        (InstructionClass.Store, "Absolute") => null,
-        (InstructionClass.Store, "AbsoluteX") => null,
-        (InstructionClass.Store, "AbsoluteY") => null,
-        (InstructionClass.Store, "IndirectX") => null,
-        (InstructionClass.Store, "IndirectY") => null,
-        (InstructionClass.Store, _) => "Store requires a memory addressing mode (ZeroPage/Absolute/Indirect families)",
+            // alu class: same 9 modes as load
+            InstructionClass.Alu =>
+                s_loadAluModes.Contains(mode) ? null
+                : "Alu requires a memory or immediate addressing mode",
 
-        // jump class: Absolute and Indirect
-        (InstructionClass.Jump, "Absolute") => null,
-        (InstructionClass.Jump, "Indirect") => null,
-        (InstructionClass.Jump, _) => "Jump requires Absolute or Indirect mode",
+            // store class: 8 memory modes (no Immediate)
+            InstructionClass.Store =>
+                s_storeModes.Contains(mode) ? null
+                : "Store requires a memory addressing mode (ZeroPage/Absolute/Indirect families)",
 
-        // branch class: Relative only
-        (InstructionClass.Branch, "Relative") => null,
-        (InstructionClass.Branch, _) => "BranchIf requires Relative mode",
+            // rmw class: ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator
+            InstructionClass.Rmw =>
+                s_rmwModes.Contains(mode) ? null
+                : "Rmw requires ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator mode",
 
-        _ => $"unrecognised op class '{opClass}'",
-    };
+            // jump class: Absolute and Indirect
+            InstructionClass.Jump =>
+                (mode == "Absolute" || mode == "Indirect") ? null
+                : "Jump requires Absolute or Indirect mode",
+
+            // branch class: Relative only
+            InstructionClass.Branch =>
+                mode == "Relative" ? null
+                : "BranchIf requires Relative mode",
+
+            // stack class: Implied only
+            InstructionClass.Stack =>
+                mode == "Implied" ? null
+                : "stack class (Push/Pull/PushP/PullP) requires Implied mode",
+
+            // flow class: Jsr=Absolute, Rts=Implied
+            InstructionClass.Flow =>
+                (mode == "Absolute" || mode == "Implied") ? null
+                : "flow class (Jsr/Rts) requires Absolute (JSR) or Implied (RTS) mode",
+
+            _ => $"unrecognised op class '{opClass}'",
+        };
+    }
 
     /// <summary>Mnemonic must match ^[A-Z][A-Z0-9]{0,7}$ (1–8 uppercase letters/digits, first must be letter).</summary>
     private static bool IsValidMnemonic(string mnemonic)

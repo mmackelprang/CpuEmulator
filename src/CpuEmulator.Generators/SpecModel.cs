@@ -9,7 +9,10 @@ namespace CpuEmulator.Generators;
 internal enum InstructionClass
 {
     Register, Load, Store, Jump, Branch,
-    // Added by later tasks in this plan: Alu (Task 5), Rmw (Task 6), Stack, Flow (Task 7).
+    Alu,    // Task 5: ADC/SBC/AND/ORA/EOR/CMP/CPX/CPY/BIT
+    Rmw,    // Task 6: ASL/LSR/ROL/ROR/INC/DEC (memory and accumulator forms)
+    Stack,  // Task 7: PHA/PLA/PHP/PLP
+    Flow,   // Task 7: JSR/RTS
 }
 
 internal sealed record SpecModel(

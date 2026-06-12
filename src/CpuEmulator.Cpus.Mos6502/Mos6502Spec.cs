@@ -96,5 +96,81 @@ public static class Mos6502Spec
         Insn(0x30, "BMI", AddrMode.Relative, [BranchIf(Flag.N, true)]),
         Insn(0x50, "BVC", AddrMode.Relative, [BranchIf(Flag.V, false)]),
         Insn(0x70, "BVS", AddrMode.Relative, [BranchIf(Flag.V, true)]),
+
+        // ── ALU class ────────────────────────────────────────────────────────
+
+        // ADC (8 rows)
+        Insn(0x69, "ADC", AddrMode.Immediate, [Adc()]),
+        Insn(0x65, "ADC", AddrMode.ZeroPage,  [Adc()]),
+        Insn(0x75, "ADC", AddrMode.ZeroPageX, [Adc()]),
+        Insn(0x6D, "ADC", AddrMode.Absolute,  [Adc()]),
+        Insn(0x7D, "ADC", AddrMode.AbsoluteX, [Adc()]),
+        Insn(0x79, "ADC", AddrMode.AbsoluteY, [Adc()]),
+        Insn(0x61, "ADC", AddrMode.IndirectX, [Adc()]),
+        Insn(0x71, "ADC", AddrMode.IndirectY, [Adc()]),
+
+        // SBC (8 rows)
+        Insn(0xE9, "SBC", AddrMode.Immediate, [Sbc()]),
+        Insn(0xE5, "SBC", AddrMode.ZeroPage,  [Sbc()]),
+        Insn(0xF5, "SBC", AddrMode.ZeroPageX, [Sbc()]),
+        Insn(0xED, "SBC", AddrMode.Absolute,  [Sbc()]),
+        Insn(0xFD, "SBC", AddrMode.AbsoluteX, [Sbc()]),
+        Insn(0xF9, "SBC", AddrMode.AbsoluteY, [Sbc()]),
+        Insn(0xE1, "SBC", AddrMode.IndirectX, [Sbc()]),
+        Insn(0xF1, "SBC", AddrMode.IndirectY, [Sbc()]),
+
+        // AND (8 rows)
+        Insn(0x29, "AND", AddrMode.Immediate, [And()]),
+        Insn(0x25, "AND", AddrMode.ZeroPage,  [And()]),
+        Insn(0x35, "AND", AddrMode.ZeroPageX, [And()]),
+        Insn(0x2D, "AND", AddrMode.Absolute,  [And()]),
+        Insn(0x3D, "AND", AddrMode.AbsoluteX, [And()]),
+        Insn(0x39, "AND", AddrMode.AbsoluteY, [And()]),
+        Insn(0x21, "AND", AddrMode.IndirectX, [And()]),
+        Insn(0x31, "AND", AddrMode.IndirectY, [And()]),
+
+        // ORA (8 rows)
+        Insn(0x09, "ORA", AddrMode.Immediate, [Ora()]),
+        Insn(0x05, "ORA", AddrMode.ZeroPage,  [Ora()]),
+        Insn(0x15, "ORA", AddrMode.ZeroPageX, [Ora()]),
+        Insn(0x0D, "ORA", AddrMode.Absolute,  [Ora()]),
+        Insn(0x1D, "ORA", AddrMode.AbsoluteX, [Ora()]),
+        Insn(0x19, "ORA", AddrMode.AbsoluteY, [Ora()]),
+        Insn(0x01, "ORA", AddrMode.IndirectX, [Ora()]),
+        Insn(0x11, "ORA", AddrMode.IndirectY, [Ora()]),
+
+        // EOR (8 rows)
+        Insn(0x49, "EOR", AddrMode.Immediate, [Eor()]),
+        Insn(0x45, "EOR", AddrMode.ZeroPage,  [Eor()]),
+        Insn(0x55, "EOR", AddrMode.ZeroPageX, [Eor()]),
+        Insn(0x4D, "EOR", AddrMode.Absolute,  [Eor()]),
+        Insn(0x5D, "EOR", AddrMode.AbsoluteX, [Eor()]),
+        Insn(0x59, "EOR", AddrMode.AbsoluteY, [Eor()]),
+        Insn(0x41, "EOR", AddrMode.IndirectX, [Eor()]),
+        Insn(0x51, "EOR", AddrMode.IndirectY, [Eor()]),
+
+        // CMP (8 rows)
+        Insn(0xC9, "CMP", AddrMode.Immediate, [Compare(Reg.A)]),
+        Insn(0xC5, "CMP", AddrMode.ZeroPage,  [Compare(Reg.A)]),
+        Insn(0xD5, "CMP", AddrMode.ZeroPageX, [Compare(Reg.A)]),
+        Insn(0xCD, "CMP", AddrMode.Absolute,  [Compare(Reg.A)]),
+        Insn(0xDD, "CMP", AddrMode.AbsoluteX, [Compare(Reg.A)]),
+        Insn(0xD9, "CMP", AddrMode.AbsoluteY, [Compare(Reg.A)]),
+        Insn(0xC1, "CMP", AddrMode.IndirectX, [Compare(Reg.A)]),
+        Insn(0xD1, "CMP", AddrMode.IndirectY, [Compare(Reg.A)]),
+
+        // CPX (3 rows)
+        Insn(0xE0, "CPX", AddrMode.Immediate, [Compare(Reg.X)]),
+        Insn(0xE4, "CPX", AddrMode.ZeroPage,  [Compare(Reg.X)]),
+        Insn(0xEC, "CPX", AddrMode.Absolute,  [Compare(Reg.X)]),
+
+        // CPY (3 rows)
+        Insn(0xC0, "CPY", AddrMode.Immediate, [Compare(Reg.Y)]),
+        Insn(0xC4, "CPY", AddrMode.ZeroPage,  [Compare(Reg.Y)]),
+        Insn(0xCC, "CPY", AddrMode.Absolute,  [Compare(Reg.Y)]),
+
+        // BIT (2 rows)
+        Insn(0x24, "BIT", AddrMode.ZeroPage,  [Bit()]),
+        Insn(0x2C, "BIT", AddrMode.Absolute,  [Bit()]),
     ];
 }

@@ -131,9 +131,12 @@ internal static class CpuEmitter
         // The emitter consumes instruction.Class directly; no parallel classifier here.
         InstructionClass opClass = instruction.Class;
         int cycleCount = ComputeCycles(instruction.Mode, opClass);
+        bool isPageCross = instruction.Mode is "AbsoluteX" or "AbsoluteY" or "IndirectY"
+            && opClass is InstructionClass.Load or InstructionClass.Alu;
         string cycleStr = (opClass == InstructionClass.Branch) ? "2-4 cycles"
-            : (instruction.Mode is "AbsoluteX" or "AbsoluteY" or "IndirectY"
-               && opClass is InstructionClass.Load) ? $"{cycleCount}-{cycleCount + 1} cycles (+1 on page cross)"
+            : isPageCross ? $"{cycleCount}-{cycleCount + 1} cycles (+1 on page cross)"
+            : (opClass == InstructionClass.Stack) ? ComputeStackCycleStr(instruction.Ops)
+            : (opClass == InstructionClass.Flow) ? ComputeFlowCycleStr(instruction.Ops)
             : $"{cycleCount} cycles";
 
         sb.AppendLine();
@@ -158,6 +161,18 @@ internal static class CpuEmitter
             case InstructionClass.Branch:
                 EmitBranchBody(sb, instruction, pc, pcType, statusReg);
                 break;
+            case InstructionClass.Alu:
+                EmitAluBody(sb, instruction, pc, pcType, statusReg);
+                break;
+            case InstructionClass.Rmw:
+                EmitRmwBody(sb, instruction, pc, pcType, statusReg);
+                break;
+            case InstructionClass.Stack:
+                EmitStackBody(sb, instruction, pc, statusReg);
+                break;
+            case InstructionClass.Flow:
+                EmitFlowBody(sb, instruction, pc, pcType);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
@@ -169,27 +184,42 @@ internal static class CpuEmitter
     private static int ComputeCycles(string mode, InstructionClass opClass) => (mode, opClass) switch
     {
         // 1 (opcode fetch) + template cycles
-        ("Implied", _) => 2,                                   // +1 dummy read
+        ("Implied", InstructionClass.Register) => 2,           // +1 dummy read
+        ("Implied", InstructionClass.Stack) => 2,              // varies (push=3, pull=4) — see doc string
+        ("Implied", InstructionClass.Flow) => 2,               // varies (rts=6) — see doc string
         ("Immediate", _) => 2,                                 // +1 operand read
         ("ZeroPage", InstructionClass.Load) => 3,              // +1 addr +1 data
         ("ZeroPage", InstructionClass.Store) => 3,             // +1 addr +1 write
+        ("ZeroPage", InstructionClass.Alu) => 3,               // alu = load shape
+        ("ZeroPage", InstructionClass.Rmw) => 5,               // +1 addr +1 data +1 dummy-write +1 write
         ("ZeroPageX", InstructionClass.Load) => 4,             // +1 addr +1 dummy +1 data
         ("ZeroPageX", InstructionClass.Store) => 4,            // +1 addr +1 dummy +1 write
+        ("ZeroPageX", InstructionClass.Alu) => 4,              // alu = load shape
+        ("ZeroPageX", InstructionClass.Rmw) => 6,              // +1 addr +1 dummy +1 data +1 dummy-write +1 write
         ("ZeroPageY", InstructionClass.Load) => 4,             // +1 addr +1 dummy +1 data
         ("ZeroPageY", InstructionClass.Store) => 4,            // +1 addr +1 dummy +1 write
+        ("ZeroPageY", InstructionClass.Alu) => 4,              // alu = load shape
         ("Absolute", InstructionClass.Load) => 4,              // +1 lo +1 hi +1 data
         ("Absolute", InstructionClass.Store) => 4,             // +1 lo +1 hi +1 write
+        ("Absolute", InstructionClass.Alu) => 4,               // alu = load shape
         ("Absolute", InstructionClass.Jump) => 3,              // +1 lo +1 hi
+        ("Absolute", InstructionClass.Rmw) => 6,               // +1 lo +1 hi +1 data +1 dummy-write +1 write
+        ("Absolute", InstructionClass.Flow) => 6,              // JSR = 6 cycles
         ("AbsoluteX", InstructionClass.Load) => 4,             // 4-5 (+1 cross) — variable
         ("AbsoluteX", InstructionClass.Store) => 5,            // always 5 (dummy read)
+        ("AbsoluteX", InstructionClass.Alu) => 4,              // 4-5 (+1 cross) — variable
+        ("AbsoluteX", InstructionClass.Rmw) => 7,              // always-dummy read + double-write = 7
         ("AbsoluteY", InstructionClass.Load) => 4,             // 4-5 (+1 cross) — variable
         ("AbsoluteY", InstructionClass.Store) => 5,            // always 5 (dummy read)
+        ("AbsoluteY", InstructionClass.Alu) => 4,              // 4-5 (+1 cross) — variable
         ("IndirectX", InstructionClass.Load) => 6,             // 6 cycles
         ("IndirectX", InstructionClass.Store) => 6,            // 6 cycles
+        ("IndirectX", InstructionClass.Alu) => 6,              // alu = load shape
         ("IndirectY", InstructionClass.Load) => 5,             // 5-6 (+1 cross) — variable
         ("IndirectY", InstructionClass.Store) => 6,            // always 6 (dummy read)
+        ("IndirectY", InstructionClass.Alu) => 5,              // 5-6 (+1 cross) — variable
         ("Indirect", InstructionClass.Jump) => 5,              // 5 cycles (JMP indirect)
-        ("Accumulator", _) => 2,                               // +1 dummy read
+        ("Accumulator", InstructionClass.Rmw) => 2,            // +1 dummy read; operate on A
         ("Relative", InstructionClass.Branch) => 0,            // variable: 2/3/4 — doc string says "2-4 cycles"
         _ => throw new System.InvalidOperationException(
             $"emitter has no cycle count for mode '{mode}' / class '{opClass}'"),
@@ -204,92 +234,10 @@ internal static class CpuEmitter
         string pcType,
         string? statusReg)
     {
-        // First op is Load(target)
+        // First op is Load(target) — use shared operand resolution, then assign
         string target = instruction.Ops[0].Args[0]; // register name
-
-        switch (instruction.Mode)
-        {
-            case "Immediate":
-                sb.AppendLine($"        byte data = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "ZeroPage":
-                sb.AppendLine($"        uint addr = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        byte data = ReadBus(addr);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "ZeroPageX":
-                sb.AppendLine($"        uint addr = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
-                sb.AppendLine($"        byte data = ReadBus((addr + X) & 0xFF);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "ZeroPageY":
-                sb.AppendLine($"        uint addr = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
-                sb.AppendLine($"        byte data = ReadBus((addr + Y) & 0xFF);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "Absolute":
-                sb.AppendLine($"        uint lo = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint hi = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint ea = lo | (hi << 8);");
-                sb.AppendLine($"        byte data = ReadBus(ea);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "AbsoluteX":
-                sb.AppendLine($"        uint lo = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint hi = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + X) & 0xFFFF;");
-                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + X) & 0xFF));");
-                sb.AppendLine($"        if (((lo + X) & 0x100) != 0)");
-                sb.AppendLine($"            data = ReadBus(ea);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "AbsoluteY":
-                sb.AppendLine($"        uint lo = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint hi = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
-                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + Y) & 0xFF));");
-                sb.AppendLine($"        if (((lo + Y) & 0x100) != 0)");
-                sb.AppendLine($"            data = ReadBus(ea);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "IndirectX":
-                sb.AppendLine($"        uint ptr = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        _ = ReadBus(ptr); // dummy read at unindexed ptr");
-                sb.AppendLine($"        uint lo = ReadBus((ptr + X) & 0xFF);");
-                sb.AppendLine($"        uint hi = ReadBus((ptr + X + 1) & 0xFF);");
-                sb.AppendLine($"        uint ea = lo | (hi << 8);");
-                sb.AppendLine($"        byte data = ReadBus(ea);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            case "IndirectY":
-                sb.AppendLine($"        uint ptr = ReadBus({pc});");
-                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        uint lo = ReadBus(ptr);");
-                sb.AppendLine($"        uint hi = ReadBus((ptr + 1) & 0xFF);");
-                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
-                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + Y) & 0xFF));");
-                sb.AppendLine($"        if (((lo + Y) & 0x100) != 0)");
-                sb.AppendLine($"            data = ReadBus(ea);");
-                sb.AppendLine($"        {target} = data;");
-                break;
-            default:
-                throw new System.InvalidOperationException(
-                    $"emitter has no load template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
-        }
+        EmitOperandResolution(sb, instruction, pc, pcType);
+        sb.AppendLine($"        {target} = data;");
 
         // Apply remaining register ops (SetNZ etc.)
         for (int i = 1; i < instruction.Ops.Length; i++)
@@ -333,6 +281,12 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {reg} = unchecked((byte)({reg} + 1));");
                 break;
             }
+            case "Decrement":
+            {
+                string reg = op.Args[0];
+                sb.AppendLine($"        {reg} = unchecked((byte)({reg} - 1));");
+                break;
+            }
             case "SetNZ":
             {
                 string src = op.Args[0];
@@ -340,6 +294,18 @@ internal static class CpuEmitter
                 // P = (P & 0x7D) | (src == 0 ? 0x02 : 0x00) | (src & 0x80)
                 // 0x7D = 0111_1101 clears bits 1 (Z) and 7 (N)
                 sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | ({src} == 0 ? 0x02 : 0x00) | ({src} & 0x80)));");
+                break;
+            }
+            case "SetFlag":
+            {
+                string flagName = op.Args[0];
+                bool setValue = op.Args[1] == "true";
+                string p = statusReg ?? "P";
+                byte mask = (byte)(1 << FlagBit(flagName));
+                if (setValue)
+                    sb.AppendLine($"        {p} = unchecked((byte)({p} | 0x{mask:X2}));");
+                else
+                    sb.AppendLine($"        {p} = unchecked((byte)({p} & ~0x{mask:X2}));");
                 break;
             }
             default:
@@ -514,6 +480,397 @@ internal static class CpuEmitter
         sb.AppendLine($"                _ = ReadBus((uint)(({pc} & 0xFF00) | (target & 0x00FF)));");
         sb.AppendLine($"            {pc} = target;");
         sb.AppendLine("        }");
+    }
+
+    // ---- Cycle-string helpers for variable-cycle classes ----
+
+    private static string ComputeStackCycleStr(EquatableArray<OpModel> ops)
+    {
+        if (ops.Length == 0) return "2 cycles";
+        return ops[0].Kind switch
+        {
+            "Push" or "PushP" => "3 cycles",  // opcode + dummy read + write
+            "Pull" or "PullP" => "4 cycles",  // opcode + dummy read + dummy stack read + real read
+            _ => "2 cycles",
+        };
+    }
+
+    private static string ComputeFlowCycleStr(EquatableArray<OpModel> ops)
+    {
+        if (ops.Length == 0) return "6 cycles";
+        return ops[0].Kind switch
+        {
+            "Jsr" => "6 cycles",
+            "Rts" => "6 cycles",
+            _ => "6 cycles",
+        };
+    }
+
+    // ---- ALU class ----
+
+    /// <summary>Emits the per-mode operand resolution (shared with Load class) followed by
+    /// the ALU application. The resolution code is identical to EmitLoadBody — this shared
+    /// helper avoids duplicating 9 mode arms.</summary>
+    private static void EmitAluBody(
+        StringBuilder sb,
+        InstructionModel instruction,
+        string pc,
+        string pcType,
+        string? statusReg)
+    {
+        string p = statusReg ?? "P";
+
+        // Emit operand resolution (same pattern as Load, reads into local 'data')
+        EmitOperandResolution(sb, instruction, pc, pcType);
+
+        // ALU application: varies by op kind
+        switch (instruction.Ops[0].Kind)
+        {
+            case "Adc":
+                sb.AppendLine($"        // 3b-i: binary even when D is set (BCD lands in 3b-ii)");
+                sb.AppendLine($"        int temp = A + data + ({p} & 0x01);");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xBE)");
+                sb.AppendLine($"            | (temp > 0xFF ? 0x01 : 0x00)");
+                sb.AppendLine($"            | ((~(A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)));");
+                sb.AppendLine($"        A = unchecked((byte)temp);");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                break;
+            case "Sbc":
+                sb.AppendLine($"        // 3b-i: binary even when D is set (BCD lands in 3b-ii)");
+                sb.AppendLine($"        int temp = A + (data ^ 0xFF) + ({p} & 0x01);");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xBE)");
+                sb.AppendLine($"            | (temp > 0xFF ? 0x01 : 0x00)");
+                sb.AppendLine($"            | (((A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)));");
+                sb.AppendLine($"        A = unchecked((byte)temp);");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                break;
+            case "And":
+                sb.AppendLine($"        A = unchecked((byte)(A & data));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                break;
+            case "Ora":
+                sb.AppendLine($"        A = unchecked((byte)(A | data));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                break;
+            case "Eor":
+                sb.AppendLine($"        A = unchecked((byte)(A ^ data));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                break;
+            case "Compare":
+            {
+                string reg = instruction.Ops[0].Args[0]; // the register to compare
+                // C = reg >= data; Z = reg == data; N = (reg-data) bit7; V unaffected
+                // 0x7C clears N+Z+C
+                sb.AppendLine($"        int temp = {reg} - data;");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7C) | ({reg} >= data ? 0x01 : 0x00)");
+                sb.AppendLine($"            | ((temp & 0xFF) == 0 ? 0x02 : 0x00) | (temp & 0x80)));");
+                break;
+            }
+            case "Bit":
+                // N=d7, V=d6, Z=(A&d)==0; C unaffected; 0x3D clears N+V+Z
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x3D) | ((A & data) == 0 ? 0x02 : 0x00) | (data & 0xC0)));");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no ALU template for op '{instruction.Ops[0].Kind}' (opcode 0x{instruction.Opcode:X2})");
+        }
+    }
+
+    /// <summary>Emits operand resolution for Load and ALU bodies (reads memory into local
+    /// <c>byte data</c>). All 9 allowed modes are covered; default throws.</summary>
+    private static void EmitOperandResolution(
+        StringBuilder sb,
+        InstructionModel instruction,
+        string pc,
+        string pcType)
+    {
+        switch (instruction.Mode)
+        {
+            case "Immediate":
+                sb.AppendLine($"        byte data = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                break;
+            case "ZeroPage":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        byte data = ReadBus(addr);");
+                break;
+            case "ZeroPageX":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        byte data = ReadBus((addr + X) & 0xFF);");
+                break;
+            case "ZeroPageY":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        byte data = ReadBus((addr + Y) & 0xFF);");
+                break;
+            case "Absolute":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = lo | (hi << 8);");
+                sb.AppendLine($"        byte data = ReadBus(ea);");
+                break;
+            case "AbsoluteX":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + X) & 0xFFFF;");
+                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + X) & 0xFF));");
+                sb.AppendLine($"        if (((lo + X) & 0x100) != 0)");
+                sb.AppendLine($"            data = ReadBus(ea);");
+                break;
+            case "AbsoluteY":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
+                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + Y) & 0xFF));");
+                sb.AppendLine($"        if (((lo + Y) & 0x100) != 0)");
+                sb.AppendLine($"            data = ReadBus(ea);");
+                break;
+            case "IndirectX":
+                sb.AppendLine($"        uint ptr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(ptr); // dummy read at unindexed ptr");
+                sb.AppendLine($"        uint lo = ReadBus((ptr + X) & 0xFF);");
+                sb.AppendLine($"        uint hi = ReadBus((ptr + X + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = lo | (hi << 8);");
+                sb.AppendLine($"        byte data = ReadBus(ea);");
+                break;
+            case "IndirectY":
+                sb.AppendLine($"        uint ptr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint lo = ReadBus(ptr);");
+                sb.AppendLine($"        uint hi = ReadBus((ptr + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
+                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + Y) & 0xFF));");
+                sb.AppendLine($"        if (((lo + Y) & 0x100) != 0)");
+                sb.AppendLine($"            data = ReadBus(ea);");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no operand-resolution template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+        }
+    }
+
+    // ---- RMW class ----
+
+    private static void EmitRmwBody(
+        StringBuilder sb,
+        InstructionModel instruction,
+        string pc,
+        string pcType,
+        string? statusReg)
+    {
+        string p = statusReg ?? "P";
+
+        if (instruction.Mode == "Accumulator")
+        {
+            // Accumulator form: dummy read at PC (no increment), then operate on A
+            sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC (no increment)");
+            EmitRmwCompute(sb, instruction.Ops[0].Kind, "A", p, instruction.Opcode);
+            return;
+        }
+
+        // Memory forms: fetch address, read value, dummy write, write modified
+        switch (instruction.Mode)
+        {
+            case "ZeroPage":
+                sb.AppendLine($"        uint ea = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        byte value = ReadBus(ea);");
+                sb.AppendLine($"        WriteBus(ea, value); // RMW dummy write of the unmodified value (silicon-true)");
+                break;
+            case "ZeroPageX":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        uint ea = (addr + X) & 0xFF;");
+                sb.AppendLine($"        byte value = ReadBus(ea);");
+                sb.AppendLine($"        WriteBus(ea, value); // RMW dummy write of the unmodified value");
+                break;
+            case "Absolute":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = lo | (hi << 8);");
+                sb.AppendLine($"        byte value = ReadBus(ea);");
+                sb.AppendLine($"        WriteBus(ea, value); // RMW dummy write of the unmodified value (silicon-true)");
+                break;
+            case "AbsoluteX":
+                // Always-dummy read at wrong address (cross or not), then real read at ea
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + X) & 0xFFFF;");
+                sb.AppendLine($"        _ = ReadBus((hi << 8) | ((lo + X) & 0xFF)); // dummy read at wrong addr (ALWAYS)");
+                sb.AppendLine($"        byte value = ReadBus(ea);");
+                sb.AppendLine($"        WriteBus(ea, value); // RMW dummy write of the unmodified value");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no RMW template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+        }
+
+        EmitRmwCompute(sb, instruction.Ops[0].Kind, null, p, instruction.Opcode);
+        sb.AppendLine($"        WriteBus(ea, temp);");
+        sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (temp == 0 ? 0x02 : 0x00) | (temp & 0x80)));");
+    }
+
+    /// <summary>Emits the compute portion of an RMW body: sets C flag and produces temp.
+    /// For accumulator form, 'target' is "A" and the final assignment is included here.
+    /// For memory forms, 'target' is null and the caller writes WriteBus+SetNZ.</summary>
+    private static void EmitRmwCompute(StringBuilder sb, string opKind, string? target, string p, byte opcode)
+    {
+        bool isAccumulator = target != null;
+        string src = isAccumulator ? target! : "value";
+
+        switch (opKind)
+        {
+            case "ShiftLeft":
+                sb.AppendLine($"        byte temp = unchecked((byte)({src} << 1));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xFE) | (({src} >> 7) & 1)));"); // C = bit7
+                break;
+            case "ShiftRight":
+                sb.AppendLine($"        byte temp = unchecked((byte)({src} >> 1));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xFE) | ({src} & 1)));"); // C = bit0; N always 0
+                break;
+            case "RotateLeft":
+                sb.AppendLine($"        byte temp = unchecked((byte)(({src} << 1) | ({p} & 0x01)));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xFE) | (({src} >> 7) & 1)));"); // C = old bit7
+                break;
+            case "RotateRight":
+                sb.AppendLine($"        byte temp = unchecked((byte)(({src} >> 1) | (({p} & 0x01) << 7)));");
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xFE) | ({src} & 1)));"); // C = old bit0
+                break;
+            case "IncrementMem":
+                sb.AppendLine($"        byte temp = unchecked((byte)({src} + 1));");
+                break;
+            case "DecrementMem":
+                sb.AppendLine($"        byte temp = unchecked((byte)({src} - 1));");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no RMW compute template for op '{opKind}' (opcode 0x{opcode:X2})");
+        }
+
+        if (isAccumulator)
+        {
+            sb.AppendLine($"        {target} = temp;");
+            sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | ({target} == 0 ? 0x02 : 0x00) | ({target} & 0x80)));");
+        }
+    }
+
+    // ---- Stack class ----
+
+    private static void EmitStackBody(
+        StringBuilder sb,
+        InstructionModel instruction,
+        string pc,
+        string? statusReg)
+    {
+        if (instruction.Mode != "Implied")
+            throw new System.InvalidOperationException(
+                $"emitter has no stack template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+
+        string p = statusReg ?? "P";
+        var op = instruction.Ops[0];
+
+        switch (op.Kind)
+        {
+            case "Push":
+            {
+                string src = op.Args[0];
+                sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC (no increment)");
+                sb.AppendLine($"        WriteBus(0x100u + S, {src});");
+                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                break;
+            }
+            case "Pull":
+            {
+                string dst = op.Args[0];
+                sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
+                sb.AppendLine($"        _ = ReadBus(0x100u + S); // dummy read at old S (increment cycle)");
+                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
+                sb.AppendLine($"        {dst} = ReadBus(0x100u + S);");
+                // NZ baked into Pull
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | ({dst} == 0 ? 0x02 : 0x00) | ({dst} & 0x80)));");
+                break;
+            }
+            case "PushP":
+                sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
+                sb.AppendLine($"        WriteBus(0x100u + S, unchecked((byte)({p} | 0x30))); // phantom bits 4+5 set on push");
+                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                break;
+            case "PullP":
+                sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
+                sb.AppendLine($"        _ = ReadBus(0x100u + S); // dummy read at old S");
+                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
+                sb.AppendLine($"        {p} = ReadBus(0x100u + S); // verbatim — 3b-i convention");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no stack op template for '{op.Kind}' (opcode 0x{instruction.Opcode:X2})");
+        }
+    }
+
+    // ---- Flow class ----
+
+    private static void EmitFlowBody(
+        StringBuilder sb,
+        InstructionModel instruction,
+        string pc,
+        string pcType)
+    {
+        var op = instruction.Ops[0];
+        switch (op.Kind)
+        {
+            case "Jsr":
+                if (instruction.Mode != "Absolute")
+                    throw new System.InvalidOperationException(
+                        $"emitter has no JSR template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+                // JSR Absolute — 6 cycles. Fetch lo (PC++); dummy read at $0100+S;
+                // push PCH; S--; push PCL; S--; fetch hi at PC; PC = hi:lo.
+                // The pushed PC is return-address = 1 before the next instruction.
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(0x100u + S); // stack dummy read");
+                sb.AppendLine($"        WriteBus(0x100u + S, unchecked((byte)({pc} >> 8)));");
+                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                sb.AppendLine($"        WriteBus(0x100u + S, unchecked((byte){pc}));");
+                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc}); // hi byte (PC still at hi operand)");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+                break;
+            case "Rts":
+                if (instruction.Mode != "Implied")
+                    throw new System.InvalidOperationException(
+                        $"emitter has no RTS template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+                // RTS — 6 cycles. Dummy read at PC; dummy read at old S; S++; pull PCL; S++;
+                // pull PCH; dummy read at new PC; PC++.
+                sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
+                sb.AppendLine($"        _ = ReadBus(0x100u + S); // dummy read at old S");
+                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
+                sb.AppendLine($"        uint lo = ReadBus(0x100u + S);");
+                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
+                sb.AppendLine($"        uint hi = ReadBus(0x100u + S);");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+                sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at new PC before increment");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no flow op template for '{op.Kind}' (opcode 0x{instruction.Opcode:X2})");
+        }
     }
 
     // ---- Disassembler ----
