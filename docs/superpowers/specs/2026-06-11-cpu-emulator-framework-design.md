@@ -71,10 +71,14 @@ optionally attaches the JIT tier.
   Construct → Realize ordering, owns the clock. The Host builds a tiny `Breadboard6502` machine
   from this.
 - **`IScheduler`** — deliberately minimal in M1: a cycle counter plus an event-queue interface.
-  It grows real teeth in the timers milestone; defining the interface now prevents peripherals
-  from inventing their own time.
-- **Interrupt controller** — deferred. M1 CPUs expose raw IRQ/NMI boolean lines; a proper
-  `IInterruptController` device arrives with the timer milestone.
+  DELIVERED to its planned shape in the devices chunk (PR #11): `ScheduleAt` returns a
+  `ScheduledEvent` cancellation handle, `ScheduleEvery` repeats, `CurrentCycle` is
+  device-honest (the machine binds the CPU's live cycle counter), and `Machine.Run` chunks
+  CPU slices to the next pending event so callbacks fire at their exact cycle.
+- **Interrupt controller** — partially delivered. M1 CPUs exposed raw IRQ/NMI boolean lines;
+  PR #11 made the lines **wired-OR multi-source** (`IInterruptLine.Source()` per-device
+  handles — N devices share one pin, open-collector style). A prioritized
+  `IInterruptController` *device* (8259-style) remains M4+.
 
 ## 5. The ISA spec and micro-op IR
 
@@ -234,7 +238,8 @@ Each numbered item ≈ one PR-sized chunk on a branch.
       Z80 mode templates + new micro-ops, prove the extracted table with the SingleStepTests
       Z80 vectors). The Z80 itself: prefix opcodes, separate I/O space, R refresh register.
       Framework changes required here are measured and treated as findings, not failures.
-- **M4+ (phase-A horizon):** 8086 or 68000, timers + interrupt controller, real board
+- **M4+ (phase-A horizon):** 8086 or 68000, interrupt-controller *device* (timers + wired-OR
+  multi-source lines DELIVERED PR #11; a prioritized controller device remains), real board
   recreations, NuGet packaging polish, and a TomHarte-derived **spec linter** that infers
   per-opcode behavior (operand size, addressing mode, cycle shape) from the SingleStepTests
   vectors and cross-checks the curated opcode dataset. The linter is Stage 3 of the

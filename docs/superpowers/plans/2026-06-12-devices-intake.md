@@ -1198,3 +1198,116 @@ dotnet run --project src/CpuEmulator.Host                 # spot-check: m $D000 
   late by up to the running slice — documented on `Machine.Run` and in
   building-machines.md, not hidden (a re-entrant slice abort is M-next machinery nothing
   currently needs).
+
+---
+
+## Closeout (2026-06-12)
+
+All eight tasks complete on `feat/devices-intake` (the controller reordered Tasks 6/7:
+breadboard v2 + docs landed before the terminal). G1 review (Tasks 1–4) passed with two
+test-fidelity fixes folded in. Commit ladder (each independently built 0-warning and
+tested green — bisect-safe):
+
+| Commit | Content | Suite |
+|---|---|---|
+| `294a4b0` | Task 1: scheduler teeth — ScheduledEvent, ScheduleEvery, device-honest time, chunked Run | 917 |
+| `4174b25` | Task 2: wired-OR InterruptLine — Source() handles, level-OR forwarding | 924 |
+| `b1c6db4` | Task 3: Peek — IPeripheral.TryPeek, AddressSpace.TryPeek8, monitor display reads | 938 |
+| `8b8e58c` | Task 4: SimpleUart rx-IRQ — CTRL @2, level IRQ source, interrupt-driven echo | 948 |
+| `b4c171f` | G1 review fixes: real pins for Step-prefetch peek, machine-level wired-OR, lazy-cancel time | 948 |
+| `66d5839` | Task 5: IntervalTimer — write-1-clear STATUS, level IRQ, repeat via ScheduleEvery | 972 |
+| `0c94cac` | Breadboard6502 v2 — timer at $D100 + device-layer feature docs (auth. #6/#7 spent) | 974 |
+| `dca0cc0` | Raw-mode terminal — --terminal, Ctrl-] to monitor, injectable console | 994 |
+| *(this)* | Task 8: UAT relocation + spec/README/testing.md/closeout | 994 |
+
+### UAT gate record (commands verbatim, outputs recorded)
+
+```
+tools/get-test-vectors + get-klaus → vectors and Klaus binary already present at
+                                     ~\.cache\cpuemulator\vectors\ (full sweep + Klaus
+                                     runs below prove them complete)
+dotnet build --no-incremental      → Build succeeded. 0 Warning(s), 0 Error(s)
+dotnet test                        → Passed! 994/994, 0 skipped
+
+CPUEMULATOR_UAT=full dotnet test --filter "FullyQualifiedName~TomHarte"
+                                   → 160/160 passed (151 opcode theory rows + 9 runner
+                                     self-tests); per-row output tallied via the detailed
+                                     logger: "151 × ran 10000" — TOTAL 1,510,000 =
+                                     151 × 10,000, ZERO skipped cases
+
+dotnet test --filter "FullyQualifiedName~KlausFunctionalTests"
+                                   → success trap reached after 96,241,367 cycles
+                                     (EXACT match to the PR #8/#10 actuals — the
+                                     interpreter did not change; the empty-queue chunked
+                                     Run is slice-identical, as derived)
+
+dotnet test --filter "Category=UAT"
+                                   → 8/8 passed: 2 monitor (PR #7) + 3 host (PR #8) +
+                                     2 device IRQ sessions + 1 terminal session (this PR);
+                                     Klaus-through-host ran live at 40 ms vs the recorded
+                                     ~36 ms — noise, as the plan derived
+
+dotnet run … -- --demo             → Hello from Breadboard6502!        (exit 0)
+dotnet run … (REPL, scripted stdin)→ banner v2 + the getting-started transcript
+                                     re-captured byte-verbatim; spot-check: i HI then
+                                     m D000 4 shows "48 03 00 00" and the input is NOT
+                                     consumed (g 200 still prints the hello — the queue
+                                     held HI through the dump)
+dotnet run … -- --terminal (redirected stdin)
+                                   → "? --terminal needs an interactive console: …"
+                                     exit 2 (the documented interactive-only posture;
+                                     a human-typed interactive smoke is not possible in
+                                     the headless implementation environment — the docs
+                                     transcript is assembled from byte-exact captured
+                                     fragments: real banner + terminal banner line +
+                                     the scripted UAT's DemoRom.Message+"AB" output)
+```
+
+### Test-count actuals vs estimate
+
+Baseline 897 → **994 actual** (+97) vs the ~981 estimate (+~84). Per task (theory rows
+counted individually): T1 +20 (est ~15+1 — richer cancel/time-source coverage), T2 +7
+(~8), T3 +14 net (~13+2), T4 +11 net (~10, after the two authorized row removals), G1
+fixes +0 (rewrites), T5 +24 (~20 — the ±1 timestamp pin and the throw-before-Realize
+split out), terminal +20 (~11 — 9 extra key-mapping theory rows), breadboard +2 net
+(relocation + 2 new), T8 +0 (pure moves). Delta +13 over estimate, all richer pins —
+nothing was cut.
+
+### Deviations recap
+
+The seven recorded at write time stand. Five added at implementation time, each recorded
+in its commit message:
+
+1. **Task 1:** the plan's `During_dispatch_CurrentCycle_reports_the_firing_event_cycle`
+   test set the time source to 200 *before* `ScheduleAt(10)` — self-contradicting the
+   also-pinned device-honest `ScheduleAt` validation. Fixed setup order (source jumps
+   ahead *after* scheduling); the dispatch-time contract pinned is identical.
+2. **Task 1:** `src/CpuEmulator.Core/AssemblyInfo.cs` (`InternalsVisibleTo`) — forced by
+   the plan's own `internal` choice for `BindTimeSource`/`TryPeekNextEventCycle`;
+   follows the existing `CpuEmulator.Generators` precedent.
+3. **G1 review (b4c171f):** three of the new tests rewritten for fidelity — the
+   Step-prefetch peek pin was vacuous, the "machine-level" wired-OR test was line-level,
+   the lazy-cancel pin never reached its head. All three now revert-detecting.
+4. **Task 5:** the ±1 enable-write ordering pinned as **exact-inclusive** — the generated
+   core increments `_cycles` BEFORE the bus dispatch (`Mos6502Cpu.WriteBus`), so the
+   timer's enable write sees `CycleCount` including its own write cycle; fire at
+   write-cycle + PERIOD with no off-by-one. (The UAT sessions remain independent of it,
+   as designed.)
+5. **Terminal task:** the docs transcript provenance (headless environment) — assembled
+   from byte-exact captured fragments rather than one human-typed session; the
+   redirected-stdin error path verified against the real binary (exit 2).
+
+Also recorded: the host banner was updated to the v2 map (not test-pinned; the README and
+getting-started transcripts were re-captured from real runs), and `IrqBoard.RamLow` was
+renamed `LowRamLength` (G1 reviewer note, landed with Task 5's boundary move as directed).
+
+### Intake for the next chunks
+
+- **Verify-after-write for `a`** + side-effect-free Poke: feasible now, monitor-v3
+  backlog (feature decision, not transparency fix).
+- **Timer COUNT readback**: needs a wider register window — timer-v2 ideas.
+- **Reset propagation to peripherals** (`Machine.Reset` resets the CPU only; timers tick
+  across guest reset) — M-next design question.
+- **Terminal re-entry (`t` REPL command)**: stays rejected (host-v3 on real demand).
+- **`i` control-byte escapes**: discharged by `--terminal`; `i` stays printable-verbatim.
+- **WAI/STP, prioritized `IInterruptController` device**: M3+/M4+ per spec.

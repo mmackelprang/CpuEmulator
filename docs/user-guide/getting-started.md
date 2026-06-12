@@ -26,10 +26,10 @@ dotnet test
 On a fresh clone (before fetching the optional external test vectors) expect:
 
 ```
-Passed! - Failed: 0, Passed: 694, Skipped: 4, Total: 698
+Passed! - Failed: 0, Passed: 840, Skipped: 4, Total: 844
 ```
 
-The 4 skips are the vector-gated tests (TomHarte, Klaus) — they skip automatically with an actionable message when the vectors are not present. After fetching the vectors (see [Testing](testing.md)), the same command reports `Passed: 848, Skipped: 0, Total: 848` (the TomHarte theory expands to one row per opcode).
+The 4 skips are the vector-gated tests (TomHarte, Klaus) — they skip automatically with an actionable message when the vectors are not present. After fetching the vectors (see [Testing](testing.md)), the same command reports `Passed: 994, Skipped: 0, Total: 994` (the TomHarte theory expands to one row per opcode).
 
 ## First session — the Breadboard6502
 

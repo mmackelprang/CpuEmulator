@@ -5,8 +5,9 @@ A **pluggable, multi-architecture CPU-emulation framework in modern C#**, using 
 ## Try it
 
 ```
-dotnet run --project src/CpuEmulator.Host            # boot to the monitor
-dotnet run --project src/CpuEmulator.Host -- --demo  # 5-second proof: ROM prints, exits
+dotnet run --project src/CpuEmulator.Host               # boot to the monitor
+dotnet run --project src/CpuEmulator.Host -- --demo     # 5-second proof: ROM prints, exits
+dotnet run --project src/CpuEmulator.Host -- --terminal # raw per-keystroke terminal; Ctrl-] to monitor
 ```
 
 A first session — the demo ROM is already in ROM at $E000; `g` runs it, `i` talks to it,
@@ -14,7 +15,7 @@ and the monitor assembles new code anywhere in RAM:
 
 ```
 CpuEmulator — Breadboard6502
-6502 · RAM $0000-$CFFF · UART $D000 (DATA $D000, STATUS $D001) · ROM $E000-$FFFF (demo)
+6502 · RAM $0000-$CFFF · UART $D000 (DATA/STATUS/CTRL) · timer $D100 · ROM $E000-$FFFF (demo)
 UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
 * g 1000
 Hello from Breadboard6502!
@@ -34,11 +35,13 @@ Atarget $0205 reached after 6 cycles
 
 Load a binary instead: `dotnet run --project src/CpuEmulator.Host -- --load prog.bin --at $0200 --pc $0200`
 
-A few behaviors to know up front: monitor memory commands go through the live bus, so `m` over $D000
-consumes pending UART input and `a`/`m`-writes over ROM land nothing — the echo shows what is really
-there (a side-effect-free peek/poke API is recorded backlog). `i` injects everything after the first
-space verbatim — doubled spaces inject a leading space (quote the text to make leading/trailing
-spaces explicit); nothing is appended. Ctrl+C kills the process; bounded `g` budgets (default
+A few behaviors to know up front: monitor *display* reads (`m`/`d`/`s`) are side-effect-free over
+devices with an honest peek (the UART and the timer) — `m` over $D000 shows the rx queue head
+without consuming it; `a`/`m`-writes over ROM land nothing — the echo shows what is really there
+(verify-after-write is feasible now that Peek exists; recorded backlog). `i` injects everything
+after the first space verbatim — doubled spaces inject a leading space (quote the text to make
+leading/trailing spaces explicit); nothing is appended. Ctrl+C kills the process in REPL mode
+(in `--terminal` mode it is a guest byte; Ctrl-] exits the terminal); bounded `g` budgets (default
 1,000,000 cycles) are the runaway protection, and EOF (Ctrl+Z+Enter on Windows, Ctrl+D elsewhere)
 quits like `q`.
 
@@ -55,13 +58,19 @@ sweep (1,510,000 cases, zero skips)** and the **Klaus Dörmann functional test (
 at $3469, ~96M cycles)**. The single-instruction assembler (artifact ⑤) is the exact inverse
 of the disassembler from the same spec table, pinned by a 151-opcode roundtrip identity test.
 The **live machine is runnable**: `dotnet run --project src/CpuEmulator.Host` boots a
-`Breadboard6502` (52 KiB RAM, `SimpleUart` at $D000, 8 KiB demo ROM assembled at boot by
-the generated assembler) and drops into the monitor REPL. The **datasheet-extraction tooling
-is complete**: `--validate-only` validates both schemas and reports provenance coverage;
-`--diff` cross-checks two independent extractions (exit 3 on disagreements); `--review-report`
-generates a markdown review artifact. The
+`Breadboard6502` (52 KiB RAM, `SimpleUart` at $D000, `IntervalTimer` at $D100, 8 KiB demo
+ROM assembled at boot by the generated assembler) and drops into the monitor REPL. The
+**datasheet-extraction tooling is complete**: `--validate-only` validates both schemas and
+reports provenance coverage; `--diff` cross-checks two independent extractions (exit 3 on
+disagreements); `--review-report` generates a markdown review artifact. The
 [extraction runbook](docs/user-guide/extraction-runbook.md) documents the full LLM-assisted
-Stage-1 workflow. **M1 is complete.**
+Stage-1 workflow. **M1 is complete.** **The device layer is real (PR #11):** the scheduler
+has its planned teeth (`ScheduledEvent` cancellation, `ScheduleEvery`, event-chunked
+`Machine.Run`), interrupt lines are wired-OR multi-source, the UART has a level rx-IRQ
+(CTRL at $D002), a 16-bit cycle-exact `IntervalTimer` lives at $D100, monitor display
+reads are side-effect-free over honest devices (`TryPeek`), and `--terminal` opens a raw
+per-keystroke terminal onto the guest — all pinned by interrupt-driven UAT sessions
+(a WAI-free echo and a timer-IRQ counter, both monitor-assembled).
 
 For full detail see the [User Guide](docs/user-guide/README.md).
 
@@ -69,14 +78,14 @@ For full detail see the [User Guide](docs/user-guide/README.md).
 
 - [Getting Started](docs/user-guide/getting-started.md) — prerequisites, build, first session
 - [Monitor Reference](docs/user-guide/monitor-reference.md) — every REPL command
-- [Breadboard6502](docs/user-guide/breadboard6502.md) — memory map, UART, demo ROM
+- [Breadboard6502](docs/user-guide/breadboard6502.md) — memory map, UART, interval timer, demo ROM
 - [Building Machines](docs/user-guide/building-machines.md) — MachineBuilder, peripherals, monitor wiring
 - [Adding a CPU](docs/user-guide/adding-a-cpu.md) — spec tables, importer, generated artifacts
 - [Testing](docs/user-guide/testing.md) — suite, TomHarte vectors, Klaus, UAT sessions
 
 ## Architecture
 
-The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler; the IL-emission tier lands with M2); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point. All library projects are AOT-compatible; the future JIT tier (`CpuEmulator.Jit`) will be the only project that uses `Reflection.Emit`.
+The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler; the IL-emission tier lands with M2); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point. All library projects are AOT-compatible; the future JIT tier (`CpuEmulator.Jit`) will be the only project that uses `Reflection.Emit`.
 
 Full design: [`docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`](docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md)
 
@@ -86,7 +95,7 @@ Build and test:
 
 ```
 dotnet build    # 0 warnings required
-dotnet test     # 897 tests
+dotnet test     # 994 tests
 ```
 
 All work happens on short-lived feature branches; changes merge to `main` via pull request. See [Testing](docs/user-guide/testing.md) for the full pre-merge gate (TomHarte full sweep, Klaus, UAT sessions).

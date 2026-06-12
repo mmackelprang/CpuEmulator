@@ -1,7 +1,5 @@
-using System.Text;
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
-using CpuEmulator.Monitor;
 using CpuEmulator.Peripherals;
 using CpuEmulator.Tests.TestDoubles;
 
@@ -358,54 +356,7 @@ public class IntervalTimerTests
             () => timer.Write(0, AccessWidth.Byte, 0x01));
     }
 
-    // ── End-to-end: the Ground truth I timer-IRQ counting program ─────────────
-    //
-    // NOTE: relocated to Host/DeviceIrqUatTests.cs with [Category=UAT] in Task 8
-    // (move, not copy — exactly one REPL-driven copy).
-
-    [Fact]
-    public void Timer_irq_handler_counts_five_fires()
-    {
-        // Ground truth I on IrqBoard (timer at $D100): period $40 = 64 cycles, repeat,
-        // handler increments $10 per fire and write-1-clears STATUS; the main loop polls
-        // the counter and parks at $0216 when it reaches 5. Asserts TargetReached + the
-        // counter dump — both exact and independent of the enable-write timing (the loop
-        // exits *because* the counter hit 5, whenever that was).
-        var board = IrqBoard.Create();
-        board.Machine.Reset();
-
-        var engine = board.NewMonitor();
-        var output = new StringWriter();
-
-        new MonitorRepl(engine, new StringReader("""
-            m 0010: 00
-            a $0200 LDA #$40
-            a STA $D101
-            a LDA #$00
-            a STA $D102
-            a LDA #$07
-            a STA $D100
-            a CLI
-            a LDA $10
-            a CMP #$05
-            a BNE $0210
-            a JMP $0216
-            a $0300 PHA
-            a INC $10
-            a LDA #$01
-            a STA $D103
-            a PLA
-            a RTI
-            m FFFE: 00 03
-            g $0200 until $0216 2000
-            m 10 1
-            q
-            """), output).Run();
-
-        string text = output.ToString();
-
-        Assert.Contains("target $0216 reached", text);
-        Assert.Contains("0010: 05", text);
-        Assert.DoesNotContain("? ", text);
-    }
+    // The Ground truth I end-to-end (Timer_irq_handler_counting_session) lives in
+    // Host/DeviceIrqUatTests.cs with [Category=UAT] — relocated there per the plan
+    // (exactly one REPL-driven copy).
 }

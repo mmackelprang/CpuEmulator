@@ -10,9 +10,9 @@ CpuEmulator has a layered test suite. The base suite requires no external data a
 dotnet test
 ```
 
-Expected with the external vectors fetched: `Passed! - Failed: 0, Passed: 848, Skipped: 0, Total: 848`
+Expected with the external vectors fetched: `Passed! - Failed: 0, Passed: 994, Skipped: 0, Total: 994`
 
-On a fresh clone, before fetching vectors: `Passed: 694, Skipped: 4, Total: 698` — the 4 skips are the vector-gated tests (the sampled TomHarte theory, Klaus functional, and the two Klaus UAT sessions), and the TomHarte theory expands to one row per opcode (+150) once vectors are present.
+On a fresh clone, before fetching vectors: `Passed: 840, Skipped: 4, Total: 844` — the 4 skips are the vector-gated tests (the sampled TomHarte theory, Klaus functional, and the two Klaus UAT sessions), and the TomHarte theory expands to one row per opcode (+150) once vectors are present.
 
 Tests that require external vectors skip cleanly with a message when the vectors are absent. No test fails due to missing vectors — it either passes or skips.
 
@@ -24,18 +24,19 @@ Tests that require external vectors skip cleanly with a message when the vectors
 
 These always run:
 
-- **Core contracts** (`AddressSpaceMemoryTests`, `AddressSpacePeripheralTests`, `AddressSpacePolicyTests`, `MachineBuilderTests`, `MachineRunTests`, `CycleSchedulerTests`, `InterruptLineTests`)
+- **Core contracts** (`AddressSpaceMemoryTests`, `AddressSpacePeripheralTests`, `AddressSpacePolicyTests`, `MachineBuilderTests`, `MachineRunTests`, `CycleSchedulerTests`, `InterruptLineTests`, `PeekTests`)
 - **Roslyn generator** (`GeneratorHappyPathTests`, `GeneratorTestHost`, `PipelineHygieneTests`, `InstructionParsingTests`, `RegisterParsingTests`, `ModeOpValidationTests`, `DisassemblerEmissionTests`, `MonitorSupportEmissionTests`)
 - **Spec importer** (`OpcodeDatasetTests`, `SemanticsMapTests`, `SpecFileEmitterTests`, `ImporterEndToEndTests`, `RegeneratedSpecTests`)
 - **MOS 6502** (`Mos6502AluTests`, `Mos6502ProgramTests`, `Mos6502TraceTests`, `Mos6502IndexedTraceTests`, `Mos6502IndirectTraceTests`, `Mos6502RmwTraceTests`, `Mos6502StackFlowTraceTests`, `Mos6502BrkRtiTraceTests`, `Mos6502InterruptTests`, `Mos6502SkeletonTests`, `Mos6502MonitorSupportTests`)
 - **Assembler/disassembler** (`AssemblerRoundtripTests` — 151-opcode roundtrip keystone)
-- **Monitor** (`MonitorEngineTests`, `MonitorEngineExecutionTests`, `MonitorReplTests`, `MonitorRunDelegateTests`)
-- **Peripherals** (`SimpleUartTests`)
-- **Host** (`Breadboard6502Tests`, `DemoRomTests`, `HostOptionsTests`)
+- **Monitor** (`MonitorEngineTests`, `MonitorEngineExecutionTests`, `MonitorReplTests`, `MonitorRunDelegateTests`, `MonitorPeekTests`)
+- **Peripherals** (`SimpleUartTests`, `IntervalTimerTests`)
+- **Host** (`Breadboard6502Tests`, `DemoRomTests`, `HostOptionsTests`, `TerminalSessionTests`)
 
 ### UAT sessions (Category=UAT)
 
-End-to-end scenarios that drive a real machine through the monitor REPL. Run them with:
+End-to-end scenarios that drive a real machine through the monitor REPL (or, for the
+terminal session, the raw-keystroke terminal loop). Run them with:
 
 ```
 dotnet test --filter "Category=UAT"
@@ -43,12 +44,14 @@ dotnet test --filter "Category=UAT"
 
 UAT tests that require Klaus vectors skip if Klaus is not present.
 
-Currently 5 sessions:
+Currently 8 sessions:
 
 | Test class | Sessions |
 |---|---|
 | `MonitorUatTests` | Countdown program (assemble/run/inspect/disassemble, 34-cycle exact result); Klaus-via-monitor (1M-cycle slice) |
 | `HostUatTests` | Demo-hello exact transcript; echo session (inject + echo exact equality); Klaus-through-the-host smoke |
+| `DeviceIrqUatTests` | Interrupt-driven echo (UART rx-IRQ, RAM-vector `IrqBoard`, WAI-free spin — exact `"HI"` round-trip); timer-IRQ counting (repeat timer at 64 cycles, handler counts 5 fires into `$10`, run-until-park) |
+| `TerminalSessionTests` | Terminal session (demo hello + typed-key echo over the injectable console, Ctrl-] exit — byte-exact) |
 
 ### TomHarte single-step vectors
 
