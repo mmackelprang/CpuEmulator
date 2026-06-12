@@ -170,6 +170,9 @@ public class Mos6502TraceTests
         Assert.Equal(2, cpu.CycleCount);
         Assert.Equal(0x00ul, cpu.GetRegister("X"));
         AssertNZ(cpu, n: false, z: true);
+        AssertTrace(bus,
+            new BusAccess(0x0200, 0xE8, true),
+            new BusAccess(0x0201, 0x00, true)); // dummy read at PC
     }
 
     [Fact]
@@ -294,13 +297,7 @@ public class Mos6502TraceTests
     {
         // Place D0 FC at 0x0210; after operand read PC=0x0212; target=0x0212+(sbyte)0xFC=0x0212-4=0x020E
         // Both 0x0212 and 0x020E are in page 0x02xx => no page cross => 3 cycles.
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
-        inner.Write8(0x0210, 0xD0);
-        inner.Write8(0x0211, 0xFC);
-        var bus = new TracingAddressSpace(inner);
-        var cpu = new Mos6502Cpu(bus);
-        cpu.SetRegister("PC", 0x0210);
+        var (cpu, bus) = NewCpuAt(0x0210, 0xD0, 0xFC);
         cpu.SetRegister("P", 0x34); // Z clear
 
         cpu.Step();
@@ -316,13 +313,7 @@ public class Mos6502TraceTests
         // Place D0 20 at 0x02F0; after operand read PC=0x02F2; target=0x02F2+0x20=0x0312
         // 0x02F2 is page 0x02xx; 0x0312 is page 0x03xx => page cross.
         // Wrong-page dummy read address = (PC & 0xFF00) | (target & 0x00FF) = 0x0200 | 0x0012 = 0x0212
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
-        inner.Write8(0x02F0, 0xD0);
-        inner.Write8(0x02F1, 0x20);
-        var bus = new TracingAddressSpace(inner);
-        var cpu = new Mos6502Cpu(bus);
-        cpu.SetRegister("PC", 0x02F0);
+        var (cpu, bus) = NewCpuAt(0x02F0, 0xD0, 0x20);
         cpu.SetRegister("P", 0x34); // Z clear
 
         cpu.Step();
