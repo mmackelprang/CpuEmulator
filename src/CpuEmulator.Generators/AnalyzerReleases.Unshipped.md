@@ -11,3 +11,4 @@ CPUGEN007 | CpuEmulator.Spec | Error | Register role violation
 CPUGEN008 | CpuEmulator.Spec | Error | Unknown register in micro-op
 CPUGEN009 | CpuEmulator.Spec | Error | Invalid spec metadata
 CPUGEN010 | CpuEmulator.Spec | Error | Unsupported mode/op combination
+CPUGEN011 | CpuEmulator.Spec | Error | Invalid micro-op argument

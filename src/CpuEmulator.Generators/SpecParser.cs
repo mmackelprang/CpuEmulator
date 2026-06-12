@@ -9,10 +9,21 @@ namespace CpuEmulator.Generators;
 
 internal static class SpecParser
 {
-    private static readonly Dictionary<string, int> s_microOpArity = new(System.StringComparer.Ordinal)
+    /// <summary>Expected argument kind for each micro-op parameter position.</summary>
+    private enum ArgKind { Reg, Flag, Bool }
+
+    /// <summary>Per-op argument signatures; arity is the signature length. Each argument is
+    /// parsed against its EXPECTED kind only (CPUGEN011 on mismatch) — no coalescing chain,
+    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.</summary>
+    private static readonly Dictionary<string, ArgKind[]> s_microOpSignatures = new(System.StringComparer.Ordinal)
     {
-        ["Load"] = 1, ["Store"] = 1, ["Transfer"] = 2, ["Increment"] = 1,
-        ["SetNZ"] = 1, ["Jump"] = 0, ["BranchIf"] = 2,
+        ["Load"] = new[] { ArgKind.Reg },
+        ["Store"] = new[] { ArgKind.Reg },
+        ["Transfer"] = new[] { ArgKind.Reg, ArgKind.Reg },
+        ["Increment"] = new[] { ArgKind.Reg },
+        ["SetNZ"] = new[] { ArgKind.Reg },
+        ["Jump"] = System.Array.Empty<ArgKind>(),
+        ["BranchIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -84,18 +95,19 @@ internal static class SpecParser
 
         var registers = ParseRegisters(classDecl, specName, diagnostics);
 
-        if (diagnostics.Any(d => d.DescriptorId is "CPUGEN001" or "CPUGEN002" or "CPUGEN007" or "CPUGEN009"))
+        // Invariant: every CPUGEN descriptor is Error severity, so ANY diagnostic nulls
+        // the model. If a warning-severity descriptor is ever added, gate on severity here.
+        if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var registerNames = new HashSet<string>(registers.Select(r => r.Name), System.StringComparer.Ordinal);
         var instructions = ParseInstructions(classDecl, specName, registerNames, diagnostics);
 
-        if (diagnostics.Any(d => d.DescriptorId is
-            "CPUGEN003" or "CPUGEN004" or "CPUGEN005" or
-            "CPUGEN006" or "CPUGEN007" or "CPUGEN008" or "CPUGEN010"))
+        if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
-        var model = new SpecModel(ns, cpuName, architecture, registers, instructions);
+        var model = new SpecModel(ns, cpuName, architecture,
+            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -422,50 +434,59 @@ internal static class SpecParser
                 return null;
             }
 
-            if (!s_microOpArity.TryGetValue(kind, out int arity))
+            if (!s_microOpSignatures.TryGetValue(kind, out var signature))
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownMicroOp,
                     element.GetLocation(), kind));
                 return null;
             }
 
-            if (invocation.ArgumentList.Arguments.Count != arity)
+            if (invocation.ArgumentList.Arguments.Count != signature.Length)
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
-                    $"micro-op '{kind}' expects {arity} argument(s)"));
+                    $"micro-op '{kind}' expects {signature.Length} argument(s)"));
                 return null;
             }
 
             var opArgs = ImmutableArray.CreateBuilder<string>();
-            foreach (var argument in invocation.ArgumentList.Arguments)
+            for (int i = 0; i < signature.Length; i++)
             {
-                string? regName = EnumMemberName(argument.Expression, "Reg");
-                string? flagName = EnumMemberName(argument.Expression, "Flag");
-                string? value =
-                    regName ??
-                    flagName ??
-                    BoolLiteral(argument.Expression);
+                var argument = invocation.ArgumentList.Arguments[i];
+                ArgKind expected = signature[i];
+
+                string? value = expected switch
+                {
+                    ArgKind.Reg => EnumMemberName(argument.Expression, "Reg"),
+                    ArgKind.Flag => EnumMemberName(argument.Expression, "Flag"),
+                    _ => BoolLiteral(argument.Expression),
+                };
                 if (value is null)
                 {
-                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownMicroOp,
-                        argument.GetLocation(), Truncate(argument.ToString())));
+                    string description = expected switch
+                    {
+                        ArgKind.Reg => "Reg member",
+                        ArgKind.Flag => "Flag member",
+                        _ => "bool literal",
+                    };
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
+                        argument.GetLocation(), (i + 1).ToString(), kind, description));
                     return null;
                 }
 
-                if (regName is not null && s_regMembers.Contains(regName) &&
-                    !registerNames.Contains(regName))
+                if (expected == ArgKind.Reg && s_regMembers.Contains(value) &&
+                    !registerNames.Contains(value))
                 {
                     diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
-                        argument.GetLocation(), regName));
+                        argument.GetLocation(), value));
                     // Keep parsing: error gating in Parse nulls the model.
                 }
 
                 // Flag whitelist: only C, Z, I, D, V, N are allowed (CPUGEN006)
-                if (flagName is not null && !s_flagMembers.Contains(flagName))
+                if (expected == ArgKind.Flag && !s_flagMembers.Contains(value))
                 {
                     diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownMicroOp,
-                        argument.GetLocation(), flagName));
+                        argument.GetLocation(), value));
                     return null;
                 }
 

@@ -48,6 +48,10 @@ internal static class SpecDiagnostics
         "CPUGEN010", "Unsupported mode/op combination",
         "Instruction '{0}': {1}");
 
+    public static readonly DiagnosticDescriptor InvalidMicroOpArgument = Make(
+        "CPUGEN011", "Invalid micro-op argument",
+        "Argument {0} of '{1}' must be a {2}");
+
     public static DiagnosticDescriptor ById(string id) => id switch
     {
         "CPUGEN001" => MissingRegisters,
@@ -60,6 +64,7 @@ internal static class SpecDiagnostics
         "CPUGEN008" => UnknownRegisterInOp,
         "CPUGEN009" => InvalidSpecMetadata,
         "CPUGEN010" => UnsupportedModeOpCombination,
+        "CPUGEN011" => InvalidMicroOpArgument,
         _ => throw new System.ArgumentException($"Unknown diagnostic id '{id}'."),
     };
 }

@@ -138,6 +138,57 @@ public class ModeOpValidationTests
     }
 
     [Fact]
+    public void SetNZ_with_flag_argument_reports_CPUGEN011()
+    {
+        string source = WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "XYZ", AddrMode.Implied, [SetNZ(Flag.Z)]),
+                ];
+            """);
+        var result = GeneratorTestHost.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
+        Assert.Contains("must be a Reg member", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void BranchIf_with_register_first_argument_reports_CPUGEN011_at_that_argument()
+    {
+        string source = WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "BNE", AddrMode.Relative, [BranchIf(Reg.A, false)]),
+                ];
+            """);
+        var result = GeneratorTestHost.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
+        string locationText = source.Substring(
+            diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length);
+        Assert.Equal("Reg.A", locationText); // points at the FIRST argument
+        Assert.Contains("Argument 1 of 'BranchIf' must be a Flag member", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void Transfer_with_flag_second_argument_reports_CPUGEN011_at_that_argument()
+    {
+        string source = WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "TAX", AddrMode.Implied, [Transfer(Reg.A, Flag.C)]),
+                ];
+            """);
+        var result = GeneratorTestHost.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
+        string locationText = source.Substring(
+            diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length);
+        Assert.Equal("Flag.C", locationText); // points at the SECOND argument
+        Assert.Contains("Argument 2 of 'Transfer' must be a Reg member", diagnostic.GetMessage());
+    }
+
+    [Fact]
     public void Valid_subset_passes_with_no_CPUGEN_diagnostics()
     {
         // The full 11-opcode 6502 subset, verbatim from Mos6502Spec, run through the

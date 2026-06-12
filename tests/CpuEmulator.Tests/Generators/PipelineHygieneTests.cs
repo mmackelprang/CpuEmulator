@@ -48,10 +48,17 @@ public class PipelineHygieneTests
 
         var result = GeneratorTestHost.Run(source);
 
-        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN009");
+        // One CPUGEN009 per collider, each pointing at that spec's class identifier.
+        var collisions = result.GeneratorDiagnostics.Where(d => d.Id == "CPUGEN009").ToList();
+        Assert.Equal(2, collisions.Count);
+        Assert.Contains(collisions, d => SpanText(source, d) == "Tiny6502Spec");
+        Assert.Contains(collisions, d => SpanText(source, d) == "OtherSpec");
         Assert.DoesNotContain(result.CompilationDiagnostics, d => d.Id == "CS8785");
         Assert.Empty(result.GeneratedTrees); // neither emitted on collision
     }
+
+    private static string SpanText(string source, Diagnostic diagnostic) =>
+        source.Substring(diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length);
 
     [Fact]
     public void Record_spec_class_reports_CPUGEN009()
@@ -82,5 +89,40 @@ public class PipelineHygieneTests
             diagnostic.Location.SourceSpan.Start,
             diagnostic.Location.SourceSpan.Length);
         Assert.StartsWith("Insn(0xA9, \"NOP\"", locationText);
+    }
+
+    [Fact]
+    public void Identical_reparse_hits_the_incremental_cache()
+    {
+        // Pins value-equality of the whole pipeline state (ParsedSpec → SpecModel →
+        // EquatableArray fields): a reparsed-but-identical source must yield Cached or
+        // Unchanged step outputs, never Modified/New. Without element-wise equality,
+        // raw ImmutableArray fields compare by reference and every keystroke would
+        // re-run the Collect node and re-emit every source.
+        var runResult = GeneratorTestHost.RunTwiceWithReparse(GeneratorHappyPathTests.ValidSpecSource);
+        var result = Assert.Single(runResult.Results);
+
+        // The FAWMN transform re-runs on the new tree but must produce an EQUAL ParsedSpec:
+        var specSteps = result.TrackedSteps["Specs"];
+        Assert.NotEmpty(specSteps);
+        Assert.All(specSteps, step => Assert.All(step.Outputs, output =>
+            Assert.True(
+                output.Reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
+                $"'Specs' output reason was {output.Reason}")));
+
+        // ...so the Collect node and the source output are reused, not re-executed:
+        var collectedSteps = result.TrackedSteps["Collected"];
+        Assert.NotEmpty(collectedSteps);
+        Assert.All(collectedSteps, step => Assert.All(step.Outputs, output =>
+            Assert.True(
+                output.Reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
+                $"'Collected' output reason was {output.Reason}")));
+
+        Assert.NotEmpty(result.TrackedOutputSteps);
+        Assert.All(result.TrackedOutputSteps.SelectMany(kv => kv.Value),
+            step => Assert.All(step.Outputs, output =>
+                Assert.True(
+                    output.Reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
+                    $"output step reason was {output.Reason}")));
     }
 }
