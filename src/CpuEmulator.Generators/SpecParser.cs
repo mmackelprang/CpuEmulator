@@ -9,10 +9,21 @@ namespace CpuEmulator.Generators;
 
 internal static class SpecParser
 {
-    private static readonly Dictionary<string, int> s_microOpArity = new(System.StringComparer.Ordinal)
+    /// <summary>Expected argument kind for each micro-op parameter position.</summary>
+    private enum ArgKind { Reg, Flag, Bool }
+
+    /// <summary>Per-op argument signatures; arity is the signature length. Each argument is
+    /// parsed against its EXPECTED kind only (CPUGEN011 on mismatch) — no coalescing chain,
+    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.</summary>
+    private static readonly Dictionary<string, ArgKind[]> s_microOpSignatures = new(System.StringComparer.Ordinal)
     {
-        ["Load"] = 1, ["Store"] = 1, ["Transfer"] = 2, ["Increment"] = 1,
-        ["SetNZ"] = 1, ["Jump"] = 0, ["BranchIf"] = 2,
+        ["Load"] = new[] { ArgKind.Reg },
+        ["Store"] = new[] { ArgKind.Reg },
+        ["Transfer"] = new[] { ArgKind.Reg, ArgKind.Reg },
+        ["Increment"] = new[] { ArgKind.Reg },
+        ["SetNZ"] = new[] { ArgKind.Reg },
+        ["Jump"] = System.Array.Empty<ArgKind>(),
+        ["BranchIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -27,14 +38,32 @@ internal static class SpecParser
         "A", "X", "Y", "S",
     };
 
+    /// <summary>Valid Flag enum members for BranchIf (CPUGEN006 for anything else).</summary>
+    private static readonly HashSet<string> s_flagMembers = new(System.StringComparer.Ordinal)
+    {
+        "C", "Z", "I", "D", "V", "N",
+    };
+
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
     {
-        var classDecl = (ClassDeclarationSyntax)context.TargetNode;
-        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+        // Predicate was widened to TypeDeclarationSyntax; reject non-class kinds here.
+        // Note: RecordDeclarationSyntax derives from TypeDeclarationSyntax, NOT from
+        // ClassDeclarationSyntax, so this single check also rejects record declarations.
+        if (context.TargetNode is not ClassDeclarationSyntax classDecl)
+        {
+            var typeDecl = (TypeDeclarationSyntax)context.TargetNode;
+            var earlyDiag = new DiagnosticInfo(
+                SpecDiagnostics.InvalidSpecMetadata,
+                typeDecl.Identifier.GetLocation(),
+                "spec must be a non-record class declaration");
+            return new ParsedSpec(null, ImmutableArray.Create(earlyDiag));
+        }
+
+        var diagnostics = ImmutableArray.CreateBuilder<DiagnosticInfo>();
 
         if (context.TargetSymbol.ContainingNamespace.IsGlobalNamespace)
         {
-            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidSpecMetadata,
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidSpecMetadata,
                 classDecl.Identifier.GetLocation(),
                 "spec class must be declared inside a namespace"));
             return new ParsedSpec(null, diagnostics.ToImmutable());
@@ -59,35 +88,38 @@ internal static class SpecParser
 
         if (!SyntaxFacts.IsValidIdentifier(cpuName))
         {
-            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidSpecMetadata,
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidSpecMetadata,
                 classDecl.Identifier.GetLocation(),
                 $"generated CPU class name '{cpuName}' is not a valid C# identifier"));
         }
 
         var registers = ParseRegisters(classDecl, specName, diagnostics);
 
-        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        // Invariant: every CPUGEN descriptor is Error severity, so ANY diagnostic nulls
+        // the model. If a warning-severity descriptor is ever added, gate on severity here.
+        if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var registerNames = new HashSet<string>(registers.Select(r => r.Name), System.StringComparer.Ordinal);
         var instructions = ParseInstructions(classDecl, specName, registerNames, diagnostics);
 
-        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
-        var model = new SpecModel(ns, cpuName, architecture, registers, instructions);
+        var model = new SpecModel(ns, cpuName, architecture,
+            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
     private static ImmutableArray<RegisterModel> ParseRegisters(
         ClassDeclarationSyntax classDecl,
         string specName,
-        ImmutableArray<Diagnostic>.Builder diagnostics)
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
     {
         var field = FindArrayField(classDecl, "Registers");
         if (field?.Declaration.Variables[0].Initializer?.Value is not CollectionExpressionSyntax collection)
         {
-            diagnostics.Add(Diagnostic.Create(
+            diagnostics.Add(new DiagnosticInfo(
                 SpecDiagnostics.MissingRegisters, classDecl.Identifier.GetLocation(), specName));
             return ImmutableArray<RegisterModel>.Empty;
         }
@@ -103,7 +135,7 @@ internal static class SpecParser
                 LiteralString(args[0]) is not { } name ||
                 LiteralInt(args[1]) is not { } bits)
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), element.ToString(),
                     "expected new(\"NAME\", bits[, RegisterRole.X]) with literal arguments"));
                 continue;
@@ -111,21 +143,21 @@ internal static class SpecParser
 
             if (!SyntaxFacts.IsValidIdentifier(name))
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), name, "register name must be a valid C# identifier"));
                 continue;
             }
 
             if (bits is not (8 or 16))
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), name, "register width must be 8 or 16 bits"));
                 continue;
             }
 
             if (!seenNames.Add(name))
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), name, "duplicate register name"));
                 continue;
             }
@@ -135,7 +167,7 @@ internal static class SpecParser
             {
                 if (EnumMemberName(args[2], "RegisterRole") is not { } parsedRole)
                 {
-                    diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                         element.GetLocation(), name, "third argument must be a RegisterRole member"));
                     continue;
                 }
@@ -147,11 +179,11 @@ internal static class SpecParser
 
         int pcCount = registers.Count(r => r.Role == "ProgramCounter");
         if (pcCount != 1)
-            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.RoleViolation,
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.RoleViolation,
                 classDecl.Identifier.GetLocation(),
                 $"spec must declare exactly one ProgramCounter register (found {pcCount})"));
         if (registers.Count(r => r.Role == "Status") > 1)
-            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.RoleViolation,
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.RoleViolation,
                 classDecl.Identifier.GetLocation(), "spec declares more than one Status register"));
 
         return registers.ToImmutable();
@@ -161,12 +193,12 @@ internal static class SpecParser
         ClassDeclarationSyntax classDecl,
         string specName,
         HashSet<string> registerNames,
-        ImmutableArray<Diagnostic>.Builder diagnostics)
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
     {
         var field = FindArrayField(classDecl, "Instructions");
         if (field?.Declaration.Variables[0].Initializer?.Value is not CollectionExpressionSyntax collection)
         {
-            diagnostics.Add(Diagnostic.Create(
+            diagnostics.Add(new DiagnosticInfo(
                 SpecDiagnostics.MissingInstructions, classDecl.Identifier.GetLocation(), specName));
             return ImmutableArray<InstructionModel>.Empty;
         }
@@ -180,7 +212,7 @@ internal static class SpecParser
                 InvokedName(invocation) != "Insn" ||
                 invocation.ArgumentList.Arguments.Count != 4)
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
                     "expected Insn(opcode, \"MNEMONIC\", AddrMode.X, [micro-ops])"));
                 continue;
@@ -193,28 +225,38 @@ internal static class SpecParser
 
             if (opcode is null || mnemonic is null)
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
                     "opcode and mnemonic must be literals"));
                 continue;
             }
             if (mode is null || !s_addrModes.Contains(mode))
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
                     "third argument must be a known AddrMode member"));
                 continue;
             }
             if (opcode is < 0 or > 0xFF)
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
                     $"opcode 0x{opcode.Value:X} is outside 0x00-0xFF"));
                 continue;
             }
+
+            // Mnemonic validation: must match ^[A-Z][A-Z0-9]{0,7}$
+            if (!IsValidMnemonic(mnemonic))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    "mnemonic must be 1-8 uppercase letters/digits"));
+                continue;
+            }
+
             if (!seenOpcodes.Add(opcode.Value))
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.DuplicateOpcode,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.DuplicateOpcode,
                     element.GetLocation(), opcode.Value.ToString("X2")));
                 continue;
             }
@@ -225,16 +267,161 @@ internal static class SpecParser
                 continue; // ParseOps reported the diagnostic
             }
 
+            // Mode/op class validation (CPUGEN010)
+            if (!ValidateModeOpClass(element.GetLocation(), mnemonic, mode, ops, diagnostics))
+                continue;
+
             instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, ops));
         }
 
         return instructions.ToImmutable();
     }
 
+    /// <summary>
+    /// Validates that the instruction's addressing mode is consistent with its op class.
+    /// Returns false (and emits CPUGEN010) on violation.
+    /// </summary>
+    private static bool ValidateModeOpClass(
+        Location location,
+        string mnemonic,
+        string mode,
+        ImmutableArray<OpModel> ops,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        // Determine op class from ops array.
+        // register class: all ops are Transfer/Increment/SetNZ (empty is also register class)
+        // load class: first op is Load, remaining are register ops
+        // store class: exactly one Store
+        // jump class: exactly one Jump
+        // branch class: exactly one BranchIf
+
+        string? opClass = ClassifyOps(ops, out string? classError);
+        if (opClass is null)
+        {
+            // ops themselves are ambiguous/invalid — report CPUGEN010
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic, classError!));
+            return false;
+        }
+
+        string? modeError = ValidateModeForClass(mode, opClass);
+        if (modeError is not null)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic, modeError));
+            return false;
+        }
+
+        return true;
+    }
+
+    private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Transfer", "Increment", "SetNZ",
+    };
+
+    private static string? ClassifyOps(ImmutableArray<OpModel> ops, out string? error)
+    {
+        error = null;
+        if (ops.Length == 0)
+            return "register"; // empty = implied/register class
+
+        string first = ops[0].Kind;
+
+        if (first == "Load")
+        {
+            // Remaining must all be register ops
+            for (int i = 1; i < ops.Length; i++)
+            {
+                if (!s_registerOpKinds.Contains(ops[i].Kind))
+                {
+                    error = $"Load must be the first op and remaining ops must be register ops (Transfer/Increment/SetNZ), but found '{ops[i].Kind}' after Load";
+                    return null;
+                }
+            }
+            return "load";
+        }
+
+        if (first == "Store")
+        {
+            if (ops.Length != 1)
+            {
+                error = "Store class must contain exactly one Store op";
+                return null;
+            }
+            return "store";
+        }
+
+        if (first == "Jump")
+        {
+            if (ops.Length != 1)
+            {
+                error = "Jump class must contain exactly one Jump op";
+                return null;
+            }
+            return "jump";
+        }
+
+        if (first == "BranchIf")
+        {
+            if (ops.Length != 1)
+            {
+                error = "Branch class must contain exactly one BranchIf op";
+                return null;
+            }
+            return "branch";
+        }
+
+        // All must be register ops
+        foreach (var op in ops)
+        {
+            if (!s_registerOpKinds.Contains(op.Kind))
+            {
+                error = $"op '{op.Kind}' is not valid here; expected a load/store/jump/branch op first, or only register ops (Transfer/Increment/SetNZ)";
+                return null;
+            }
+        }
+        return "register";
+    }
+
+    private static string? ValidateModeForClass(string mode, string opClass) => (opClass, mode) switch
+    {
+        ("register", "Implied") => null,
+        ("register", _) => "register-class ops (Transfer/Increment/SetNZ or empty) require Implied mode",
+        ("load", "Immediate") => null,
+        ("load", "ZeroPage") => null,
+        ("load", "Absolute") => null,
+        ("load", _) => "Load requires Immediate, ZeroPage, or Absolute mode",
+        ("store", "ZeroPage") => null,
+        ("store", "Absolute") => null,
+        ("store", _) => "Store requires ZeroPage or Absolute mode",
+        ("jump", "Absolute") => null,
+        ("jump", _) => "Jump requires Absolute mode",
+        ("branch", "Relative") => null,
+        ("branch", _) => "BranchIf requires Relative mode",
+        _ => $"unrecognised op class '{opClass}'"
+    };
+
+    /// <summary>Mnemonic must match ^[A-Z][A-Z0-9]{0,7}$ (1–8 uppercase letters/digits, first must be letter).</summary>
+    private static bool IsValidMnemonic(string mnemonic)
+    {
+        if (mnemonic.Length == 0 || mnemonic.Length > 8)
+            return false;
+        if (mnemonic[0] < 'A' || mnemonic[0] > 'Z')
+            return false;
+        for (int i = 1; i < mnemonic.Length; i++)
+        {
+            char c = mnemonic[i];
+            if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
+                return false;
+        }
+        return true;
+    }
+
     private static ImmutableArray<OpModel>? ParseOps(
         CollectionExpressionSyntax collection,
         HashSet<string> registerNames,
-        ImmutableArray<Diagnostic>.Builder diagnostics)
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
     {
         var ops = ImmutableArray.CreateBuilder<OpModel>();
         foreach (var element in collection.Elements)
@@ -242,47 +429,65 @@ internal static class SpecParser
             if (element is not ExpressionElementSyntax { Expression: InvocationExpressionSyntax invocation } ||
                 InvokedName(invocation) is not { } kind)
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownMicroOp,
                     element.GetLocation(), Truncate(element.ToString())));
                 return null;
             }
 
-            if (!s_microOpArity.TryGetValue(kind, out int arity))
+            if (!s_microOpSignatures.TryGetValue(kind, out var signature))
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownMicroOp,
                     element.GetLocation(), kind));
                 return null;
             }
 
-            if (invocation.ArgumentList.Arguments.Count != arity)
+            if (invocation.ArgumentList.Arguments.Count != signature.Length)
             {
-                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
-                    $"micro-op '{kind}' expects {arity} argument(s)"));
+                    $"micro-op '{kind}' expects {signature.Length} argument(s)"));
                 return null;
             }
 
             var opArgs = ImmutableArray.CreateBuilder<string>();
-            foreach (var argument in invocation.ArgumentList.Arguments)
+            for (int i = 0; i < signature.Length; i++)
             {
-                string? regName = EnumMemberName(argument.Expression, "Reg");
-                string? value =
-                    regName ??
-                    EnumMemberName(argument.Expression, "Flag") ??
-                    BoolLiteral(argument.Expression);
+                var argument = invocation.ArgumentList.Arguments[i];
+                ArgKind expected = signature[i];
+
+                string? value = expected switch
+                {
+                    ArgKind.Reg => EnumMemberName(argument.Expression, "Reg"),
+                    ArgKind.Flag => EnumMemberName(argument.Expression, "Flag"),
+                    _ => BoolLiteral(argument.Expression),
+                };
                 if (value is null)
                 {
-                    diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
-                        argument.GetLocation(), Truncate(argument.ToString())));
+                    string description = expected switch
+                    {
+                        ArgKind.Reg => "Reg member",
+                        ArgKind.Flag => "Flag member",
+                        _ => "bool literal",
+                    };
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
+                        argument.GetLocation(), (i + 1).ToString(), kind, description));
                     return null;
                 }
 
-                if (regName is not null && s_regMembers.Contains(regName) &&
-                    !registerNames.Contains(regName))
+                if (expected == ArgKind.Reg && s_regMembers.Contains(value) &&
+                    !registerNames.Contains(value))
                 {
-                    diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownRegisterInOp,
-                        argument.GetLocation(), regName));
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
+                        argument.GetLocation(), value));
                     // Keep parsing: error gating in Parse nulls the model.
+                }
+
+                // Flag whitelist: only C, Z, I, D, V, N are allowed (CPUGEN006)
+                if (expected == ArgKind.Flag && !s_flagMembers.Contains(value))
+                {
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownMicroOp,
+                        argument.GetLocation(), value));
+                    return null;
                 }
 
                 opArgs.Add(value);

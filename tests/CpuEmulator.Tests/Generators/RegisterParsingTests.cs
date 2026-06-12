@@ -3,7 +3,8 @@ namespace CpuEmulator.Tests.Generators;
 public class RegisterParsingTests
 {
     private static string WithRegisters(string registersBody) =>
-        GeneratorHappyPathTests.ValidSpecSource.Replace(
+        GeneratorTestHost.ReplaceSection(
+            GeneratorHappyPathTests.ValidSpecSource,
             """
                 public static readonly RegisterDef[] Registers =
                 [

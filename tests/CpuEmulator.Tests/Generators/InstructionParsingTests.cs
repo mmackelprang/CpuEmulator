@@ -3,7 +3,8 @@ namespace CpuEmulator.Tests.Generators;
 public class InstructionParsingTests
 {
     private static string WithInstructions(string instructionsBody) =>
-        GeneratorHappyPathTests.ValidSpecSource.Replace(
+        GeneratorTestHost.ReplaceSection(
+            GeneratorHappyPathTests.ValidSpecSource,
             """
                 public static readonly InstructionDef[] Instructions =
                 [
@@ -100,19 +101,23 @@ public class InstructionParsingTests
     [Fact]
     public void Micro_op_referencing_undeclared_register_reports_CPUGEN008()
     {
-        var result = GeneratorTestHost.Run(WithInstructions("""
+        string source = WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
                     Insn(0xA0, "LDY", AddrMode.Immediate, [Load(Reg.Y), SetNZ(Reg.Y)]),
                 ];
-            """));
+            """);
+        var result = GeneratorTestHost.Run(source);
 
         Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN008");
 
         // The diagnostic points at the offending argument, not the spec class.
+        // Location is an external-file location (no SourceTree) after the DiagnosticInfo
+        // conversion — read span text from the original source string instead.
         var diagnostic = result.GeneratorDiagnostics.First(d => d.Id == "CPUGEN008");
-        string locationText = diagnostic.Location.SourceTree!.GetText()
-            .ToString(diagnostic.Location.SourceSpan);
+        string locationText = source.Substring(
+            diagnostic.Location.SourceSpan.Start,
+            diagnostic.Location.SourceSpan.Length);
         Assert.Contains("Reg.Y", locationText);
     }
 
@@ -150,17 +155,21 @@ public class InstructionParsingTests
     [Fact]
     public void Duplicate_opcode_diagnostic_points_at_the_duplicate_row()
     {
-        var result = GeneratorTestHost.Run(WithInstructions("""
+        string source = WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
                     Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A)]),
                     Insn(0xA9, "LDA", AddrMode.ZeroPage, [Load(Reg.A)]),
                 ];
-            """));
+            """);
+        var result = GeneratorTestHost.Run(source);
 
         var diagnostic = result.GeneratorDiagnostics.First(d => d.Id == "CPUGEN005");
-        string locationText = diagnostic.Location.SourceTree!.GetText()
-            .ToString(diagnostic.Location.SourceSpan);
+        // Location is an external-file location (no SourceTree) after the DiagnosticInfo
+        // conversion — read span text from the original source string instead.
+        string locationText = source.Substring(
+            diagnostic.Location.SourceSpan.Start,
+            diagnostic.Location.SourceSpan.Length);
         Assert.StartsWith("Insn", locationText);
         Assert.Contains("ZeroPage", locationText); // the second row, not the first
     }
