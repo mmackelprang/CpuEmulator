@@ -1,0 +1,4 @@
+# Pin C# sources to LF regardless of core.autocrlf: raw string literals inherit the
+# source file's line endings, and the tests' cross-file needle/haystack Replace
+# (ValidSpecSource mutation helpers) must not depend on checkout smudging.
+*.cs text eol=lf

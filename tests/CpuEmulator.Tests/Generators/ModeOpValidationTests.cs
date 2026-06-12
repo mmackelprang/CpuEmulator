@@ -2,9 +2,11 @@ namespace CpuEmulator.Tests.Generators;
 
 public class ModeOpValidationTests
 {
-    // Replace helper matching InstructionParsingTests.WithInstructions pattern.
+    // Replace helper matching InstructionParsingTests.WithInstructions pattern
+    // (line-ending-agnostic + loud-failure guard via ReplaceSection).
     private static string WithInstructions(string instructionsBody) =>
-        GeneratorHappyPathTests.ValidSpecSource.Replace(
+        GeneratorTestHost.ReplaceSection(
+            GeneratorHappyPathTests.ValidSpecSource,
             """
                 public static readonly InstructionDef[] Instructions =
                 [
@@ -138,8 +140,9 @@ public class ModeOpValidationTests
     [Fact]
     public void Valid_subset_passes_with_no_CPUGEN_diagnostics()
     {
-        // The full 11-opcode 6502 subset (from Mos6502Spec) run through the harness.
-        // Uses ValidSpecSource registers (A, X, S, P, PC) — drops Y-dependent insns.
+        // The full 11-opcode 6502 subset, verbatim from Mos6502Spec, run through the
+        // harness. ValidSpecSource's registers (A, X, S, P, PC) suffice: no instruction
+        // in the subset references Y.
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [

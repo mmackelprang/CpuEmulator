@@ -20,6 +20,23 @@ internal sealed record GeneratorRunResult(
 
 internal static class GeneratorTestHost
 {
+    /// <summary>
+    /// Line-ending-agnostic section replace for spec-source mutation in tests.
+    /// Raw string literals inherit their source file's line endings, so a CRLF test file
+    /// produces needles that silently fail to match an LF ValidSpecSource (and vice versa),
+    /// turning rejection tests vacuous. Normalizes both sides to LF and fails loudly if
+    /// the needle did not match.
+    /// </summary>
+    public static string ReplaceSection(string source, string needle, string replacement)
+    {
+        string normalizedSource = source.Replace("\r\n", "\n");
+        string result = normalizedSource.Replace(
+            needle.Replace("\r\n", "\n"),
+            replacement.Replace("\r\n", "\n"));
+        Assert.NotEqual(normalizedSource, result); // guard: the Replace must fire
+        return result;
+    }
+
     private static readonly ImmutableArray<MetadataReference> s_references = BuildReferences();
 
     private static ImmutableArray<MetadataReference> BuildReferences()

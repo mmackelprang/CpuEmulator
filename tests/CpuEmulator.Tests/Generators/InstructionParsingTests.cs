@@ -3,7 +3,8 @@ namespace CpuEmulator.Tests.Generators;
 public class InstructionParsingTests
 {
     private static string WithInstructions(string instructionsBody) =>
-        GeneratorHappyPathTests.ValidSpecSource.Replace(
+        GeneratorTestHost.ReplaceSection(
+            GeneratorHappyPathTests.ValidSpecSource,
             """
                 public static readonly InstructionDef[] Instructions =
                 [

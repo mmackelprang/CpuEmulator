@@ -36,8 +36,9 @@ internal static class SpecParser
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
     {
         // Predicate was widened to TypeDeclarationSyntax; reject non-class kinds here.
-        if (context.TargetNode is not ClassDeclarationSyntax classDecl ||
-            context.TargetNode is RecordDeclarationSyntax)
+        // Note: RecordDeclarationSyntax derives from TypeDeclarationSyntax, NOT from
+        // ClassDeclarationSyntax, so this single check also rejects record declarations.
+        if (context.TargetNode is not ClassDeclarationSyntax classDecl)
         {
             var typeDecl = (TypeDeclarationSyntax)context.TargetNode;
             var earlyDiag = new DiagnosticInfo(
