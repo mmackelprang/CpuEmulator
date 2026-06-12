@@ -202,17 +202,30 @@ Each numbered item ≈ one PR-sized chunk on a branch.
   5. Monitor + generated single-instruction assembler (decision 2026-06-12): CPU-agnostic
      monitor engine (load/save/disassemble/modify/assemble/registers/step) — the automated
      acceptance-test surface.
-  6. Peripherals (Ram/Rom/SimpleUart) + Host (with monitor REPL) + Klaus demo running.
+  6. Datasheet-extraction runbook, Stages 1–2 (decision 2026-06-12): LLM-assisted extraction
+     of opcode datasets + draft semantics maps from CPU PDFs/manuals directly into the
+     importer's schemas; a cross-source diff tool (two independent documents must agree) and a
+     `--validate-only` importer mode; per-row provenance citations (schema field added 3b-i)
+     and a review-report generator. Verification stack: strict loaders → CPUGEN diagnostics →
+     e2e generator gate → SingleStepTests sweeps where vectors exist. Extraction eliminates
+     transcription and drafts semantics; per-family micro-op vocabulary and mode cycle-templates
+     remain hand work by design.
+  7. Peripherals (Ram/Rom/SimpleUart) + Host (with monitor REPL) + Klaus demo running.
 - **M2 — the JIT**
-  7. Block compiler + cache + fastmem split.
-  8. Parity harness + benchmarks.
+  8. Block compiler + cache + fastmem split.
+  9. Parity harness + benchmarks.
 - **M3 — the pluggability proof**
-  9. Z80 by spec only (prefix opcodes, separate I/O space, R refresh register). Framework changes
-     required here are measured and treated as findings, not failures.
+  10. Z80 by spec only — and **by extraction**: M3 doubles as the acceptance test of the
+      datasheet-extraction approach (run the runbook against the Z80 manual, hand-build the
+      Z80 mode templates + new micro-ops, prove the extracted table with the SingleStepTests
+      Z80 vectors). The Z80 itself: prefix opcodes, separate I/O space, R refresh register.
+      Framework changes required here are measured and treated as findings, not failures.
 - **M4+ (phase-A horizon):** 8086 or 68000, timers + interrupt controller, real board
   recreations, NuGet packaging polish, and a TomHarte-derived **spec linter** that infers
   per-opcode behavior (operand size, addressing mode, cycle shape) from the SingleStepTests
-  vectors and cross-checks the curated opcode dataset.
+  vectors and cross-checks the curated opcode dataset. The linter is Stage 3 of the
+  datasheet-extraction pipeline (decision 2026-06-12): extraction proposes, vector
+  inference disposes.
 
 ## 10. Success criteria
 
