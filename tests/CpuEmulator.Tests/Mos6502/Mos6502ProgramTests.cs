@@ -54,6 +54,56 @@ public class Mos6502ProgramTests
     }
 
     [Fact]
+    public void Jsr_rts_roundtrip_returns_past_the_call()
+    {
+        // Layout @0x0200: JSR $8000 (3 bytes); NOP (1 byte) at 0x0203
+        //   @0x8000: RTS
+        // After JSR: PC=0x8000, S decremented by 2 (pushed 0x02,0x02 return-1)
+        // After RTS: PC=0x0203, S restored
+        // Total cycles: JSR(6) + RTS(6) = 12
+        var (cpu, space) = NewCpu(
+            0x20, 0x00, 0x80,  // JSR $8000
+            0xEA);             // NOP at 0x0203
+        space.Write8(0x8000, 0x60); // RTS
+        cpu.SetRegister("S", 0xFD); // match hardware post-reset S
+
+        ulong sAfterJsr = 0;
+        cpu.Step(); // JSR
+        sAfterJsr = cpu.GetRegister("S");
+        cpu.Step(); // RTS
+
+        Assert.Equal(0x0203ul, cpu.GetRegister("PC")); // landed past the 3-byte JSR
+        Assert.Equal(0x00FDul, cpu.GetRegister("S"));  // S restored to initial (FD after startup)
+        Assert.Equal(12, cpu.CycleCount);
+    }
+
+    [Fact]
+    public void Countdown_loop_with_DEX_CPX_BNE()
+    {
+        // LDX #3 (0xA2 0x03) = 2 cy
+        // loop: DEX (0xCA) = 2 cy; CPX #0 (0xE0 0x00) = 2 cy; BNE loop (0xD0 0xFB) = 3/2 cy
+        // 3 iterations of DEX: X=3→2→1→0
+        // Iteration 1 (X=3→2): DEX+CPX+BNE-taken (target 0x0202 from 0x0207) → 2+2+3=7
+        // Iteration 2 (X=2→1): DEX+CPX+BNE-taken → 7
+        // Iteration 3 (X=1→0): DEX+CPX+BNE-not-taken (Z=1) → 2+2+2=6
+        // Total: LDX(2) + 3×DEX(2) + 3×CPX(2) + 2×BNE-taken(3) + 1×BNE-not-taken(2)
+        //      = 2 + 6 + 6 + 6 + 2 = 22
+        var (cpu, _) = NewCpu(
+            0xA2, 0x03,        // 0200: LDX #3
+            0xCA,              // 0202: DEX
+            0xE0, 0x00,        // 0203: CPX #0
+            0xD0, 0xFB);       // 0205: BNE $0202 (offset 0xFB = -5 from 0x0207 → 0x0202)
+
+        int guard = 0;
+        while (cpu.GetRegister("PC") != 0x0207 && ++guard < 500)
+            cpu.Step();
+
+        Assert.Equal(0x0207ul, cpu.GetRegister("PC"));
+        Assert.Equal(0ul, cpu.GetRegister("X"));
+        Assert.Equal(22, cpu.CycleCount);
+    }
+
+    [Fact]
     public void Program_runs_inside_a_Machine_via_reset_vector()
     {
         var machine = Machine.Create("breadboard")

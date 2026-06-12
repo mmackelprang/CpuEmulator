@@ -10,9 +10,15 @@ semantics map.
 dotnet run --project tools/CpuEmulator.SpecImporter -- \
   --dataset  tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
   --semantics tools/CpuEmulator.SpecImporter/data/mos6502-semantics.json \
-  --out      <output-path>/Mos6502Spec.g.cs \
+  --out      src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs \
   [--report]
 ```
+
+This is the canonical regeneration command (it also appears in the generated file's
+header). As of chunk 3b-i the committed `Mos6502Spec.cs` **is** this tool's output —
+`RegeneratedSpecTests.Committed_Mos6502Spec_is_exactly_the_tool_output` pins the
+committed file to a fresh run, so hand-edits to the spec file will fail the suite;
+edit the data files and regenerate instead.
 
 ## Data files
 
@@ -31,6 +37,8 @@ set). The dataset is independently verified by:
 3. The 11-opcode regression anchor against the live hand-written `Mos6502Spec`.
 4. Chunk 3b's TomHarte test-vector gate (covers every opcode exhaustively).
 
+Each row may include an optional `"source"` string field (e.g. `"MOS hardware manual p.143, table A-1"`) that cites the datasheet or document from which the entry was extracted; the field is `null` when absent and is carried through to `OpcodeEntry.Source` for use by future extraction tooling.
+
 Notable encoding decisions:
 - `JMP Indirect` (0x6C): 5 cycles (not 6 — the 6-cycle figure is a common
   misquote; the actual 6502 takes 5 cycles for JMP (ind)).
@@ -45,9 +53,12 @@ Notable encoding decisions:
 
 ### `data/mos6502-semantics.json`
 
-Hand-authored map of mnemonic → micro-op expression strings for the 24
-mnemonics expressible in today's DSL vocabulary. Grows with each chunk as new
-micro-ops are added.
+Hand-authored map of mnemonic → micro-op expression strings for the 54
+mnemonics expressible in the DSL vocabulary as of chunk 3b-i (24 original +
+ALU 9, RMW 6 + DEX/DEY, stack 4, flag 7, flow 2). The only dataset mnemonics
+still absent are BRK and RTI (chunk 3b-ii), which the tool emits as
+`TODO(semantics)` rows. Grows with each chunk as new micro-ops are added;
+the count is pinned by `SemanticsMapTests.Loads_54_Mnemonics`.
 
 **NOTE — TXS has no SetNZ:** TXS (Transfer X → Stack Pointer, 0x9A) is the one
 register transfer on the 6502 that does **not** affect any flags. The semantics
@@ -57,5 +68,6 @@ is pinned by `SemanticsMapTests.TXS_Has_No_SetNZ`.
 **Known limitation — duplicate mnemonic keys:** JSON object semantics are
 last-key-wins; `System.Text.Json` silently keeps the final occurrence of a
 duplicated mnemonic key. The loader cannot detect this without a separate
-`JsonDocument` pre-pass. Review diffs carefully when expanding the map (3b) —
-a copy-pasted duplicate key will silently shadow the earlier entry.
+`JsonDocument` pre-pass. Review diffs carefully when expanding the map
+(next: BRK/RTI in 3b-ii) — a copy-pasted duplicate key will silently shadow
+the earlier entry.

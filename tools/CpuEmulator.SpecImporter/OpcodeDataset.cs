@@ -10,12 +10,13 @@ namespace CpuEmulator.SpecImporter;
 /// Field names match the JSON camelCase keys exactly.
 /// </summary>
 public sealed record OpcodeEntry(
-    string Opcode,
-    string Mnemonic,
-    string Mode,
-    int    Bytes,
-    int    Cycles,
-    bool   PageCrossPenalty);
+    string  Opcode,
+    string  Mnemonic,
+    string  Mode,
+    int     Bytes,
+    int     Cycles,
+    bool    PageCrossPenalty,
+    string? Source = null);
 
 /// <summary>
 /// Loads and validates the vendored 6502 opcode dataset.
@@ -64,6 +65,8 @@ public static class OpcodeDataset
         public int?    Bytes { get; set; }
         public int?    Cycles { get; set; }
         public bool?   PageCrossPenalty { get; set; }
+        /// <summary>Optional provenance citation (e.g. "MOS hardware manual p.143, table A-1").</summary>
+        public string? Source { get; set; }
     }
 
     /// <summary>Loads the dataset from a file path.</summary>
@@ -134,7 +137,7 @@ public static class OpcodeDataset
                     $"Byte count mismatch at {ctx}: mode {d.Mode} requires {expectedBytes} bytes, got {d.Bytes}.");
 
             entries[i] = new OpcodeEntry(
-                d.Opcode, d.Mnemonic, d.Mode, d.Bytes.Value, d.Cycles.Value, d.PageCrossPenalty.Value);
+                d.Opcode, d.Mnemonic, d.Mode, d.Bytes.Value, d.Cycles.Value, d.PageCrossPenalty.Value, d.Source);
         }
 
         return entries;

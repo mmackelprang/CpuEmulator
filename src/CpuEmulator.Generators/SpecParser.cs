@@ -12,27 +12,71 @@ internal static class SpecParser
     /// <summary>Expected argument kind for each micro-op parameter position.</summary>
     private enum ArgKind { Reg, Flag, Bool }
 
+    // ───────────────────────── MIRROR TABLES ─────────────────────────
+    // These sets mirror, by name, surface defined elsewhere and MUST be updated together:
+    //   • s_addrModes        ↔ CpuEmulator.Core.Specification.AddrMode members
+    //   • s_regMembers       ↔ Reg members            • s_flagMembers ↔ Flag members
+    //   • s_microOpSignatures (names+arity+arg kinds) ↔ Spec factory methods / Op records
+    //   • op-kind class sets ↔ CpuEmitter's per-class emission switches
+    // External mirrors of the same surface: CpuEmitter.FlagBit (Flag bit values),
+    // tools/CpuEmulator.SpecImporter SemanticsMap.FactoryArity + SpecFileEmitter.SupportedModes.
+    // The syntax-only generator cannot see the real enums; these tables ARE its truth.
+    // ──────────────────────────────────────────────────────────────────
+
     /// <summary>Per-op argument signatures; arity is the signature length. Each argument is
     /// parsed against its EXPECTED kind only (CPUGEN011 on mismatch) — no coalescing chain,
-    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.</summary>
+    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.
+    /// Allowed op names: Load, Store, Transfer, Increment, SetNZ, Jump, BranchIf,
+    /// Adc, Sbc, And, Ora, Eor, Compare, Bit,
+    /// ShiftLeft, ShiftRight, RotateLeft, RotateRight, IncrementMem, DecrementMem, Decrement,
+    /// Push, Pull, PushP, PullP, SetFlag, Jsr, Rts.</summary>
     private static readonly Dictionary<string, ArgKind[]> s_microOpSignatures = new(System.StringComparer.Ordinal)
     {
+        // Load/store/transfer/register
         ["Load"] = new[] { ArgKind.Reg },
         ["Store"] = new[] { ArgKind.Reg },
         ["Transfer"] = new[] { ArgKind.Reg, ArgKind.Reg },
         ["Increment"] = new[] { ArgKind.Reg },
         ["SetNZ"] = new[] { ArgKind.Reg },
+        // Jump/branch
         ["Jump"] = System.Array.Empty<ArgKind>(),
         ["BranchIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        // ALU (Task 5)
+        ["Adc"] = System.Array.Empty<ArgKind>(),
+        ["Sbc"] = System.Array.Empty<ArgKind>(),
+        ["And"] = System.Array.Empty<ArgKind>(),
+        ["Ora"] = System.Array.Empty<ArgKind>(),
+        ["Eor"] = System.Array.Empty<ArgKind>(),
+        ["Compare"] = new[] { ArgKind.Reg },
+        ["Bit"] = System.Array.Empty<ArgKind>(),
+        // RMW (Task 6)
+        ["ShiftLeft"] = System.Array.Empty<ArgKind>(),
+        ["ShiftRight"] = System.Array.Empty<ArgKind>(),
+        ["RotateLeft"] = System.Array.Empty<ArgKind>(),
+        ["RotateRight"] = System.Array.Empty<ArgKind>(),
+        ["IncrementMem"] = System.Array.Empty<ArgKind>(),
+        ["DecrementMem"] = System.Array.Empty<ArgKind>(),
+        ["Decrement"] = new[] { ArgKind.Reg },
+        // Stack / flag / flow (Task 7)
+        ["Push"] = new[] { ArgKind.Reg },
+        ["Pull"] = new[] { ArgKind.Reg },
+        ["PushP"] = System.Array.Empty<ArgKind>(),
+        ["PullP"] = System.Array.Empty<ArgKind>(),
+        ["SetFlag"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["Jsr"] = System.Array.Empty<ArgKind>(),
+        ["Rts"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
     {
-        "Implied", "Immediate", "ZeroPage", "Absolute", "Relative",
+        "Implied", "Accumulator", "Immediate",
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY",
+        "IndirectX", "IndirectY", "Indirect", "Relative",
     };
 
-    /// <summary>Members of the Reg enum; micro-op args matching these must also appear in the
-    /// spec's Registers table (CPUGEN008 otherwise).</summary>
+    /// <summary>Members of the Reg enum. A micro-op Reg argument MUST be one of these
+    /// (CPUGEN011 if not) AND must be declared in the spec's Registers table (CPUGEN008).</summary>
     private static readonly HashSet<string> s_regMembers = new(System.StringComparer.Ordinal)
     {
         "A", "X", "Y", "S",
@@ -42,6 +86,60 @@ internal static class SpecParser
     private static readonly HashSet<string> s_flagMembers = new(System.StringComparer.Ordinal)
     {
         "C", "Z", "I", "D", "V", "N",
+    };
+
+    /// <summary>Local variable names the emitter writes into opcode bodies (and Step/Run).
+    /// A register with one of these names would shadow/collide in generated code, so it is
+    /// rejected at parse time (CPUGEN002).</summary>
+    private static readonly HashSet<string> s_reservedLocalNames = new(System.StringComparer.Ordinal)
+    {
+        "data", "addr", "lo", "hi", "ea", "offset", "target",
+        "opcode", "before", "value", "ptr", "temp",
+    };
+
+    private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Transfer", "Increment", "SetNZ",
+        "Decrement",  // register-class use: DEX/DEY (op is register class, not rmw class)
+        "SetFlag",    // register-class use: CLC/SEC/CLI/SEI/CLV/CLD/SED
+    };
+
+    private static readonly HashSet<string> s_aluOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Adc", "Sbc", "And", "Ora", "Eor", "Compare", "Bit",
+    };
+
+    private static readonly HashSet<string> s_rmwOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "ShiftLeft", "ShiftRight", "RotateLeft", "RotateRight", "IncrementMem", "DecrementMem",
+    };
+
+    private static readonly HashSet<string> s_stackOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Push", "Pull", "PushP", "PullP",
+    };
+
+    private static readonly HashSet<string> s_flowOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Jsr", "Rts",
+    };
+
+    // Per-class allowed modes: load/alu share the same 9 modes; rmw has its own 5.
+    private static readonly HashSet<string> s_loadAluModes = new(System.StringComparer.Ordinal)
+    {
+        "Immediate", "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY", "IndirectX", "IndirectY",
+    };
+
+    private static readonly HashSet<string> s_storeModes = new(System.StringComparer.Ordinal)
+    {
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY", "IndirectX", "IndirectY",
+    };
+
+    private static readonly HashSet<string> s_rmwModes = new(System.StringComparer.Ordinal)
+    {
+        "ZeroPage", "ZeroPageX", "Absolute", "AbsoluteX", "Accumulator",
     };
 
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
@@ -101,7 +199,10 @@ internal static class SpecParser
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var registerNames = new HashSet<string>(registers.Select(r => r.Name), System.StringComparer.Ordinal);
-        var instructions = ParseInstructions(classDecl, specName, registerNames, diagnostics);
+        bool hasStackPointer = registers.Any(r => r.Role == "StackPointer");
+        bool hasStatus = registers.Any(r => r.Role == "Status");
+        var instructions = ParseInstructions(
+            classDecl, specName, registerNames, hasStackPointer, hasStatus, diagnostics);
 
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
@@ -162,6 +263,15 @@ internal static class SpecParser
                 continue;
             }
 
+            // Reserved emitted-local names: reject to prevent collision in generated code (CPUGEN002).
+            if (s_reservedLocalNames.Contains(name))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name,
+                    $"register name '{name}' collides with an emitted local name"));
+                continue;
+            }
+
             string role = "General";
             if (args.Count == 3)
             {
@@ -193,6 +303,8 @@ internal static class SpecParser
         ClassDeclarationSyntax classDecl,
         string specName,
         HashSet<string> registerNames,
+        bool hasStackPointer,
+        bool hasStatus,
         ImmutableArray<DiagnosticInfo>.Builder diagnostics)
     {
         var field = FindArrayField(classDecl, "Instructions");
@@ -267,44 +379,48 @@ internal static class SpecParser
                 continue; // ParseOps reported the diagnostic
             }
 
-            // Mode/op class validation (CPUGEN010)
-            if (!ValidateModeOpClass(element.GetLocation(), mnemonic, mode, ops, diagnostics))
+            // Mode/op class validation (CPUGEN010); returns the class on success.
+            if (!ValidateModeOpClass(element.GetLocation(), mnemonic, mode, ops, registerNames,
+                    hasStackPointer, hasStatus, diagnostics, out var instructionClass))
                 continue;
 
-            instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, ops));
+            instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, instructionClass, ops));
         }
 
         return instructions.ToImmutable();
     }
 
     /// <summary>
-    /// Validates that the instruction's addressing mode is consistent with its op class.
-    /// Returns false (and emits CPUGEN010) on violation.
+    /// Validates that the instruction's addressing mode is consistent with its op class,
+    /// that indexed modes have their index register, and that classes touching the stack
+    /// or status flags have the required role registers declared.
+    /// Returns false (and emits CPUGEN010) on violation; returns the class via out on success.
     /// </summary>
     private static bool ValidateModeOpClass(
         Location location,
         string mnemonic,
         string mode,
         ImmutableArray<OpModel> ops,
-        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+        HashSet<string> registerNames,
+        bool hasStackPointer,
+        bool hasStatus,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics,
+        out InstructionClass instructionClass)
     {
-        // Determine op class from ops array.
-        // register class: all ops are Transfer/Increment/SetNZ (empty is also register class)
-        // load class: first op is Load, remaining are register ops
-        // store class: exactly one Store
-        // jump class: exactly one Jump
-        // branch class: exactly one BranchIf
+        instructionClass = InstructionClass.Register;
 
-        string? opClass = ClassifyOps(ops, out string? classError);
+        InstructionClass? opClass = ClassifyOps(ops, out string? classError);
         if (opClass is null)
         {
-            // ops themselves are ambiguous/invalid — report CPUGEN010
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
                 location, mnemonic, classError!));
             return false;
         }
 
-        string? modeError = ValidateModeForClass(mode, opClass);
+        instructionClass = opClass.Value;
+
+        string? firstOpKind = ops.Length > 0 ? ops[0].Kind : null;
+        string? modeError = ValidateModeForClass(mode, instructionClass, firstOpKind);
         if (modeError is not null)
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
@@ -312,19 +428,44 @@ internal static class SpecParser
             return false;
         }
 
+        // Index-register requirement: X-indexed modes require a register named 'X';
+        // Y-indexed modes require 'Y'. This is the 6502 convention baked into the templates.
+        if (RequiredIndexRegister(mode) is { } index && !registerNames.Contains(index))
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic, $"mode '{mode}' requires a register named '{index}'"));
+            return false;
+        }
+
+        // Stack-touching classes need a StackPointer-role register — the emitter writes its
+        // NAME into the templates; without it the generated code would not compile (CS0103).
+        if (instructionClass is InstructionClass.Stack or InstructionClass.Flow && !hasStackPointer)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic,
+                $"{(instructionClass == InstructionClass.Stack ? "stack" : "flow")} class requires a StackPointer-role register"));
+            return false;
+        }
+
+        // Flag-writing classes need a Status register (alu/rmw write C/V/N/Z; Pull bakes NZ,
+        // PushP/PullP move P itself).
+        if (instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
+            && !hasStatus)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic,
+                $"{instructionClass.ToString().ToLowerInvariant()} class requires a Status-role register"));
+            return false;
+        }
+
         return true;
     }
 
-    private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)
-    {
-        "Transfer", "Increment", "SetNZ",
-    };
-
-    private static string? ClassifyOps(ImmutableArray<OpModel> ops, out string? error)
+    private static InstructionClass? ClassifyOps(ImmutableArray<OpModel> ops, out string? error)
     {
         error = null;
         if (ops.Length == 0)
-            return "register"; // empty = implied/register class
+            return InstructionClass.Register; // empty = implied/register class
 
         string first = ops[0].Kind;
 
@@ -335,11 +476,11 @@ internal static class SpecParser
             {
                 if (!s_registerOpKinds.Contains(ops[i].Kind))
                 {
-                    error = $"Load must be the first op and remaining ops must be register ops (Transfer/Increment/SetNZ), but found '{ops[i].Kind}' after Load";
+                    error = $"Load must be the first op and remaining ops must be register ops (Transfer/Increment/SetNZ/Decrement/SetFlag), but found '{ops[i].Kind}' after Load";
                     return null;
                 }
             }
-            return "load";
+            return InstructionClass.Load;
         }
 
         if (first == "Store")
@@ -349,7 +490,7 @@ internal static class SpecParser
                 error = "Store class must contain exactly one Store op";
                 return null;
             }
-            return "store";
+            return InstructionClass.Store;
         }
 
         if (first == "Jump")
@@ -359,7 +500,7 @@ internal static class SpecParser
                 error = "Jump class must contain exactly one Jump op";
                 return null;
             }
-            return "jump";
+            return InstructionClass.Jump;
         }
 
         if (first == "BranchIf")
@@ -369,7 +510,51 @@ internal static class SpecParser
                 error = "Branch class must contain exactly one BranchIf op";
                 return null;
             }
-            return "branch";
+            return InstructionClass.Branch;
+        }
+
+        // ALU class: exactly one ALU op, nothing else
+        if (s_aluOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "alu class must contain exactly one op (Adc/Sbc/And/Ora/Eor/Compare/Bit)";
+                return null;
+            }
+            return InstructionClass.Alu;
+        }
+
+        // RMW class: exactly one RMW op, nothing else
+        if (s_rmwOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "rmw class must contain exactly one op (ShiftLeft/ShiftRight/RotateLeft/RotateRight/IncrementMem/DecrementMem)";
+                return null;
+            }
+            return InstructionClass.Rmw;
+        }
+
+        // Stack class: exactly one stack op
+        if (s_stackOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "stack class must contain exactly one op (Push/Pull/PushP/PullP) — NZ is baked into Pull";
+                return null;
+            }
+            return InstructionClass.Stack;
+        }
+
+        // Flow class: exactly one flow op
+        if (s_flowOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "flow class must contain exactly one op (Jsr/Rts)";
+                return null;
+            }
+            return InstructionClass.Flow;
         }
 
         // All must be register ops
@@ -377,30 +562,75 @@ internal static class SpecParser
         {
             if (!s_registerOpKinds.Contains(op.Kind))
             {
-                error = $"op '{op.Kind}' is not valid here; expected a load/store/jump/branch op first, or only register ops (Transfer/Increment/SetNZ)";
+                error = $"op '{op.Kind}' is not valid here; expected a load/store/jump/branch/alu/rmw/stack/flow op first, or only register ops (Transfer/Increment/SetNZ/Decrement/SetFlag)";
                 return null;
             }
         }
-        return "register";
+        return InstructionClass.Register;
     }
 
-    private static string? ValidateModeForClass(string mode, string opClass) => (opClass, mode) switch
+    /// <summary>Returns the index register NAME required for this mode, or null if none.</summary>
+    private static string? RequiredIndexRegister(string mode) => mode switch
     {
-        ("register", "Implied") => null,
-        ("register", _) => "register-class ops (Transfer/Increment/SetNZ or empty) require Implied mode",
-        ("load", "Immediate") => null,
-        ("load", "ZeroPage") => null,
-        ("load", "Absolute") => null,
-        ("load", _) => "Load requires Immediate, ZeroPage, or Absolute mode",
-        ("store", "ZeroPage") => null,
-        ("store", "Absolute") => null,
-        ("store", _) => "Store requires ZeroPage or Absolute mode",
-        ("jump", "Absolute") => null,
-        ("jump", _) => "Jump requires Absolute mode",
-        ("branch", "Relative") => null,
-        ("branch", _) => "BranchIf requires Relative mode",
-        _ => $"unrecognised op class '{opClass}'"
+        "ZeroPageX" or "AbsoluteX" or "IndirectX" => "X",
+        "ZeroPageY" or "AbsoluteY" or "IndirectY" => "Y",
+        _ => null,
     };
+
+    private static string? ValidateModeForClass(string mode, InstructionClass opClass, string? firstOpKind)
+    {
+        return opClass switch
+        {
+            // register class: Implied only
+            InstructionClass.Register =>
+                mode == "Implied" ? null
+                : "register-class ops (Transfer/Increment/SetNZ/Decrement/SetFlag or empty) require Implied mode",
+
+            // load class: Immediate + all 8 memory modes (9 total)
+            InstructionClass.Load =>
+                s_loadAluModes.Contains(mode) ? null
+                : "Load requires a memory or immediate addressing mode",
+
+            // alu class: same 9 modes as load
+            InstructionClass.Alu =>
+                s_loadAluModes.Contains(mode) ? null
+                : "Alu requires a memory or immediate addressing mode",
+
+            // store class: 8 memory modes (no Immediate)
+            InstructionClass.Store =>
+                s_storeModes.Contains(mode) ? null
+                : "Store requires a memory addressing mode (ZeroPage/Absolute/Indirect families)",
+
+            // rmw class: ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator
+            InstructionClass.Rmw =>
+                s_rmwModes.Contains(mode) ? null
+                : "Rmw requires ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator mode",
+
+            // jump class: Absolute and Indirect
+            InstructionClass.Jump =>
+                (mode == "Absolute" || mode == "Indirect") ? null
+                : "Jump requires Absolute or Indirect mode",
+
+            // branch class: Relative only
+            InstructionClass.Branch =>
+                mode == "Relative" ? null
+                : "BranchIf requires Relative mode",
+
+            // stack class: Implied only
+            InstructionClass.Stack =>
+                mode == "Implied" ? null
+                : "stack class (Push/Pull/PushP/PullP) requires Implied mode",
+
+            // flow class: per-OP matrix — Jsr requires Absolute, Rts requires Implied.
+            // ClassifyOps guarantees flow has exactly one op of kind Jsr or Rts.
+            InstructionClass.Flow when firstOpKind == "Jsr" =>
+                mode == "Absolute" ? null : "Jsr requires Absolute mode",
+            InstructionClass.Flow =>
+                mode == "Implied" ? null : "Rts requires Implied mode",
+
+            _ => $"unrecognised op class '{opClass}'",
+        };
+    }
 
     /// <summary>Mnemonic must match ^[A-Z][A-Z0-9]{0,7}$ (1–8 uppercase letters/digits, first must be letter).</summary>
     private static bool IsValidMnemonic(string mnemonic)
@@ -474,12 +704,24 @@ internal static class SpecParser
                     return null;
                 }
 
-                if (expected == ArgKind.Reg && s_regMembers.Contains(value) &&
-                    !registerNames.Contains(value))
+                // Reg hardening: FIRST check that the value is a known Reg enum member (CPUGEN011).
+                // Then check it's declared in the spec's Registers table (CPUGEN008).
+                if (expected == ArgKind.Reg)
                 {
-                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
-                        argument.GetLocation(), value));
-                    // Keep parsing: error gating in Parse nulls the model.
+                    if (!s_regMembers.Contains(value))
+                    {
+                        // Not a Reg enum member — report CPUGEN011 via the kind-mismatch path.
+                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
+                            argument.GetLocation(), (i + 1).ToString(), kind, "Reg member"));
+                        return null;
+                    }
+
+                    if (!registerNames.Contains(value))
+                    {
+                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
+                            argument.GetLocation(), value));
+                        // Keep parsing: error gating in Parse nulls the model.
+                    }
                 }
 
                 // Flag whitelist: only C, Z, I, D, V, N are allowed (CPUGEN006)

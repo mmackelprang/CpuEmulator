@@ -3,6 +3,18 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace CpuEmulator.Generators;
 
+/// <summary>Instruction op-class. Classified ONCE in SpecParser (CPUGEN010 validation) and
+/// carried on the model — the emitter consumes this and has no classifier of its own, so
+/// parser and emitter cannot drift (2b-review carry-forward).</summary>
+internal enum InstructionClass
+{
+    Register, Load, Store, Jump, Branch,
+    Alu,    // Task 5: ADC/SBC/AND/ORA/EOR/CMP/CPX/CPY/BIT
+    Rmw,    // Task 6: ASL/LSR/ROL/ROR/INC/DEC (memory and accumulator forms)
+    Stack,  // Task 7: PHA/PLA/PHP/PLP
+    Flow,   // Task 7: JSR/RTS
+}
+
 internal sealed record SpecModel(
     string Namespace,
     string CpuName,
@@ -13,7 +25,8 @@ internal sealed record SpecModel(
 
 internal sealed record RegisterModel(string Name, int Bits, string Role);
 
-internal sealed record InstructionModel(byte Opcode, string Mnemonic, string Mode, EquatableArray<OpModel> Ops);
+internal sealed record InstructionModel(
+    byte Opcode, string Mnemonic, string Mode, InstructionClass Class, EquatableArray<OpModel> Ops);
 
 internal sealed record OpModel(string Kind, EquatableArray<string> Args);
 

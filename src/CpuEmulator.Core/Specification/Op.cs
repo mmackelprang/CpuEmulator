@@ -12,3 +12,30 @@ public sealed record IncrementOp(Reg Target) : Op;
 public sealed record SetNZOp(Reg Source) : Op;
 public sealed record JumpOp : Op;
 public sealed record BranchIfOp(Flag Flag, bool When) : Op;
+
+// ── ALU class (Task 5) ───────────────────────────────────────────────────────
+public sealed record AdcOp : Op;
+public sealed record SbcOp : Op;
+public sealed record AndOp : Op;
+public sealed record OraOp : Op;
+public sealed record EorOp : Op;
+public sealed record CompareOp(Reg Source) : Op;
+public sealed record BitOp : Op;
+
+// ── RMW class (Task 6) ───────────────────────────────────────────────────────
+public sealed record ShiftLeftOp : Op;
+public sealed record ShiftRightOp : Op;
+public sealed record RotateLeftOp : Op;
+public sealed record RotateRightOp : Op;
+public sealed record IncrementMemOp : Op;
+public sealed record DecrementMemOp : Op;
+public sealed record DecrementOp(Reg Target) : Op;
+
+// ── Stack / flag / flow class (Task 7) ──────────────────────────────────────
+public sealed record PushOp(Reg Source) : Op;
+public sealed record PullOp(Reg Target) : Op;
+public sealed record PushPOp : Op;
+public sealed record PullPOp : Op;
+public sealed record SetFlagOp(Flag Flag, bool Value) : Op;
+public sealed record JsrOp : Op;
+public sealed record RtsOp : Op;

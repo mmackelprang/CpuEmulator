@@ -121,6 +121,23 @@ public class RegisterParsingTests
         Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN002");
     }
 
+    [Theory]
+    [InlineData("data")]
+    [InlineData("lo")]
+    [InlineData("temp")]
+    public void Register_named_after_an_emitted_local_reports_CPUGEN002(string name)
+    {
+        string source = GeneratorTestHost.ReplaceSection(
+            GeneratorHappyPathTests.ValidSpecSource,
+            """new("A", 8),""",
+            $"""new("{name}", 8), new("A", 8),""");
+
+        var result = GeneratorTestHost.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN002");
+        Assert.Contains("emitted local name", diagnostic.GetMessage());
+    }
+
     [Fact]
     public void Generated_truncation_casts_are_unchecked()
     {

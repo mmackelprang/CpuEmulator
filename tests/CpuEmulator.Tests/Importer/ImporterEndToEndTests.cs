@@ -153,7 +153,7 @@ public class ImporterEndToEndTests
             Assert.Contains("emitted=", stdout);
             // The per-mnemonic inventory is opt-in via --report; without the flag
             // only the summary line is printed.
-            Assert.DoesNotContain("ADC", stdout);
+            Assert.DoesNotContain("missing-semantics inventory", stdout);
         }
         finally
         {
@@ -192,8 +192,8 @@ public class ImporterEndToEndTests
             var stdout = sw.ToString();
             Assert.Contains("total=151", stdout);
             Assert.Contains("missing-semantics inventory", stdout);
-            Assert.Contains("ADC: 8", stdout);   // ADC: 8 dataset rows, no semantics
-            Assert.Contains("BRK: 1", stdout);   // BRK: 1 dataset row, no semantics
+            Assert.Contains("BRK: 1", stdout);   // BRK: 1 dataset row, no semantics (3b-ii)
+            Assert.Contains("RTI: 1", stdout);   // RTI: 1 dataset row, no semantics (3b-ii)
         }
         finally
         {

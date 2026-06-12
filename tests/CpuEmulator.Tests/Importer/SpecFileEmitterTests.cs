@@ -4,13 +4,14 @@ using CpuEmulator.SpecImporter;
 namespace CpuEmulator.Tests.Importer;
 
 /// <summary>
-/// Tests for the SpecFileEmitter and SpecImportEngine (Task 4).
+/// Tests for the SpecFileEmitter and SpecImportEngine (Task 4 / updated in Task 8).
 ///
 /// Expected emitted-row count derivation (pinned constant):
 ///   Filter the 151-row dataset to rows where:
-///     (1) mnemonic ∈ the 24-entry semantics map, AND
-///     (2) mode ∈ {Implied, Immediate, ZeroPage, Absolute, Relative} (DSL's 5 supported modes)
-///   Running that filter against the real data files yields EXACTLY 33 rows.
+///     (1) mnemonic ∈ the 54-entry semantics map, AND
+///     (2) mode ∈ the 13 supported DSL modes (all AddrMode members)
+///   Running that filter against the real data files yields EXACTLY 149 rows:
+///     151 dataset rows − BRK(1) − RTI(1); 54-mnemonic map × 13 supported modes.
 ///   The test below also derives this count independently at runtime and asserts it
 ///   matches both the filter result and the engine's reported emitted count.
 /// </summary>
@@ -19,10 +20,15 @@ public class SpecFileEmitterTests
     private static string DatasetPath   => DataPath.Get("mos6502-opcodes.json");
     private static string SemanticsPath => DataPath.Get("mos6502-semantics.json");
 
-    // The 5 addressing modes supported by the DSL today (matches AddrMode enum in CpuEmulator.Core).
+    // The 13 addressing modes supported by the DSL (all AddrMode enum members as of Task 8).
     // SYNC HAZARD: if the DSL gains new modes this set must expand in concert with AddrMode.cs.
     private static readonly HashSet<string> SupportedModes =
-        ["Implied", "Immediate", "ZeroPage", "Absolute", "Relative"];
+    [
+        "Implied", "Accumulator", "Immediate",
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY",
+        "IndirectX", "IndirectY", "Indirect", "Relative",
+    ];
 
     private (string source, ImportReport report) RunEngine()
     {
@@ -59,9 +65,10 @@ public class SpecFileEmitterTests
         int derivedCount = dataset.Count(
             e => map.Mnemonics.ContainsKey(e.Mnemonic) && SupportedModes.Contains(e.Mode));
 
-        // Pinned constant: 33 rows (derived 2026-06-12 from the 24-mnemonic map ×
-        // the 5 supported modes intersected with the 151-row dataset).
-        const int ExpectedEmitted = 33;
+        // Pinned constant: 149 rows (derived 2026-06-12 from the 54-mnemonic map ×
+        // the 13 supported modes intersected with the 151-row dataset;
+        // 151 − BRK(1) − RTI(1) = 149).
+        const int ExpectedEmitted = 149;
         Assert.Equal(ExpectedEmitted, derivedCount);
 
         var (_, report) = SpecImportEngine.Run(dataset, map);
@@ -76,13 +83,15 @@ public class SpecFileEmitterTests
         var (_, report) = RunEngine();
         var inv = report.MissingSemanticsInventory;
 
-        // 56 distinct mnemonics in the dataset − 24 in the semantics map = 32 missing.
-        Assert.Equal(32, inv.Count);
-        // Row counts must reconcile with the todoSemantics total (101).
+        // 56 distinct mnemonics in the dataset − 54 in the semantics map = 2 missing (BRK, RTI).
+        Assert.Equal(2, inv.Count);
+        // Row counts must reconcile with the todoSemantics total.
         Assert.Equal(report.TodoSemantics, inv.Sum(x => x.Rows));
-        // Spot entries: ADC has 8 dataset rows, BRK has 1.
-        Assert.Contains(("ADC", 8), inv);
+        // Spot entries: BRK has 1 dataset row, RTI has 1.
         Assert.Contains(("BRK", 1), inv);
+        Assert.Contains(("RTI", 1), inv);
+        // ADC now has semantics — must NOT appear in the inventory.
+        Assert.DoesNotContain(inv, x => x.Mnemonic == "ADC");
         // Mapped mnemonics must NOT appear (LDA has semantics).
         Assert.DoesNotContain(inv, x => x.Mnemonic == "LDA");
         // Stable mnemonic ordering for reproducible report output.
@@ -119,23 +128,22 @@ public class SpecFileEmitterTests
     // ─── TODO rows ──────────────────────────────────────────────────────────
 
     [Fact]
-    public void Output_Contains_TODO_Semantics_For_ADC_0x69()
+    public void Output_Contains_TODO_Semantics_For_BRK_0x00()
     {
-        // 0x69 is ADC Immediate — ADC has no semantics in the map yet
+        // 0x00 is BRK — BRK has no semantics in the map (3b-ii)
         var (source, _) = RunEngine();
         Assert.Contains("TODO(semantics)", source);
-        Assert.Contains("0x69", source);
-        Assert.Contains("ADC", source);
+        Assert.Contains("0x00", source);
+        Assert.Contains("BRK", source);
     }
 
     [Fact]
-    public void Output_Contains_TODO_Mode_For_LDA_AbsoluteX_0xBD()
+    public void Output_Contains_No_TODO_Mode_And_Report_TodoMode_Is_Zero()
     {
-        // 0xBD is LDA AbsoluteX — LDA has semantics but AbsoluteX is not a supported DSL mode
-        var (source, _) = RunEngine();
-        Assert.Contains("TODO(mode)", source);
-        Assert.Contains("0xBD", source);
-        Assert.Contains("AbsoluteX", source);
+        // Every dataset mode is now expressible by the DSL (all 13 AddrMode members supported).
+        var (source, report) = RunEngine();
+        Assert.DoesNotContain("TODO(mode)", source);
+        Assert.Equal(0, report.TodoMode);
     }
 
     // ─── opcode ordering ─────────────────────────────────────────────────────

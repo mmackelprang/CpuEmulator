@@ -1,3 +1,4 @@
+using CpuEmulator.Generators;
 using Microsoft.CodeAnalysis;
 
 namespace CpuEmulator.Tests.Generators;
@@ -55,6 +56,28 @@ public class PipelineHygieneTests
         Assert.Contains(collisions, d => SpanText(source, d) == "OtherSpec");
         Assert.DoesNotContain(result.CompilationDiagnostics, d => d.Id == "CS8785");
         Assert.Empty(result.GeneratedTrees); // neither emitted on collision
+    }
+
+    [Fact]
+    public void Emitter_throws_loudly_when_a_template_is_handed_an_unknown_mode()
+    {
+        // Construct a model the parser could never produce: jump class with ZeroPage mode.
+        // The template must throw (failing generation as CS8785) rather than mis-emit.
+        var model = new SpecModel(
+            "TestCpu", "BadCpu", "test",
+            new LocationInfo("test.cs", default, default),
+            new EquatableArray<RegisterModel>(
+                System.Collections.Immutable.ImmutableArray.Create(
+                    new RegisterModel("PC", 16, "ProgramCounter"))),
+            new EquatableArray<InstructionModel>(
+                System.Collections.Immutable.ImmutableArray.Create(
+                    new InstructionModel(0x4C, "JMP", "ZeroPage", InstructionClass.Jump,
+                        new EquatableArray<OpModel>(
+                            System.Collections.Immutable.ImmutableArray.Create(
+                                new OpModel("Jump", new EquatableArray<string>(
+                                    System.Collections.Immutable.ImmutableArray<string>.Empty))))))));
+
+        Assert.Throws<System.InvalidOperationException>(() => CpuEmitter.Emit(model));
     }
 
     private static string SpanText(string source, Diagnostic diagnostic) =>
