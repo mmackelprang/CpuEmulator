@@ -107,24 +107,16 @@ internal static class CpuEmitter
         sb.AppendLine("        switch (opcode)");
         sb.AppendLine("        {");
         foreach (var instruction in model.Instructions)
-        {
-            string opClass = ClassifyInstruction(instruction);
-            if (opClass == "load" || opClass == "register" || opClass == "store" || opClass == "jump")
-                sb.AppendLine($"            case 0x{instruction.Opcode:X2}: Op{instruction.Opcode:X2}(); break;");
-        }
+            sb.AppendLine($"            case 0x{instruction.Opcode:X2}: Op{instruction.Opcode:X2}(); break;");
         sb.AppendLine("            default:");
         sb.AppendLine("                HandleUndefinedOpcode(opcode);");
         sb.AppendLine("                break;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
-        // Emit per-opcode methods for load/register/store/jump classes (Task 5 adds branch)
+        // Emit all per-opcode methods
         foreach (var instruction in model.Instructions)
-        {
-            string opClass = ClassifyInstruction(instruction);
-            if (opClass == "load" || opClass == "register" || opClass == "store" || opClass == "jump")
-                EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg);
-        }
+            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg);
     }
 
     /// <summary>

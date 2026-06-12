@@ -250,4 +250,89 @@ public class Mos6502TraceTests
             new BusAccess(0x0201, 0x00, true),
             new BusAccess(0x0202, 0x80, true));
     }
+
+    // ---- Task 5: Branch class ----
+
+    [Fact]
+    public void BNE_not_taken_2_cycles()
+    {
+        // Z set => branch not taken; D0 05
+        // P = 0x36 has Z set (bit 1 = 0x02)
+        var (cpu, bus) = NewCpu(0xD0, 0x05);
+        cpu.SetRegister("P", 0x36); // Z set
+
+        cpu.Step();
+
+        Assert.Equal(2, cpu.CycleCount);
+        Assert.Equal(0x0202ul, cpu.GetRegister("PC")); // no branch
+        AssertTrace(bus,
+            new BusAccess(0x0200, 0xD0, true),
+            new BusAccess(0x0201, 0x05, true));
+    }
+
+    [Fact]
+    public void BNE_taken_3_cycles()
+    {
+        // Z clear => branch taken; D0 05; after operand PC=0x0202; target=0x0202+5=0x0207
+        // Same page (0x02xx), so no page-cross dummy read.
+        var (cpu, bus) = NewCpu(0xD0, 0x05);
+        cpu.SetRegister("P", 0x34); // Z clear
+
+        cpu.Step();
+
+        Assert.Equal(3, cpu.CycleCount);
+        Assert.Equal(0x0207ul, cpu.GetRegister("PC"));
+        // 3 accesses: opcode, offset, dummy at PC=0x0202
+        Assert.Equal(3, bus.Trace.Count);
+        Assert.Equal(new BusAccess(0x0200, 0xD0, true), bus.Trace[0]);
+        Assert.Equal(new BusAccess(0x0201, 0x05, true), bus.Trace[1]);
+        Assert.Equal(new BusAccess(0x0202, bus.Trace[2].Value, true), bus.Trace[2]); // dummy
+    }
+
+    [Fact]
+    public void BNE_taken_backward_same_page_3_cycles()
+    {
+        // Place D0 FC at 0x0210; after operand read PC=0x0212; target=0x0212+(sbyte)0xFC=0x0212-4=0x020E
+        // Both 0x0212 and 0x020E are in page 0x02xx => no page cross => 3 cycles.
+        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
+        inner.Write8(0x0210, 0xD0);
+        inner.Write8(0x0211, 0xFC);
+        var bus = new TracingAddressSpace(inner);
+        var cpu = new Mos6502Cpu(bus);
+        cpu.SetRegister("PC", 0x0210);
+        cpu.SetRegister("P", 0x34); // Z clear
+
+        cpu.Step();
+
+        Assert.Equal(3, cpu.CycleCount);
+        Assert.Equal(0x020Eul, cpu.GetRegister("PC"));
+        Assert.Equal(3, bus.Trace.Count);
+    }
+
+    [Fact]
+    public void BNE_taken_page_cross_4_cycles()
+    {
+        // Place D0 20 at 0x02F0; after operand read PC=0x02F2; target=0x02F2+0x20=0x0312
+        // 0x02F2 is page 0x02xx; 0x0312 is page 0x03xx => page cross.
+        // Wrong-page dummy read address = (PC & 0xFF00) | (target & 0x00FF) = 0x0200 | 0x0012 = 0x0212
+        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
+        inner.Write8(0x02F0, 0xD0);
+        inner.Write8(0x02F1, 0x20);
+        var bus = new TracingAddressSpace(inner);
+        var cpu = new Mos6502Cpu(bus);
+        cpu.SetRegister("PC", 0x02F0);
+        cpu.SetRegister("P", 0x34); // Z clear
+
+        cpu.Step();
+
+        Assert.Equal(4, cpu.CycleCount);
+        Assert.Equal(0x0312ul, cpu.GetRegister("PC"));
+        Assert.Equal(4, bus.Trace.Count);
+        Assert.Equal(new BusAccess(0x02F0, 0xD0, true), bus.Trace[0]);
+        Assert.Equal(new BusAccess(0x02F1, 0x20, true), bus.Trace[1]);
+        Assert.Equal(new BusAccess(0x02F2, bus.Trace[2].Value, true), bus.Trace[2]); // dummy at PC
+        Assert.Equal(new BusAccess(0x0212, bus.Trace[3].Value, true), bus.Trace[3]); // wrong-page dummy
+    }
 }
