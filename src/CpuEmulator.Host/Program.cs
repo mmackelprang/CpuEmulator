@@ -35,7 +35,16 @@ internal static class Program
         Console.WriteLine(Banner);
         if (options.LoadPath is not null)
         {
-            int count = engine.LoadFile(options.LoadAt, options.LoadPath);
+            int count;
+            try
+            {
+                count = engine.LoadFile(options.LoadAt, options.LoadPath);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"? {ex.Message}");
+                return 2;
+            }
             Console.WriteLine($"loaded ${count:X} bytes at ${options.LoadAt:X4}");
             if (options.Pc is uint pc)
                 engine.ProgramCounter = pc;

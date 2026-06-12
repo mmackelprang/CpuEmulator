@@ -77,6 +77,17 @@ public class HostOptionsTests
     }
 
     [Fact]
+    public void Pc_without_load_is_an_error()
+    {
+        bool ok = HostOptions.TryParse(["--pc", "$0400"], out _, out string? error);
+
+        Assert.False(ok);
+        Assert.NotNull(error);
+        Assert.Contains("--pc", error);
+        Assert.Contains("--load", error);
+    }
+
+    [Fact]
     public void Bad_address_is_an_error()
     {
         bool ok = HostOptions.TryParse(["--load", "x.bin", "--at", "zz"], out _, out string? error);
