@@ -175,20 +175,60 @@ public class Mos6502AluTests
         Assert.False((p & 0x02) != 0, "Z should be clear (A & data != 0)");
     }
 
-    // ── Decimal deviation pin ──────────────────────────────────────────────────
+    // ── Decimal-mode ADC truth table (NMOS, D set) ──────────────────────────────
 
-    [Fact]
-    public void ADC_with_D_flag_set_still_adds_binary_3bi_deviation()
+    // [InlineData(a, d, carryIn, result, c, v, n, z)]
+    [Theory]
+    [InlineData(0x05, 0x05, 0, 0x10, false, false, false, false)]
+    [InlineData(0x58, 0x46, 1, 0x05, true,  true,  true,  false)]
+    [InlineData(0x50, 0x50, 0, 0x00, true,  true,  true,  false)] // Z=0: BINARY sum 0xA0 != 0
+    [InlineData(0x99, 0x01, 0, 0x00, true,  false, true,  false)]
+    [InlineData(0x00, 0x00, 0, 0x00, false, false, false, true)]  // Z=1: BINARY sum is 0
+    public void ADC_decimal_mode_flag_truth_table(byte a, byte d, int carryIn, byte result, bool c, bool v, bool n, bool z)
     {
-        // 3b-i deviation: binary even when D is set (BCD lands in 3b-ii — this test is deleted then)
-        // P=0x08 (D set), A=0x09, 69 01 → A=0x0A (binary; real BCD would give 0x10)
-        var (cpu, _) = Mos6502TestHarness.NewCpu(0x69, 0x01); // ADC #$01
-        cpu.SetRegister("A", 0x09);
-        cpu.SetRegister("P", 0x08); // D set
+        var (cpu, _) = Mos6502TestHarness.NewCpu(0x69, d);
+        cpu.SetRegister("A", a);
+        cpu.SetRegister("P", (ulong)(0x08 | carryIn)); // D=1 + carry
 
         cpu.Step();
 
-        Assert.Equal(0x0Aul, cpu.GetRegister("A")); // binary result, not BCD 0x10
+        Assert.Equal((ulong)result, cpu.GetRegister("A"));
+        Mos6502TestHarness.AssertFlags(cpu, c: c, v: v, n: n, z: z);
+    }
+
+    // ── Decimal-mode SBC truth table (NMOS, D set) — all flags are binary ───────
+
+    // [InlineData(a, d, carryIn, result, c, v, n, z)]
+    [Theory]
+    [InlineData(0x10, 0x05, 1, 0x05, true,  false, false, false)]
+    [InlineData(0x00, 0x01, 1, 0x99, false, false, true,  false)]
+    [InlineData(0x42, 0x42, 1, 0x00, true,  false, false, true)]
+    [InlineData(0x20, 0x10, 0, 0x09, true,  false, false, false)]
+    [InlineData(0x05, 0x10, 1, 0x95, false, false, true,  false)]
+    public void SBC_decimal_mode_all_flags_are_binary(byte a, byte d, int carryIn, byte result, bool c, bool v, bool n, bool z)
+    {
+        var (cpu, _) = Mos6502TestHarness.NewCpu(0xE9, d);
+        cpu.SetRegister("A", a);
+        cpu.SetRegister("P", (ulong)(0x08 | carryIn)); // D=1 + carry
+
+        cpu.Step();
+
+        Assert.Equal((ulong)result, cpu.GetRegister("A"));
+        Mos6502TestHarness.AssertFlags(cpu, c: c, v: v, n: n, z: z);
+    }
+
+    [Fact]
+    public void ADC_decimal_costs_no_extra_cycles()
+    {
+        // Decimal mode must not add cycles (NMOS 6502 timing)
+        var (cpu, _) = Mos6502TestHarness.NewCpu(0x69, 0x01); // ADC #$01
+        cpu.SetRegister("A", 0x09);
+        cpu.SetRegister("P", 0x08); // D=1 only
+
+        cpu.Step();
+
+        Assert.Equal(0x10ul, cpu.GetRegister("A")); // BCD result
+        Assert.Equal(2L, cpu.CycleCount);
     }
 
     // ── Helper ───────────────────────────────────────────────────────────────

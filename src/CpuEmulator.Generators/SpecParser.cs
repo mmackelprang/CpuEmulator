@@ -94,7 +94,7 @@ internal static class SpecParser
     private static readonly HashSet<string> s_reservedLocalNames = new(System.StringComparer.Ordinal)
     {
         "data", "addr", "lo", "hi", "ea", "offset", "target",
-        "opcode", "before", "value", "ptr", "temp",
+        "opcode", "before", "value", "ptr", "temp", "sum",
     };
 
     private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)

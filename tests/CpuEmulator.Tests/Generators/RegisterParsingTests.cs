@@ -125,6 +125,7 @@ public class RegisterParsingTests
     [InlineData("data")]
     [InlineData("lo")]
     [InlineData("temp")]
+    [InlineData("sum")]
     public void Register_named_after_an_emitted_local_reports_CPUGEN002(string name)
     {
         string source = GeneratorTestHost.ReplaceSection(
