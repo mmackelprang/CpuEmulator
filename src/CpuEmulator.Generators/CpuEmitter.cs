@@ -992,14 +992,17 @@ internal static class CpuEmitter
     // ---- Monitor support (IMonitorSupport implementation) ----
 
     /// <summary>Mode → instruction length in bytes (1–3). Implied/Accumulator = 1;
-    /// Immediate/ZeroPage*/Indirect*/Relative = 2; Absolute*/Indirect = 3.</summary>
+    /// Immediate/ZeroPage*/Indirect*/Relative = 2; Absolute*/Indirect = 3.
+    /// Unknown modes throw (same drift-surfacing posture as the disassembler) — the
+    /// generated runtime switch's <c>_ =&gt; 1</c> default covers undefined OPCODES only.</summary>
     private static int ModeLength(string mode) => mode switch
     {
         "Implied" or "Accumulator" => 1,
         "Immediate" or "ZeroPage" or "ZeroPageX" or "ZeroPageY"
             or "IndirectX" or "IndirectY" or "Relative" => 2,
         "Absolute" or "AbsoluteX" or "AbsoluteY" or "Indirect" => 3,
-        _ => 1, // unknown → walk as 1
+        _ => throw new System.InvalidOperationException(
+            $"emitter has no instruction length for mode '{mode}'"),
     };
 
     private static void EmitMonitorSupport(StringBuilder sb, SpecModel model)
@@ -1020,7 +1023,7 @@ internal static class CpuEmitter
         sb.AppendLine("        };");
         sb.AppendLine("    }");
 
-        // ── TryAssemble (placeholder — real body emitted in Task 2 / same method overwrite) ──
+        // ── TryAssemble — the single-instruction assembler (generated artifact ⑤) ──
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Assemble one instruction from mnemonic + canonical operand text — the");
         sb.AppendLine("    /// inverse of Disassemble. The operand's shape selects the mode; its hex-digit width");
@@ -1211,12 +1214,13 @@ internal static class CpuEmitter
         sb.AppendLine("        => InstructionLength(opcode);");
         sb.AppendLine("    bool CpuEmulator.Core.IMonitorSupport.TryAssemble(string mnemonic, string operandText, out byte[] bytes, out string? error)");
         sb.AppendLine("        => TryAssemble(mnemonic, operandText, out bytes, out error);");
-        sb.AppendLine("    string CpuEmulator.Core.IMonitorSupport.ProgramCounterName => \"PC\";");
+        var pcRegister = model.Registers.First(r => r.Role == "ProgramCounter");
+        sb.AppendLine($"    string CpuEmulator.Core.IMonitorSupport.ProgramCounterName => \"{pcRegister.Name}\";");
         sb.AppendLine("    int CpuEmulator.Core.IMonitorSupport.RegisterBits(string name) => name switch");
         sb.AppendLine("    {");
         foreach (var reg in model.Registers)
             sb.AppendLine($"        \"{reg.Name}\" => {reg.Bits},");
-        sb.AppendLine("        _ => throw new System.ArgumentException($\"Unknown register '{{name}}'.\", nameof(name)),");
+        sb.AppendLine("        _ => throw new System.ArgumentException($\"Unknown register '{name}'.\", nameof(name)),");
         sb.AppendLine("    };");
     }
 
