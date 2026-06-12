@@ -51,6 +51,12 @@ public static class Mos6502Spec
 
 ---
 
+## Extraction runbook
+
+For LLM-assisted extraction from a CPU PDF or datasheet — generating both the opcode dataset and a first-pass semantics map — follow the [Extraction Runbook](extraction-runbook.md). The runbook covers the prompt template (with the constrained-DSL emission rules), the verification ladder (loader validation → cross-source diff → CPUGEN diagnostics → roundtrip test → SingleStepTests), and a worked 5-opcode example with real tool output.
+
+---
+
 ## The importer
 
 The spec importer (`tools/CpuEmulator.SpecImporter`) generates the spec table from two data files:

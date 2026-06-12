@@ -1,0 +1,18 @@
+{
+  "architecture": "mycpu",
+  "namespace": "CpuEmulator.Cpus.MyCpu",
+  "specClassName": "MyCpuSpec",
+  "registers": [
+    { "name": "A",  "bits": 8 },
+    { "name": "X",  "bits": 8 },
+    { "name": "S",  "bits": 8, "role": "StackPointer" },
+    { "name": "P",  "bits": 8, "role": "Status" },
+    { "name": "PC", "bits": 16, "role": "ProgramCounter" }
+  ],
+  "mnemonics": {
+    "LDA": "[Load(Reg.A), SetNZ(Reg.A)]",
+    "JMP": "[Jump()]",
+    "NOP": "[]",
+    "BRK": "[Brk()]"
+  }
+}
