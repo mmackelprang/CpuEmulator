@@ -64,6 +64,8 @@
     "CLD": "[SetFlag(Flag.D, false)]",
     "SED": "[SetFlag(Flag.D, true)]",
     "JSR": "[Jsr()]",
-    "RTS": "[Rts()]"
+    "RTS": "[Rts()]",
+    "BRK": "[Brk()]",
+    "RTI": "[Rti()]"
   }
 }

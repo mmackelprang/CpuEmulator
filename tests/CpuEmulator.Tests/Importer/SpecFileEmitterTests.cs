@@ -8,10 +8,11 @@ namespace CpuEmulator.Tests.Importer;
 ///
 /// Expected emitted-row count derivation (pinned constant):
 ///   Filter the 151-row dataset to rows where:
-///     (1) mnemonic ∈ the 54-entry semantics map, AND
+///     (1) mnemonic ∈ the 56-entry semantics map, AND
 ///     (2) mode ∈ the 13 supported DSL modes (all AddrMode members)
-///   Running that filter against the real data files yields EXACTLY 149 rows:
-///     151 dataset rows − BRK(1) − RTI(1); 54-mnemonic map × 13 supported modes.
+///   Running that filter against the real data files yields EXACTLY 151 rows:
+///     every dataset mnemonic maps now (BRK/RTI landed in 3b-ii); 56-mnemonic map ×
+///     13 supported modes covers all 151 rows.
 ///   The test below also derives this count independently at runtime and asserts it
 ///   matches both the filter result and the engine's reported emitted count.
 /// </summary>
@@ -65,10 +66,9 @@ public class SpecFileEmitterTests
         int derivedCount = dataset.Count(
             e => map.Mnemonics.ContainsKey(e.Mnemonic) && SupportedModes.Contains(e.Mode));
 
-        // Pinned constant: 149 rows (derived 2026-06-12 from the 54-mnemonic map ×
-        // the 13 supported modes intersected with the 151-row dataset;
-        // 151 − BRK(1) − RTI(1) = 149).
-        const int ExpectedEmitted = 149;
+        // Pinned constant: 151 rows (derived 2026-06-12 from the 56-mnemonic map ×
+        // the 13 supported modes intersected with the 151-row dataset; all mnemonics map now).
+        const int ExpectedEmitted = 151;
         Assert.Equal(ExpectedEmitted, derivedCount);
 
         var (_, report) = SpecImportEngine.Run(dataset, map);
@@ -81,21 +81,8 @@ public class SpecFileEmitterTests
     public void Report_Inventory_Lists_Missing_Semantics_Per_Mnemonic()
     {
         var (_, report) = RunEngine();
-        var inv = report.MissingSemanticsInventory;
-
-        // 56 distinct mnemonics in the dataset − 54 in the semantics map = 2 missing (BRK, RTI).
-        Assert.Equal(2, inv.Count);
-        // Row counts must reconcile with the todoSemantics total.
-        Assert.Equal(report.TodoSemantics, inv.Sum(x => x.Rows));
-        // Spot entries: BRK has 1 dataset row, RTI has 1.
-        Assert.Contains(("BRK", 1), inv);
-        Assert.Contains(("RTI", 1), inv);
-        // ADC now has semantics — must NOT appear in the inventory.
-        Assert.DoesNotContain(inv, x => x.Mnemonic == "ADC");
-        // Mapped mnemonics must NOT appear (LDA has semantics).
-        Assert.DoesNotContain(inv, x => x.Mnemonic == "LDA");
-        // Stable mnemonic ordering for reproducible report output.
-        Assert.Equal(inv.OrderBy(x => x.Mnemonic, StringComparer.Ordinal), inv);
+        Assert.Empty(report.MissingSemanticsInventory);
+        Assert.Equal(0, report.TodoSemantics);
     }
 
     // ─── 11-row regression anchor ───────────────────────────────────────────
@@ -116,6 +103,8 @@ public class SpecFileEmitterTests
     [InlineData("""Insn(0x4C, "JMP", AddrMode.Absolute, [Jump()]),""")]
     [InlineData("""Insn(0xD0, "BNE", AddrMode.Relative, [BranchIf(Flag.Z, false)]),""")]
     [InlineData("""Insn(0xEA, "NOP", AddrMode.Implied, []),""")]
+    [InlineData("""Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),""")]
+    [InlineData("""Insn(0x40, "RTI", AddrMode.Implied, [Rti()]),""")]
     public void Output_Contains_Anchor_Row(string expectedRow)
     {
         var (source, _) = RunEngine();
@@ -128,13 +117,12 @@ public class SpecFileEmitterTests
     // ─── TODO rows ──────────────────────────────────────────────────────────
 
     [Fact]
-    public void Output_Contains_TODO_Semantics_For_BRK_0x00()
+    public void Output_Contains_No_TODO_Semantics()
     {
-        // 0x00 is BRK — BRK has no semantics in the map (3b-ii)
-        var (source, _) = RunEngine();
-        Assert.Contains("TODO(semantics)", source);
-        Assert.Contains("0x00", source);
-        Assert.Contains("BRK", source);
+        // All 56 dataset mnemonics now map (BRK/RTI landed in 3b-ii) — no TODO rows remain.
+        var (source, report) = RunEngine();
+        Assert.DoesNotContain("TODO(semantics)", source);
+        Assert.Equal(0, report.TodoSemantics);
     }
 
     [Fact]

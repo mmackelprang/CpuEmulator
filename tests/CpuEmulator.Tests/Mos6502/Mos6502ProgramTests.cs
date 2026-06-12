@@ -104,6 +104,40 @@ public class Mos6502ProgramTests
     }
 
     [Fact]
+    public void Brk_rti_roundtrip_restores_state()
+    {
+        // Program: BRK at 0x0200, handler RTI at 0x8000
+        // Vectors: $FFFE/$FFFF → 0x8000
+        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
+        inner.Write8(0x0200, 0x00); // BRK
+        inner.Write8(0x0201, 0xFF); // BRK padding byte
+        inner.Write8(0x8000, 0x40); // RTI
+        inner.Write8(0xFFFE, 0x00); // IRQ vector lo
+        inner.Write8(0xFFFF, 0x80); // IRQ vector hi → 0x8000
+
+        var cpu = new Mos6502Cpu(inner);
+        cpu.SetRegister("PC", 0x0200);
+        cpu.SetRegister("S", 0xFD);
+        cpu.SetRegister("P", 0x00);
+
+        // Step 1: BRK → jumps to 0x8000, stacks P=0x00|0x30=0x30, pushes PC=0x0202
+        cpu.Step();
+        Assert.Equal(0x8000ul, cpu.GetRegister("PC"));
+        Assert.Equal(0xFAul,   cpu.GetRegister("S"));
+        Assert.Equal(0x04ul,   cpu.GetRegister("P")); // live P gains only I (not the stacked B bits)
+
+        // Step 2: RTI → restores P and PC=0x0202
+        cpu.Step();
+        Assert.Equal(0x0202ul, cpu.GetRegister("PC")); // past padding byte
+        Assert.Equal(0xFDul,   cpu.GetRegister("S"));
+        Assert.Equal(13L, cpu.CycleCount); // BRK(7) + RTI(6)
+        // P restored: BRK-stacked B bit does not survive RTI, I is back clear, bit5=1
+        // stacked was P|0x30 = 0x30; RTI restores (0x30|0x20)&0xEF = 0x20 (bit5=1, bit4=0, I=0)
+        Assert.Equal(0x20ul, cpu.GetRegister("P"));
+    }
+
+    [Fact]
     public void Program_runs_inside_a_Machine_via_reset_vector()
     {
         var machine = Machine.Create("breadboard")

@@ -40,8 +40,8 @@ public class RegeneratedSpecTests
             source.Replace("\r\n", "\n"),
             committed.Replace("\r\n", "\n"));
 
-        Assert.Equal(149, report.Emitted);
-        Assert.Equal(2,   report.TodoSemantics);  // BRK + RTI (3b-ii)
+        Assert.Equal(151, report.Emitted);
+        Assert.Equal(0,   report.TodoSemantics);  // BRK + RTI now map (3b-ii)
         Assert.Equal(0,   report.TodoMode);       // all 13 modes expressible
     }
 
