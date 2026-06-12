@@ -39,7 +39,10 @@ internal static class SpecParser
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
     {
-        "Implied", "Immediate", "ZeroPage", "Absolute", "Relative",
+        "Implied", "Accumulator", "Immediate",
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY",
+        "IndirectX", "IndirectY", "Indirect", "Relative",
     };
 
     /// <summary>Members of the Reg enum. A micro-op Reg argument MUST be one of these
@@ -345,6 +348,15 @@ internal static class SpecParser
             return false;
         }
 
+        // Index-register requirement: X-indexed modes require a register named 'X';
+        // Y-indexed modes require 'Y'. This is the 6502 convention baked into the templates.
+        if (RequiredIndexRegister(mode) is { } index && !registerNames.Contains(index))
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic, $"mode '{mode}' requires a register named '{index}'"));
+            return false;
+        }
+
         return true;
     }
 
@@ -412,21 +424,52 @@ internal static class SpecParser
         return InstructionClass.Register;
     }
 
+    /// <summary>Returns the index register NAME required for this mode, or null if none.</summary>
+    private static string? RequiredIndexRegister(string mode) => mode switch
+    {
+        "ZeroPageX" or "AbsoluteX" or "IndirectX" => "X",
+        "ZeroPageY" or "AbsoluteY" or "IndirectY" => "Y",
+        _ => null,
+    };
+
     private static string? ValidateModeForClass(string mode, InstructionClass opClass) => (opClass, mode) switch
     {
+        // register class: Implied only
         (InstructionClass.Register, "Implied") => null,
         (InstructionClass.Register, _) => "register-class ops (Transfer/Increment/SetNZ or empty) require Implied mode",
+
+        // load class: Immediate + all memory modes (9 modes)
         (InstructionClass.Load, "Immediate") => null,
         (InstructionClass.Load, "ZeroPage") => null,
+        (InstructionClass.Load, "ZeroPageX") => null,
+        (InstructionClass.Load, "ZeroPageY") => null,
         (InstructionClass.Load, "Absolute") => null,
-        (InstructionClass.Load, _) => "Load requires Immediate, ZeroPage, or Absolute mode",
+        (InstructionClass.Load, "AbsoluteX") => null,
+        (InstructionClass.Load, "AbsoluteY") => null,
+        (InstructionClass.Load, "IndirectX") => null,
+        (InstructionClass.Load, "IndirectY") => null,
+        (InstructionClass.Load, _) => "Load requires a memory or immediate addressing mode",
+
+        // store class: all memory modes (8 modes — no Immediate)
         (InstructionClass.Store, "ZeroPage") => null,
+        (InstructionClass.Store, "ZeroPageX") => null,
+        (InstructionClass.Store, "ZeroPageY") => null,
         (InstructionClass.Store, "Absolute") => null,
-        (InstructionClass.Store, _) => "Store requires ZeroPage or Absolute mode",
+        (InstructionClass.Store, "AbsoluteX") => null,
+        (InstructionClass.Store, "AbsoluteY") => null,
+        (InstructionClass.Store, "IndirectX") => null,
+        (InstructionClass.Store, "IndirectY") => null,
+        (InstructionClass.Store, _) => "Store requires a memory addressing mode (ZeroPage/Absolute/Indirect families)",
+
+        // jump class: Absolute and Indirect
         (InstructionClass.Jump, "Absolute") => null,
-        (InstructionClass.Jump, _) => "Jump requires Absolute mode",
+        (InstructionClass.Jump, "Indirect") => null,
+        (InstructionClass.Jump, _) => "Jump requires Absolute or Indirect mode",
+
+        // branch class: Relative only
         (InstructionClass.Branch, "Relative") => null,
         (InstructionClass.Branch, _) => "BranchIf requires Relative mode",
+
         _ => $"unrecognised op class '{opClass}'",
     };
 

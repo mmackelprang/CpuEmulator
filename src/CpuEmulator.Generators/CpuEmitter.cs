@@ -131,7 +131,10 @@ internal static class CpuEmitter
         // The emitter consumes instruction.Class directly; no parallel classifier here.
         InstructionClass opClass = instruction.Class;
         int cycleCount = ComputeCycles(instruction.Mode, opClass);
-        string cycleStr = opClass == InstructionClass.Branch ? "2-4 cycles" : $"{cycleCount} cycles";
+        string cycleStr = (opClass == InstructionClass.Branch) ? "2-4 cycles"
+            : (instruction.Mode is "AbsoluteX" or "AbsoluteY" or "IndirectY"
+               && opClass is InstructionClass.Load) ? $"{cycleCount}-{cycleCount + 1} cycles (+1 on page cross)"
+            : $"{cycleCount} cycles";
 
         sb.AppendLine();
         sb.AppendLine($"    /// <summary>0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode} — {cycleStr}.</summary>");
@@ -166,14 +169,28 @@ internal static class CpuEmitter
     private static int ComputeCycles(string mode, InstructionClass opClass) => (mode, opClass) switch
     {
         // 1 (opcode fetch) + template cycles
-        ("Implied", _) => 2,    // +1 dummy read
-        ("Immediate", _) => 2,  // +1 operand read
-        ("ZeroPage", InstructionClass.Load) => 3,   // +1 addr +1 data
-        ("ZeroPage", InstructionClass.Store) => 3,  // +1 addr +1 write
-        ("Absolute", InstructionClass.Load) => 4,   // +1 lo +1 hi +1 data
-        ("Absolute", InstructionClass.Store) => 4,  // +1 lo +1 hi +1 write
-        ("Absolute", InstructionClass.Jump) => 3,   // +1 lo +1 hi
-        ("Relative", InstructionClass.Branch) => 0, // variable: 2/3/4 — doc string says "2-4 cycles"
+        ("Implied", _) => 2,                                   // +1 dummy read
+        ("Immediate", _) => 2,                                 // +1 operand read
+        ("ZeroPage", InstructionClass.Load) => 3,              // +1 addr +1 data
+        ("ZeroPage", InstructionClass.Store) => 3,             // +1 addr +1 write
+        ("ZeroPageX", InstructionClass.Load) => 4,             // +1 addr +1 dummy +1 data
+        ("ZeroPageX", InstructionClass.Store) => 4,            // +1 addr +1 dummy +1 write
+        ("ZeroPageY", InstructionClass.Load) => 4,             // +1 addr +1 dummy +1 data
+        ("ZeroPageY", InstructionClass.Store) => 4,            // +1 addr +1 dummy +1 write
+        ("Absolute", InstructionClass.Load) => 4,              // +1 lo +1 hi +1 data
+        ("Absolute", InstructionClass.Store) => 4,             // +1 lo +1 hi +1 write
+        ("Absolute", InstructionClass.Jump) => 3,              // +1 lo +1 hi
+        ("AbsoluteX", InstructionClass.Load) => 4,             // 4-5 (+1 cross) — variable
+        ("AbsoluteX", InstructionClass.Store) => 5,            // always 5 (dummy read)
+        ("AbsoluteY", InstructionClass.Load) => 4,             // 4-5 (+1 cross) — variable
+        ("AbsoluteY", InstructionClass.Store) => 5,            // always 5 (dummy read)
+        ("IndirectX", InstructionClass.Load) => 6,             // 6 cycles
+        ("IndirectX", InstructionClass.Store) => 6,            // 6 cycles
+        ("IndirectY", InstructionClass.Load) => 5,             // 5-6 (+1 cross) — variable
+        ("IndirectY", InstructionClass.Store) => 6,            // always 6 (dummy read)
+        ("Indirect", InstructionClass.Jump) => 5,              // 5 cycles (JMP indirect)
+        ("Accumulator", _) => 2,                               // +1 dummy read
+        ("Relative", InstructionClass.Branch) => 0,            // variable: 2/3/4 — doc string says "2-4 cycles"
         _ => throw new System.InvalidOperationException(
             $"emitter has no cycle count for mode '{mode}' / class '{opClass}'"),
     };
@@ -203,6 +220,20 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte data = ReadBus(addr);");
                 sb.AppendLine($"        {target} = data;");
                 break;
+            case "ZeroPageX":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        byte data = ReadBus((addr + X) & 0xFF);");
+                sb.AppendLine($"        {target} = data;");
+                break;
+            case "ZeroPageY":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        byte data = ReadBus((addr + Y) & 0xFF);");
+                sb.AppendLine($"        {target} = data;");
+                break;
             case "Absolute":
                 sb.AppendLine($"        uint lo = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
@@ -210,6 +241,49 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        uint ea = lo | (hi << 8);");
                 sb.AppendLine($"        byte data = ReadBus(ea);");
+                sb.AppendLine($"        {target} = data;");
+                break;
+            case "AbsoluteX":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + X) & 0xFFFF;");
+                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + X) & 0xFF));");
+                sb.AppendLine($"        if (((lo + X) & 0x100) != 0)");
+                sb.AppendLine($"            data = ReadBus(ea);");
+                sb.AppendLine($"        {target} = data;");
+                break;
+            case "AbsoluteY":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
+                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + Y) & 0xFF));");
+                sb.AppendLine($"        if (((lo + Y) & 0x100) != 0)");
+                sb.AppendLine($"            data = ReadBus(ea);");
+                sb.AppendLine($"        {target} = data;");
+                break;
+            case "IndirectX":
+                sb.AppendLine($"        uint ptr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(ptr); // dummy read at unindexed ptr");
+                sb.AppendLine($"        uint elo = ReadBus((ptr + X) & 0xFF);");
+                sb.AppendLine($"        uint ehi = ReadBus((ptr + X + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = elo | (ehi << 8);");
+                sb.AppendLine($"        byte data = ReadBus(ea);");
+                sb.AppendLine($"        {target} = data;");
+                break;
+            case "IndirectY":
+                sb.AppendLine($"        uint ptr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint lo = ReadBus(ptr);");
+                sb.AppendLine($"        uint hi = ReadBus((ptr + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
+                sb.AppendLine($"        byte data = ReadBus((hi << 8) | ((lo + Y) & 0xFF));");
+                sb.AppendLine($"        if (((lo + Y) & 0x100) != 0)");
+                sb.AppendLine($"            data = ReadBus(ea);");
                 sb.AppendLine($"        {target} = data;");
                 break;
             default:
@@ -291,12 +365,60 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        WriteBus(addr, {source});");
                 break;
+            case "ZeroPageX":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        WriteBus((addr + X) & 0xFF, {source});");
+                break;
+            case "ZeroPageY":
+                sb.AppendLine($"        uint addr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(addr); // dummy read at unindexed zp");
+                sb.AppendLine($"        WriteBus((addr + Y) & 0xFF, {source});");
+                break;
             case "Absolute":
                 sb.AppendLine($"        uint lo = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        uint hi = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        uint ea = lo | (hi << 8);");
+                sb.AppendLine($"        WriteBus(ea, {source});");
+                break;
+            case "AbsoluteX":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + X) & 0xFFFF;");
+                sb.AppendLine($"        _ = ReadBus((hi << 8) | ((lo + X) & 0xFF)); // dummy read (always, right or wrong addr)");
+                sb.AppendLine($"        WriteBus(ea, {source});");
+                break;
+            case "AbsoluteY":
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
+                sb.AppendLine($"        _ = ReadBus((hi << 8) | ((lo + Y) & 0xFF)); // dummy read (always, right or wrong addr)");
+                sb.AppendLine($"        WriteBus(ea, {source});");
+                break;
+            case "IndirectX":
+                sb.AppendLine($"        uint ptr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        _ = ReadBus(ptr); // dummy read at unindexed ptr");
+                sb.AppendLine($"        uint elo = ReadBus((ptr + X) & 0xFF);");
+                sb.AppendLine($"        uint ehi = ReadBus((ptr + X + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = elo | (ehi << 8);");
+                sb.AppendLine($"        WriteBus(ea, {source});");
+                break;
+            case "IndirectY":
+                sb.AppendLine($"        uint ptr = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint lo = ReadBus(ptr);");
+                sb.AppendLine($"        uint hi = ReadBus((ptr + 1) & 0xFF);");
+                sb.AppendLine($"        uint ea = ((lo | (hi << 8)) + Y) & 0xFFFF;");
+                sb.AppendLine($"        _ = ReadBus((hi << 8) | ((lo + Y) & 0xFF)); // dummy read (always)");
                 sb.AppendLine($"        WriteBus(ea, {source});");
                 break;
             default:
@@ -322,6 +444,18 @@ internal static class CpuEmitter
                 sb.AppendLine($"        uint hi = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+                break;
+            case "Indirect":
+                // JMP (ptr): 5 cycles. Reproduces the NMOS page-wrap bug:
+                // a pointer at $xxFF takes its high byte from $xx00.
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint ptr = lo | (hi << 8);");
+                sb.AppendLine($"        uint target = ReadBus(ptr);");
+                sb.AppendLine($"        target |= (uint)ReadBus((ptr & 0xFF00) | ((ptr + 1) & 0xFF)) << 8;");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})target);");
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -416,12 +550,28 @@ internal static class CpuEmitter
             {
                 "Implied" =>
                     $"            0x{instruction.Opcode:X2} => \"{m}\",",
+                "Accumulator" =>
+                    $"            0x{instruction.Opcode:X2} => \"{m} A\",",
                 "Immediate" =>
                     $"            0x{instruction.Opcode:X2} => $\"{m} #${{operandLo:X2}}\",",
                 "ZeroPage" =>
                     $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}}\",",
+                "ZeroPageX" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}},X\",",
+                "ZeroPageY" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}},Y\",",
                 "Absolute" =>
                     $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}}\",",
+                "AbsoluteX" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}},X\",",
+                "AbsoluteY" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}},Y\",",
+                "IndirectX" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} (${{operandLo:X2}},X)\",",
+                "IndirectY" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} (${{operandLo:X2}}),Y\",",
+                "Indirect" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} (${{operandHi:X2}}{{operandLo:X2}})\",",
                 "Relative" =>
                     $"            0x{instruction.Opcode:X2} => $\"{m} *{{(sbyte)operandLo:+0;-0}}\",",
                 _ => throw new System.InvalidOperationException(

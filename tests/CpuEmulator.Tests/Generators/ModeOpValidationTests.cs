@@ -16,6 +16,13 @@ public class ModeOpValidationTests
             """,
             instructionsBody);
 
+    // Helper for tests that need a Y register in the spec (Y-indexed modes).
+    private static string WithInstructionsAndY(string instructionsBody) =>
+        GeneratorTestHost.ReplaceSection(
+            WithInstructions(instructionsBody),
+            """new("A", 8),""",
+            """new("A", 8), new("Y", 8),""");
+
     [Fact]
     public void Store_with_immediate_mode_is_rejected()
     {
@@ -187,6 +194,136 @@ public class ModeOpValidationTests
         Assert.Equal("Flag.C", locationText); // points at the SECOND argument
         Assert.Contains("Argument 2 of 'Transfer' must be a Reg member", diagnostic.GetMessage());
     }
+
+    // ── Task 2: 13-mode acceptance + class/mode matrix tests ──────────────────────────────
+
+    [Fact]
+    public void Load_with_zero_page_x_is_accepted()
+    {
+        // X is in ValidSpecSource's Registers; ZeroPageX must be accepted for load class.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0xB5, "LDA", AddrMode.ZeroPageX, [Load(Reg.A), SetNZ(Reg.A)]),
+                ];
+            """));
+
+        Assert.Empty(result.GeneratorDiagnostics);
+    }
+
+    [Fact]
+    public void Load_with_absolute_y_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructionsAndY("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0xB9, "LDA", AddrMode.AbsoluteY, [Load(Reg.A), SetNZ(Reg.A)]),
+                ];
+            """));
+
+        Assert.Empty(result.GeneratorDiagnostics);
+    }
+
+    [Fact]
+    public void Store_with_indirect_y_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructionsAndY("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x91, "STA", AddrMode.IndirectY, [Store(Reg.A)]),
+                ];
+            """));
+
+        Assert.Empty(result.GeneratorDiagnostics);
+    }
+
+    [Fact]
+    public void Jump_with_indirect_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x6C, "JMP", AddrMode.Indirect, [Jump()]),
+                ];
+            """));
+
+        Assert.Empty(result.GeneratorDiagnostics);
+    }
+
+    [Fact]
+    public void Load_with_accumulator_mode_is_rejected()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "LDA", AddrMode.Accumulator, [Load(Reg.A)]),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void Jump_with_indirect_x_is_rejected()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "JMP", AddrMode.IndirectX, [Jump()]),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void Branch_with_absolute_x_is_rejected()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "BNE", AddrMode.AbsoluteX, [BranchIf(Flag.Z, false)]),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void Y_indexed_mode_without_Y_register_is_rejected()
+    {
+        // AbsoluteY without a Y register in the spec — CPUGEN010 mentioning 'Y'.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "LDA", AddrMode.AbsoluteY, [Load(Reg.A)]),
+                ];
+            """));
+
+        var diag = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+        Assert.Contains("register named 'Y'", diag.GetMessage());
+    }
+
+    [Fact]
+    public void X_indexed_mode_requires_X_register()
+    {
+        // ValidSpecSource has X — so remove it by building a custom spec without X.
+        string source = GeneratorTestHost.ReplaceSection(
+            WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0xB5, "LDA", AddrMode.ZeroPageX, [Load(Reg.A), SetNZ(Reg.A)]),
+                ];
+            """),
+            """new("X", 8),""",
+            "");
+
+        var result = GeneratorTestHost.Run(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    // ── Task 1: Reg-hardening tests ────────────────────────────────────────────────────────
 
     [Fact]
     public void Unknown_Reg_member_in_op_reports_CPUGEN011()
