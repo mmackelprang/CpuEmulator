@@ -8,7 +8,7 @@
 
 **Tech Stack:** .NET 10, Roslyn `Microsoft.CodeAnalysis.CSharp` 4.12.0 (generator + test host), xUnit. Generator tested in-memory via `CSharpGeneratorDriver` (no snapshot files; assertions on diagnostics, generated text, and compilation success).
 
-**Spec:** `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md` §5 (ISA spec + constrained DSL), §7 (error handling). **Plan series update:** M1 is now five plans — 1: core contracts ✅ (PR #1), **2a: this plan**, 2b: interpreter emission + subset live, 3: full 6502 + TomHarte (+ IL-emitter artifact, generate-only), 4: peripherals + host.
+**Spec:** `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md` §5 (ISA spec + constrained DSL), §7 (error handling). **Plan series update:** M1 is now six plans — 1: core contracts ✅ (PR #1), **2a: this plan**, 2b: interpreter emission + subset live, 3a: spec-importer tool (opcode rows generated from a curated machine-readable dataset; semantics hand-authored once per mnemonic — "mostly automated" spec creation), 3b: full 6502 + TomHarte (+ IL-emitter artifact, generate-only), 4: peripherals + host. A TomHarte-derived spec linter (inferring opcode behavior from vectors to cross-check the dataset) is parked at the M4+ horizon.
 
 **Carry-forwards honored here** (from PR #1 reviews): `ICpuCore.Step()` gets its cycle-advance contract documented; generated cores always advance `CycleCount` per `Step` (no-progress guard safe); introspection follows the pinned ArgumentException/truncation contract.
 
