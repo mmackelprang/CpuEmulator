@@ -86,6 +86,21 @@ public sealed class AddressSpace : IAddressSpace
         return _options.OpenBusValue;
     }
 
+    public bool TryPeek8(uint address, out byte value)
+    {
+        address &= AddressMask;
+        ref PageEntry page = ref _pages[address >> PageShift];
+        if (page.Backing is not null)
+        {
+            value = page.Backing[page.BackingOffset + (int)(address & PageMask)];
+            return true;
+        }
+        if (page.Handler is not null)
+            return page.Handler.TryPeek(address - page.HandlerBase, out value);
+        value = _options.OpenBusValue; // peeking unmapped space is side-effect-free by
+        return true;                   // definition — no strict-mode throw (debugger view)
+    }
+
     public void Write8(uint address, byte value)
     {
         address &= AddressMask;

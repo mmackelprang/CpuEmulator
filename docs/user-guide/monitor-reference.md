@@ -25,7 +25,7 @@ The prompt is `* ` when running interactively. In headless/test mode (no `prompt
 | `r` | Print the registers line. |
 | `r NAME=VALUE` | Set a register by name, then print the registers line. |
 | `s [N]` | Step `N` instructions (default 1). Prints a two-line step report for each. |
-| `g [$ADDR] [until $TARGET] [BUDGET]` | Optionally set PC to `$ADDR`; run for `BUDGET` cycles (default 1,000,000; decimal). With `until $TARGET`: stop when `$TARGET` is reached or PC traps (per-instruction checks — `until` form only); without `until`, the run always consumes the full budget. |
+| `g [$ADDR] [until $TARGET] [BUDGET]` | Optionally set PC to `$ADDR`; run for `BUDGET` cycles (default 1,000,000; decimal). With `until $TARGET`: stop when `$TARGET` is reached or PC traps (per-instruction checks — `until` form only); without `until`, the run always consumes the full budget, stopping at the first instruction boundary at or past it (may overshoot by up to one instruction — `g 200` can report 203 cycles). |
 | `i TEXT` | Inject the characters in `TEXT` (low byte of each) to the UART input queue. Surrounding `"…"` are stripped — useful to carry leading/trailing spaces. Nothing appended. |
 | `l ADDR PATH` | Load a raw binary file at `ADDR`. `PATH` is the rest of the line and may contain spaces. |
 | `w ADDR LEN PATH` | Save `LEN` bytes from `ADDR` to a raw binary file. |
@@ -97,7 +97,7 @@ When an interrupt is serviced instead of an instruction, line 1 reads:
 {pc:X4}: (interrupt serviced)
 ```
 
-followed by the registers line after the service: the 7-cycle sequence pushes PC and P (S drops by 3), sets the I flag, and loads PC from the interrupt vector's contents. The `InterruptPending` flag is sampled before the step; when true, the step report says `(interrupt serviced)` regardless of what instruction sits at PC. (The host REPL has no command to assert interrupt lines — lines are host/peripheral domain — so this report appears in embedded-monitor scenarios; it is pinned by the `MonitorEngineExecutionTests`/`MonitorReplTests` suite.)
+followed by the registers line after the service: the 7-cycle sequence pushes PC and P (S drops by 3), sets the I flag, and loads PC from the interrupt vector's contents. The `InterruptPending` flag is sampled before the step; when true, the step report says `(interrupt serviced)` regardless of what instruction sits at PC. (Live on the host REPL since the device chunk: enable the UART rx-IRQ with `m D002: 01`, inject a byte with `i`, clear I with `r P=30`, and `s` reports `(interrupt serviced)`. Also pinned by the `MonitorEngineExecutionTests`/`MonitorReplTests` suite.)
 
 ### `g` stop lines
 
@@ -166,7 +166,7 @@ Write bytes:
 
 The echo after a write shows what actually landed — over ROM, `m`-writes are silently dropped, and the echo shows the ROM's real content.
 
-**Known behavior:** `m` over the UART DATA register (`$D000`) dequeues pending rx bytes — this is a hardware-true destructive read, not a bug.
+**`m` dumps are side-effect-free over honest devices:** the dump uses the Peek API where the device implements it (the UART and the timer both do). `m $D000` shows the rx queue head without consuming it. Devices without an honest peek fall back to live-bus reads.
 
 ### `d` — disassemble
 
@@ -182,7 +182,7 @@ E00B: 4C 02 E0  JMP $E002
 
 The walk uses `InstructionLength` to advance: undefined opcodes walk as 1 byte.
 
-**Known behavior:** `d` reads through the live bus. Disassembling MMIO pages may trigger reads.
+**`d` is side-effect-free over honest devices:** like `m`, disassembly reads peek where the device implements `TryPeek` and fall back to live-bus reads where it does not.
 
 ### `a` — assemble
 
@@ -331,8 +331,10 @@ In the second example, `HI` was echoed by the guest's echo loop before the budge
 
 ### `a`-writes over ROM are silently dropped
 
-The non-strict bus default for ROM mappings ignores writes. `a $E000 NOP` reports success and echoes the disassembly, but the ROM byte at `$E000` is unchanged. The echo disassembles what is really there. Verify-after-write would itself require a side-effect-free read, which is recorded backlog.
+The non-strict bus default for ROM mappings ignores writes. `a $E000 NOP` reports success and echoes the disassembly, but the ROM byte at `$E000` is unchanged. The echo disassembles what is really there. The Peek API now exists, so verify-after-write is *feasible* — recorded monitor-v3 backlog (bypassing or flagging ROM write-protect from the monitor is a feature decision, not a transparency fix).
 
-### Monitor reads perturb MMIO
+### Display reads peek; execution and file I/O stay live-bus
 
-`m`, `d`, and `s` read through the live bus. A hex dump over the UART DATA register (`$D000`) dequeues pending rx bytes — this is a hardware-true destructive read. Dump UART STATUS (`$D001`) to poll without consuming data. A peek/poke API is recorded monitor-v2 backlog.
+The monitor's *display* reads — `m` dumps, `d` disassembly, and the `s` step-report prefetch — are side-effect-free over devices that implement `IPeripheral.TryPeek` (the UART and the timer both do). `m $D000` shows the rx queue head without dequeuing it; dumps over the timer page never clear STATUS. Devices without an honest peek fall back to documented live-bus reads.
+
+Everything that *should* be a real bus access still is: guest execution, `l` (load), `w` (save — saving an MMIO region *is* a bus read sweep, by design), and `a` writes. A live-bus read of UART DATA dequeues — that is the hardware truth, unchanged.

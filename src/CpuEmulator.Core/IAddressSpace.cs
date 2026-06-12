@@ -23,4 +23,10 @@ public interface IAddressSpace
 
     /// <summary>Map a device over [start, start+length). Same alignment rules.</summary>
     void MapPeripheral(uint start, uint length, IPeripheral peripheral);
+
+    /// <summary>Side-effect-free read for monitors and debuggers. Memory pages: always true
+    /// (RAM and ROM bytes). Peripheral pages: the device's TryPeek (false if the device
+    /// has no honest peek). Unmapped: open-bus value, true, never throws — even in strict
+    /// mode (a peek is a debugger view, not a bus transaction).</summary>
+    bool TryPeek8(uint address, out byte value);
 }

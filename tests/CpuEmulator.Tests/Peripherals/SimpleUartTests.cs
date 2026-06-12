@@ -2,6 +2,7 @@ using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Monitor;
 using CpuEmulator.Peripherals;
+using CpuEmulator.Tests.TestDoubles;
 
 namespace CpuEmulator.Tests.Peripherals;
 
@@ -99,10 +100,10 @@ public class SimpleUartTests
     // ── Theories: reserved offsets ────────────────────────────────────────────
 
     [Theory]
-    [InlineData(2u)]
     [InlineData(3u)]
     public void Reserved_offsets_read_0x00(uint offset)
     {
+        // Offset 2 is now CTRL (intake item 1) — only offset 3 remains reserved.
         var uart = new SimpleUart();
         Assert.Equal(0x00u, uart.Read(offset, AccessWidth.Byte));
     }
@@ -111,7 +112,6 @@ public class SimpleUartTests
 
     [Theory]
     [InlineData(1u)]
-    [InlineData(2u)]
     [InlineData(3u)]
     public void Non_DATA_writes_are_ignored(uint offset)
     {
@@ -177,10 +177,11 @@ public class SimpleUartTests
     // item. These tests make the behavior deliberate, not accidental.
 
     [Fact]
-    public void Bus_read_over_DATA_dequeues_rx_the_documented_monitor_perturbation()
+    public void Bus_read_over_DATA_dequeues_rx_the_hardware_truth()
     {
-        // Documented known behavior: a bus read at the DATA offset (& 0x03 == 0) is a
-        // destructive rx dequeue. Monitor hex dumps trigger this path — recorded M1 behavior.
+        // Hardware truth: a bus read at the DATA offset (& 0x03 == 0) is a destructive rx
+        // dequeue — real UARTs work the same way. The monitor's display path (m/d/s) no
+        // longer takes this path (it peeks instead), but live bus reads still dequeue.
         var uart = new SimpleUart();
         uart.FeedInput((byte)'A');
         uart.FeedInput((byte)'B');
@@ -194,13 +195,13 @@ public class SimpleUartTests
 
         var space = machine.Space(AddressSpaceKind.Program);
 
-        // First dump-shaped read at $D000 (offset 0 → DATA): consumes 'A'
+        // First live bus read at $D000 (offset 0 → DATA): consumes 'A'
         uint first = space.Read8(0xD000);
         Assert.Equal((uint)'A', first);
         // STATUS bit0 still set — 'B' is still queued
         Assert.Equal(0x03u, space.Read8(0xD001));
 
-        // Second dump-shaped read at $D000: consumes 'B'
+        // Second live bus read at $D000: consumes 'B'
         uint second = space.Read8(0xD000);
         Assert.Equal((uint)'B', second);
         // STATUS bit0 now clear — queue drained
@@ -208,12 +209,11 @@ public class SimpleUartTests
     }
 
     [Fact]
-    public void Monitor_m_command_over_DATA_dequeues()
+    public void Monitor_m_command_over_DATA_peeks_without_dequeuing()
     {
-        // Documented known behavior: the monitor 'm' hex dump command reads live bus
-        // addresses. A dump over the DATA register (offset 0) is a destructive rx read —
-        // the monitor reads go through the live bus. Peek API stays monitor-v2 backlog;
-        // this pin makes the behavior deliberate, not accidental.
+        // PR #8 perturbation pin, flipped to guard the Peek fix: the monitor 'm' command
+        // now uses TryPeek (side-effect-free). A dump over DATA shows the head byte without
+        // dequeuing it. Both bytes remain in the queue after the monitor read.
         var uart = new SimpleUart();
         uart.FeedInput((byte)'A');
         uart.FeedInput((byte)'B');
@@ -228,7 +228,7 @@ public class SimpleUartTests
 
         var engine = new MonitorEngine(cpu, space, cpu);
 
-        // 'm d000 1' dumps 1 byte starting at $D000 — that is a DATA read, which dequeues 'A'
+        // 'm d000 1' dumps 1 byte starting at $D000 — now a side-effect-free peek
         var output = new StringWriter();
         new MonitorRepl(engine, new StringReader("m d000 1\nq"), output).Run();
         string text = output.ToString();
@@ -237,9 +237,183 @@ public class SimpleUartTests
         Assert.Contains("D000:", text);
         Assert.Contains("41", text);
 
-        // The queue should now hold only 'B' — 'A' was consumed by the monitor read
+        // BOTH bytes remain queued — the monitor peek did not dequeue 'A'
+        Assert.Equal((uint)'A', uart.Read(0, AccessWidth.Byte));
         Assert.Equal((uint)'B', uart.Read(0, AccessWidth.Byte));
-        // Queue is now drained after reading 'B'
-        Assert.Equal(0x02u, uart.Read(1, AccessWidth.Byte));
+    }
+
+    // ── Honest peek (v1 registers) ────────────────────────────────────────────
+
+    [Fact]
+    public void TryPeek_DATA_returns_head_without_dequeuing()
+    {
+        var uart = new SimpleUart();
+        uart.FeedInput((byte)'A');
+        uart.FeedInput((byte)'B');
+
+        bool ok1 = uart.TryPeek(0, out byte v1);
+        bool ok2 = uart.TryPeek(0, out byte v2);
+
+        Assert.True(ok1);
+        Assert.True(ok2);
+        Assert.Equal((byte)'A', v1);
+        Assert.Equal((byte)'A', v2); // head, not dequeued
+
+        // Live reads still yield A then B
+        Assert.Equal((uint)'A', uart.Read(0, AccessWidth.Byte));
+        Assert.Equal((uint)'B', uart.Read(0, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void TryPeek_DATA_empty_returns_zero()
+    {
+        var uart = new SimpleUart();
+        bool ok = uart.TryPeek(0, out byte value);
+        Assert.True(ok);
+        Assert.Equal(0x00, value);
+    }
+
+    [Fact]
+    public void TryPeek_STATUS_matches_read()
+    {
+        var uart = new SimpleUart();
+        uart.FeedInput(0x41);
+
+        uint readStatus = uart.Read(1, AccessWidth.Byte);
+        uart.TryPeek(1, out byte peekStatus);
+
+        Assert.Equal((byte)readStatus, peekStatus);
+    }
+
+    // ── CTRL register (offset 2) ──────────────────────────────────────────────
+
+    [Fact]
+    public void Ctrl_write_stores_and_reads_back_bit0()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        Assert.Equal(0x01u, uart.Read(2, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void Ctrl_write_masks_to_bit0()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0xFF);
+        Assert.Equal(0x01u, uart.Read(2, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void Ctrl_mirrors_through_the_page()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        // offset 6 & 0x03 == 2 == CTRL
+        Assert.Equal(0x01u, uart.Read(6, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void FeedInput_without_realize_never_touches_a_line()
+    {
+        // Bare UART (not Realized) — enabling rx-irq and feeding must not throw
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01); // enable rx-irq
+        uart.FeedInput(0x41); // must not throw — no IRQ line claimed
+    }
+
+    // ── IRQ level (machine-backed, FakeCpu.IrqAsserted) ──────────────────────
+
+    private static (Machine machine, SimpleUart uart, FakeCpu cpu) MakeUartMachine()
+    {
+        var uart = new SimpleUart();
+        var cpu = new FakeCpu();
+        var machine = Machine.Create("test-uart")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithRam(AddressSpaceKind.Program, 0x0000, 0xD000)
+            .WithPeripheral(AddressSpaceKind.Program, 0xD000, 0x0100, uart)
+            .WithCpu(_ => cpu)
+            .Build();
+        return (machine, uart, cpu);
+    }
+
+    [Fact]
+    public void Enable_then_feed_asserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+
+        uart.Write(2, AccessWidth.Byte, 0x01); // rx-irq-enable
+        uart.FeedInput(0x41);
+
+        Assert.True(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void Partial_drain_leaves_irq_asserted()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        uart.FeedInput(0x41);
+        uart.FeedInput(0x42);
+
+        uart.Read(0, AccessWidth.Byte); // drain one
+
+        Assert.True(cpu.IrqAsserted); // one byte still queued
+    }
+
+    [Fact]
+    public void Full_drain_deasserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        uart.FeedInput(0x41);
+
+        uart.Read(0, AccessWidth.Byte); // drain it
+
+        Assert.False(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void Disable_while_queued_deasserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        uart.FeedInput(0x41);
+        Assert.True(cpu.IrqAsserted);
+
+        uart.Write(2, AccessWidth.Byte, 0x00); // disable
+
+        Assert.False(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void Reenable_while_queued_asserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.FeedInput(0x41); // feed before enable
+        Assert.False(cpu.IrqAsserted); // not enabled yet
+
+        uart.Write(2, AccessWidth.Byte, 0x01); // enable
+
+        Assert.True(cpu.IrqAsserted); // recomputed immediately
+    }
+
+    [Fact]
+    public void Feed_before_enable_stays_false_until_enabled()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.FeedInput(0x41);
+        Assert.False(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void TryPeek_CTRL_returns_enable_bit()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+
+        bool ok = uart.TryPeek(2, out byte value);
+
+        Assert.True(ok);
+        Assert.Equal(0x01, value);
     }
 }

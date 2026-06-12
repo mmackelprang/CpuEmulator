@@ -52,6 +52,13 @@ public sealed class MonitorEngine
 
     private uint Pc => (uint)_cpu.GetRegister(_support.ProgramCounterName) & _addressMask;
 
+    /// <summary>Display read: peek where the device is honest; fall back to a live bus read
+    /// only when TryPeek returns false (no honest peek). Used by ReadMemory, Disassemble,
+    /// and Step report prefetch — execution reads, LoadBytes/SaveBytes, and TryAssembleAt
+    /// stay live-bus (recorded scope).</summary>
+    private byte PeekOrRead(uint address) =>
+        _memory.TryPeek8(address, out byte value) ? value : _memory.Read8(address);
+
     /// <summary>Current program counter, masked to the address space. Reads and writes
     /// route through <see cref="IMonitorSupport.ProgramCounterName"/> so callers (the REPL,
     /// hosts) never hardcode a register name — the engine stays CPU-agnostic.</summary>
@@ -103,7 +110,8 @@ public sealed class MonitorEngine
     /// <summary>
     /// Hex-dump count bytes starting at address.
     /// Format per Ground truth D: {addr:X4}: {hex,-47} |{ascii}|, 16 bytes/line.
-    /// Note: reads go through the live bus — MMIO peek semantics are monitor-v2.
+    /// Display reads peek where the device is honest; devices without TryPeek fall back to
+    /// live reads. SaveBytes (w) remains a bus sweep — saving MMIO is a bus read sweep.
     /// </summary>
     public string ReadMemory(uint address, int count)
     {
@@ -117,7 +125,7 @@ public sealed class MonitorEngine
             var asciiParts = new System.Text.StringBuilder();
             for (int i = 0; i < lineCount; i++)
             {
-                byte b = _memory.Read8((addr + (uint)i) & _addressMask);
+                byte b = PeekOrRead((addr + (uint)i) & _addressMask);
                 if (i > 0) hexParts.Append(' ');
                 hexParts.Append(b.ToString("X2"));
                 asciiParts.Append(b >= 0x20 && b <= 0x7E ? (char)b : '.');
@@ -144,7 +152,8 @@ public sealed class MonitorEngine
     /// <summary>
     /// Disassemble count instructions starting at address, walking via InstructionLength.
     /// Format per Ground truth D: {addr:X4}: {bytes,-8}  {text}
-    /// Note: reads go through the live bus — MMIO peek semantics are monitor-v2.
+    /// Display reads peek where the device is honest; devices without TryPeek fall back to
+    /// live reads.
     /// </summary>
     public string Disassemble(uint address, int count)
     {
@@ -152,9 +161,9 @@ public sealed class MonitorEngine
         uint addr = address & _addressMask;
         for (int i = 0; i < count; i++)
         {
-            byte opcode = _memory.Read8(addr);
-            byte lo = _memory.Read8((addr + 1) & _addressMask);
-            byte hi = _memory.Read8((addr + 2) & _addressMask);
+            byte opcode = PeekOrRead(addr);
+            byte lo = PeekOrRead((addr + 1) & _addressMask);
+            byte hi = PeekOrRead((addr + 2) & _addressMask);
             string text = _support.Disassemble(opcode, lo, hi);
             int len = _support.InstructionLength(opcode);
 
@@ -163,7 +172,7 @@ public sealed class MonitorEngine
             for (int b = 0; b < len; b++)
             {
                 if (b > 0) bytesStr.Append(' ');
-                bytesStr.Append(_memory.Read8((addr + (uint)b) & _addressMask).ToString("X2"));
+                bytesStr.Append(PeekOrRead((addr + (uint)b) & _addressMask).ToString("X2"));
             }
 
             if (sb.Length > 0) sb.AppendLine();
@@ -225,11 +234,11 @@ public sealed class MonitorEngine
         }
         else
         {
-            byte opcode = _memory.Read8(pcBefore);
+            byte opcode = PeekOrRead(pcBefore);
             disassembly = _support.Disassemble(
                 opcode,
-                _memory.Read8((pcBefore + 1) & _addressMask),
-                _memory.Read8((pcBefore + 2) & _addressMask));
+                PeekOrRead((pcBefore + 1) & _addressMask),
+                PeekOrRead((pcBefore + 2) & _addressMask));
         }
         long cyclesBefore = _cpu.CycleCount;
         _run(1); // exactly one instruction — see the ctor contract

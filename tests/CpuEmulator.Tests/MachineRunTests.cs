@@ -12,8 +12,11 @@ public class MachineRunTests
             .Build();
 
     [Fact]
-    public void Run_passes_the_full_budget_to_the_cpu()
+    public void Run_passes_the_full_budget_when_no_events_pend()
     {
+        // Authorized change #1 (2026-06-12-devices-intake plan): the empty-queue path is
+        // one full-budget slice, byte-identical to pre-PR-#11 — the old name pinned a
+        // contract that the chunked Run falsifies the moment an event pends.
         var cpu = new FakeCpu();
         var machine = MachineWith(cpu);
 
@@ -21,6 +24,63 @@ public class MachineRunTests
 
         Assert.Equal([100L], cpu.RunBudgets);
         Assert.Equal(100, cpu.CycleCount);
+    }
+
+    [Fact]
+    public void Run_chunks_the_slice_at_the_next_pending_event()
+    {
+        // Authorized change #1 (2026-06-12-devices-intake plan): Machine.Run chunks CPU slices
+        // to the next live event. Event at 50, budget 100 => two slices [50, 50].
+        var cpu = new FakeCpu();
+        var machine = MachineWith(cpu);
+        bool fired = false;
+        machine.Scheduler.ScheduleAt(50, () => fired = true);
+
+        machine.Run(100);
+
+        Assert.Equal([50L, 50L], cpu.RunBudgets);
+        Assert.Equal(100, cpu.CycleCount);
+        Assert.True(fired);
+    }
+
+    [Fact]
+    public void Run_fires_a_chunked_event_at_its_exact_committed_cycle()
+    {
+        var cpu = new FakeCpu();
+        var machine = MachineWith(cpu);
+        long seenCycle = -1;
+        machine.Scheduler.ScheduleAt(50, () => seenCycle = machine.Scheduler.CurrentCycle);
+
+        machine.Run(100);
+
+        Assert.Equal(50, seenCycle);
+    }
+
+    [Fact]
+    public void Repeating_event_under_Run_fires_at_exact_intervals()
+    {
+        var cpu = new FakeCpu();
+        var machine = MachineWith(cpu);
+        var log = new List<long>();
+        machine.Scheduler.ScheduleEvery(30, () => log.Add(machine.Scheduler.CurrentCycle));
+
+        machine.Run(100);
+
+        Assert.Equal([30L, 60L, 90L], log);
+    }
+
+    [Fact]
+    public void Canceled_event_does_not_chunk_the_slice()
+    {
+        // Canceled head discarded by TryPeekNextEventCycle — full budget slice.
+        var cpu = new FakeCpu();
+        var machine = MachineWith(cpu);
+        var handle = machine.Scheduler.ScheduleAt(50, () => { });
+        handle.Cancel();
+
+        machine.Run(100);
+
+        Assert.Equal([100L], cpu.RunBudgets);
     }
 
     [Fact]

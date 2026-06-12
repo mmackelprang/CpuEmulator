@@ -33,6 +33,8 @@ internal sealed class TracingAddressSpace(IAddressSpace inner) : IAddressSpace
         inner.Write8(address, value);
     }
 
+    public bool TryPeek8(uint address, out byte value) => inner.TryPeek8(address, out value);
+
     public void MapMemory(uint start, byte[] backing, bool writable) =>
         inner.MapMemory(start, backing, writable);
 

@@ -43,6 +43,7 @@ public sealed class Machine : IMachineContext
             $"Machine '{name}': CPU factory returned null.");
         _irqTarget.Bind(Cpu.SetIrqLine);
         _nmiTarget.Bind(Cpu.SetNmiLine);
+        _scheduler.BindTimeSource(() => Cpu.CycleCount);
 
         // Phase 3: map peripherals, then Realize them in registration order.
         foreach (var (kind, start, length, peripheral) in peripheralDefs)
@@ -56,10 +57,13 @@ public sealed class Machine : IMachineContext
     public void Reset() => Cpu.Reset();
 
     /// <summary>
-    /// Run the machine for a cycle budget and return the cycles actually executed (which may
-    /// exceed the budget by up to one instruction). M1 semantics are coarse: the CPU runs a
-    /// slice, then the scheduler catches up to the CPU's cycle count. The timer milestone will
-    /// chunk CPU slices to the next pending event for tighter event timing.
+    /// Run for a cycle budget; returns cycles actually executed (may overshoot by up to
+    /// one instruction). Slices chunk to the next live event, so callbacks fire at their
+    /// exact cycle and their IRQs land at the very next instruction boundary. An event
+    /// scheduled MID-slice still fires at its exact cycle in scheduler time, but its IRQ
+    /// reaches the CPU at the end of the running slice — latency bounded by the slice
+    /// (one instruction under monitor budget-1 stepping). Empty queue = one full-budget
+    /// slice (the pre-PR-#11 behavior, byte-identical).
     /// </summary>
     public long Run(long cycles)
     {
@@ -70,7 +74,11 @@ public sealed class Machine : IMachineContext
         while (Cpu.CycleCount < target)
         {
             long before = Cpu.CycleCount;
-            long budget = target - Cpu.CycleCount;
+            long sliceEnd = _scheduler.TryPeekNextEventCycle(out long eventCycle)
+                            && eventCycle < target
+                ? Math.Max(eventCycle, before + 1) // events at/behind the CPU: 1-cycle floor
+                : target;
+            long budget = sliceEnd - before;
             Cpu.Run(ref budget);
             if (Cpu.CycleCount <= before)
                 throw new EmulationException(

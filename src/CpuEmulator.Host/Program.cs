@@ -11,7 +11,7 @@ internal static class Program
     private const string Banner =
         """
         CpuEmulator — Breadboard6502
-        6502 · RAM $0000-$CFFF · UART $D000 (DATA $D000, STATUS $D001) · ROM $E000-$FFFF (demo)
+        6502 · RAM $0000-$CFFF · UART $D000 (DATA/STATUS/CTRL) · timer $D100 · ROM $E000-$FFFF (demo)
         UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
         """;
 
@@ -49,10 +49,43 @@ internal static class Program
             if (options.Pc is uint pc)
                 engine.ProgramCounter = pc;
         }
-        // Ctrl/EOF posture (deliberately not engineered in M1): Ctrl+C terminates the
-        // process — no CancelKeyPress handler; runaway-guest protection is the bounded
-        // 'g' budget (default 1M cycles), which always returns to the prompt. EOF
-        // (Ctrl+Z+Enter / Ctrl+D) ends the REPL like 'q' via the null-ReadLine path.
+        if (options.Terminal)
+        {
+            // Raw-mode terminal: per-keystroke loop into the UART; Ctrl-] falls through
+            // to the monitor prompt below. TreatControlCAsInput makes Ctrl+C a guest
+            // byte (0x03) for the session; the prior value is restored in finally.
+            // Under redirected stdin the console raw facilities throw IOException —
+            // terminal mode is interactive-only by nature: clear error, exit 2.
+            Console.WriteLine("(terminal — Ctrl-] exits to the monitor)");
+            try
+            {
+                bool priorCtrlC = Console.TreatControlCAsInput;
+                Console.TreatControlCAsInput = true;
+                try
+                {
+                    new TerminalSession(board.Machine, board.Uart, new SystemTerminalConsole())
+                        .Run();
+                }
+                finally
+                {
+                    Console.TreatControlCAsInput = priorCtrlC;
+                }
+            }
+            catch (IOException ex)
+            {
+                Console.Error.WriteLine($"? --terminal needs an interactive console: {ex.Message}");
+                return 2;
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine($"? --terminal needs an interactive console: {ex.Message}");
+                return 2;
+            }
+        }
+        // Ctrl/EOF posture (REPL mode, deliberately not engineered): Ctrl+C terminates
+        // the process — no CancelKeyPress handler; runaway-guest protection is the
+        // bounded 'g' budget (default 1M cycles), which always returns to the prompt.
+        // EOF (Ctrl+Z+Enter / Ctrl+D) ends the REPL like 'q' via the null-ReadLine path.
         new MonitorRepl(engine, Console.In, Console.Out,
                         prompt: true, inject: board.Uart.FeedInput).Run();
         return 0;

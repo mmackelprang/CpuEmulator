@@ -113,4 +113,42 @@ public class HostOptionsTests
         Assert.False(ok);
         Assert.Equal("unknown option '--frob'", error);
     }
+
+    // ── --terminal ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Terminal_flag_sets_terminal()
+    {
+        bool ok = HostOptions.TryParse(["--terminal"], out HostOptions options, out string? error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        Assert.True(options.Terminal);
+        Assert.False(options.Demo);
+    }
+
+    [Fact]
+    public void Terminal_and_demo_are_mutually_exclusive()
+    {
+        bool ok = HostOptions.TryParse(["--terminal", "--demo"], out _, out string? error);
+
+        Assert.False(ok);
+        Assert.NotNull(error);
+        Assert.Contains("--terminal", error);
+        Assert.Contains("--demo", error);
+    }
+
+    [Fact]
+    public void Terminal_with_load_and_pc_is_a_legal_combo()
+    {
+        // Load a binary, set PC, then free-run it in terminal mode.
+        bool ok = HostOptions.TryParse(["--terminal", "--load", "x.bin", "--pc", "$0300"],
+            out HostOptions options, out string? error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        Assert.True(options.Terminal);
+        Assert.Equal("x.bin", options.LoadPath);
+        Assert.Equal(0x0300u, options.Pc);
+    }
 }

@@ -67,12 +67,14 @@ public class Breadboard6502Tests
     }
 
     [Fact]
-    public void Open_bus_D100_reads_0xFF()
+    public void Open_bus_D200_reads_0xFF()
     {
+        // Relocated from $D100 (authorized change #6): the timer now owns $D100;
+        // the first open-bus page is $D200.
         var board = new Breadboard6502();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
-        uint value = space.Read8(0xD100);
+        uint value = space.Read8(0xD200);
 
         Assert.Equal(0xFFu, value);
     }
@@ -82,14 +84,36 @@ public class Breadboard6502Tests
     {
         // PR #7 review observation, now live: TryAssembleAt over the non-strict ROM
         // window reports success but the bytes do not land — the echo disassembles the
-        // ROM's real content. Pinned as documented M1 behavior; the verify-after-write
-        // fix is rejected until the Peek API exists (a read-back over MMIO is itself a
-        // destructive read). See README known behaviors.
+        // ROM's real content. Pinned as documented behavior; the Peek API exists now
+        // (PR #11), so verify-after-write is feasible — recorded monitor-v3 backlog
+        // (bypassing ROM write-protect from the monitor is a feature decision, not a
+        // transparency fix). See README known behaviors.
         var board = new Breadboard6502();
         var engine = board.NewMonitor();
 
         Assert.True(engine.TryAssembleAt(0xE000, "NOP", out _, out _));
         Assert.Equal(0xA2, board.Machine.Space(AddressSpaceKind.Program).Read8(0xE000));
         // ^ still LDX #$00 — the demo ROM's first byte, not 0xEA
+    }
+
+    [Fact]
+    public void Timer_ctrl_at_D100_reads_zero_at_boot()
+    {
+        var board = new Breadboard6502();
+        var space = board.Machine.Space(AddressSpaceKind.Program);
+
+        Assert.Equal(0x00u, space.Read8(0xD100)); // CTRL: all bits clear at boot
+    }
+
+    [Fact]
+    public void Timer_mirrors_at_D104()
+    {
+        var board = new Breadboard6502();
+        var space = board.Machine.Space(AddressSpaceKind.Program);
+
+        space.Write8(0xD101, 0x42); // PERIODL via the canonical address
+
+        Assert.Equal(0x42u, space.Read8(0xD105)); // offset 5 & 0x03 == 1 == PERIODL (mirror)
+        Assert.Equal(space.Read8(0xD100), space.Read8(0xD104)); // CTRL mirrors too
     }
 }
