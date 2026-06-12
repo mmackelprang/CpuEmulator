@@ -104,6 +104,8 @@ For each dataset row, in opcode order:
 
 Expected coverage with the 24-mnemonic map (verify, don't trust): emitted rows = every (mnemonic ∈ map) × (mode ∈ {Implied, Immediate, ZeroPage, Absolute, Relative}) pairing present in the dataset — includes the current 11 plus LDY/STX/STY/TXA/TAY/TYA/TSX/TXS/INY zp/abs/imm/implied variants and the other 7 branches; roughly 35–40 rows. The unit test asserts the EXACT count found and pins it with a comment explaining the derivation.
 
+> **Amendment (2026-06-12, Task 6 closeout):** the "roughly 35–40" estimate resolved to exactly **33** emitted rows (8 branches + 6 transfers + INX/INY + JMP abs + NOP + 9 load + 6 store variants), pinned with its derivation in `SpecFileEmitterTests.Report_Emitted_Matches_Filter_Derivation`. Task 5's "~142 + ~30" test estimate resolved to **216** (74 new). Three review fix-loops landed mid-branch without changing planned scope: loader strictness (188c8d9), the `--report` per-mnemonic inventory implementation (894c5e7 — Task 5 had initially deferred it), and the e2e collision-rationale correction (8398e62 — the generator host's TPA closure DOES reference the Mos6502 assembly; no collision occurs because spec discovery is syntax-only).
+
 ---
 
 ### Task 1: Branch + tool project scaffold
