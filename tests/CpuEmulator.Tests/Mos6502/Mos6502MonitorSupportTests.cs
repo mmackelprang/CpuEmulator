@@ -105,4 +105,53 @@ public class Mos6502MonitorSupportTests
         cpu.Step();
         Assert.Equal(0x9000u, cpu.PC);
     }
+
+    // ── TryAssemble happy-path rows (one per grammar form) ───────────────────
+
+    [Theory]
+    // All 13 modes + canonicalization rows
+    [InlineData("LDA",  "#$42",         new byte[] { 0xA9, 0x42 })]           // Immediate
+    [InlineData("LDA",  "$10",           new byte[] { 0xA5, 0x10 })]           // ZeroPage
+    [InlineData("LDA",  "$10,X",         new byte[] { 0xB5, 0x10 })]           // ZeroPageX
+    [InlineData("LDX",  "$10,Y",         new byte[] { 0xB6, 0x10 })]           // ZeroPageY
+    [InlineData("LDA",  "$1234",         new byte[] { 0xAD, 0x34, 0x12 })]     // Absolute (lo/hi order)
+    [InlineData("LDA",  "$1234,X",       new byte[] { 0xBD, 0x34, 0x12 })]     // AbsoluteX
+    [InlineData("LDA",  "$1234,Y",       new byte[] { 0xB9, 0x34, 0x12 })]     // AbsoluteY
+    [InlineData("LDA",  "($20,X)",       new byte[] { 0xA1, 0x20 })]           // IndirectX
+    [InlineData("LDA",  "($20),Y",       new byte[] { 0xB1, 0x20 })]           // IndirectY
+    [InlineData("JMP",  "($0320)",       new byte[] { 0x6C, 0x20, 0x03 })]     // Indirect
+    [InlineData("ASL",  "A",             new byte[] { 0x0A })]                  // Accumulator
+    [InlineData("ASL",  "",              new byte[] { 0x0A })]                  // Implied→Accumulator fallback
+    [InlineData("BRK",  "",              new byte[] { 0x00 })]                  // Implied
+    [InlineData("BNE",  "*-4",           new byte[] { 0xD0, 0xFC })]            // Relative negative
+    [InlineData("BNE",  "*+5",           new byte[] { 0xD0, 0x05 })]            // Relative positive
+    [InlineData("lda",  "#$2a",          new byte[] { 0xA9, 0x2A })]            // case-insensitive
+    [InlineData("LDA",  " ( $20 ) , Y ", new byte[] { 0xB1, 0x20 })]            // whitespace ignored
+    public void TryAssemble_happy_path(string mnemonic, string operand, byte[] expected)
+    {
+        bool ok = Mos6502Cpu.TryAssemble(mnemonic, operand, out byte[] bytes, out string? error);
+        Assert.True(ok, $"TryAssemble failed: {error}");
+        Assert.Equal(expected, bytes);
+    }
+
+    // ── TryAssemble rejection rows ────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("XYZ",  "",        "unknown mnemonic 'XYZ'")]
+    [InlineData("LDA",  "$10,Y",   "no LDA + ZeroPageY form")]
+    [InlineData("BNE",  "$0205",   "no BNE + Absolute form")]     // $hhhh refused; engine resolves
+    [InlineData("LDA",  "#$1234",  "immediates are one byte")]
+    [InlineData("LDA",  "$123",    "exactly 2")]                   // width rule, 3 digits
+    [InlineData("LDA",  "$1",      "exactly 2")]                   // width rule, 1 digit
+    [InlineData("BNE",  "*+200",   "-128..+127")]
+    [InlineData("JMP",  "($12)",   "malformed indirect")]          // 2-hex indirect is wrong
+    [InlineData("LDA",  "($1234),Y", "malformed indirect")]        // 4-hex indirect+Y is wrong
+    [InlineData("LDA",  "bogus",   "unrecognised operand")]
+    public void TryAssemble_rejection(string mnemonic, string operand, string errorContains)
+    {
+        bool ok = Mos6502Cpu.TryAssemble(mnemonic, operand, out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+        Assert.Contains(errorContains, error, StringComparison.OrdinalIgnoreCase);
+    }
 }
