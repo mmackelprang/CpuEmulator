@@ -15,8 +15,10 @@ implemented and tested: CPU specs are typed C# tables, parsed with build-time di
 and the generator now emits a working interpreter — the 11-opcode 6502 subset executes with
 cycle-exact bus traces (loads, stores, jumps, branches including page-cross timing, dummy
 reads and all), plus a generated disassembler, pinned by literal cycle-by-cycle trace tests.
-Next: the spec-importer tool (chunk 3a), then the full 6502 + SingleStepTests validation
-(chunk 3b), then peripherals + console host (chunk 4).
+`tools/CpuEmulator.SpecImporter` generates spec tables from the curated 151-opcode dataset —
+33 rows emitted with today's 24-mnemonic vocabulary, the rest inventoried as TODOs; 3b
+expands the vocabulary and wires its output live. Next: the full 6502 + SingleStepTests
+validation (chunk 3b), then peripherals + console host (chunk 4).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`

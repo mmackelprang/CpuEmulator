@@ -1,0 +1,217 @@
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+
+namespace CpuEmulator.SpecImporter;
+
+/// <summary>
+/// Configuration entry for a single register in the semantics map.
+/// </summary>
+public sealed record RegisterConfig(
+    string Name,
+    int    Bits,
+    string Role = "");
+
+/// <summary>
+/// The fully loaded semantics map: config (architecture, namespace, class, registers)
+/// plus the mnemonic → ops-text dictionary.
+/// </summary>
+public sealed class SemanticsMap
+{
+    public string Architecture  { get; init; } = "";
+    public string Namespace     { get; init; } = "";
+    public string SpecClassName { get; init; } = "";
+    public RegisterConfig[]            Registers { get; init; } = [];
+    public IReadOnlyDictionary<string, string> Mnemonics { get; init; } =
+        new Dictionary<string, string>();
+
+    // ─── vocabulary whitelist + arity table ──────────────────────────────
+    // Mirrors the DSL factory names AND parameter counts in
+    // CpuEmulator.Core.Specification.Spec.
+    // SYNC HAZARD: if the DSL grows new factories (or changes signatures)
+    // this table must change too. The same hazard exists for the
+    // AddrMode / Reg / Flag enum mirrors in the generator (recorded in the
+    // 2b review, carried to 3b).
+    private static readonly Dictionary<string, int> FactoryArity = new()
+    {
+        ["Load"]      = 1,  // Load(Reg)
+        ["Store"]     = 1,  // Store(Reg)
+        ["Transfer"]  = 2,  // Transfer(Reg, Reg)
+        ["Increment"] = 1,  // Increment(Reg)
+        ["SetNZ"]     = 1,  // SetNZ(Reg)
+        ["Jump"]      = 0,  // Jump()
+        ["BranchIf"]  = 2,  // BranchIf(Flag, bool)
+    };
+
+    // ─── ops-text argument acceptance pattern ───────────────────────────
+    // Accepts: Reg.<word>, Flag.<word>, true, false  (no full parser — the
+    // generator is the real gate and runs in the e2e test).
+    private static readonly Regex AllowedArgPattern =
+        new(@"^(Reg\.\w+|Flag\.\w+|true|false)$", RegexOptions.Compiled);
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    // ─── serialization DTOs ──────────────────────────────────────────────
+    // Disallow unknown members: this is a curated, hand-edited file — a
+    // typo'd key (e.g. "mnemonic" for "mnemonics") must fail loudly rather
+    // than be silently skipped leaving the real field at its default.
+
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    private sealed class SemanticsMapDto
+    {
+        public string Architecture  { get; set; } = "";
+        public string Namespace     { get; set; } = "";
+        public string SpecClassName { get; set; } = "";
+        public RegisterConfigDto[] Registers { get; set; } = [];
+        public Dictionary<string, string> Mnemonics { get; set; } = [];
+    }
+
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    private sealed class RegisterConfigDto
+    {
+        public string Name { get; set; } = "";
+        public int    Bits { get; set; }
+        public string Role { get; set; } = "";
+    }
+
+    // ─── public API ──────────────────────────────────────────────────────
+
+    /// <summary>Loads the semantics map from a file path.</summary>
+    public static SemanticsMap Load(string path)
+    {
+        var json = File.ReadAllText(path);
+        return Parse(json);
+    }
+
+    /// <summary>
+    /// Parses and validates the semantics map from a JSON string.
+    /// Throws <see cref="InvalidDataException"/> on any violation.
+    /// </summary>
+    public static SemanticsMap Parse(string json)
+    {
+        SemanticsMapDto? dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<SemanticsMapDto>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Semantics map JSON is malformed: {ex.Message}", ex);
+        }
+
+        if (dto is null)
+            throw new InvalidDataException("Semantics map is null.");
+
+        // Non-empty config — an empty/missing field would make Task 4 emit
+        // garbage (e.g. "namespace ;") far from the cause. Fail at load.
+        if (string.IsNullOrWhiteSpace(dto.Architecture))
+            throw new InvalidDataException("Semantics map: 'architecture' must be non-empty.");
+        if (string.IsNullOrWhiteSpace(dto.Namespace))
+            throw new InvalidDataException("Semantics map: 'namespace' must be non-empty.");
+        if (string.IsNullOrWhiteSpace(dto.SpecClassName))
+            throw new InvalidDataException("Semantics map: 'specClassName' must be non-empty.");
+        if (dto.Mnemonics.Count == 0)
+            throw new InvalidDataException("Semantics map: 'mnemonics' must be non-empty.");
+
+        // Validate each mnemonic's ops text
+        foreach (var (mnemonic, opsText) in dto.Mnemonics)
+            ValidateOpsText(mnemonic, opsText);
+
+        return new SemanticsMap
+        {
+            Architecture  = dto.Architecture,
+            Namespace     = dto.Namespace,
+            SpecClassName = dto.SpecClassName,
+            Registers     = dto.Registers.Select(r => new RegisterConfig(r.Name, r.Bits, r.Role)).ToArray(),
+            Mnemonics     = dto.Mnemonics,
+        };
+    }
+
+    // ─── validation ──────────────────────────────────────────────────────
+
+    private static void ValidateOpsText(string mnemonic, string text)
+    {
+        var trimmed = text.Trim();
+
+        // Must be a bracketed list
+        if (!trimmed.StartsWith('[') || !trimmed.EndsWith(']'))
+            throw new InvalidDataException(
+                $"Ops text for '{mnemonic}' must be a bracketed list (got: '{text}').");
+
+        // Empty list is valid (e.g. NOP "[]")
+        var inner = trimmed[1..^1].Trim();
+        if (inner.Length == 0)
+            return;
+
+        // Parse calls: each call is FactoryName(args...)
+        // We use a simple split-and-scan rather than a full parser.
+        ParseCalls(mnemonic, inner);
+    }
+
+    private static void ParseCalls(string mnemonic, string inner)
+    {
+        // Scan call-by-call: factory name up to '(', args up to the FIRST ')'.
+        // No nested-paren support — the argument whitelist (Reg.*/Flag.*/bool)
+        // forbids parens anyway, so nesting can never appear in valid input.
+        var remaining = inner;
+        while (remaining.Length > 0)
+        {
+            // Find the factory call boundaries (first '(' and first ')')
+            var openParen = remaining.IndexOf('(');
+            if (openParen < 0)
+                throw new InvalidDataException(
+                    $"Ops text for '{mnemonic}': expected factory call, got '{remaining}'.");
+
+            var factoryName = remaining[..openParen].Trim();
+
+            if (!FactoryArity.TryGetValue(factoryName, out var arity))
+                throw new InvalidDataException(
+                    $"Ops text for '{mnemonic}': unknown factory '{factoryName}'. " +
+                    $"Allowed: {string.Join(", ", FactoryArity.Keys)}.");
+
+            var closeParen = remaining.IndexOf(')', openParen);
+            if (closeParen < 0)
+                throw new InvalidDataException(
+                    $"Ops text for '{mnemonic}': unclosed '(' after factory '{factoryName}'.");
+
+            var argsText = remaining[(openParen + 1)..closeParen].Trim();
+            ValidateArgs(mnemonic, factoryName, arity, argsText);
+
+            // Advance past this call. Anything that follows must be a ','
+            // separator — a missing comma would otherwise emit as invalid C#.
+            remaining = remaining[(closeParen + 1)..].TrimStart();
+            if (remaining.Length > 0)
+            {
+                if (!remaining.StartsWith(','))
+                    throw new InvalidDataException(
+                        $"Ops text for '{mnemonic}': expected ',' between calls, got '{remaining}'.");
+                remaining = remaining[1..].TrimStart();
+            }
+        }
+    }
+
+    private static void ValidateArgs(string mnemonic, string factory, int arity, string argsText)
+    {
+        string[] args = argsText.Length == 0
+            ? []
+            : argsText.Split(',');
+
+        if (args.Length != arity)
+            throw new InvalidDataException(
+                $"Ops text for '{mnemonic}': '{factory}' expects {arity} argument(s), got {args.Length}.");
+
+        foreach (var rawArg in args)
+        {
+            var arg = rawArg.Trim();
+            if (!AllowedArgPattern.IsMatch(arg))
+                throw new InvalidDataException(
+                    $"Ops text for '{mnemonic}': invalid argument '{arg}' in call to '{factory}'. " +
+                    "Arguments must be Reg.<name>, Flag.<name>, true, or false.");
+        }
+    }
+}
