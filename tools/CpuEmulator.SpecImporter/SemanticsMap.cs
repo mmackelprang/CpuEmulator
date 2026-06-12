@@ -30,18 +30,46 @@ public sealed class SemanticsMap
     // Mirrors the DSL factory names AND parameter counts in
     // CpuEmulator.Core.Specification.Spec.
     // SYNC HAZARD: if the DSL grows new factories (or changes signatures)
-    // this table must change too. The same hazard exists for the
-    // AddrMode / Reg / Flag enum mirrors in the generator (recorded in the
-    // 2b review, carried to 3b).
+    // this table must change too.
+    //
+    // See also the MIRROR TABLES block in SpecParser.cs (the generator's truth):
+    //   s_microOpSignatures, s_addrModes, s_regMembers, s_flagMembers, op-kind sets.
+    // SpecFileEmitter.SupportedModes mirrors AddrMode enum members.
     private static readonly Dictionary<string, int> FactoryArity = new()
     {
-        ["Load"]      = 1,  // Load(Reg)
-        ["Store"]     = 1,  // Store(Reg)
-        ["Transfer"]  = 2,  // Transfer(Reg, Reg)
-        ["Increment"] = 1,  // Increment(Reg)
-        ["SetNZ"]     = 1,  // SetNZ(Reg)
-        ["Jump"]      = 0,  // Jump()
-        ["BranchIf"]  = 2,  // BranchIf(Flag, bool)
+        ["Load"]          = 1,  // Load(Reg)
+        ["Store"]         = 1,  // Store(Reg)
+        ["Transfer"]      = 2,  // Transfer(Reg, Reg)
+        ["Increment"]     = 1,  // Increment(Reg)
+        ["SetNZ"]         = 1,  // SetNZ(Reg)
+        ["Jump"]          = 0,  // Jump()
+        ["BranchIf"]      = 2,  // BranchIf(Flag, bool)
+        // ALU ops (Task 5)
+        ["Adc"]           = 0,  // Adc()
+        ["Sbc"]           = 0,  // Sbc()
+        ["And"]           = 0,  // And()
+        ["Ora"]           = 0,  // Ora()
+        ["Eor"]           = 0,  // Eor()
+        ["Compare"]       = 1,  // Compare(Reg)
+        ["Bit"]           = 0,  // Bit()
+        // RMW ops (Task 6)
+        ["ShiftLeft"]     = 0,  // ShiftLeft()
+        ["ShiftRight"]    = 0,  // ShiftRight()
+        ["RotateLeft"]    = 0,  // RotateLeft()
+        ["RotateRight"]   = 0,  // RotateRight()
+        ["IncrementMem"]  = 0,  // IncrementMem()
+        ["DecrementMem"]  = 0,  // DecrementMem()
+        ["Decrement"]     = 1,  // Decrement(Reg)
+        // Stack ops (Task 7)
+        ["Push"]          = 1,  // Push(Reg)
+        ["Pull"]          = 1,  // Pull(Reg)
+        ["PushP"]         = 0,  // PushP()
+        ["PullP"]         = 0,  // PullP()
+        // Flag ops (Task 7)
+        ["SetFlag"]       = 2,  // SetFlag(Flag, bool)
+        // Flow ops (Task 7)
+        ["Jsr"]           = 0,  // Jsr()
+        ["Rts"]           = 0,  // Rts()
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────

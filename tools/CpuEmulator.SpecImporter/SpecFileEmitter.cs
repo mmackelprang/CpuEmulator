@@ -27,18 +27,24 @@ public sealed record ImportReport(
 /// Emits a complete spec-class source file from a loaded dataset + semantics map.
 ///
 /// Emission rules (dataset opcode order throughout — diffs against regenerations are stable):
-///   mnemonic in map AND mode in DSL's 5 → real Insn(...) row
-///   mnemonic in map, mode NOT supported  → // TODO(mode): ...
-///   mnemonic NOT in map                  → // TODO(semantics): ...
+///   mnemonic in map AND mode in DSL's 13 → real Insn(...) row
+///   mnemonic in map, mode NOT supported   → // TODO(mode): ...
+///   mnemonic NOT in map                   → // TODO(semantics): ...
 ///
-/// The 5 DSL-supported modes mirror AddrMode in CpuEmulator.Core.Specification.
+/// The 13 DSL-supported modes mirror AddrMode in CpuEmulator.Core.Specification.
 /// SYNC HAZARD: if AddrMode gains new members this set must expand in concert.
+/// See also the MIRROR TABLES block in SpecParser.cs (s_addrModes mirror).
 /// </summary>
 public static class SpecFileEmitter
 {
-    // The 5 modes currently expressible by the DSL (mirrors AddrMode enum).
+    // The 13 modes currently expressible by the DSL (mirrors AddrMode enum — all members).
     private static readonly HashSet<string> SupportedModes =
-        ["Implied", "Immediate", "ZeroPage", "Absolute", "Relative"];
+    [
+        "Implied", "Accumulator", "Immediate",
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY",
+        "IndirectX", "IndirectY", "Indirect", "Relative",
+    ];
 
     /// <summary>
     /// Emits the spec source and returns (source, report).
@@ -62,8 +68,11 @@ public static class SpecFileEmitter
         sb.AppendLine($"//   Dataset : {datasetPath}");
         sb.AppendLine($"//   Semantics: {semanticsPath}");
         sb.AppendLine($"//   Total rows : {dataset.Length}");
-        sb.AppendLine("//   Regenerate : dotnet run --project tools/CpuEmulator.SpecImporter -- \\");
-        sb.AppendLine($"//                 --dataset {datasetPath} --semantics {semanticsPath} --out <output>");
+        sb.AppendLine("//   Regenerate :");
+        sb.AppendLine("//     dotnet run --project tools/CpuEmulator.SpecImporter -- \\");
+        sb.AppendLine($"//       --dataset {datasetPath} \\");
+        sb.AppendLine($"//       --semantics {semanticsPath} \\");
+        sb.AppendLine($"//       --out src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs");
         sb.AppendLine("// </auto-generated>");
         sb.AppendLine();
 
