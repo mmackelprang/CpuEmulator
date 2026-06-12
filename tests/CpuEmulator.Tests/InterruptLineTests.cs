@@ -1,4 +1,5 @@
 using CpuEmulator.Core;
+using CpuEmulator.Tests.TestDoubles;
 
 namespace CpuEmulator.Tests;
 
@@ -150,23 +151,55 @@ public class InterruptLineTests
         Assert.True(line.IsAsserted);
     }
 
+    /// <summary>A peripheral whose Realize claims context.IrqLine.Source() — the real
+    /// device pattern (SimpleUart Task 4, IntervalTimer Task 5).</summary>
+    private sealed class IrqSourcePeripheral : IPeripheral
+    {
+        private IInterruptLine? _source;
+        public bool AssertDuringRealize { get; init; }
+
+        public string Name => "irq-source";
+
+        public void Realize(IMachineContext context)
+        {
+            _source = context.IrqLine.Source();
+            if (AssertDuringRealize)
+                _source.Assert();
+        }
+
+        public void AssertIrq() => _source!.Assert();
+        public void ReleaseIrq() => _source!.Release();
+
+        public uint Read(uint offset, AccessWidth width) => 0;
+        public void Write(uint offset, AccessWidth width, uint value) { }
+    }
+
     [Fact]
     public void Machine_level_two_peripherals_share_the_irq_line()
     {
-        var calls = new List<bool>();
-        var line = new InterruptLine(calls.Add);
+        // Two peripherals claim context.IrqLine.Source() in Realize; the first asserts
+        // during Realize itself — the level reaches the CPU double (the LateBoundLine
+        // forwarding path stays intact for sources, exactly as for direct asserts).
+        var first = new IrqSourcePeripheral { AssertDuringRealize = true };
+        var second = new IrqSourcePeripheral();
+        var cpu = new FakeCpu();
+        _ = Machine.Create("shared-irq")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithPeripheral(AddressSpaceKind.Program, 0x0100, 0x0100, first)
+            .WithPeripheral(AddressSpaceKind.Program, 0x0200, 0x0100, second)
+            .WithCpu(_ => cpu)
+            .Build();
 
-        var srcA = line.Source();
-        var srcB = line.Source();
+        // first asserted during Realize — the CPU sees IRQ high
+        Assert.True(cpu.IrqAsserted);
 
-        srcA.Assert();
-        Assert.True(line.IsAsserted);
+        // second asserts + first releases — still high (wired-OR)
+        second.AssertIrq();
+        first.ReleaseIrq();
+        Assert.True(cpu.IrqAsserted);
 
-        srcB.Assert();
-        srcA.Release();
-        Assert.True(line.IsAsserted); // srcB still holds it
-
-        srcB.Release();
-        Assert.False(line.IsAsserted);
+        // both released — low
+        second.ReleaseIrq();
+        Assert.False(cpu.IrqAsserted);
     }
 }

@@ -209,13 +209,20 @@ public class CycleSchedulerTests
     [Fact]
     public void Canceled_head_does_not_advance_committed_time()
     {
+        // "Moves no time": the lazy head-discard (TryPeekNextEventCycle) must not commit
+        // time — scheduling BELOW the discarded event's cycle stays legal afterwards.
+        // If the discard committed time to 50, ScheduleAt(10) would throw.
         var scheduler = new CycleScheduler();
-        var handle = scheduler.ScheduleAt(50, () => { });
-        handle.Cancel();
+        var canceled = scheduler.ScheduleAt(50, () => { });
+        canceled.Cancel();
 
+        Assert.False(scheduler.TryPeekNextEventCycle(out _)); // canceled head discarded
+
+        bool fired = false;
+        scheduler.ScheduleAt(10, () => fired = true); // 10 < 50: legal — no time moved
         scheduler.AdvanceTo(20);
 
-        // Canceled head was discarded; committed time is 20 (the AdvanceTo target)
+        Assert.True(fired);
         Assert.Equal(20, scheduler.CurrentCycle);
     }
 

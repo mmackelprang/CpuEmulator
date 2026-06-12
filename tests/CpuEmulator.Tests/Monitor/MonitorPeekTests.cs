@@ -87,34 +87,44 @@ public class MonitorPeekTests
         Assert.Equal((uint)'B', uart.Read(0, AccessWidth.Byte));
     }
 
+    /// <summary>A constant-value peripheral counting peeks and live reads separately.
+    /// Peek == live == 0xEA (NOP), so the CPU executes the same bytes the report shows
+    /// (the plan's risk note (b): peeked and live values must stay consistent).</summary>
+    private sealed class ConstantPeripheral : IPeripheral
+    {
+        public string Name => "constant";
+        public int ReadCount { get; private set; }
+        public int PeekCount { get; private set; }
+
+        public void Realize(IMachineContext context) { }
+        public uint Read(uint offset, AccessWidth width) { ReadCount++; return 0xEA; }
+        public void Write(uint offset, AccessWidth width, uint value) { }
+        public bool TryPeek(uint offset, out byte value) { PeekCount++; value = 0xEA; return true; }
+    }
+
     [Fact]
     public void Step_report_prefetch_does_not_perturb()
     {
-        // The Step() disassembly prefetch calls PeekOrRead (TryPeek8 first). For a UART
-        // at $D000 with PC in RAM at $0200, the prefetch reads PC's bytes from RAM (backing
-        // array → no peripheral.Read call). The UART's Read must remain 0 after Step.
-        // Execution runs the instruction at $0200 (NOP), which also stays in RAM — the UART
-        // is not touched at all.
-        var uart = new SimpleUart();
-        uart.FeedInput((byte)'A');
-        uart.FeedInput((byte)'B');
-
+        // PC sits over a constant-value peek-capable fake (peek == live == 0xEA/NOP).
+        // Step()'s 3-byte disassembly prefetch must go through TryPeek; the only live
+        // Reads are the CPU's own execution reads (NOP = 2 bus reads: opcode fetch +
+        // dummy operand fetch). If the prefetch reverted to live reads, ReadCount
+        // would be 5 (3 prefetch + 2 execution) — this pin fails on a revert.
+        var p = new ConstantPeripheral();
         var space = new AddressSpace(AddressSpaceKind.Program, 16);
-        var ram = new byte[0xD000];
-        ram[0x0200] = 0xEA; // NOP at $0200
-        space.MapMemory(0x0000, ram, writable: true);
-        space.MapPeripheral(0xD000, 0x0100, uart);
+        space.MapMemory(0x0000, new byte[0xD000], writable: true);
+        space.MapPeripheral(0xD000, 0x0100, p);
         space.MapMemory(0xD100, new byte[0x2F00], writable: true);
         var cpu = new Mos6502Cpu(space);
-        cpu.SetRegister("PC", 0x0200);
+        cpu.SetRegister("PC", 0xD000);
         cpu.S = 0xFD;
         var engine = new MonitorEngine(cpu, space, cpu);
 
-        engine.Step(); // prefetch at $0200 via TryPeek8 (RAM backing, no peripheral call)
+        MonitorStepReport report = engine.Step();
 
-        // UART queue untouched — Step's prefetch did not call Read on the UART
-        Assert.Equal((uint)'A', uart.Read(0, AccessWidth.Byte));
-        Assert.Equal((uint)'B', uart.Read(0, AccessWidth.Byte));
+        Assert.Equal(3, p.PeekCount);  // the prefetch peeked all three bytes
+        Assert.Equal(2, p.ReadCount);  // execution only — 5 would mean the prefetch read live
+        Assert.Contains("NOP", report.Disassembly);
     }
 
     [Fact]
