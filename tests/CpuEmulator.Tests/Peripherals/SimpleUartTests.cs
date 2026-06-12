@@ -2,6 +2,7 @@ using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Monitor;
 using CpuEmulator.Peripherals;
+using CpuEmulator.Tests.TestDoubles;
 
 namespace CpuEmulator.Tests.Peripherals;
 
@@ -99,10 +100,10 @@ public class SimpleUartTests
     // ── Theories: reserved offsets ────────────────────────────────────────────
 
     [Theory]
-    [InlineData(2u)]
     [InlineData(3u)]
     public void Reserved_offsets_read_0x00(uint offset)
     {
+        // Offset 2 is now CTRL (intake item 1) — only offset 3 remains reserved.
         var uart = new SimpleUart();
         Assert.Equal(0x00u, uart.Read(offset, AccessWidth.Byte));
     }
@@ -111,7 +112,6 @@ public class SimpleUartTests
 
     [Theory]
     [InlineData(1u)]
-    [InlineData(2u)]
     [InlineData(3u)]
     public void Non_DATA_writes_are_ignored(uint offset)
     {
@@ -283,5 +283,137 @@ public class SimpleUartTests
         uart.TryPeek(1, out byte peekStatus);
 
         Assert.Equal((byte)readStatus, peekStatus);
+    }
+
+    // ── CTRL register (offset 2) ──────────────────────────────────────────────
+
+    [Fact]
+    public void Ctrl_write_stores_and_reads_back_bit0()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        Assert.Equal(0x01u, uart.Read(2, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void Ctrl_write_masks_to_bit0()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0xFF);
+        Assert.Equal(0x01u, uart.Read(2, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void Ctrl_mirrors_through_the_page()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        // offset 6 & 0x03 == 2 == CTRL
+        Assert.Equal(0x01u, uart.Read(6, AccessWidth.Byte));
+    }
+
+    [Fact]
+    public void FeedInput_without_realize_never_touches_a_line()
+    {
+        // Bare UART (not Realized) — enabling rx-irq and feeding must not throw
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01); // enable rx-irq
+        uart.FeedInput(0x41); // must not throw — no IRQ line claimed
+    }
+
+    // ── IRQ level (machine-backed, FakeCpu.IrqAsserted) ──────────────────────
+
+    private static (Machine machine, SimpleUart uart, FakeCpu cpu) MakeUartMachine()
+    {
+        var uart = new SimpleUart();
+        var cpu = new FakeCpu();
+        var machine = Machine.Create("test-uart")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithRam(AddressSpaceKind.Program, 0x0000, 0xD000)
+            .WithPeripheral(AddressSpaceKind.Program, 0xD000, 0x0100, uart)
+            .WithCpu(_ => cpu)
+            .Build();
+        return (machine, uart, cpu);
+    }
+
+    [Fact]
+    public void Enable_then_feed_asserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+
+        uart.Write(2, AccessWidth.Byte, 0x01); // rx-irq-enable
+        uart.FeedInput(0x41);
+
+        Assert.True(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void Partial_drain_leaves_irq_asserted()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        uart.FeedInput(0x41);
+        uart.FeedInput(0x42);
+
+        uart.Read(0, AccessWidth.Byte); // drain one
+
+        Assert.True(cpu.IrqAsserted); // one byte still queued
+    }
+
+    [Fact]
+    public void Full_drain_deasserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        uart.FeedInput(0x41);
+
+        uart.Read(0, AccessWidth.Byte); // drain it
+
+        Assert.False(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void Disable_while_queued_deasserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+        uart.FeedInput(0x41);
+        Assert.True(cpu.IrqAsserted);
+
+        uart.Write(2, AccessWidth.Byte, 0x00); // disable
+
+        Assert.False(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void Reenable_while_queued_asserts_irq()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.FeedInput(0x41); // feed before enable
+        Assert.False(cpu.IrqAsserted); // not enabled yet
+
+        uart.Write(2, AccessWidth.Byte, 0x01); // enable
+
+        Assert.True(cpu.IrqAsserted); // recomputed immediately
+    }
+
+    [Fact]
+    public void Feed_before_enable_stays_false_until_enabled()
+    {
+        var (_, uart, cpu) = MakeUartMachine();
+        uart.FeedInput(0x41);
+        Assert.False(cpu.IrqAsserted);
+    }
+
+    [Fact]
+    public void TryPeek_CTRL_returns_enable_bit()
+    {
+        var uart = new SimpleUart();
+        uart.Write(2, AccessWidth.Byte, 0x01);
+
+        bool ok = uart.TryPeek(2, out byte value);
+
+        Assert.True(ok);
+        Assert.Equal(0x01, value);
     }
 }
