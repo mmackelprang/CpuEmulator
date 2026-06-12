@@ -342,6 +342,13 @@ public sealed class UndefinedOpcodeException(byte opcode, uint address)
 
 - [ ] **Step 4: Commit** — `feat: add CPU spec DSL types and undefined-opcode policy`
 
+> **Post-review amendments (applied after Tasks 1–2):** `Flag` enum members carry explicit
+> hardware bit positions (C=0, Z=1, I=2, D=3, V=6, N=7) so masks derive directly from values;
+> UndefinedOpcodeException doc no longer mislabels the Throw default as "opt-in";
+> InstructionDef documents its types as inert syntax carriers. Accepted divergence from design
+> spec §5: addressing modes are a closed `AddrMode` enum rather than a `Mode(...)` combinator —
+> revisit only when a second architecture (M3) needs open-ended modes.
+
 ---
 
 ### Task 3: Generator test harness + generator skeleton
@@ -1283,6 +1290,23 @@ public class InstructionParsingTests
 
 - [ ] **Step 7: Commit** — `feat: parse instruction tables and emit Step/Run with undefined dispatch`
 
+> **Post-review amendments (applied at Task 5):** CPUGEN008 added — micro-op register
+> references are cross-checked against the Registers table at parse time instead of surfacing
+> as CS0103 in generated code. Accepted risk, recorded: factory calls are matched by simple
+> name only (no semantic-model binding check); within the constrained-DSL contract anything
+> else is already a CPUGEN diagnostic, and a user-defined same-name helper in a spec class is
+> considered out of contract for M1.
+
+> **Post-quality-review hardenings (applied before Task 6):** spec mistakes that compile
+> cleanly now surface as CPUGEN diagnostics, never as errors inside generated code — register
+> and CpuName identifiers validated, Architecture emitted via FormatLiteral, CPUGEN009 added
+> (global-namespace spec, invalid CpuName), hint names namespace-qualified, CPUGEN008 points
+> at the offending argument, out-of-range opcodes are CPUGEN004 (not "duplicate"), known-factory
+> arity mismatches get a specific message, and emitted truncation casts + the PC increment are
+> `unchecked(...)` (correct under consumer CheckForOverflowUnderflow). Tripwire for chunk 2b:
+> convert pipeline Diagnostics to an equatable DiagnosticInfo BEFORE any `Combine` is added to
+> the incremental pipeline. Second 2b carry-forward: mnemonic strings currently flow into a generated comment unsanitized — validate them when 2b turns mnemonics into emitted identifiers/disassembler strings.
+
 ---
 
 ### Task 6: The real Mos6502 — spec table, hand-written partial, behavioral tests
@@ -1370,7 +1394,9 @@ public sealed partial class Mos6502Cpu
         byte hi = ReadBus(0xFFFD);
         PC = (ushort)(lo | (hi << 8));
         S = 0xFD;
-        P = 0x34; // I and the always-set bit; matches power-on convention
+        P = 0x34; // I + bits 5,4: stored P models the phantom B/unused bits as set (NESdev
+                  // power-up convention); chunk 3's PHP/PLP/BRK logic owns the bit-4/5
+                  // push/pull conventions.
         _cycles += 5;
     }
 
@@ -1488,7 +1514,8 @@ public class Mos6502SkeletonTests
     [Fact]
     public void Undefined_opcode_with_nop_policy_advances_two_cycles()
     {
-        var (cpu, _) = NewCpu(UndefinedOpcodePolicy.Nop);   // RAM is zero-filled: opcode 0x00
+        var (cpu, space) = NewCpu(UndefinedOpcodePolicy.Nop);
+        space.Write8(0x0000, 0x02); // 0x02 is a JAM slot — permanently undefined
 
         cpu.Step();
 
@@ -1499,7 +1526,9 @@ public class Mos6502SkeletonTests
     [Fact]
     public void Run_consumes_budget_in_two_cycle_undefined_nops()
     {
-        var (cpu, _) = NewCpu(UndefinedOpcodePolicy.Nop);
+        var (cpu, space) = NewCpu(UndefinedOpcodePolicy.Nop);
+        for (uint address = 0; address < 8; address++)
+            space.Write8(address, 0x02); // JAM slots — permanently undefined
 
         long budget = 10;
         cpu.Run(ref budget);
@@ -1519,6 +1548,8 @@ public class Mos6502SkeletonTests
             .Build();
         machine.Space(AddressSpaceKind.Program).Write8(0xFFFC, 0x00);
         machine.Space(AddressSpaceKind.Program).Write8(0xFFFD, 0x02);
+        for (uint address = 0x0200; address < 0x0214; address++)
+            machine.Space(AddressSpaceKind.Program).Write8(address, 0x02); // JAM slots
 
         machine.Reset();
         long executed = machine.Run(20);
@@ -1536,6 +1567,14 @@ Note on `Cpu_composes_with_Machine_through_the_builder`: `machine.Reset()` costs
 - [ ] **Step 5: Run the FULL suite** — everything green, zero warnings.
 
 - [ ] **Step 6: Commit** — `feat: add Mos6502 spec table and hand-written CPU partial, generated end-to-end`
+
+> **Post-review carry-forwards from Task 6 (for 2b/3):** add `WriteBus(uint, byte)` (which
+> increments `_cycles`) to the generated seam-contract header when 2b extends the emitter;
+> make generated `_cycles` private in 2b's emitter pass (partials share privates); document
+> the trace convention (reads charge `_cycles` before the bus access) before the recording
+> bus / TomHarte differ hard-codes one; chunk 3 must define Reset's effect on latched
+> IRQ/NMI line state when servicing lands, and note second-reset silicon semantics (S-=3,
+> I-only) remain coarsely modeled.
 
 ---
 

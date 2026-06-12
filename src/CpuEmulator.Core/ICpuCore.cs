@@ -14,7 +14,9 @@ public interface ICpuCore
 
     void Reset();
 
-    /// <summary>Execute exactly one instruction.</summary>
+    /// <summary>Execute exactly one instruction. Always advances <see cref="CycleCount"/> by
+    /// at least one cycle — including for undefined opcodes and (future) halted states — so
+    /// drivers' no-progress guards never fire on a healthy core.</summary>
     void Step();
 
     /// <summary>

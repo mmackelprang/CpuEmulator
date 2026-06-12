@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/CpuEmulator.Core/CpuEmulator.Core.csproj" />
+    <Project Path="src/CpuEmulator.Generators/CpuEmulator.Generators.csproj" />
+    <Project Path="src/CpuEmulator.Cpus.Mos6502/CpuEmulator.Cpus.Mos6502.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CpuEmulator.Tests/CpuEmulator.Tests.csproj" />
