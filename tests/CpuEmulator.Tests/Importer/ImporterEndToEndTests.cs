@@ -7,7 +7,6 @@ namespace CpuEmulator.Tests.Importer;
 
 /// <summary>
 /// End-to-end gate: importer output → real source generator → zero diagnostics.
-///
 /// Keystone test: the spec-class file emitted from the real data files is fed
 /// through GeneratorTestHost (exactly as production-generator tests do) and must
 /// produce zero CPUGEN diagnostics and zero compilation errors.
@@ -24,7 +23,11 @@ namespace CpuEmulator.Tests.Importer;
 ///      same-named imported metadata type (empirically with zero diagnostics — not
 ///      even CS0436, since no source in this unit references the metadata type).
 /// Do NOT rely on "the assembly isn't referenced" — it is.
+///
+/// Console-isolation collection: tests here redirect Console.Out/Error in-proc;
+/// they must be serialized to avoid parallel capture bleed (see ConsoleIsolationCollection).
 /// </summary>
+[Collection("ConsoleIsolation")]
 public class ImporterEndToEndTests
 {
     private static string DatasetPath   => DataPath.Get("mos6502-opcodes.json");

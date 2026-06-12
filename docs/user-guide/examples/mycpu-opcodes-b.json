@@ -1,0 +1,7 @@
+[
+  { "opcode": "0xA9", "mnemonic": "LDA", "mode": "Immediate",  "bytes": 2, "cycles": 2, "pageCrossPenalty": false, "source": "MyCPU Programmer's Guide, p.12, Appendix A" },
+  { "opcode": "0xBD", "mnemonic": "LDA", "mode": "AbsoluteX",  "bytes": 3, "cycles": 5, "pageCrossPenalty": true,  "source": "MyCPU Programmer's Guide, p.13, Appendix A" },
+  { "opcode": "0x4C", "mnemonic": "JMP", "mode": "Absolute",   "bytes": 3, "cycles": 3, "pageCrossPenalty": false, "source": "MyCPU Programmer's Guide, p.14, Appendix A" },
+  { "opcode": "0xEA", "mnemonic": "NOP", "mode": "Implied",    "bytes": 1, "cycles": 2, "pageCrossPenalty": false, "source": "MyCPU Programmer's Guide, p.15, Appendix A" },
+  { "opcode": "0x00", "mnemonic": "BRK", "mode": "Implied",    "bytes": 1, "cycles": 7, "pageCrossPenalty": false, "source": "MyCPU Programmer's Guide, p.15, Appendix A" }
+]
