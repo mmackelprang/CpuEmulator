@@ -120,27 +120,6 @@ internal static class CpuEmitter
             EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg);
     }
 
-    /// <summary>
-    /// Determines the op class of an instruction (must match CPUGEN010 classification).
-    /// The parser guarantees valid combinations reach the emitter; anything else throws,
-    /// failing generation loudly (CS8785) instead of emitting silently-wrong silicon.
-    /// </summary>
-    private static string ClassifyInstruction(InstructionModel instruction)
-    {
-        var ops = instruction.Ops;
-        if (ops.Length == 0) return "register";
-        return ops[0].Kind switch
-        {
-            "Load" => "load",
-            "Store" => "store",
-            "Jump" => "jump",
-            "BranchIf" => "branch",
-            "Transfer" or "Increment" or "SetNZ" => "register",
-            var kind => throw new System.InvalidOperationException(
-                $"emitter has no class for first op kind '{kind}' (opcode 0x{instruction.Opcode:X2})"),
-        };
-    }
-
     private static void EmitOpcodeMethod(
         StringBuilder sb,
         InstructionModel instruction,
@@ -148,9 +127,11 @@ internal static class CpuEmitter
         string pcType,
         string? statusReg)
     {
-        string opClass = ClassifyInstruction(instruction);
+        // Classification is carried on the model — the parser classified it once (CPUGEN010).
+        // The emitter consumes instruction.Class directly; no parallel classifier here.
+        InstructionClass opClass = instruction.Class;
         int cycleCount = ComputeCycles(instruction.Mode, opClass);
-        string cycleStr = opClass == "branch" ? "2-4 cycles" : $"{cycleCount} cycles";
+        string cycleStr = opClass == InstructionClass.Branch ? "2-4 cycles" : $"{cycleCount} cycles";
 
         sb.AppendLine();
         sb.AppendLine($"    /// <summary>0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode} — {cycleStr}.</summary>");
@@ -159,19 +140,19 @@ internal static class CpuEmitter
 
         switch (opClass)
         {
-            case "load":
+            case InstructionClass.Load:
                 EmitLoadBody(sb, instruction, pc, pcType, statusReg);
                 break;
-            case "register":
+            case InstructionClass.Register:
                 EmitRegisterBody(sb, instruction, pc, statusReg);
                 break;
-            case "store":
+            case InstructionClass.Store:
                 EmitStoreBody(sb, instruction, pc, pcType);
                 break;
-            case "jump":
+            case InstructionClass.Jump:
                 EmitJumpBody(sb, instruction, pc, pcType);
                 break;
-            case "branch":
+            case InstructionClass.Branch:
                 EmitBranchBody(sb, instruction, pc, pcType, statusReg);
                 break;
             default:
@@ -182,17 +163,17 @@ internal static class CpuEmitter
         sb.AppendLine("    }");
     }
 
-    private static int ComputeCycles(string mode, string opClass) => (mode, opClass) switch
+    private static int ComputeCycles(string mode, InstructionClass opClass) => (mode, opClass) switch
     {
         // 1 (opcode fetch) + template cycles
         ("Implied", _) => 2,    // +1 dummy read
         ("Immediate", _) => 2,  // +1 operand read
-        ("ZeroPage", "load") => 3,  // +1 addr +1 data
-        ("ZeroPage", "store") => 3, // +1 addr +1 write
-        ("Absolute", "load") => 4,  // +1 lo +1 hi +1 data
-        ("Absolute", "store") => 4, // +1 lo +1 hi +1 write
-        ("Absolute", "jump") => 3,  // +1 lo +1 hi
-        ("Relative", "branch") => 0, // variable: 2/3/4 — doc string says "2-4 cycles"
+        ("ZeroPage", InstructionClass.Load) => 3,   // +1 addr +1 data
+        ("ZeroPage", InstructionClass.Store) => 3,  // +1 addr +1 write
+        ("Absolute", InstructionClass.Load) => 4,   // +1 lo +1 hi +1 data
+        ("Absolute", InstructionClass.Store) => 4,  // +1 lo +1 hi +1 write
+        ("Absolute", InstructionClass.Jump) => 3,   // +1 lo +1 hi
+        ("Relative", InstructionClass.Branch) => 0, // variable: 2/3/4 — doc string says "2-4 cycles"
         _ => throw new System.InvalidOperationException(
             $"emitter has no cycle count for mode '{mode}' / class '{opClass}'"),
     };
@@ -249,6 +230,10 @@ internal static class CpuEmitter
         string pc,
         string? statusReg)
     {
+        if (instruction.Mode != "Implied")
+            throw new System.InvalidOperationException(
+                $"emitter has no register template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+
         // Dummy read at PC (does NOT increment PC)
         sb.AppendLine($"        _ = ReadBus({pc});");
 
@@ -328,17 +313,26 @@ internal static class CpuEmitter
         string pc,
         string pcType)
     {
-        // Absolute jump: fetch lo, fetch hi, set PC = ea (no data access at target)
-        sb.AppendLine($"        uint lo = ReadBus({pc});");
-        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-        sb.AppendLine($"        uint hi = ReadBus({pc});");
-        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-        sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+        switch (instruction.Mode)
+        {
+            case "Absolute":
+                // Absolute jump: fetch lo, fetch hi, set PC = ea (no data access at target)
+                sb.AppendLine($"        uint lo = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+                break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no jump template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+        }
     }
 
     // ---- Branch class ----
 
     // Flag name -> hardware bit position (mirrors Flag enum values)
+    // MIRROR TABLES: this map mirrors CpuEmulator.Core.Specification.Flag enum bit values.
     private static int FlagBit(string flagName) => flagName switch
     {
         "C" => 0,
@@ -349,6 +343,44 @@ internal static class CpuEmitter
         "N" => 7,
         _ => throw new System.ArgumentException($"Unknown flag '{flagName}'"),
     };
+
+    private static void EmitBranchBody(
+        StringBuilder sb,
+        InstructionModel instruction,
+        string pc,
+        string pcType,
+        string? statusReg)
+    {
+        if (instruction.Mode != "Relative")
+            throw new System.InvalidOperationException(
+                $"emitter has no branch template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+
+        string p = statusReg ?? "P";
+        string flagName = instruction.Ops[0].Args[0];
+        bool when = instruction.Ops[0].Args[1] == "true";
+        int bit = FlagBit(flagName);
+        int expectedBit = when ? 1 : 0;
+
+        // Branch template from the plan:
+        // byte offset = ReadBus(PC); PC++;
+        // if (taken) {
+        //   _ = ReadBus(PC);
+        //   ushort target = (ushort)(PC + (sbyte)offset);
+        //   if ((target & 0xFF00) != (PC & 0xFF00))
+        //     _ = ReadBus((uint)((PC & 0xFF00) | (target & 0x00FF)));
+        //   PC = target;
+        // }
+        sb.AppendLine($"        byte offset = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        sb.AppendLine($"        if ((({p} >> {bit}) & 1) == {expectedBit})");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            _ = ReadBus({pc});");
+        sb.AppendLine($"            ushort target = unchecked((ushort)({pc} + (sbyte)offset));");
+        sb.AppendLine($"            if ((target & 0xFF00) != ({pc} & 0xFF00))");
+        sb.AppendLine($"                _ = ReadBus((uint)(({pc} & 0xFF00) | (target & 0x00FF)));");
+        sb.AppendLine($"            {pc} = target;");
+        sb.AppendLine("        }");
+    }
 
     // ---- Disassembler ----
 
@@ -400,39 +432,5 @@ internal static class CpuEmitter
         sb.AppendLine("            _ => \"???\",");
         sb.AppendLine("        };");
         sb.AppendLine("    }");
-    }
-
-    private static void EmitBranchBody(
-        StringBuilder sb,
-        InstructionModel instruction,
-        string pc,
-        string pcType,
-        string? statusReg)
-    {
-        string p = statusReg ?? "P";
-        string flagName = instruction.Ops[0].Args[0];
-        bool when = instruction.Ops[0].Args[1] == "true";
-        int bit = FlagBit(flagName);
-        int expectedBit = when ? 1 : 0;
-
-        // Branch template from the plan:
-        // byte offset = ReadBus(PC); PC++;
-        // if (taken) {
-        //   _ = ReadBus(PC);
-        //   ushort target = (ushort)(PC + (sbyte)offset);
-        //   if ((target & 0xFF00) != (PC & 0xFF00))
-        //     _ = ReadBus((uint)((PC & 0xFF00) | (target & 0x00FF)));
-        //   PC = target;
-        // }
-        sb.AppendLine($"        byte offset = ReadBus({pc});");
-        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-        sb.AppendLine($"        if ((({p} >> {bit}) & 1) == {expectedBit})");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            _ = ReadBus({pc});");
-        sb.AppendLine($"            ushort target = unchecked((ushort)({pc} + (sbyte)offset));");
-        sb.AppendLine($"            if ((target & 0xFF00) != ({pc} & 0xFF00))");
-        sb.AppendLine($"                _ = ReadBus((uint)(({pc} & 0xFF00) | (target & 0x00FF)));");
-        sb.AppendLine($"            {pc} = target;");
-        sb.AppendLine("        }");
     }
 }

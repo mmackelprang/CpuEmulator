@@ -189,6 +189,37 @@ public class ModeOpValidationTests
     }
 
     [Fact]
+    public void Unknown_Reg_member_in_op_reports_CPUGEN011()
+    {
+        // Reg.Q is not in the Reg enum whitelist. Previously flowed silently to the emitter
+        // and only failed as CS0103 in generated code — this test closes that hole.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "LDQ", AddrMode.Immediate, [Load(Reg.Q), SetNZ(Reg.Q)]),
+                ];
+            """));
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
+        Assert.Contains("must be a Reg member", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void Declared_register_not_in_Reg_enum_is_still_CPUGEN008_when_undeclared()
+    {
+        // Y is a valid Reg enum member but not declared in ValidSpecSource's Registers.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "LDY", AddrMode.Immediate, [Load(Reg.Y), SetNZ(Reg.Y)]),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN008" &&
+            d.GetMessage().Contains("Y"));
+    }
+
+    [Fact]
     public void Valid_subset_passes_with_no_CPUGEN_diagnostics()
     {
         // The full 11-opcode 6502 subset, verbatim from Mos6502Spec, run through the

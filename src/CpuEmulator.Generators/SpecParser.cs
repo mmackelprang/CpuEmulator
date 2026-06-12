@@ -12,6 +12,17 @@ internal static class SpecParser
     /// <summary>Expected argument kind for each micro-op parameter position.</summary>
     private enum ArgKind { Reg, Flag, Bool }
 
+    // ───────────────────────── MIRROR TABLES ─────────────────────────
+    // These sets mirror, by name, surface defined elsewhere and MUST be updated together:
+    //   • s_addrModes        ↔ CpuEmulator.Core.Specification.AddrMode members
+    //   • s_regMembers       ↔ Reg members            • s_flagMembers ↔ Flag members
+    //   • s_microOpSignatures (names+arity+arg kinds) ↔ Spec factory methods / Op records
+    //   • op-kind class sets ↔ CpuEmitter's per-class emission switches
+    // External mirrors of the same surface: CpuEmitter.FlagBit (Flag bit values),
+    // tools/CpuEmulator.SpecImporter SemanticsMap.FactoryArity + SpecFileEmitter.SupportedModes.
+    // The syntax-only generator cannot see the real enums; these tables ARE its truth.
+    // ──────────────────────────────────────────────────────────────────
+
     /// <summary>Per-op argument signatures; arity is the signature length. Each argument is
     /// parsed against its EXPECTED kind only (CPUGEN011 on mismatch) — no coalescing chain,
     /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.</summary>
@@ -31,8 +42,8 @@ internal static class SpecParser
         "Implied", "Immediate", "ZeroPage", "Absolute", "Relative",
     };
 
-    /// <summary>Members of the Reg enum; micro-op args matching these must also appear in the
-    /// spec's Registers table (CPUGEN008 otherwise).</summary>
+    /// <summary>Members of the Reg enum. A micro-op Reg argument MUST be one of these
+    /// (CPUGEN011 if not) AND must be declared in the spec's Registers table (CPUGEN008).</summary>
     private static readonly HashSet<string> s_regMembers = new(System.StringComparer.Ordinal)
     {
         "A", "X", "Y", "S",
@@ -42,6 +53,20 @@ internal static class SpecParser
     private static readonly HashSet<string> s_flagMembers = new(System.StringComparer.Ordinal)
     {
         "C", "Z", "I", "D", "V", "N",
+    };
+
+    /// <summary>Local variable names the emitter writes into opcode bodies (and Step/Run).
+    /// A register with one of these names would shadow/collide in generated code, so it is
+    /// rejected at parse time (CPUGEN002).</summary>
+    private static readonly HashSet<string> s_reservedLocalNames = new(System.StringComparer.Ordinal)
+    {
+        "data", "addr", "lo", "hi", "ea", "offset", "target",
+        "opcode", "before", "value", "ptr", "temp",
+    };
+
+    private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Transfer", "Increment", "SetNZ",
     };
 
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
@@ -162,6 +187,15 @@ internal static class SpecParser
                 continue;
             }
 
+            // Reserved emitted-local names: reject to prevent collision in generated code (CPUGEN002).
+            if (s_reservedLocalNames.Contains(name))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name,
+                    $"register name '{name}' collides with an emitted local name"));
+                continue;
+            }
+
             string role = "General";
             if (args.Count == 3)
             {
@@ -267,11 +301,12 @@ internal static class SpecParser
                 continue; // ParseOps reported the diagnostic
             }
 
-            // Mode/op class validation (CPUGEN010)
-            if (!ValidateModeOpClass(element.GetLocation(), mnemonic, mode, ops, diagnostics))
+            // Mode/op class validation (CPUGEN010); returns the class on success.
+            if (!ValidateModeOpClass(element.GetLocation(), mnemonic, mode, ops, registerNames,
+                    diagnostics, out var instructionClass))
                 continue;
 
-            instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, ops));
+            instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, instructionClass, ops));
         }
 
         return instructions.ToImmutable();
@@ -279,32 +314,30 @@ internal static class SpecParser
 
     /// <summary>
     /// Validates that the instruction's addressing mode is consistent with its op class.
-    /// Returns false (and emits CPUGEN010) on violation.
+    /// Returns false (and emits CPUGEN010) on violation; returns the class via out on success.
     /// </summary>
     private static bool ValidateModeOpClass(
         Location location,
         string mnemonic,
         string mode,
         ImmutableArray<OpModel> ops,
-        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+        HashSet<string> registerNames,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics,
+        out InstructionClass instructionClass)
     {
-        // Determine op class from ops array.
-        // register class: all ops are Transfer/Increment/SetNZ (empty is also register class)
-        // load class: first op is Load, remaining are register ops
-        // store class: exactly one Store
-        // jump class: exactly one Jump
-        // branch class: exactly one BranchIf
+        instructionClass = InstructionClass.Register;
 
-        string? opClass = ClassifyOps(ops, out string? classError);
+        InstructionClass? opClass = ClassifyOps(ops, out string? classError);
         if (opClass is null)
         {
-            // ops themselves are ambiguous/invalid — report CPUGEN010
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
                 location, mnemonic, classError!));
             return false;
         }
 
-        string? modeError = ValidateModeForClass(mode, opClass);
+        instructionClass = opClass.Value;
+
+        string? modeError = ValidateModeForClass(mode, instructionClass);
         if (modeError is not null)
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
@@ -315,16 +348,11 @@ internal static class SpecParser
         return true;
     }
 
-    private static readonly HashSet<string> s_registerOpKinds = new(System.StringComparer.Ordinal)
-    {
-        "Transfer", "Increment", "SetNZ",
-    };
-
-    private static string? ClassifyOps(ImmutableArray<OpModel> ops, out string? error)
+    private static InstructionClass? ClassifyOps(ImmutableArray<OpModel> ops, out string? error)
     {
         error = null;
         if (ops.Length == 0)
-            return "register"; // empty = implied/register class
+            return InstructionClass.Register; // empty = implied/register class
 
         string first = ops[0].Kind;
 
@@ -339,7 +367,7 @@ internal static class SpecParser
                     return null;
                 }
             }
-            return "load";
+            return InstructionClass.Load;
         }
 
         if (first == "Store")
@@ -349,7 +377,7 @@ internal static class SpecParser
                 error = "Store class must contain exactly one Store op";
                 return null;
             }
-            return "store";
+            return InstructionClass.Store;
         }
 
         if (first == "Jump")
@@ -359,7 +387,7 @@ internal static class SpecParser
                 error = "Jump class must contain exactly one Jump op";
                 return null;
             }
-            return "jump";
+            return InstructionClass.Jump;
         }
 
         if (first == "BranchIf")
@@ -369,7 +397,7 @@ internal static class SpecParser
                 error = "Branch class must contain exactly one BranchIf op";
                 return null;
             }
-            return "branch";
+            return InstructionClass.Branch;
         }
 
         // All must be register ops
@@ -381,25 +409,25 @@ internal static class SpecParser
                 return null;
             }
         }
-        return "register";
+        return InstructionClass.Register;
     }
 
-    private static string? ValidateModeForClass(string mode, string opClass) => (opClass, mode) switch
+    private static string? ValidateModeForClass(string mode, InstructionClass opClass) => (opClass, mode) switch
     {
-        ("register", "Implied") => null,
-        ("register", _) => "register-class ops (Transfer/Increment/SetNZ or empty) require Implied mode",
-        ("load", "Immediate") => null,
-        ("load", "ZeroPage") => null,
-        ("load", "Absolute") => null,
-        ("load", _) => "Load requires Immediate, ZeroPage, or Absolute mode",
-        ("store", "ZeroPage") => null,
-        ("store", "Absolute") => null,
-        ("store", _) => "Store requires ZeroPage or Absolute mode",
-        ("jump", "Absolute") => null,
-        ("jump", _) => "Jump requires Absolute mode",
-        ("branch", "Relative") => null,
-        ("branch", _) => "BranchIf requires Relative mode",
-        _ => $"unrecognised op class '{opClass}'"
+        (InstructionClass.Register, "Implied") => null,
+        (InstructionClass.Register, _) => "register-class ops (Transfer/Increment/SetNZ or empty) require Implied mode",
+        (InstructionClass.Load, "Immediate") => null,
+        (InstructionClass.Load, "ZeroPage") => null,
+        (InstructionClass.Load, "Absolute") => null,
+        (InstructionClass.Load, _) => "Load requires Immediate, ZeroPage, or Absolute mode",
+        (InstructionClass.Store, "ZeroPage") => null,
+        (InstructionClass.Store, "Absolute") => null,
+        (InstructionClass.Store, _) => "Store requires ZeroPage or Absolute mode",
+        (InstructionClass.Jump, "Absolute") => null,
+        (InstructionClass.Jump, _) => "Jump requires Absolute mode",
+        (InstructionClass.Branch, "Relative") => null,
+        (InstructionClass.Branch, _) => "BranchIf requires Relative mode",
+        _ => $"unrecognised op class '{opClass}'",
     };
 
     /// <summary>Mnemonic must match ^[A-Z][A-Z0-9]{0,7}$ (1–8 uppercase letters/digits, first must be letter).</summary>
@@ -474,12 +502,24 @@ internal static class SpecParser
                     return null;
                 }
 
-                if (expected == ArgKind.Reg && s_regMembers.Contains(value) &&
-                    !registerNames.Contains(value))
+                // Reg hardening: FIRST check that the value is a known Reg enum member (CPUGEN011).
+                // Then check it's declared in the spec's Registers table (CPUGEN008).
+                if (expected == ArgKind.Reg)
                 {
-                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
-                        argument.GetLocation(), value));
-                    // Keep parsing: error gating in Parse nulls the model.
+                    if (!s_regMembers.Contains(value))
+                    {
+                        // Not a Reg enum member — report CPUGEN011 via the kind-mismatch path.
+                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
+                            argument.GetLocation(), (i + 1).ToString(), kind, "Reg member"));
+                        return null;
+                    }
+
+                    if (!registerNames.Contains(value))
+                    {
+                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
+                            argument.GetLocation(), value));
+                        // Keep parsing: error gating in Parse nulls the model.
+                    }
                 }
 
                 // Flag whitelist: only C, Z, I, D, V, N are allowed (CPUGEN006)
