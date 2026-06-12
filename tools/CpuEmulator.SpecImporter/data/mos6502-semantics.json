@@ -1,0 +1,39 @@
+{
+  "architecture": "mos6502",
+  "namespace": "CpuEmulator.Cpus.Mos6502",
+  "specClassName": "Mos6502Spec",
+  "registers": [
+    { "name": "A",  "bits": 8  },
+    { "name": "X",  "bits": 8  },
+    { "name": "Y",  "bits": 8  },
+    { "name": "S",  "bits": 8,  "role": "StackPointer"   },
+    { "name": "P",  "bits": 8,  "role": "Status"         },
+    { "name": "PC", "bits": 16, "role": "ProgramCounter" }
+  ],
+  "mnemonics": {
+    "LDA": "[Load(Reg.A), SetNZ(Reg.A)]",
+    "LDX": "[Load(Reg.X), SetNZ(Reg.X)]",
+    "LDY": "[Load(Reg.Y), SetNZ(Reg.Y)]",
+    "STA": "[Store(Reg.A)]",
+    "STX": "[Store(Reg.X)]",
+    "STY": "[Store(Reg.Y)]",
+    "TAX": "[Transfer(Reg.A, Reg.X), SetNZ(Reg.X)]",
+    "TXA": "[Transfer(Reg.X, Reg.A), SetNZ(Reg.A)]",
+    "TAY": "[Transfer(Reg.A, Reg.Y), SetNZ(Reg.Y)]",
+    "TYA": "[Transfer(Reg.Y, Reg.A), SetNZ(Reg.A)]",
+    "TSX": "[Transfer(Reg.S, Reg.X), SetNZ(Reg.X)]",
+    "TXS": "[Transfer(Reg.X, Reg.S)]",
+    "INX": "[Increment(Reg.X), SetNZ(Reg.X)]",
+    "INY": "[Increment(Reg.Y), SetNZ(Reg.Y)]",
+    "JMP": "[Jump()]",
+    "NOP": "[]",
+    "BNE": "[BranchIf(Flag.Z, false)]",
+    "BEQ": "[BranchIf(Flag.Z, true)]",
+    "BCC": "[BranchIf(Flag.C, false)]",
+    "BCS": "[BranchIf(Flag.C, true)]",
+    "BPL": "[BranchIf(Flag.N, false)]",
+    "BMI": "[BranchIf(Flag.N, true)]",
+    "BVC": "[BranchIf(Flag.V, false)]",
+    "BVS": "[BranchIf(Flag.V, true)]"
+  }
+}
