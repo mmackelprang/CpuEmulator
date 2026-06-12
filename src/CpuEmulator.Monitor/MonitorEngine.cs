@@ -239,7 +239,9 @@ public sealed class MonitorEngine
 
     /// <summary>
     /// Run for approximately the given cycle budget, returning cycles actually consumed.
-    /// May overshoot by at most one instruction (inherits ICpuCore.Run contract).
+    /// May overshoot by at most one instruction — both slice drivers share this contract:
+    /// the bare ICpuCore.Run and a host-wired Machine.Run each stop at the first
+    /// instruction boundary at or past the budget.
     /// </summary>
     public long Run(long cycles) => _run(cycles);
 
