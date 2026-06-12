@@ -14,6 +14,7 @@ public sealed class MonitorRepl
     private readonly TextReader _input;
     private readonly TextWriter _output;
     private readonly bool _prompt;
+    private readonly string _addrFormat; // "X{AddressDigits}" — address width from the engine
 
     private uint _assembleCursor;
     private bool _cursorValid;
@@ -34,9 +35,13 @@ public sealed class MonitorRepl
         _input = input;
         _output = output;
         _prompt = prompt;
+        _addrFormat = "X" + engine.AddressDigits.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Run the REPL until 'q' or EOF.</summary>
+    /// <summary>Run the REPL until 'q' or EOF. Guest-world faults surfaced as exceptions
+    /// (strict-bus violations, undefined opcodes under the Throw policy) print a "? " line
+    /// and the loop continues — the REPL never crashes on emulated behavior.</summary>
     public void Run()
     {
         while (true)
@@ -46,7 +51,17 @@ public sealed class MonitorRepl
             if (line is null) break; // EOF
             string trimmed = line.Trim();
             if (trimmed.Length == 0) continue; // blank line ignored
-            if (!Dispatch(trimmed)) break; // 'q' returns false
+            bool keepRunning;
+            try
+            {
+                keepRunning = Dispatch(trimmed);
+            }
+            catch (EmulationException ex)
+            {
+                _output.WriteLine($"? {ex.Message}");
+                keepRunning = true;
+            }
+            if (!keepRunning) break; // 'q' returns false
         }
     }
 
@@ -234,8 +249,8 @@ public sealed class MonitorRepl
         for (int i = 0; i < n; i++)
         {
             MonitorStepReport report = _engine.Step();
-            // Two-line step report: "{pc:X4}: {disassembly}" then registers line
-            _output.WriteLine($"{report.PcBefore:X4}: {report.Disassembly}");
+            // Two-line step report: "{pc}: {disassembly}" then registers line
+            _output.WriteLine($"{report.PcBefore.ToString(_addrFormat)}: {report.Disassembly}");
             _output.WriteLine(report.Registers);
         }
     }
@@ -263,7 +278,7 @@ public sealed class MonitorRepl
                 _output.WriteLine($"? bad address '{tokens[idx]}'");
                 return;
             }
-            _engine.SetRegister("PC", startPc);
+            _engine.ProgramCounter = startPc; // routed through ProgramCounterName — CPU-agnostic
             idx++;
         }
 
@@ -303,47 +318,26 @@ public sealed class MonitorRepl
         if (hasTarget)
         {
             RunReport report = _engine.RunUntil(targetPc, budget);
+            string pc = report.Pc.ToString(_addrFormat);
             string stopLine = report.Reason switch
             {
                 RunStopReason.TargetReached =>
-                    $"target ${report.Pc:X4} reached after {report.CyclesRun} cycles",
+                    $"target ${pc} reached after {report.CyclesRun} cycles",
                 RunStopReason.Trapped =>
-                    $"trapped at ${report.Pc:X4} after {report.CyclesRun} cycles",
+                    $"trapped at ${pc} after {report.CyclesRun} cycles",
                 RunStopReason.BudgetExhausted =>
-                    $"budget exhausted at ${report.Pc:X4} after {report.CyclesRun} cycles",
-                _ => $"stopped at ${report.Pc:X4} after {report.CyclesRun} cycles",
+                    $"budget exhausted at ${pc} after {report.CyclesRun} cycles",
+                _ => $"stopped at ${pc} after {report.CyclesRun} cycles",
             };
             _output.WriteLine(stopLine);
         }
         else
         {
-            // Plain Run — no target
-            long before = _engine.Run(budget); // returns cycles consumed
-            // We need the current PC for the stop line — read from the engine
-            // (MonitorEngine exposes Registers() which includes PC, but we need the raw uint)
-            // Parse it out from the registers string — or just report via the registers line.
-            // The plan says: "budget exhausted at $PC after N cycles"
-            // We access the PC via Registers string. Let's format inline.
-            string regsLine = _engine.Registers();
-            // Extract PC value from "... PC=XXXX ..."
-            uint currentPc = ExtractPcFromRegsLine(regsLine);
-            _output.WriteLine($"budget exhausted at ${currentPc:X4} after {before} cycles");
+            // Plain Run — no target; the only stop reason is the exhausted budget
+            long consumed = _engine.Run(budget);
+            string pc = _engine.ProgramCounter.ToString(_addrFormat);
+            _output.WriteLine($"budget exhausted at ${pc} after {consumed} cycles");
         }
-    }
-
-    /// <summary>Parse the PC value out of a registers line like "A=00 ... PC=0202 CYC=42".</summary>
-    private static uint ExtractPcFromRegsLine(string regsLine)
-    {
-        int idx = regsLine.IndexOf("PC=", StringComparison.Ordinal);
-        if (idx < 0) return 0;
-        int start = idx + 3;
-        int end = start;
-        while (end < regsLine.Length && regsLine[end] != ' ') end++;
-        if (uint.TryParse(regsLine.Substring(start, end - start),
-                System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out uint pc))
-            return pc;
-        return 0;
     }
 
     // ── l: load file ──────────────────────────────────────────────────────────
@@ -362,7 +356,7 @@ public sealed class MonitorRepl
         try
         {
             int count = _engine.LoadFile(addr, path);
-            _output.WriteLine($"loaded ${count:X} bytes at ${addr:X4}");
+            _output.WriteLine($"loaded ${count:X} bytes at ${addr.ToString(_addrFormat)}");
         }
         catch (Exception ex)
         {
@@ -388,7 +382,7 @@ public sealed class MonitorRepl
         try
         {
             _engine.SaveFile(addr, len, path);
-            _output.WriteLine($"wrote ${len:X} bytes from ${addr:X4}");
+            _output.WriteLine($"wrote ${len:X} bytes from ${addr.ToString(_addrFormat)}");
         }
         catch (Exception ex)
         {

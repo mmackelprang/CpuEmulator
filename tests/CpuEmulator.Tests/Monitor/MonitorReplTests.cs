@@ -108,8 +108,7 @@ public class MonitorReplTests
         var (engine, _, _) = NewMachine();
         string text = RunSession(engine, "a $0200 LDA #$42\nq");
         Assert.Contains("0200: A9 42     LDA #$42", text);
-        Assert.DoesNotContain("?", text.Replace("?", string.Empty.PadLeft(0)) + "SENTINEL");
-        // More precisely: no line starting with "? "
+        // No line starting with "? " — no command errored
         foreach (string line in text.Split('\n'))
             Assert.DoesNotMatch(@"^\? ", line.TrimEnd());
     }
@@ -356,5 +355,50 @@ public class MonitorReplTests
         string text = RunSession(engine, "r");
         Assert.Contains("CYC=", text); // r ran
         // No crash — clean exit
+    }
+
+    // ── Strict-bus survival (review follow-up) ────────────────────────────────
+    // With AddressSpaceOptions.Strict (spec §7 opt-in), ROM writes and unmapped
+    // accesses throw StrictBusViolationException. The REPL must report them as
+    // "? ..." lines and keep running — never crash on a guest-world fault.
+
+    private static (MonitorEngine Engine, Mos6502Cpu Cpu) NewStrictMachine()
+    {
+        var space = new AddressSpace(
+            AddressSpaceKind.Program, addressBits: 16, new AddressSpaceOptions { Strict = true });
+        space.MapMemory(0x0000, new byte[0xF000], writable: true);   // RAM $0000-$EFFF
+        space.MapMemory(0xF000, new byte[0x1000], writable: false);  // ROM $F000-$FFFF
+        var cpu = new Mos6502Cpu(space);
+        cpu.SetRegister("PC", 0x0200);
+        cpu.S = 0xFD;
+        return (new MonitorEngine(cpu, space, cpu), cpu);
+    }
+
+    [Fact]
+    public void Strict_rom_write_via_m_prints_error_and_repl_survives()
+    {
+        var (engine, _) = NewStrictMachine();
+        string text = RunSession(engine, "m F000: AA\nr\nq");
+        Assert.Contains("? ", text);     // the violation surfaced as a clean message
+        Assert.Contains("CYC=", text);   // the following 'r' still ran — no crash
+    }
+
+    [Fact]
+    public void Strict_rom_assemble_via_a_prints_error_and_repl_survives()
+    {
+        var (engine, _) = NewStrictMachine();
+        string text = RunSession(engine, "a $F000 NOP\nr\nq");
+        Assert.Contains("? ", text);
+        Assert.Contains("CYC=", text);
+    }
+
+    [Fact]
+    public void Strict_rom_store_via_s_prints_error_and_repl_survives()
+    {
+        var (engine, _) = NewStrictMachine();
+        // STA $F000 at $0200 — executing it faults on the ROM write
+        string text = RunSession(engine, "m 0200: 8D 00 F0\ns\nr\nq");
+        Assert.Contains("? ", text);
+        Assert.Contains("CYC=", text);
     }
 }

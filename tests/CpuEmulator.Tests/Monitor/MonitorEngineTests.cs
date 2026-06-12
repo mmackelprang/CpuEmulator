@@ -119,12 +119,9 @@ public class MonitorEngineTests
         var (engine, _, _) = NewMachine();
         engine.WriteMemory(0x0300, new byte[] { 0x05, 0x00 });
         string dump = engine.ReadMemory(0x0300, 2);
-        // Format: addr: XX XX                                           |..|
-        // Hex field is 47 chars wide (padded)
-        Assert.StartsWith("0300: ", dump);
-        Assert.Contains("05 00", dump);
-        Assert.Contains("|", dump);
-        Assert.EndsWith("|..|", dump);
+        // Ground truth D, pinned VERBATIM: {addr:X4}: {hex,-47} |{ascii}| — a partial
+        // line space-pads the hex field to the full 47 chars.
+        Assert.Equal("0300: " + "05 00".PadRight(47) + " |..|", dump);
     }
 
     [Fact]
@@ -220,5 +217,33 @@ public class MonitorEngineTests
         engine.SetRegister("PC", 0x0400);
         string regs = engine.Registers();
         Assert.Contains("PC=0400", regs);
+    }
+
+    // ── CPU-agnostic PC / address-width surface (review follow-up) ───────────
+    // The REPL must never reach for "PC" or :X4 by name — these two members are
+    // the engine's IMonitorSupport-routed accessors for them.
+
+    [Fact]
+    public void ProgramCounter_round_trips_through_the_PC_role_register()
+    {
+        var (engine, cpu, _) = NewMachine();
+        engine.ProgramCounter = 0x0400;
+        Assert.Equal(0x0400u, engine.ProgramCounter);
+        Assert.Equal(0x0400, cpu.PC);
+    }
+
+    [Fact]
+    public void ProgramCounter_set_masks_to_the_address_space()
+    {
+        var (engine, _, _) = NewMachine();
+        engine.ProgramCounter = 0x1_0001; // 17 bits — wraps to 0x0001 on a 16-bit bus
+        Assert.Equal(0x0001u, engine.ProgramCounter);
+    }
+
+    [Fact]
+    public void AddressDigits_is_four_for_a_16_bit_space()
+    {
+        var (engine, _, _) = NewMachine();
+        Assert.Equal(4, engine.AddressDigits);
     }
 }

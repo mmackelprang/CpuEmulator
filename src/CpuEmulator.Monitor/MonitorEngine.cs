@@ -36,6 +36,19 @@ public sealed class MonitorEngine
 
     private uint Pc => (uint)_cpu.GetRegister(_support.ProgramCounterName) & _addressMask;
 
+    /// <summary>Current program counter, masked to the address space. Reads and writes
+    /// route through <see cref="IMonitorSupport.ProgramCounterName"/> so callers (the REPL,
+    /// hosts) never hardcode a register name — the engine stays CPU-agnostic.</summary>
+    public uint ProgramCounter
+    {
+        get => Pc;
+        set => _cpu.SetRegister(_support.ProgramCounterName, value & _addressMask);
+    }
+
+    /// <summary>Hex digits needed to print an address ((AddressBits + 3) / 4 — 4 for the
+    /// 6502). Display formatting for callers, so address widths never hardcode 16 bits.</summary>
+    public int AddressDigits => _addressDigits;
+
     // ── Memory load/save ─────────────────────────────────────────────────────
 
     /// <summary>Write bytes into the address space, wrapping at the address mask.</summary>
