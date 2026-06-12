@@ -8,6 +8,46 @@ A project to build a **pluggable, multi-architecture CPU-emulation framework in 
 - **Pluggable peripherals on a bus** — RAM/ROM, serial/UART, digital & analog I/O (GPIO/ADC/DAC), timers, interrupt controllers — composed onto address spaces like MAME devices / QEMU QOM.
 - **Two execution tiers from one spec** — a `delegate*`-dispatched interpreter (AOT-safe) and an IL-emitting JIT (fast path), both generated from the same instruction description.
 
+## Try it
+
+```
+dotnet run --project src/CpuEmulator.Host            # boot to the monitor
+dotnet run --project src/CpuEmulator.Host -- --demo  # 5-second proof: ROM prints, exits
+```
+
+A first session — the demo ROM is already in ROM at $E000; `g` runs it, `i` talks to it,
+and the monitor assembles new code anywhere in RAM:
+
+```
+CpuEmulator — Breadboard6502
+6502 · RAM $0000-$CFFF · UART $D000 (DATA $D000, STATUS $D001) · ROM $E000-$FFFF (demo)
+UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
+* g 1000
+Hello from Breadboard6502!
+budget exhausted at $E011 after 1000 cycles
+* i HI
+injected $2 bytes
+* g 200
+HIbudget exhausted at $E011 after 200 cycles
+* a $0200 LDA #$41
+0200: A9 41     LDA #$41
+* a STA $D000
+0202: 8D 00 D0  STA $D000
+* g $0200 until $0205 100
+Atarget $0205 reached after 6 cycles
+* q
+```
+
+Load a binary instead: `dotnet run --project src/CpuEmulator.Host -- --load prog.bin --at $0200 --pc $0200`
+
+A few behaviors to know up front: monitor memory commands go through the live bus, so `m` over $D000
+consumes pending UART input and `a`/`m`-writes over ROM land nothing — the echo shows what is really
+there (a side-effect-free peek/poke API is recorded backlog). `i` injects everything after the first
+space verbatim — doubled spaces inject a leading space (quote the text to make leading/trailing
+spaces explicit); nothing is appended. Ctrl+C kills the process; bounded `g` budgets (default
+1,000,000 cycles) are the runaway protection, and EOF (Ctrl+Z+Enter on Windows, Ctrl+D elsewhere)
+quits like `q`.
+
 ## Status
 
 Milestone 1 in progress. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
