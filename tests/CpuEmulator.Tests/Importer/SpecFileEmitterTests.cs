@@ -68,6 +68,27 @@ public class SpecFileEmitterTests
         Assert.Equal(ExpectedEmitted, report.Emitted);
     }
 
+    // ─── per-mnemonic missing-semantics inventory (plan: report includes it) ──
+
+    [Fact]
+    public void Report_Inventory_Lists_Missing_Semantics_Per_Mnemonic()
+    {
+        var (_, report) = RunEngine();
+        var inv = report.MissingSemanticsInventory;
+
+        // 56 distinct mnemonics in the dataset − 24 in the semantics map = 32 missing.
+        Assert.Equal(32, inv.Count);
+        // Row counts must reconcile with the todoSemantics total (101).
+        Assert.Equal(report.TodoSemantics, inv.Sum(x => x.Rows));
+        // Spot entries: ADC has 8 dataset rows, BRK has 1.
+        Assert.Contains(("ADC", 8), inv);
+        Assert.Contains(("BRK", 1), inv);
+        // Mapped mnemonics must NOT appear (LDA has semantics).
+        Assert.DoesNotContain(inv, x => x.Mnemonic == "LDA");
+        // Stable mnemonic ordering for reproducible report output.
+        Assert.Equal(inv.OrderBy(x => x.Mnemonic, StringComparer.Ordinal), inv);
+    }
+
     // ─── 11-row regression anchor ───────────────────────────────────────────
     // Each of the 11 live Mos6502Spec.cs rows must appear verbatim in the
     // importer output (whitespace-normalized to single-space for comparison

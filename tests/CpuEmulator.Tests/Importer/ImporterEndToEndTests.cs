@@ -151,6 +151,9 @@ public class ImporterEndToEndTests
             // Report line should appear on stdout
             Assert.Contains("total=151", stdout);
             Assert.Contains("emitted=", stdout);
+            // The per-mnemonic inventory is opt-in via --report; without the flag
+            // only the summary line is printed.
+            Assert.DoesNotContain("ADC", stdout);
         }
         finally
         {
@@ -184,9 +187,13 @@ public class ImporterEndToEndTests
             }
 
             Assert.Equal(0, exitCode);
-            // --report flag should add per-mnemonic inventory to output
+            // --report adds the per-mnemonic missing-semantics inventory
+            // (plan: "Report ... and per-mnemonic missing-semantics inventory").
             var stdout = sw.ToString();
             Assert.Contains("total=151", stdout);
+            Assert.Contains("missing-semantics inventory", stdout);
+            Assert.Contains("ADC: 8", stdout);   // ADC: 8 dataset rows, no semantics
+            Assert.Contains("BRK: 1", stdout);   // BRK: 1 dataset row, no semantics
         }
         finally
         {

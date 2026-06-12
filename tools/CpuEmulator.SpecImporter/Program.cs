@@ -55,9 +55,11 @@ public static class Program
 
             if (report)
             {
-                // Per-mnemonic inventory of missing semantics would go here in a
-                // future iteration; for now the summary line is the report.
-                Console.WriteLine($"  (todoSemantics={importReport.TodoSemantics} todoMode={importReport.TodoMode})");
+                // Per-mnemonic inventory of dataset rows still awaiting semantics
+                // (plan: the report includes a per-mnemonic missing-semantics inventory).
+                Console.WriteLine("missing-semantics inventory (mnemonic: dataset rows):");
+                foreach (var (mnemonic, rows) in importReport.MissingSemanticsInventory)
+                    Console.WriteLine($"  {mnemonic}: {rows}");
             }
 
             return 0;
