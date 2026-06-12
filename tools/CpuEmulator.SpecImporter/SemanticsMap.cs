@@ -70,6 +70,9 @@ public sealed class SemanticsMap
         // Flow ops (Task 7)
         ["Jsr"]           = 0,  // Jsr()
         ["Rts"]           = 0,  // Rts()
+        // BRK/RTI flow ops (Task 8 / 3b-ii)
+        ["Brk"]           = 0,  // Brk()
+        ["Rti"]           = 0,  // Rti()
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────

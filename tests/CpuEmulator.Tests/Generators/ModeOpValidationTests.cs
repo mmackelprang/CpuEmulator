@@ -596,4 +596,83 @@ public class ModeOpValidationTests
 
         Assert.Empty(result.GeneratorDiagnostics);
     }
+
+    // ── Task 8 / 3b-ii: BRK/RTI flow-class acceptance + mode matrix ────────────────────────
+
+    [Fact]
+    public void Brk_implied_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
+                ];
+            """));
+
+        Assert.Empty(result.AllErrors);
+    }
+
+    [Fact]
+    public void Rti_implied_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x40, "RTI", AddrMode.Implied, [Rti()]),
+                ];
+            """));
+
+        Assert.Empty(result.AllErrors);
+    }
+
+    [Fact]
+    public void Brk_with_absolute_mode_is_rejected()
+    {
+        // Per-op flow matrix: Brk requires Implied. Must be CPUGEN010 at PARSE time.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "BRK", AddrMode.Absolute, [Brk()]),
+                ];
+            """));
+
+        var diag = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+        Assert.Contains("Brk requires Implied mode", diag.GetMessage());
+    }
+
+    [Fact]
+    public void Brk_with_trailing_op_is_rejected()
+    {
+        // Flow class is single-op: BRK's whole sequence is one fixed template.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk(), SetNZ(Reg.A)]),
+                ];
+            """));
+
+        var diag = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+        Assert.Contains("flow class must contain exactly one op", diag.GetMessage());
+    }
+
+    [Fact]
+    public void Brk_without_status_register_is_rejected()
+    {
+        // BRK stacks P|0x30 and sets I — the emitter writes the Status register's NAME
+        // into the template, so a spec without a Status-role register cannot host it.
+        string source = GeneratorTestHost.ReplaceSection(
+            WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
+                ];
+            """),
+            """new("P", 8, RegisterRole.Status),""",
+            "");
+
+        var result = GeneratorTestHost.Run(source);
+
+        var diag = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+        Assert.Contains("flow op 'Brk' requires a Status-role register", diag.GetMessage());
+    }
 }

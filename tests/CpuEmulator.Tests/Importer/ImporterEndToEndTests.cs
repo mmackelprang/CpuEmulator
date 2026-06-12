@@ -67,6 +67,7 @@ public class ImporterEndToEndTests
                 private byte ReadBus(uint address) { _cycles++; return _bus.Read8(address); }
                 private void WriteBus(uint address, byte value) { _cycles++; _bus.Write8(address, value); }
                 private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
+                private partial bool TryServiceInterrupt() => false;
             }
             """;
 
@@ -101,6 +102,7 @@ public class ImporterEndToEndTests
                 private byte ReadBus(uint address) { _cycles++; return _bus.Read8(address); }
                 private void WriteBus(uint address, byte value) { _cycles++; _bus.Write8(address, value); }
                 private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
+                private partial bool TryServiceInterrupt() => false;
             }
             """;
 
@@ -187,13 +189,16 @@ public class ImporterEndToEndTests
             }
 
             Assert.Equal(0, exitCode);
-            // --report adds the per-mnemonic missing-semantics inventory
-            // (plan: "Report ... and per-mnemonic missing-semantics inventory").
+            // --report still prints the inventory header, but the inventory is now empty:
+            // every dataset mnemonic maps (BRK/RTI landed in 3b-ii), so emitted=151 and
+            // todoSemantics=0 — no per-mnemonic rows remain.
             var stdout = sw.ToString();
             Assert.Contains("total=151", stdout);
+            Assert.Contains("emitted=151", stdout);
+            Assert.Contains("todoSemantics=0", stdout);
             Assert.Contains("missing-semantics inventory", stdout);
-            Assert.Contains("BRK: 1", stdout);   // BRK: 1 dataset row, no semantics (3b-ii)
-            Assert.Contains("RTI: 1", stdout);   // RTI: 1 dataset row, no semantics (3b-ii)
+            Assert.DoesNotContain("BRK: 1", stdout);   // BRK now maps (3b-ii)
+            Assert.DoesNotContain("RTI: 1", stdout);   // RTI now maps (3b-ii)
         }
         finally
         {

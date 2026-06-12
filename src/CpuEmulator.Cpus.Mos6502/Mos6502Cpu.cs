@@ -3,15 +3,25 @@ using CpuEmulator.Core.Specification;
 
 namespace CpuEmulator.Cpus.Mos6502;
 
-/// <summary>Hand-written half of the 6502: bus wiring, reset, undefined-opcode policy, and
-/// interrupt-line recording. The generated half (see obj/generated/) owns state,
-/// introspection, and the Step/Run/Execute pipeline.</summary>
+/// <summary>Hand-written half of the MOS 6502: bus wiring, reset, interrupt servicing,
+/// and undefined-opcode policy. The generated half (see obj/generated/) owns state,
+/// introspection, and the Step/Run/Execute pipeline.
+///
+/// Interrupt policy: NMI is edge-triggered — a rising edge of <see cref="SetNmiLine"/>
+/// sets an internal pending latch; the latch clears when serviced and on <see cref="Reset"/>.
+/// A held-high line never re-fires until released and re-asserted.
+/// IRQ is level-sensitive — serviced at a boundary whenever the line is high and the I flag
+/// is clear. NMI beats IRQ when both are pending. The 7-cycle service sequence (two dummy
+/// reads at PC, push PCH/PCL/P with B=0, vector fetch, I set) matches 64doc.
+/// Mid-instruction sampling quirks (CLI/SEI/PLP delay, branch polling, BRK hijacking)
+/// are a recorded M1 deviation — see spec §6.</summary>
 public sealed partial class Mos6502Cpu
 {
     private readonly IAddressSpace _bus;
     private readonly UndefinedOpcodePolicy _undefinedPolicy;
     private bool _irqLine;
     private bool _nmiLine;
+    private bool _nmiPending;
 
     public Mos6502Cpu(IAddressSpace bus, UndefinedOpcodePolicy undefinedPolicy = UndefinedOpcodePolicy.Throw)
     {
@@ -33,13 +43,56 @@ public sealed partial class Mos6502Cpu
                   // power-up convention); chunk 3's PHP/PLP/BRK logic owns the bit-4/5
                   // push/pull conventions.
         _cycles += 5;
+        // Reset clears the pending-NMI latch (2a carry-forward); line LEVELS are external
+        // and untouched — a held NMI line re-latches only on a fresh rising edge.
+        // Second-reset silicon semantics (S-=3, I-only) remain coarsely modeled.
+        _nmiPending = false;
     }
 
-    /// <summary>Lines are recorded but not yet serviced — the interrupt sequence lands in
-    /// chunk 3 with the full instruction set.</summary>
+    /// <summary>IRQ is level-sensitive: the line is sampled at every instruction boundary
+    /// and serviced when high and the I flag is clear.</summary>
     public void SetIrqLine(bool asserted) => _irqLine = asserted;
 
-    public void SetNmiLine(bool asserted) => _nmiLine = asserted;
+    /// <summary>NMI is edge-triggered: a rising edge sets the pending latch; the latch
+    /// clears when serviced and on Reset. A held-high line never re-fires until released
+    /// and re-asserted.</summary>
+    public void SetNmiLine(bool asserted)
+    {
+        if (asserted && !_nmiLine)
+            _nmiPending = true;
+        _nmiLine = asserted;
+    }
+
+    /// <summary>Instruction-boundary interrupt service (generated Step calls this before
+    /// the opcode fetch). NMI beats IRQ. The 7-cycle sequence mirrors 64doc: two dummy
+    /// reads at PC (the discarded fetch), push PCH/PCL, push P with B clear
+    /// ((P | 0x20) &amp; 0xEF — bit 4 clear distinguishes hardware interrupts from BRK),
+    /// vector fetch ($FFFA/$FFFB for NMI, $FFFE/$FFFF for IRQ), I set.
+    /// Mid-instruction sampling quirks (CLI/SEI/PLP delay, branch polling, BRK hijacking)
+    /// are a recorded M1 deviation — see spec §6.</summary>
+    private partial bool TryServiceInterrupt()
+    {
+        bool nmi = _nmiPending;
+        if (!nmi && (!_irqLine || (P & 0x04) != 0))
+            return false;
+        if (nmi)
+            _nmiPending = false;
+
+        _ = ReadBus(PC); // dummy opcode fetch (discarded, PC not incremented)
+        _ = ReadBus(PC); // second dummy read at PC
+        WriteBus(0x100u + S, unchecked((byte)(PC >> 8)));
+        S = unchecked((byte)(S - 1));
+        WriteBus(0x100u + S, unchecked((byte)PC));
+        S = unchecked((byte)(S - 1));
+        WriteBus(0x100u + S, unchecked((byte)((P | 0x20) & 0xEF))); // stacked B=0
+        S = unchecked((byte)(S - 1));
+        uint vector = nmi ? 0xFFFAu : 0xFFFEu;
+        uint lo = ReadBus(vector);
+        uint hi = ReadBus(vector + 1);
+        P = unchecked((byte)(P | 0x04));
+        PC = unchecked((ushort)(lo | (hi << 8)));
+        return true;
+    }
 
     private byte ReadBus(uint address)
     {

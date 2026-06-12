@@ -14,7 +14,8 @@ internal static class CpuEmitter
         sb.AppendLine("// The hand-written partial MUST provide: a constructor, Reset(),");
         sb.AppendLine("// SetIrqLine(bool), SetNmiLine(bool), byte ReadBus(uint address)");
         sb.AppendLine("// (which increments _cycles), WriteBus(uint, byte) (which increments _cycles),");
-        sb.AppendLine("// and HandleUndefinedOpcode(byte opcode).");
+        sb.AppendLine("// HandleUndefinedOpcode(byte opcode), and");
+        sb.AppendLine("// private partial bool TryServiceInterrupt() (return false when no interrupt is pending).");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine($"namespace {model.Namespace};");
@@ -88,13 +89,25 @@ internal static class CpuEmitter
             sb.AppendLine($"    //   0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode}");
 
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Execute one instruction. Always advances CycleCount by at least one.</summary>");
+        sb.AppendLine("    /// <summary>Execute one instruction — or service one pending interrupt at this");
+        sb.AppendLine("    /// instruction boundary (the hook runs before the opcode fetch). Always advances");
+        sb.AppendLine("    /// CycleCount by at least one.</summary>");
         sb.AppendLine("    public void Step()");
         sb.AppendLine("    {");
+        sb.AppendLine("        if (TryServiceInterrupt())");
+        sb.AppendLine("            return;");
         sb.AppendLine($"        byte opcode = ReadBus({pc});");
         sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
         sb.AppendLine("        Execute(opcode);");
         sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Interrupt-service hook, called at every instruction boundary before the");
+        sb.AppendLine("    /// opcode fetch. The hand-written partial implements the CPU's interrupt policy and");
+        sb.AppendLine("    /// MUST return false when nothing is pending. When it services an interrupt it performs");
+        sb.AppendLine("    /// the full bus sequence itself (charging cycles via ReadBus/WriteBus) and returns true;");
+        sb.AppendLine("    /// Step then ends without fetching an opcode.</summary>");
+        sb.AppendLine("    private partial bool TryServiceInterrupt();");
 
         sb.AppendLine();
         sb.AppendLine("    public void Run(ref long cycleBudget)");
@@ -177,7 +190,7 @@ internal static class CpuEmitter
                 EmitStackBody(sb, instruction, pc, statusReg, spReg);
                 break;
             case InstructionClass.Flow:
-                EmitFlowBody(sb, instruction, pc, pcType, spReg);
+                EmitFlowBody(sb, instruction, pc, pcType, statusReg, spReg);
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -508,6 +521,8 @@ internal static class CpuEmitter
         {
             "Jsr" => "6 cycles",
             "Rts" => "6 cycles",
+            "Brk" => "7 cycles",
+            "Rti" => "6 cycles",
             _ => "6 cycles",
         };
     }
@@ -533,22 +548,64 @@ internal static class CpuEmitter
         switch (instruction.Ops[0].Kind)
         {
             case "Adc":
-                sb.AppendLine($"        // 3b-i: binary even when D is set (BCD lands in 3b-ii)");
                 sb.AppendLine($"        int temp = A + data + ({p} & 0x01);");
-                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xBE)");
-                sb.AppendLine($"            | (temp > 0xFF ? 0x01 : 0x00)");
-                sb.AppendLine($"            | ((~(A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)));");
-                sb.AppendLine($"        A = unchecked((byte)temp);");
-                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                sb.AppendLine($"        if (({p} & 0x08) != 0)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            // NMOS decimal ADC (64doc): Z from the BINARY sum; N and V from the");
+                sb.AppendLine("            // intermediate BCD sum (before the +0x60 correction); C from the corrected sum.");
+                sb.AppendLine("            // Locals named from the reserved set ('before'=low nibble, 'sum'=BCD sum) to");
+                sb.AppendLine("            // avoid colliding with the operand-resolution 'lo'/'hi' in memory modes.");
+                sb.AppendLine($"            int before = (A & 0x0F) + (data & 0x0F) + ({p} & 0x01);");
+                sb.AppendLine("            if (before >= 0x0A)");
+                sb.AppendLine("                before = ((before + 0x06) & 0x0F) + 0x10;");
+                sb.AppendLine("            int sum = (A & 0xF0) + (data & 0xF0) + before;");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0x3C)");
+                sb.AppendLine("                | (sum & 0x80)");
+                sb.AppendLine($"                | ((~(A ^ data) & (A ^ sum) & 0x80) != 0 ? 0x40 : 0x00)");
+                sb.AppendLine($"                | ((temp & 0xFF) == 0 ? 0x02 : 0x00)));");
+                sb.AppendLine("            if (sum >= 0xA0)");
+                sb.AppendLine("                sum += 0x60;");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0xFE) | (sum >= 0x100 ? 0x01 : 0x00)));");
+                sb.AppendLine("            A = unchecked((byte)sum);");
+                sb.AppendLine("        }");
+                sb.AppendLine("        else");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0xBE)");
+                sb.AppendLine($"                | (temp > 0xFF ? 0x01 : 0x00)");
+                sb.AppendLine($"                | ((~(A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)));");
+                sb.AppendLine("            A = unchecked((byte)temp);");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                sb.AppendLine("        }");
                 break;
             case "Sbc":
-                sb.AppendLine($"        // 3b-i: binary even when D is set (BCD lands in 3b-ii)");
                 sb.AppendLine($"        int temp = A + (data ^ 0xFF) + ({p} & 0x01);");
-                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0xBE)");
-                sb.AppendLine($"            | (temp > 0xFF ? 0x01 : 0x00)");
-                sb.AppendLine($"            | (((A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)));");
-                sb.AppendLine($"        A = unchecked((byte)temp);");
-                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                sb.AppendLine($"        if (({p} & 0x08) != 0)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            // NMOS decimal SBC (64doc): ALL flags are the binary-mode flags — only the");
+                sb.AppendLine("            // result byte receives the BCD correction.");
+                sb.AppendLine("            // Locals named from the reserved set ('before'=low nibble, 'sum'=BCD sum) to");
+                sb.AppendLine("            // avoid colliding with the operand-resolution 'lo'/'hi' in memory modes.");
+                sb.AppendLine($"            int before = (A & 0x0F) - (data & 0x0F) + ({p} & 0x01) - 1;");
+                sb.AppendLine("            if (before < 0)");
+                sb.AppendLine("                before = ((before - 0x06) & 0x0F) - 0x10;");
+                sb.AppendLine("            int sum = (A & 0xF0) - (data & 0xF0) + before;");
+                sb.AppendLine("            if (sum < 0)");
+                sb.AppendLine("                sum -= 0x60;");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0x3C)");
+                sb.AppendLine($"                | (temp > 0xFF ? 0x01 : 0x00)");
+                sb.AppendLine($"                | (((A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)");
+                sb.AppendLine($"                | ((temp & 0xFF) == 0 ? 0x02 : 0x00)");
+                sb.AppendLine($"                | (temp & 0x80)));");
+                sb.AppendLine("            A = unchecked((byte)sum);");
+                sb.AppendLine("        }");
+                sb.AppendLine("        else");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0xBE)");
+                sb.AppendLine($"                | (temp > 0xFF ? 0x01 : 0x00)");
+                sb.AppendLine($"                | (((A ^ data) & (A ^ temp) & 0x80) != 0 ? 0x40 : 0x00)));");
+                sb.AppendLine("            A = unchecked((byte)temp);");
+                sb.AppendLine($"            {p} = unchecked((byte)(({p} & 0x7D) | (A == 0 ? 0x02 : 0x00) | (A & 0x80)));");
+                sb.AppendLine("        }");
                 break;
             case "And":
                 sb.AppendLine($"        A = unchecked((byte)(A & data));");
@@ -844,6 +901,7 @@ internal static class CpuEmitter
         InstructionModel instruction,
         string pc,
         string pcType,
+        string? statusReg,
         string? spReg)
     {
         // The parser rejects flow-class instructions in specs without a StackPointer-role
@@ -885,6 +943,43 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at new PC before increment");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                break;
+            case "Brk":
+                if (instruction.Mode != "Implied")
+                    throw new System.InvalidOperationException(
+                        $"emitter has no BRK template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+                {
+                    string p = statusReg ?? "P";
+                    sb.AppendLine($"        _ = ReadBus({pc}); // padding-byte read: BRK is a 2-byte instruction");
+                    sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                    sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte)({pc} >> 8)));");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                    sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte){pc}));");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                    sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte)({p} | 0x30))); // stacked B=1 marks BRK/PHP");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                    sb.AppendLine($"        uint lo = ReadBus(0xFFFE);");
+                    sb.AppendLine($"        uint hi = ReadBus(0xFFFF);");
+                    sb.AppendLine($"        {p} = unchecked((byte)({p} | 0x04)); // I set; D untouched (NMOS — CLD-on-BRK is 65C02)");
+                    sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+                }
+                break;
+            case "Rti":
+                if (instruction.Mode != "Implied")
+                    throw new System.InvalidOperationException(
+                        $"emitter has no RTI template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+                {
+                    string p = statusReg ?? "P";
+                    sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC (no increment)");
+                    sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // dummy read at old S (increment cycle)");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                    sb.AppendLine($"        {p} = unchecked((byte)((ReadBus(0x100u + {sp}) | 0x20) & 0xEF)); // phantom bits: 5=1, 4=0");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                    sb.AppendLine($"        uint lo = ReadBus(0x100u + {sp});");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                    sb.AppendLine($"        uint hi = ReadBus(0x100u + {sp});");
+                    sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8))); // no increment, no dummy at new PC (≠ RTS)");
+                }
                 break;
             default:
                 throw new System.InvalidOperationException(

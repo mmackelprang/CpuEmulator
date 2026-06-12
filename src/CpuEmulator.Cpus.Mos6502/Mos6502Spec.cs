@@ -30,7 +30,7 @@ public static class Mos6502Spec
 
     public static readonly InstructionDef[] Instructions =
     [
-        // TODO(semantics): 0x00 BRK Implied — awaiting micro-op vocabulary
+        Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
         Insn(0x01, "ORA", AddrMode.IndirectX, [Ora()]),
         Insn(0x05, "ORA", AddrMode.ZeroPage, [Ora()]),
         Insn(0x06, "ASL", AddrMode.ZeroPage, [ShiftLeft()]),
@@ -66,7 +66,7 @@ public static class Mos6502Spec
         Insn(0x39, "AND", AddrMode.AbsoluteY, [And()]),
         Insn(0x3D, "AND", AddrMode.AbsoluteX, [And()]),
         Insn(0x3E, "ROL", AddrMode.AbsoluteX, [RotateLeft()]),
-        // TODO(semantics): 0x40 RTI Implied — awaiting micro-op vocabulary
+        Insn(0x40, "RTI", AddrMode.Implied, [Rti()]),
         Insn(0x41, "EOR", AddrMode.IndirectX, [Eor()]),
         Insn(0x45, "EOR", AddrMode.ZeroPage, [Eor()]),
         Insn(0x46, "LSR", AddrMode.ZeroPage, [ShiftRight()]),

@@ -39,3 +39,7 @@ public sealed record PullPOp : Op;
 public sealed record SetFlagOp(Flag Flag, bool Value) : Op;
 public sealed record JsrOp : Op;
 public sealed record RtsOp : Op;
+
+// ── BRK/RTI flow class (Task 8 / 3b-ii) ────────────────────────────────────
+public sealed record BrkOp : Op;
+public sealed record RtiOp : Op;

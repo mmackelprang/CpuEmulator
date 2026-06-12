@@ -50,12 +50,12 @@ public class SemanticsMapTests
     // ─── mnemonic count ──────────────────────────────────────────────────
 
     [Fact]
-    public void Loads_54_Mnemonics()
+    public void Loads_56_Mnemonics()
     {
-        // 24 original + 30 new (ALU 9, RMW 7+DEX/DEY, stack 4, flag 7, flow 2)
-        // = 54 total. BRK and RTI remain absent (3b-ii).
+        // 24 original + 30 (ALU 9, RMW 7+DEX/DEY, stack 4, flag 7, flow 2)
+        // + 2 (BRK, RTI; landed in 3b-ii) = 56 total.
         var map = SemanticsMap.Load(SemanticsPath);
-        Assert.Equal(54, map.Mnemonics.Count);
+        Assert.Equal(56, map.Mnemonics.Count);
     }
 
     // ─── TXS pin — deliberate absence of SetNZ ───────────────────────────
