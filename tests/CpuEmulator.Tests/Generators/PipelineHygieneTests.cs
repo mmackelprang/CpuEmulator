@@ -108,6 +108,16 @@ public class PipelineHygieneTests
         Assert.Contains("(ReadBus(0x100u + S) | 0x20) & 0xEF", result.GeneratedText);
     }
 
+    [Fact]
+    public void Generated_step_declares_and_calls_the_interrupt_hook()
+    {
+        var result = GeneratorTestHost.Run(GeneratorHappyPathTests.ValidSpecSource);
+
+        Assert.Empty(result.AllErrors);
+        Assert.Contains("private partial bool TryServiceInterrupt();", result.GeneratedText);
+        Assert.Contains("if (TryServiceInterrupt())", result.GeneratedText);
+    }
+
     private static string SpanText(string source, Diagnostic diagnostic) =>
         source.Substring(diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length);
 

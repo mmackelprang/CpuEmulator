@@ -14,7 +14,8 @@ internal static class CpuEmitter
         sb.AppendLine("// The hand-written partial MUST provide: a constructor, Reset(),");
         sb.AppendLine("// SetIrqLine(bool), SetNmiLine(bool), byte ReadBus(uint address)");
         sb.AppendLine("// (which increments _cycles), WriteBus(uint, byte) (which increments _cycles),");
-        sb.AppendLine("// and HandleUndefinedOpcode(byte opcode).");
+        sb.AppendLine("// HandleUndefinedOpcode(byte opcode), and");
+        sb.AppendLine("// private partial bool TryServiceInterrupt() (return false when no interrupt is pending),");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine($"namespace {model.Namespace};");
@@ -88,13 +89,25 @@ internal static class CpuEmitter
             sb.AppendLine($"    //   0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode}");
 
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Execute one instruction. Always advances CycleCount by at least one.</summary>");
+        sb.AppendLine("    /// <summary>Execute one instruction — or service one pending interrupt at this");
+        sb.AppendLine("    /// instruction boundary (the hook runs before the opcode fetch). Always advances");
+        sb.AppendLine("    /// CycleCount by at least one.</summary>");
         sb.AppendLine("    public void Step()");
         sb.AppendLine("    {");
+        sb.AppendLine("        if (TryServiceInterrupt())");
+        sb.AppendLine("            return;");
         sb.AppendLine($"        byte opcode = ReadBus({pc});");
         sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
         sb.AppendLine("        Execute(opcode);");
         sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Interrupt-service hook, called at every instruction boundary before the");
+        sb.AppendLine("    /// opcode fetch. The hand-written partial implements the CPU's interrupt policy and");
+        sb.AppendLine("    /// MUST return false when nothing is pending. When it services an interrupt it performs");
+        sb.AppendLine("    /// the full bus sequence itself (charging cycles via ReadBus/WriteBus) and returns true;");
+        sb.AppendLine("    /// Step then ends without fetching an opcode.</summary>");
+        sb.AppendLine("    private partial bool TryServiceInterrupt();");
 
         sb.AppendLine();
         sb.AppendLine("    public void Run(ref long cycleBudget)");
