@@ -75,7 +75,8 @@ public class Mos6502SkeletonTests
     [Fact]
     public void Undefined_opcode_with_nop_policy_advances_two_cycles()
     {
-        var (cpu, _) = NewCpu(UndefinedOpcodePolicy.Nop);   // RAM is zero-filled: opcode 0x00
+        var (cpu, space) = NewCpu(UndefinedOpcodePolicy.Nop);
+        space.Write8(0x0000, 0x02); // 0x02 is a JAM slot — permanently undefined
 
         cpu.Step();
 
@@ -86,7 +87,9 @@ public class Mos6502SkeletonTests
     [Fact]
     public void Run_consumes_budget_in_two_cycle_undefined_nops()
     {
-        var (cpu, _) = NewCpu(UndefinedOpcodePolicy.Nop);
+        var (cpu, space) = NewCpu(UndefinedOpcodePolicy.Nop);
+        for (uint address = 0; address < 8; address++)
+            space.Write8(address, 0x02); // JAM slots — permanently undefined
 
         long budget = 10;
         cpu.Run(ref budget);
@@ -106,6 +109,8 @@ public class Mos6502SkeletonTests
             .Build();
         machine.Space(AddressSpaceKind.Program).Write8(0xFFFC, 0x00);
         machine.Space(AddressSpaceKind.Program).Write8(0xFFFD, 0x02);
+        for (uint address = 0x0200; address < 0x0214; address++)
+            machine.Space(AddressSpaceKind.Program).Write8(address, 0x02); // JAM slots
 
         machine.Reset();
         long executed = machine.Run(20);

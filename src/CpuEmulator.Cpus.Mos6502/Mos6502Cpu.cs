@@ -29,7 +29,9 @@ public sealed partial class Mos6502Cpu
         byte hi = ReadBus(0xFFFD);
         PC = (ushort)(lo | (hi << 8));
         S = 0xFD;
-        P = 0x34; // I and the always-set bit; matches power-on convention
+        P = 0x34; // I + bits 5,4: stored P models the phantom B/unused bits as set (NESdev
+                  // power-up convention); chunk 3's PHP/PLP/BRK logic owns the bit-4/5
+                  // push/pull conventions.
         _cycles += 5;
     }
 
