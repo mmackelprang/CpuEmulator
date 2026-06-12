@@ -23,7 +23,8 @@ committed importer output: `tools/CpuEmulator.SpecImporter` generates it from th
 file to fresh tool output. Vectors are fetched on demand (`tools/get-test-vectors.ps1`/`.sh`),
 never vendored; the TomHarte theories sample 200 cases/opcode by default and run all 10,000
 under `CPUEMULATOR_UAT=full`. Next: 3b-ii (BCD, BRK/RTI + interrupts, full-151 green, Klaus
-functional test), then the monitor and peripherals + console host (chunk 4).
+functional test), then the monitor, the datasheet-extraction runbook (M1 item 6), and
+peripherals + console host (chunk 4).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`
