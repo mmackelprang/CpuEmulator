@@ -357,6 +357,62 @@ public class MonitorReplTests
         // No crash — clean exit
     }
 
+    // ── i command: inject bytes ───────────────────────────────────────────────
+
+    [Fact]
+    public void I_injects_bytes_and_prints_count()
+    {
+        var (engine, _, _) = NewMachine();
+        var sink = new List<byte>();
+        var output = new StringWriter();
+        new MonitorRepl(engine, new StringReader("i HI\nq"), output, inject: sink.Add).Run();
+        string text = output.ToString();
+        Assert.Equal(new byte[] { 0x48, 0x49 }, sink);
+        Assert.Contains("injected $2 bytes", text);
+    }
+
+    [Fact]
+    public void I_quoted_text_carries_spaces()
+    {
+        var (engine, _, _) = NewMachine();
+        var sink = new List<byte>();
+        var output = new StringWriter();
+        new MonitorRepl(engine, new StringReader("i \" HI \"\nq"), output, inject: sink.Add).Run();
+        string text = output.ToString();
+        Assert.Equal(4, sink.Count);
+        Assert.Contains("injected $4 bytes", text);
+    }
+
+    [Fact]
+    public void I_without_sink_prints_no_input_device_and_repl_survives()
+    {
+        var (engine, _, _) = NewMachine();
+        var output = new StringWriter();
+        new MonitorRepl(engine, new StringReader("i HI\nq"), output).Run();
+        string text = output.ToString();
+        Assert.Contains("? no input device attached", text);
+    }
+
+    [Fact]
+    public void I_alone_with_sink_injects_zero_bytes()
+    {
+        var (engine, _, _) = NewMachine();
+        var sink = new List<byte>();
+        var output = new StringWriter();
+        new MonitorRepl(engine, new StringReader("i\nq"), output, inject: sink.Add).Run();
+        string text = output.ToString();
+        Assert.Empty(sink);
+        Assert.Contains("injected $0 bytes", text);
+    }
+
+    [Fact]
+    public void Help_output_contains_i_TEXT_line()
+    {
+        var (engine, _, _) = NewMachine();
+        string text = RunSession(engine, "?\nq");
+        Assert.Contains("i TEXT", text);
+    }
+
     // ── Strict-bus survival (review follow-up) ────────────────────────────────
     // With AddressSpaceOptions.Strict (spec §7 opt-in), ROM writes and unmapped
     // accesses throw StrictBusViolationException. The REPL must report them as

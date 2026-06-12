@@ -15,6 +15,7 @@ public sealed class MonitorRepl
     private readonly TextWriter _output;
     private readonly bool _prompt;
     private readonly string _addrFormat; // "X{AddressDigits}" — address width from the engine
+    private readonly Action<byte>? _inject;
 
     private uint _assembleCursor;
     private bool _cursorValid;
@@ -26,7 +27,9 @@ public sealed class MonitorRepl
     /// <param name="input">Command source (StringReader for tests, Console.In for host).</param>
     /// <param name="output">Output sink (StringWriter for tests, Console.Out for host).</param>
     /// <param name="prompt">When true, print "* " before each line (disabled in tests).</param>
-    public MonitorRepl(MonitorEngine engine, TextReader input, TextWriter output, bool prompt = false)
+    /// <param name="inject">Optional byte sink for the 'i' inject command.</param>
+    public MonitorRepl(MonitorEngine engine, TextReader input, TextWriter output,
+                       bool prompt = false, Action<byte>? inject = null)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(input);
@@ -35,6 +38,7 @@ public sealed class MonitorRepl
         _input = input;
         _output = output;
         _prompt = prompt;
+        _inject = inject;
         _addrFormat = "X" + engine.AddressDigits.ToString(
             System.Globalization.CultureInfo.InvariantCulture);
     }
@@ -81,6 +85,7 @@ public sealed class MonitorRepl
             case "r": HandleRegisters(args); break;
             case "s": HandleStep(args); break;
             case "g": HandleGo(args); break;
+            case "i": HandleInject(args); break;
             case "l": HandleLoad(args); break;
             case "w": HandleSave(args); break;
             case "?": HandleHelp(); break;
@@ -340,6 +345,27 @@ public sealed class MonitorRepl
         }
     }
 
+    // ── i: inject bytes ───────────────────────────────────────────────────────
+
+    /// <summary>i TEXT — feed TEXT's characters (low byte of each) to the input sink.
+    /// TEXT = everything after the first space, verbatim; surrounding double quotes are
+    /// stripped (they carry leading/trailing spaces past the REPL's line trim). Nothing
+    /// appended — no CR/LF; control bytes are recorded raw-mode backlog.</summary>
+    private void HandleInject(string args)
+    {
+        if (_inject is null)
+        {
+            _output.WriteLine("? no input device attached");
+            return;
+        }
+        string text = args;
+        if (text.Length >= 2 && text[0] == '"' && text[^1] == '"')
+            text = text.Substring(1, text.Length - 2);
+        foreach (char c in text)
+            _inject(unchecked((byte)c));
+        _output.WriteLine($"injected ${text.Length:X} bytes");
+    }
+
     // ── l: load file ──────────────────────────────────────────────────────────
 
     private void HandleLoad(string args)
@@ -408,6 +434,7 @@ public sealed class MonitorRepl
               g [$ADDR] [until $TARGET] [BUDGET]
                                      optionally set PC; run until TARGET/trap/BUDGET cycles
                                      (BUDGET is decimal, default 1000000)
+              i TEXT                 inject TEXT as input-device bytes (quotes optional; nothing appended)
               l ADDR PATH            load raw binary file at ADDR
               w ADDR LEN PATH        save LEN bytes from ADDR to raw binary file
               ?                      print this help

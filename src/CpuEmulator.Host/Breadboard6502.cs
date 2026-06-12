@@ -31,7 +31,7 @@ public sealed class Breadboard6502
     }
 
     /// <summary>Monitor engine wired through Machine.Run — monitor g/s tick the
-    /// scheduler (the recorded chunk-4 intake; the seam is Task 3).</summary>
+    /// scheduler (the recorded chunk-4 intake).</summary>
     public MonitorEngine NewMonitor() =>
-        new(Cpu, Machine.Space(AddressSpaceKind.Program), Cpu); // Task 3 wires Machine.Run here
+        new(Cpu, Machine.Space(AddressSpaceKind.Program), Cpu, Machine.Run);
 }

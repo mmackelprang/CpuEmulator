@@ -20,8 +20,15 @@ public sealed class MonitorEngine
     private readonly IMonitorSupport _support;
     private readonly uint _addressMask;
     private readonly int _addressDigits;
+    private readonly Func<long, long> _run;
 
-    public MonitorEngine(ICpuCore cpu, IAddressSpace memory, IMonitorSupport support)
+    /// <param name="run">Optional slice driver: cycle budget in, cycles consumed out. The
+    /// host passes Machine.Run so monitor g/s tick scheduled peripherals; null = the bare
+    /// CPU (pre-host behavior, byte-identical). CONTRACT: given a budget of 1 the driver
+    /// executes exactly one instruction — Machine.Run and ICpuCore.Run both qualify — which
+    /// keeps Step reports and RunUntil's per-instruction trap/target checks exact.</param>
+    public MonitorEngine(ICpuCore cpu, IAddressSpace memory, IMonitorSupport support,
+                         Func<long, long>? run = null)
     {
         ArgumentNullException.ThrowIfNull(cpu);
         ArgumentNullException.ThrowIfNull(memory);
@@ -32,6 +39,15 @@ public sealed class MonitorEngine
         int bits = memory.AddressBits;
         _addressMask = bits >= 32 ? uint.MaxValue : (1u << bits) - 1;
         _addressDigits = (bits + 3) / 4;
+        _run = run ?? RunBare;
+    }
+
+    /// <summary>Default slice driver: the bare ICpuCore.Run (no scheduler in play).</summary>
+    private long RunBare(long cycles)
+    {
+        long budget = cycles;
+        _cpu.Run(ref budget);
+        return cycles - budget;
     }
 
     private uint Pc => (uint)_cpu.GetRegister(_support.ProgramCounterName) & _addressMask;
@@ -216,7 +232,7 @@ public sealed class MonitorEngine
                 _memory.Read8((pcBefore + 2) & _addressMask));
         }
         long cyclesBefore = _cpu.CycleCount;
-        _cpu.Step();
+        _run(1); // exactly one instruction — see the ctor contract
         return new MonitorStepReport(
             pcBefore, interrupt, disassembly, _cpu.CycleCount - cyclesBefore, Registers());
     }
@@ -225,12 +241,7 @@ public sealed class MonitorEngine
     /// Run for approximately the given cycle budget, returning cycles actually consumed.
     /// May overshoot by at most one instruction (inherits ICpuCore.Run contract).
     /// </summary>
-    public long Run(long cycles)
-    {
-        long budget = cycles;
-        _cpu.Run(ref budget);
-        return cycles - budget;
-    }
+    public long Run(long cycles) => _run(cycles);
 
     /// <summary>
     /// Run until targetPc is reached, PC traps (parks), or maxCycles exhausted.
@@ -246,7 +257,7 @@ public sealed class MonitorEngine
             uint before = Pc;
             if (before == targetPc)
                 return new RunReport(RunStopReason.TargetReached, before, _cpu.CycleCount - start);
-            _cpu.Step();
+            _run(1); // exactly one instruction — see the ctor contract
             uint after = Pc;
             if (after == before)
                 return new RunReport(RunStopReason.Trapped, after, _cpu.CycleCount - start);
