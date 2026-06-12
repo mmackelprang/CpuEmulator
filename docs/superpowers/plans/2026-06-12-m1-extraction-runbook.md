@@ -766,9 +766,9 @@ built 0-warning and tested green — bisect-safe):
 | Commit | Content | Suite |
 |---|---|---|
 | `059e563` | Plan document | 848 (baseline) |
-| `7dcc189` | Task 1: `--validate-only` + ConsoleIsolation collection fix | 862 |
-| `1003b3c` | Task 2: `--diff` + Fixture A seeded dataset | 883 |
-| `6c9ae0b` | Task 3: `--review-report` + ReviewReportGenerator | 897 |
+| `7dcc189` | Task 1 tests + **all three modes' production code** (`--validate-only` wiring, `DatasetDiff.cs`, `ReviewReportGenerator.cs`, full `Program.cs` routing) + ConsoleIsolation collection fix | 862 |
+| `1003b3c` | Task 2 tests + Fixture A seeded dataset (tests/fixtures only — see deviation 8) | 883 |
+| `6c9ae0b` | Task 3 tests (tests only — see deviation 8) | 897 |
 | `50d1c3f` | Task 4 + Task 5 UAT: runbook + example fixtures + real outputs | 897 |
 | `(this)` | Task 6: spec §9.6 DELIVERED, README M1 COMPLETE, plan closeout | 897 |
 
@@ -805,8 +805,8 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
                                   exit 0
 
 dotnet run --project tools/CpuEmulator.SpecImporter -- \
-  --dataset tests/CpuEmulator.Tests/Importer/data/mos6502-opcodes-seeded.json \
-  --diff    tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json
+  --dataset tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
+  --diff    tests/CpuEmulator.Tests/Importer/data/mos6502-opcodes-seeded.json
                                → diff: 5 disagreement(s), 0 missing opcode(s), 0 extra opcode(s)
                                   0x4C  cycles            3          4
                                   0x69  mnemonic          ADC        ADD
@@ -814,6 +814,11 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
                                   0xBD  pageCrossPenalty  True       False
                                   0xEA  mnemonic          NOP        NXX
                                   exit 3
+                                  (NOTE — review amendment: the Task 5 Step 4 plan text
+                                  transposed the operands; the command actually run, and
+                                  recorded here, is --dataset <real> --diff <seeded>,
+                                  which matches the left=real / right=seeded table
+                                  orientation above and the DatasetDiffTests pins.)
 
 dotnet run --project tools/CpuEmulator.SpecImporter -- --validate-only \
   --dataset   tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
@@ -846,12 +851,33 @@ Recorded at write time, all stand unchanged:
 6. `--diff` combined with `--validate-only` exits 3 on disagreements even when both
    datasets individually validate.
 
-One addition at implementation time:
+Additions at implementation time:
 7. **ConsoleIsolation xUnit collection** — `ImporterEndToEndTests` and `ValidateOnlyTests`
    both redirect `Console.Out` in-proc via `Program.Main`; parallel execution caused capture
    bleed. Added `[Collection("ConsoleIsolation")]` to both classes and a
    `ConsoleIsolationCollection.cs` definition to serialize them. Not a deviation from the
    plan's intent — the plan's test isolation was implicit; this makes it explicit.
+8. **TDD ordering inverted for Tasks 2–3** (review finding, recorded honestly): the Task-1
+   `Program.cs` rewrite wired all three modes at once, so `DatasetDiff.cs` and
+   `ReviewReportGenerator.cs` had to exist for `7dcc189` to compile — the implementations
+   landed one/two commits before their tests. Commits `1003b3c` and `6c9ae0b` are
+   tests-and-fixtures-only. Mitigation verified by the reviewer: every intermediate commit
+   builds 0-warning and tests green (862, 883), so bisect-safety holds; the per-task gates
+   were run in order even though the code landed early. The cleaner alternative (minimal
+   stubs in Task 1, real bodies per task) is the standing instruction for future chunks.
+
+Review riders applied post-closeout (whole-branch review, 2026-06-12):
+- Closeout UAT record: corrected the transposed seeded-diff command operands (the table's
+  left=real / right=seeded orientation was always correct; the command line now matches).
+- Commit-ladder table: re-attributed Tasks 2–3 rows to tests-only (deviation 8).
+- Runbook §4 fixture bullet: "two rows lack source" → "three rows lack source".
+- Runbook §4.6: relabeled the two captured blocks as pre-fix state (they show the seeded
+  disagreements; the labels previously claimed post-fix).
+- Runbook §1.2: added the vocabulary-scope note (the 13 modes / 30 factories / "0xNN"
+  opcode format are the current 6502-family loader vocabulary; a new family extends the
+  loaders first — recorded M3 finding, spec §9.10).
+- `tools/CpuEmulator.SpecImporter/README.md`: documented the three new modes + exit codes
+  2/3; removed stale pre-3b-ii BRK/RTI text.
 
 Branch NOT pushed — push and PR #10 wait on the controller's whole-branch review
 (standing authorization to merge on green).

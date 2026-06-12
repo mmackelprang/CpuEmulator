@@ -6,6 +6,9 @@ semantics map.
 
 ## Usage
 
+**Generation** (the canonical regeneration command — it also appears in the generated
+file's header):
+
 ```
 dotnet run --project tools/CpuEmulator.SpecImporter -- \
   --dataset  tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
@@ -14,11 +17,55 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
   [--report]
 ```
 
-This is the canonical regeneration command (it also appears in the generated file's
-header). As of chunk 3b-i the committed `Mos6502Spec.cs` **is** this tool's output —
+As of chunk 3b-i the committed `Mos6502Spec.cs` **is** this tool's output —
 `RegeneratedSpecTests.Committed_Mos6502Spec_is_exactly_the_tool_output` pins the
 committed file to a fresh run, so hand-edits to the spec file will fail the suite;
 edit the data files and regenerate instead.
+
+**Validate-only** (PR #10 — load + validate both schemas, print the standard report +
+provenance coverage, write nothing):
+
+```
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --validate-only \
+  --dataset <opcodes.json> --semantics <semantics.json> [--report]
+```
+
+**Cross-source diff** (PR #10 — row-by-row field comparison of two datasets keyed by
+opcode; compares mnemonic/mode/bytes/cycles/pageCrossPenalty; `source` is deliberately
+excluded — independent extractions are expected to cite different documents):
+
+```
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --dataset <opcodes-a.json> --diff <opcodes-b.json>
+```
+
+**Review report** (PR #10 — markdown review artifact: provenance coverage, rows lacking
+`source`, the disagreement table when `--diff` is also given, missing-semantics
+inventory):
+
+```
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --validate-only \
+  --dataset <opcodes.json> --semantics <semantics.json> \
+  [--diff <opcodes-b.json>] --review-report <review.md>
+```
+
+The modes compose: `--diff` and `--review-report` work under both `--validate-only` and
+generation (`--out`); `--validate-only` + `--out` is a usage error. See the
+[extraction runbook](../../docs/user-guide/extraction-runbook.md) for the full Stage-1/2
+workflow. Composition notes: `--out --diff` with disagreements still writes the spec file
+(then exits 3); if a `--diff` dataset fails to load, the run exits 2 before any
+`--review-report` is written.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | usage error / IO error in generation mode |
+| 2 | validation failure (dataset or semantics schema error) |
+| 3 | cross-source diff found disagreements (distinct from validation failure) |
 
 ## Data files
 
@@ -53,12 +100,11 @@ Notable encoding decisions:
 
 ### `data/mos6502-semantics.json`
 
-Hand-authored map of mnemonic → micro-op expression strings for the 54
-mnemonics expressible in the DSL vocabulary as of chunk 3b-i (24 original +
-ALU 9, RMW 6 + DEX/DEY, stack 4, flag 7, flow 2). The only dataset mnemonics
-still absent are BRK and RTI (chunk 3b-ii), which the tool emits as
-`TODO(semantics)` rows. Grows with each chunk as new micro-ops are added;
-the count is pinned by `SemanticsMapTests.Loads_54_Mnemonics`.
+Hand-authored map of mnemonic → micro-op expression strings for all 56
+dataset mnemonics (24 original + ALU 9, RMW 7 + DEX/DEY, stack 4, flag 7,
+flow 2, + BRK/RTI landed in 3b-ii). Every dataset mnemonic now maps — the
+tool emits zero `TODO(semantics)` rows for the 6502. Grows with each new
+micro-op; the count is pinned by `SemanticsMapTests.Loads_56_Mnemonics`.
 
 **NOTE — TXS has no SetNZ:** TXS (Transfer X → Stack Pointer, 0x9A) is the one
 register transfer on the 6502 that does **not** affect any flags. The semantics
@@ -68,6 +114,5 @@ is pinned by `SemanticsMapTests.TXS_Has_No_SetNZ`.
 **Known limitation — duplicate mnemonic keys:** JSON object semantics are
 last-key-wins; `System.Text.Json` silently keeps the final occurrence of a
 duplicated mnemonic key. The loader cannot detect this without a separate
-`JsonDocument` pre-pass. Review diffs carefully when expanding the map
-(next: BRK/RTI in 3b-ii) — a copy-pasted duplicate key will silently shadow
-the earlier entry.
+`JsonDocument` pre-pass. Review diffs carefully when expanding the map —
+a copy-pasted duplicate key will silently shadow the earlier entry.

@@ -185,6 +185,8 @@ Produce two JSON outputs:
 - Ask the LLM to add a `source` field to every row citing the page and table. If it omits citations, re-prompt with: "Please add a 'source' field to each row citing the specific page and table you read that value from."
 - If the LLM produces an unrecognized factory name, correct it and re-run. The loader validates all factory names.
 
+**Vocabulary scope (important for non-6502 families):** the 13 mode names, the byte-count rules, the `"0xNN"` opcode format, and the 30-factory list in this template are the **current 6502-family loader vocabulary** — they are hardcoded in `OpcodeDataset` and `SemanticsMap` today. A new CPU family (e.g. the Z80, with its CB/DD/ED/FD-prefixed opcodes, separate I/O space, and different mode set) **extends the loaders first**: new mode names and byte rules in `OpcodeDataset`, new factories in `SemanticsMap.FactoryArity` (and the generator's mirror tables — see the SYNC HAZARD comments in both files), then updates this template to match. Per spec §9 item 10, the framework changes a new family forces are measured and treated as findings, not failures — expect this template to grow per family.
+
 ### 1.3 The Verification Ladder
 
 Each rung gates the next. A clean rung is required before proceeding.
@@ -319,7 +321,7 @@ The report has four sections:
 This example walks through a hypothetical extraction of five opcodes for a fictional "MyCPU" architecture from two imaginary source documents. The seeded errors in Document A are caught at each ladder rung.
 
 **Example fixture files** (in `docs/user-guide/examples/`):
-- `mycpu-opcodes-a.json` — Document A extraction (two errors: BRK cycles wrong; LDA AbsoluteX cycles wrong; two rows lack source)
+- `mycpu-opcodes-a.json` — Document A extraction (two errors: BRK cycles wrong; LDA AbsoluteX cycles wrong; three rows lack source)
 - `mycpu-opcodes-b.json` — Document B extraction (independent; correct values)
 - `mycpu-semantics.json` — hand-authored semantics for the five mnemonics
 
@@ -388,7 +390,7 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
   --review-report /tmp/mycpu-review.md
 ```
 
-Captured output (after fixing cycle errors):
+Captured output (pre-fix state — the seeded errors are still in Document A, so the report captures everything the reviewer needs to see at once):
 ```
 total=5 emitted=5 todoSemantics=0 todoMode=0
 provenance: 2/5 rows carry source citations
@@ -398,9 +400,9 @@ opcode    field             left                  right
 0xBD      cycles            4                     5                   
 ```
 
-(The diff above shows the pre-fix state for illustration. After fixing, re-run and both the diff output and the review report's Disagreements section will be absent.)
+(After fixing the two cycle errors, re-run: the diff output reports 0 disagreements with exit 0, and the review report's Disagreements section disappears.)
 
-Captured review report content (after fixing disagreements):
+Captured review report content (same pre-fix run — the Disagreements section is present because the seeded errors are still in Document A):
 ```markdown
 # Extraction Review: mycpu
 
