@@ -56,7 +56,12 @@ at $3469, ~96M cycles)**. The single-instruction assembler (artifact ⑤) is the
 of the disassembler from the same spec table, pinned by a 151-opcode roundtrip identity test.
 The **live machine is runnable**: `dotnet run --project src/CpuEmulator.Host` boots a
 `Breadboard6502` (52 KiB RAM, `SimpleUart` at $D000, 8 KiB demo ROM assembled at boot by
-the generated assembler) and drops into the monitor REPL. Next: M2 (the IL-JIT tier).
+the generated assembler) and drops into the monitor REPL. The **datasheet-extraction tooling
+is complete**: `--validate-only` validates both schemas and reports provenance coverage;
+`--diff` cross-checks two independent extractions (exit 3 on disagreements); `--review-report`
+generates a markdown review artifact. The
+[extraction runbook](docs/user-guide/extraction-runbook.md) documents the full LLM-assisted
+Stage-1 workflow. **M1 is complete.**
 
 For full detail see the [User Guide](docs/user-guide/README.md).
 
@@ -81,7 +86,7 @@ Build and test:
 
 ```
 dotnet build    # 0 warnings required
-dotnet test     # 848 tests
+dotnet test     # 897 tests
 ```
 
 All work happens on short-lived feature branches; changes merge to `main` via pull request. See [Testing](docs/user-guide/testing.md) for the full pre-merge gate (TomHarte full sweep, Klaus, UAT sessions).

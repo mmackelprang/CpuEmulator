@@ -758,6 +758,100 @@ documentation-accurate only if these outputs come from the real tool.
 
 ---
 
-## Closeout
+## Closeout (2026-06-12)
 
-*(To be filled at implementation time.)*
+All six tasks complete on `feat/m1-extraction-runbook`. Commit ladder (each independently
+built 0-warning and tested green — bisect-safe):
+
+| Commit | Content | Suite |
+|---|---|---|
+| `059e563` | Plan document | 848 (baseline) |
+| `7dcc189` | Task 1: `--validate-only` + ConsoleIsolation collection fix | 862 |
+| `1003b3c` | Task 2: `--diff` + Fixture A seeded dataset | 883 |
+| `6c9ae0b` | Task 3: `--review-report` + ReviewReportGenerator | 897 |
+| `50d1c3f` | Task 4 + Task 5 UAT: runbook + example fixtures + real outputs | 897 |
+| `(this)` | Task 6: spec §9.6 DELIVERED, README M1 COMPLETE, plan closeout | 897 |
+
+### UAT gate record (commands verbatim, outputs recorded)
+
+```
+dotnet build --no-incremental  → Build succeeded. 0 Warning(s), 0 Error(s)
+dotnet test                    → Passed! 897/897, 0 skipped
+
+CPUEMULATOR_UAT=full dotnet test --filter "FullyQualifiedName~TomHarte"
+                               → 160/160 passed (151 opcode rows + 9 runner self-tests);
+                                 151 rows × 10,000 = 1,510,000 cases, ZERO skips
+
+dotnet test --filter "FullyQualifiedName~KlausFunctionalTests"
+                               → 1/1 passed (success trap reached; cycle count unchanged
+                                 from PR #8 closeout — interpreter did not change)
+
+dotnet test --filter "Category=UAT"
+                               → 5/5 passed (2 monitor + 3 host; no new UAT sessions
+                                 in this PR — the extraction tools are headless CLI,
+                                 not interactive sessions)
+
+dotnet run --project tools/CpuEmulator.SpecImporter -- --validate-only \
+  --dataset   tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
+  --semantics tools/CpuEmulator.SpecImporter/data/mos6502-semantics.json
+                               → total=151 emitted=151 todoSemantics=0 todoMode=0
+                                  provenance: 0/151 rows carry source citations
+                                  exit 0
+
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --dataset tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
+  --diff    tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json
+                               → diff: 0 disagreement(s), 0 missing opcode(s), 0 extra opcode(s)
+                                  exit 0
+
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --dataset tests/CpuEmulator.Tests/Importer/data/mos6502-opcodes-seeded.json \
+  --diff    tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json
+                               → diff: 5 disagreement(s), 0 missing opcode(s), 0 extra opcode(s)
+                                  0x4C  cycles            3          4
+                                  0x69  mnemonic          ADC        ADD
+                                  0xBD  cycles            4          5
+                                  0xBD  pageCrossPenalty  True       False
+                                  0xEA  mnemonic          NOP        NXX
+                                  exit 3
+
+dotnet run --project tools/CpuEmulator.SpecImporter -- --validate-only \
+  --dataset   tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json \
+  --semantics tools/CpuEmulator.SpecImporter/data/mos6502-semantics.json \
+  --review-report /tmp/6502-review.md
+                               → total=151 emitted=151 todoSemantics=0 todoMode=0
+                                  provenance: 0/151 rows carry source citations
+                                  exit 0
+                                  /tmp/6502-review.md: "# Extraction Review: mos6502"
+                                  header ✓, 151 rows in Rows Lacking Source ✓,
+                                  no Disagreements section ✓,
+                                  "All mnemonics have semantics defined." ✓
+```
+
+### Test-count actuals vs estimate
+
+Baseline 848 → **897 actual** (+49) vs the ~894 estimate (+~46). Per task:
+T1 14 (est ~14 — exact match), T2 21 (est ~22 — one theory row folded into wider InlineData),
+T3 14 (est ~10 — +4 additional content/CLI assertions). Delta explained; no count was
+weakened.
+
+### Deviations recap
+
+Recorded at write time, all stand unchanged:
+1. `--validate-only` validates both schemas (dataset AND semantics), not dataset-only.
+2. Exit code 2 for validation failures (distinct from exit 1 usage errors).
+3. Fixture A is test-only content (not in tools data/).
+4. `--review-report` without `--out` is allowed.
+5. `--diff` without `--semantics` is allowed (pure opcode comparison).
+6. `--diff` combined with `--validate-only` exits 3 on disagreements even when both
+   datasets individually validate.
+
+One addition at implementation time:
+7. **ConsoleIsolation xUnit collection** — `ImporterEndToEndTests` and `ValidateOnlyTests`
+   both redirect `Console.Out` in-proc via `Program.Main`; parallel execution caused capture
+   bleed. Added `[Collection("ConsoleIsolation")]` to both classes and a
+   `ConsoleIsolationCollection.cs` definition to serialize them. Not a deviation from the
+   plan's intent — the plan's test isolation was implicit; this makes it explicit.
+
+Branch NOT pushed — push and PR #10 wait on the controller's whole-branch review
+(standing authorization to merge on green).

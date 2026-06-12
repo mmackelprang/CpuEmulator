@@ -221,7 +221,7 @@ Each numbered item ≈ one PR-sized chunk on a branch.
      and a review-report generator. Verification stack: strict loaders → CPUGEN diagnostics →
      e2e generator gate → SingleStepTests sweeps where vectors exist. Extraction eliminates
      transcription and drafts semantics; per-family micro-op vocabulary and mode cycle-templates
-     remain hand work by design.
+     remain hand work by design. **DELIVERED PR #10.**
   7. Peripherals (SimpleUart; Ram/Rom realized as MachineBuilder fast-path mappings —
      recorded deviation, PR #8) + Host (with monitor REPL) + Klaus demo running. DELIVERED:
      the `Breadboard6502` live host, PR #8.
