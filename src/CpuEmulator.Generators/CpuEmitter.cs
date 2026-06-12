@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 
 namespace CpuEmulator.Generators;
@@ -29,6 +30,42 @@ internal static class CpuEmitter
 
     private static void EmitBody(StringBuilder sb, SpecModel model)
     {
-        // Grown in Tasks 4 (registers/introspection) and 5 (Step/Run/Execute).
+        sb.AppendLine();
+        foreach (var register in model.Registers)
+            sb.AppendLine($"    public {(register.Bits == 8 ? "byte" : "ushort")} {register.Name};");
+
+        string nameList = string.Join(", ", model.Registers.Select(r => $"\"{r.Name}\""));
+        sb.AppendLine();
+        sb.AppendLine($"    private static readonly string[] s_registerNames = [{nameList}];");
+        sb.AppendLine("    public System.Collections.Generic.IReadOnlyList<string> RegisterNames => s_registerNames;");
+
+        sb.AppendLine();
+        sb.AppendLine("    public ulong GetRegister(string name) => name switch");
+        sb.AppendLine("    {");
+        foreach (var register in model.Registers)
+            sb.AppendLine($"        \"{register.Name}\" => {register.Name},");
+        sb.AppendLine("        _ => throw new System.ArgumentException($\"Unknown register '{name}'.\", nameof(name)),");
+        sb.AppendLine("    };");
+
+        sb.AppendLine();
+        sb.AppendLine("    public void SetRegister(string name, ulong value)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (name)");
+        sb.AppendLine("        {");
+        foreach (var register in model.Registers)
+        {
+            string cast = register.Bits == 8 ? "byte" : "ushort";
+            sb.AppendLine($"            case \"{register.Name}\": {register.Name} = ({cast})value; break;");
+        }
+        sb.AppendLine("            default: throw new System.ArgumentException($\"Unknown register '{name}'.\", nameof(name));");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+
+        EmitExecution(sb, model);   // Task 5
+    }
+
+    private static void EmitExecution(StringBuilder sb, SpecModel model)
+    {
+        // Task 5: Step / Run / Execute.
     }
 }

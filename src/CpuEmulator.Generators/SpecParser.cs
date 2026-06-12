@@ -28,9 +28,87 @@ internal static class SpecParser
                 cpuName = explicitName;
         }
 
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+
+        var registers = ParseRegisters(classDecl, specName, diagnostics);
+
+        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+            return new ParsedSpec(null, diagnostics.ToImmutable());
+
         var model = new SpecModel(ns, cpuName, architecture,
-            ImmutableArray<RegisterModel>.Empty, ImmutableArray<InstructionModel>.Empty);
-        return new ParsedSpec(model, ImmutableArray<Diagnostic>.Empty);
+            registers, ImmutableArray<InstructionModel>.Empty);
+        return new ParsedSpec(model, diagnostics.ToImmutable());
+    }
+
+    private static ImmutableArray<RegisterModel> ParseRegisters(
+        ClassDeclarationSyntax classDecl,
+        string specName,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        var field = FindArrayField(classDecl, "Registers");
+        if (field?.Declaration.Variables[0].Initializer?.Value is not CollectionExpressionSyntax collection)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                SpecDiagnostics.MissingRegisters, classDecl.Identifier.GetLocation(), specName));
+            return ImmutableArray<RegisterModel>.Empty;
+        }
+
+        var registers = ImmutableArray.CreateBuilder<RegisterModel>();
+        var seenNames = new HashSet<string>(System.StringComparer.Ordinal);
+
+        foreach (var element in collection.Elements)
+        {
+            if (element is not ExpressionElementSyntax expr ||
+                GetCreationArguments(expr.Expression) is not { } args ||
+                args.Count is < 2 or > 3 ||
+                LiteralString(args[0]) is not { } name ||
+                LiteralInt(args[1]) is not { } bits)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), element.ToString(),
+                    "expected new(\"NAME\", bits[, RegisterRole.X]) with literal arguments"));
+                continue;
+            }
+
+            if (bits is not (8 or 16))
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name, "register width must be 8 or 16 bits"));
+                continue;
+            }
+
+            if (!seenNames.Add(name))
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name, "duplicate register name"));
+                continue;
+            }
+
+            string role = "General";
+            if (args.Count == 3)
+            {
+                if (EnumMemberName(args[2], "RegisterRole") is not { } parsedRole)
+                {
+                    diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                        element.GetLocation(), name, "third argument must be a RegisterRole member"));
+                    continue;
+                }
+                role = parsedRole;
+            }
+
+            registers.Add(new RegisterModel(name, bits, role));
+        }
+
+        int pcCount = registers.Count(r => r.Role == "ProgramCounter");
+        if (pcCount != 1)
+            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.RoleViolation,
+                classDecl.Identifier.GetLocation(),
+                $"spec must declare exactly one ProgramCounter register (found {pcCount})"));
+        if (registers.Count(r => r.Role == "Status") > 1)
+            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.RoleViolation,
+                classDecl.Identifier.GetLocation(), "spec declares more than one Status register"));
+
+        return registers.ToImmutable();
     }
 
     private static FieldDeclarationSyntax? FindArrayField(ClassDeclarationSyntax classDecl, string name) =>
