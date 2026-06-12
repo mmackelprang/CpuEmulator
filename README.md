@@ -1,12 +1,6 @@
 # CpuEmulator
 
-A project to build a **pluggable, multi-architecture CPU-emulation framework in modern C#**, using the .NET runtime's own JIT as a dynamic-recompilation backend (translate guest machine code → .NET IL at runtime → let RyuJIT compile to native), with an interpreter tier as the always-available correctness oracle.
-
-## Goals
-
-- **Pluggable CPU/ISA specifications** — add an architecture by writing a declarative instruction spec, not a hand-written emulator. Target ISAs: 6502, 6800, Z80, 8051, 8086/8088, 68000/68020.
-- **Pluggable peripherals on a bus** — RAM/ROM, serial/UART, digital & analog I/O (GPIO/ADC/DAC), timers, interrupt controllers — composed onto address spaces like MAME devices / QEMU QOM.
-- **Two execution tiers from one spec** — a `delegate*`-dispatched interpreter (AOT-safe) and an IL-emitting JIT (fast path), both generated from the same instruction description.
+A **pluggable, multi-architecture CPU-emulation framework in modern C#**, using the .NET runtime's own JIT as a dynamic-recompilation backend (translate guest machine code → .NET IL at runtime → let RyuJIT compile to native), with an interpreter tier as the always-available correctness oracle.
 
 ## Try it
 
@@ -50,49 +44,47 @@ quits like `q`.
 
 ## Status
 
-Milestone 1 in progress. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
+Milestone 1 is complete. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
 implemented and tested: CPU specs are typed C# tables, parsed with build-time diagnostics,
 and the generator emits a working interpreter plus a disassembler. **The 6502 is complete:
 151/151 documented opcodes cycle-exact** — all 13 addressing modes, ALU/RMW/stack/flag/flow
 vocabulary, NMOS decimal-mode ADC/SBC, BRK/RTI, silicon-true dummy reads and dummy writes,
 the JMP ($xxFF) page-wrap bug, hardware-true P phantom bits, and IRQ/NMI servicing at
-instruction boundaries (NMI edge-latched, IRQ level-sensitive gated by I) — validated
-**per-cycle against the full TomHarte/SingleStepTests sweep (1,510,000 cases, zero skips)**
-and the **Klaus Dörmann functional test run to its documented success trap**. `Mos6502Spec.cs`
-is committed importer output: `tools/CpuEmulator.SpecImporter` generates it from the curated
-151-opcode dataset + 56-mnemonic semantics map, and a byte-equality test pins the committed
-file to fresh tool output. Vectors and the Klaus binary are fetched on demand
-(`tools/get-test-vectors.ps1`/`.sh`, `tools/get-klaus.ps1`/`.sh`), never vendored; the
-TomHarte theories sample 200 cases/opcode by default and run all 10,000 under
-`CPUEMULATOR_UAT=full`. **The machine-language monitor is live as the acceptance surface**:
-load/save memory and files, hex-dump/modify, disassemble, assemble single instructions at an
-address (with branch-target resolution), inspect/set registers, interrupt-aware single-step,
-run/run-until with trap detection — a CPU-agnostic engine + line-oriented REPL in
-`CpuEmulator.Monitor` (AOT-clean, Core-only), surfaced per-CPU through the generated
-`IMonitorSupport`. The **single-instruction assembler is the fifth generated artifact**, the
-exact inverse of the disassembler from the same spec table, pinned by a 151-opcode roundtrip
-identity test (`assemble(disassemble(op)) == op-bytes`); monitor-driven UAT sessions
-(assemble/run/inspect/disassemble, Klaus-via-monitor) run in the suite under
-`--filter "Category=UAT"`. **The live machine is runnable** (see "Try it" above):
-`dotnet run --project src/CpuEmulator.Host` boots a `Breadboard6502` — 52 KiB RAM, a
-partial-decode `SimpleUart` at $D000 (`CpuEmulator.Peripherals`, AOT-clean, Core-only), and
-an 8 KiB demo ROM assembled at boot by the generated assembler — and drops into the monitor
-REPL on stdio, with scheduler-aware `g`/`s` (runs route through `Machine.Run`, so scheduled
-peripherals tick) and UART input via `i`; `--demo` and `--load <bin> [--at $addr]
-[--pc $addr]` modes ship alongside, and host UAT sessions (demo-hello exact transcript,
-echo, Klaus-through-the-host) run in the suite under `--filter "Category=UAT"`. Next: the
-datasheet-extraction runbook (M1 item 6), then M2 (the IL-JIT tier).
+instruction boundaries — validated **per-cycle against the full TomHarte/SingleStepTests
+sweep (1,510,000 cases, zero skips)** and the **Klaus Dörmann functional test (success trap
+at $3469, ~96M cycles)**. The single-instruction assembler (artifact ⑤) is the exact inverse
+of the disassembler from the same spec table, pinned by a 151-opcode roundtrip identity test.
+The **live machine is runnable**: `dotnet run --project src/CpuEmulator.Host` boots a
+`Breadboard6502` (52 KiB RAM, `SimpleUart` at $D000, 8 KiB demo ROM assembled at boot by
+the generated assembler) and drops into the monitor REPL. Next: M2 (the IL-JIT tier).
 
-- Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
-- Research: `docs/research/emulation-framework-research.md`
+For full detail see the [User Guide](docs/user-guide/README.md).
 
-Build and test: `dotnet test`
+## User Guide
 
-## Next steps
+- [Getting Started](docs/user-guide/getting-started.md) — prerequisites, build, first session
+- [Monitor Reference](docs/user-guide/monitor-reference.md) — every REPL command
+- [Breadboard6502](docs/user-guide/breadboard6502.md) — memory map, UART, demo ROM
+- [Building Machines](docs/user-guide/building-machines.md) — MachineBuilder, peripherals, monitor wiring
+- [Adding a CPU](docs/user-guide/adding-a-cpu.md) — spec tables, importer, generated artifacts
+- [Testing](docs/user-guide/testing.md) — suite, TomHarte vectors, Klaus, UAT sessions
 
-1. Finish Milestone 1: the spine is complete — source-generated 6502 interpreter + one UART + live host, validated against the [SingleStepTests/ProcessorTests](https://github.com/SingleStepTests/ProcessorTests) cycle-accurate vectors; remaining: the datasheet-extraction runbook (M1 item 6).
-2. Milestone 2: add the IL-JIT tier for the 6502 and prove parity + speedup.
-3. Milestone 3: add Z80 by writing only a spec — proving the pluggable abstraction.
+## Architecture
+
+The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits five artifacts at build time (state struct, interpreter, IL emitters, disassembler, assembler); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point. All library projects are AOT-compatible; the future JIT tier (`CpuEmulator.Jit`) will be the only project that uses `Reflection.Emit`.
+
+Full design: [`docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`](docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md)
+
+## Development workflow
+
+Build and test:
+
+```
+dotnet build    # 0 warnings required
+dotnet test     # 848 tests
+```
+
+All work happens on short-lived feature branches; changes merge to `main` via pull request. See [Testing](docs/user-guide/testing.md) for the full pre-merge gate (TomHarte full sweep, Klaus, UAT sessions).
 
 ## License
 
