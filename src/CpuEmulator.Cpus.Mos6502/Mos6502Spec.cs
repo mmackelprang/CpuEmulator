@@ -218,5 +218,27 @@ public static class Mos6502Spec
         // DEX / DEY (register class)
         Insn(0xCA, "DEX", AddrMode.Implied, [Decrement(Reg.X), SetNZ(Reg.X)]),
         Insn(0x88, "DEY", AddrMode.Implied, [Decrement(Reg.Y), SetNZ(Reg.Y)]),
+
+        // ── Stack class ───────────────────────────────────────────────────────
+
+        Insn(0x48, "PHA", AddrMode.Implied, [Push(Reg.A)]),
+        Insn(0x08, "PHP", AddrMode.Implied, [PushP()]),
+        Insn(0x68, "PLA", AddrMode.Implied, [Pull(Reg.A)]),
+        Insn(0x28, "PLP", AddrMode.Implied, [PullP()]),
+
+        // ── Flag (register) class ─────────────────────────────────────────────
+
+        Insn(0x18, "CLC", AddrMode.Implied, [SetFlag(Flag.C, false)]),
+        Insn(0x38, "SEC", AddrMode.Implied, [SetFlag(Flag.C, true)]),
+        Insn(0x58, "CLI", AddrMode.Implied, [SetFlag(Flag.I, false)]),
+        Insn(0x78, "SEI", AddrMode.Implied, [SetFlag(Flag.I, true)]),
+        Insn(0xB8, "CLV", AddrMode.Implied, [SetFlag(Flag.V, false)]),
+        Insn(0xD8, "CLD", AddrMode.Implied, [SetFlag(Flag.D, false)]),
+        Insn(0xF8, "SED", AddrMode.Implied, [SetFlag(Flag.D, true)]),
+
+        // ── Flow class ────────────────────────────────────────────────────────
+
+        Insn(0x20, "JSR", AddrMode.Absolute, [Jsr()]),
+        Insn(0x60, "RTS", AddrMode.Implied,  [Rts()]),
     ];
 }
