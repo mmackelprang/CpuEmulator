@@ -12,12 +12,18 @@ namespace CpuEmulator.Tests.Importer;
 /// through GeneratorTestHost (exactly as production-generator tests do) and must
 /// produce zero CPUGEN diagnostics and zero compilation errors.
 ///
-/// Collision assumption: GeneratorTestHost compiles only the source strings passed
-/// to it (standalone CSharpCompilation — it does NOT reference the CpuEmulator.Cpus.Mos6502
-/// assembly). The real Mos6502Spec lives in that assembly and is invisible here, so
-/// a second [CpuSpecification] class named Mos6502Spec in namespace
-/// CpuEmulator.Cpus.Mos6502 causes no collision. If this assumption is wrong, the
-/// keystone test will fail with CPUGEN009 — that would be the diagnostic to look for.
+/// Collision note (probe-verified in the 3a tasks-4/5 review): GeneratorTestHost
+/// references the full TPA closure of the running test process, which DOES include
+/// CpuEmulator.Cpus.Mos6502.dll — the real Mos6502Spec metadata type IS referenced
+/// by the test compilation. No collision occurs anyway, for two reasons:
+///   1. The generator discovers specs via SyntaxProvider.ForAttributeWithMetadataName,
+///      which visits the compilation's SYNTAX TREES only — [CpuSpecification] types
+///      in referenced metadata are never seen, so a duplicate-spec scenario cannot
+///      arise from the referenced assembly.
+///   2. Within the compilation itself, the source-declared Mos6502Spec shadows the
+///      same-named imported metadata type (empirically with zero diagnostics — not
+///      even CS0436, since no source in this unit references the metadata type).
+/// Do NOT rely on "the assembly isn't referenced" — it is.
 /// </summary>
 public class ImporterEndToEndTests
 {
