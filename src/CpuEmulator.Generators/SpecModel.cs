@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using Microsoft.CodeAnalysis;
 
 namespace CpuEmulator.Generators;
 
@@ -17,4 +16,4 @@ internal sealed record InstructionModel(byte Opcode, string Mnemonic, string Mod
 internal sealed record OpModel(string Kind, ImmutableArray<string> Args);
 
 /// <summary>Parser output: a model (null when errors prevented one) plus diagnostics.</summary>
-internal sealed record ParsedSpec(SpecModel? Model, ImmutableArray<Diagnostic> Diagnostics);
+internal sealed record ParsedSpec(SpecModel? Model, ImmutableArray<DiagnosticInfo> Diagnostics);

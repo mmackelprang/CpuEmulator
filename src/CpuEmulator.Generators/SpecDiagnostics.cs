@@ -43,4 +43,23 @@ internal static class SpecDiagnostics
 
     public static readonly DiagnosticDescriptor InvalidSpecMetadata = Make(
         "CPUGEN009", "Invalid spec metadata", "{0}");
+
+    public static readonly DiagnosticDescriptor UnsupportedModeOpCombination = Make(
+        "CPUGEN010", "Unsupported mode/op combination",
+        "Instruction '{0}': {1}");
+
+    public static DiagnosticDescriptor ById(string id) => id switch
+    {
+        "CPUGEN001" => MissingRegisters,
+        "CPUGEN002" => InvalidRegister,
+        "CPUGEN003" => MissingInstructions,
+        "CPUGEN004" => InvalidInstruction,
+        "CPUGEN005" => DuplicateOpcode,
+        "CPUGEN006" => UnknownMicroOp,
+        "CPUGEN007" => RoleViolation,
+        "CPUGEN008" => UnknownRegisterInOp,
+        "CPUGEN009" => InvalidSpecMetadata,
+        "CPUGEN010" => UnsupportedModeOpCombination,
+        _ => throw new System.ArgumentException($"Unknown diagnostic id '{id}'."),
+    };
 }
