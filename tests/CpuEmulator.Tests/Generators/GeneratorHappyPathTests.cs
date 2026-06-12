@@ -43,6 +43,7 @@ public class GeneratorHappyPathTests
             private void WriteBus(uint address, byte value) { _cycles++; _bus.Write8(address, value); }
             private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
             private partial bool TryServiceInterrupt() => false;
+            public partial bool InterruptPending => false;
         }
         """;
 

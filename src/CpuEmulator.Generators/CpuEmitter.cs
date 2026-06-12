@@ -16,11 +16,12 @@ internal static class CpuEmitter
         sb.AppendLine("// (which increments _cycles), WriteBus(uint, byte) (which increments _cycles),");
         sb.AppendLine("// HandleUndefinedOpcode(byte opcode), and");
         sb.AppendLine("// private partial bool TryServiceInterrupt() (return false when no interrupt is pending).");
+        sb.AppendLine("// public partial bool InterruptPending (true when the next Step will service an interrupt).");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine($"namespace {model.Namespace};");
         sb.AppendLine();
-        sb.AppendLine($"public sealed partial class {model.CpuName} : CpuEmulator.Core.ICpuCore");
+        sb.AppendLine($"public sealed partial class {model.CpuName} : CpuEmulator.Core.ICpuCore, CpuEmulator.Core.IMonitorSupport");
         sb.AppendLine("{");
         sb.AppendLine($"    public string Architecture => {SymbolDisplay.FormatLiteral(model.Architecture, quote: true)};");
         sb.AppendLine();
@@ -66,6 +67,7 @@ internal static class CpuEmitter
 
         EmitExecution(sb, model);
         EmitDisassembler(sb, model);
+        EmitMonitorSupport(sb, model);
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model)
@@ -985,6 +987,241 @@ internal static class CpuEmitter
                 throw new System.InvalidOperationException(
                     $"emitter has no flow op template for '{op.Kind}' (opcode 0x{instruction.Opcode:X2})");
         }
+    }
+
+    // ---- Monitor support (IMonitorSupport implementation) ----
+
+    /// <summary>Mode → instruction length in bytes (1–3). Implied/Accumulator = 1;
+    /// Immediate/ZeroPage*/Indirect*/Relative = 2; Absolute*/Indirect = 3.
+    /// Unknown modes throw (same drift-surfacing posture as the disassembler) — the
+    /// generated runtime switch's <c>_ =&gt; 1</c> default covers undefined OPCODES only.</summary>
+    private static int ModeLength(string mode) => mode switch
+    {
+        "Implied" or "Accumulator" => 1,
+        "Immediate" or "ZeroPage" or "ZeroPageX" or "ZeroPageY"
+            or "IndirectX" or "IndirectY" or "Relative" => 2,
+        "Absolute" or "AbsoluteX" or "AbsoluteY" or "Indirect" => 3,
+        _ => throw new System.InvalidOperationException(
+            $"emitter has no instruction length for mode '{mode}'"),
+    };
+
+    private static void EmitMonitorSupport(StringBuilder sb, SpecModel model)
+    {
+        // ── InstructionLength ──────────────────────────────────────────────────
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1</summary>");
+        sb.AppendLine("    public static int InstructionLength(byte opcode)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return opcode switch");
+        sb.AppendLine("        {");
+        foreach (var instruction in model.Instructions)
+        {
+            int len = ModeLength(instruction.Mode);
+            sb.AppendLine($"            0x{instruction.Opcode:X2} => {len},");
+        }
+        sb.AppendLine("            _ => 1,");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+
+        // ── TryAssemble — the single-instruction assembler (generated artifact ⑤) ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Assemble one instruction from mnemonic + canonical operand text — the");
+        sb.AppendLine("    /// inverse of Disassemble. The operand's shape selects the mode; its hex-digit width");
+        sb.AppendLine("    /// selects zero-page (2 digits) vs absolute (4) — never promoted.</summary>");
+        sb.AppendLine("    public static bool TryAssemble(string mnemonic, string operandText, out byte[] bytes, out string? error)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        bytes = System.Array.Empty<byte>();");
+        sb.AppendLine("        if (!TryParseOperand(operandText, out string mode, out byte lo, out byte hi, out error))");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        string m = mnemonic.Trim().ToUpperInvariant();");
+        sb.AppendLine("        int opcode = AssembleOpcode(m, mode);");
+        sb.AppendLine("        if (opcode < 0 && mode == \"Implied\")");
+        sb.AppendLine("            opcode = AssembleOpcode(m, \"Accumulator\"); // bare 'ASL' means the accumulator form");
+        sb.AppendLine("        if (opcode < 0)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            error = KnownMnemonic(m)");
+        sb.AppendLine("                ? $\"no {m} + {mode} form in the instruction table\"");
+        sb.AppendLine("                : $\"unknown mnemonic '{m}'\";");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        bytes = mode switch");
+        sb.AppendLine("        {");
+        sb.AppendLine("            \"Implied\" or \"Accumulator\" => new byte[] { (byte)opcode },");
+        sb.AppendLine("            \"Absolute\" or \"AbsoluteX\" or \"AbsoluteY\" or \"Indirect\" => new byte[] { (byte)opcode, lo, hi },");
+        sb.AppendLine("            _ => new byte[] { (byte)opcode, lo },");
+        sb.AppendLine("        };");
+        sb.AppendLine("        error = null;");
+        sb.AppendLine("        return true;");
+        sb.AppendLine("    }");
+
+        // ── AssembleOpcode: (mnemonic, mode) → opcode or -1 ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>(mnemonic, mode) → opcode, or -1. Generated from the instruction table —");
+        sb.AppendLine("    /// the spec table arbitrates every mnemonic+mode ambiguity.</summary>");
+        sb.AppendLine("    private static int AssembleOpcode(string mnemonic, string mode) => (mnemonic, mode) switch");
+        sb.AppendLine("    {");
+        foreach (var instruction in model.Instructions)
+            sb.AppendLine($"        (\"{instruction.Mnemonic}\", \"{instruction.Mode}\") => 0x{instruction.Opcode:X2},");
+        sb.AppendLine("        _ => -1,");
+        sb.AppendLine("    };");
+
+        // ── KnownMnemonic ──
+        var mnemonics = model.Instructions.Select(i => i.Mnemonic).Distinct().OrderBy(m => m).ToArray();
+        sb.AppendLine();
+        sb.AppendLine("    private static bool KnownMnemonic(string mnemonic) => mnemonic switch");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        {string.Join(" or ", mnemonics.Select(m => $"\"{m}\""))} => true,");
+        sb.AppendLine("        _ => false,");
+        sb.AppendLine("    };");
+
+        // ── TryParseOperand ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Parse canonical operand text into (mode, lo, hi). Whitespace is stripped,");
+        sb.AppendLine("    /// hex is case-insensitive. Exactly 2 hex digits = zero-page family; exactly 4 =");
+        sb.AppendLine("    /// absolute family; 1/3 digits are errors — the disassembler always writes 2 or 4,");
+        sb.AppendLine("    /// which is what makes assemble∘disassemble an identity.</summary>");
+        sb.AppendLine("    private static bool TryParseOperand(string text, out string mode, out byte lo, out byte hi, out string? error)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        mode = \"Implied\"; lo = 0; hi = 0; error = null;");
+        sb.AppendLine("        string t = text.Replace(\" \", string.Empty).Replace(\"\\t\", string.Empty).ToUpperInvariant();");
+        sb.AppendLine("        if (t.Length == 0)");
+        sb.AppendLine("            return true; // Implied (TryAssemble falls back to Accumulator)");
+        sb.AppendLine("        if (t == \"A\")");
+        sb.AppendLine("        {");
+        sb.AppendLine("            mode = \"Accumulator\";");
+        sb.AppendLine("            return true;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        if (t[0] == '*')");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (t.Length >= 3 && (t[1] == '+' || t[1] == '-')");
+        sb.AppendLine("                && int.TryParse(t.Substring(1), System.Globalization.NumberStyles.AllowLeadingSign,");
+        sb.AppendLine("                       System.Globalization.CultureInfo.InvariantCulture, out int rel)");
+        sb.AppendLine("                && rel >= -128 && rel <= 127)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                mode = \"Relative\";");
+        sb.AppendLine("                lo = unchecked((byte)rel);");
+        sb.AppendLine("                return true;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            error = $\"malformed relative operand '{text}' (expected *+d or *-d, decimal, -128..+127)\";");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        if (t[0] == '#')");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (t.Length == 4 && t[1] == '$' && TryHexByte(t.Substring(2), out lo))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                mode = \"Immediate\";");
+        sb.AppendLine("                return true;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            error = $\"malformed immediate operand '{text}' (expected #$hh — immediates are one byte)\";");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        if (t[0] == '(')");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // All three indirect forms after whitespace strip (all length 7):");
+        sb.AppendLine("            //   ($hh,X)  → IndirectX  — t[4]=',' t[5]='X' t[6]=')'");
+        sb.AppendLine("            //   ($hh),Y  → IndirectY  — t[4]=')' t[5]=',' t[6]='Y'");
+        sb.AppendLine("            //   ($hhhh)  → Indirect   — t[6]=')'");
+        sb.AppendLine("            // Disambiguated by suffix, checked in that order.");
+        sb.AppendLine("            if (t.Length == 7 && t[1] == '$')");
+        sb.AppendLine("            {");
+        sb.AppendLine("                // ($hh,X) : indices 2-3 = byte, 4=',', 5='X', 6=')'");
+        sb.AppendLine("                if (t[4] == ',' && t[5] == 'X' && t[6] == ')' && TryHexByte(t.Substring(2, 2), out lo))");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    mode = \"IndirectX\";");
+        sb.AppendLine("                    return true;");
+        sb.AppendLine("                }");
+        sb.AppendLine("                // ($hh),Y : indices 2-3 = byte, 4=')', 5=',', 6='Y'");
+        sb.AppendLine("                if (t[4] == ')' && t[5] == ',' && t[6] == 'Y' && TryHexByte(t.Substring(2, 2), out lo))");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    mode = \"IndirectY\";");
+        sb.AppendLine("                    return true;");
+        sb.AppendLine("                }");
+        sb.AppendLine("                // ($hhhh) : indices 2-5 = word, 6=')'");
+        sb.AppendLine("                if (t[6] == ')' && TryHexWord(t.Substring(2, 4), out lo, out hi))");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    mode = \"Indirect\";");
+        sb.AppendLine("                    return true;");
+        sb.AppendLine("                }");
+        sb.AppendLine("            }");
+        sb.AppendLine("            error = $\"malformed indirect operand '{text}' (expected ($hh,X), ($hh),Y or ($hhhh))\";");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        if (t[0] == '$')");
+        sb.AppendLine("        {");
+        sb.AppendLine("            string digits = t.Substring(1);");
+        sb.AppendLine("            string suffix = string.Empty;");
+        sb.AppendLine("            int comma = digits.IndexOf(',');");
+        sb.AppendLine("            if (comma >= 0)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                suffix = digits.Substring(comma);");
+        sb.AppendLine("                digits = digits.Substring(0, comma);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            if (suffix != string.Empty && suffix != \",X\" && suffix != \",Y\")");
+        sb.AppendLine("            {");
+        sb.AppendLine("                error = $\"malformed index suffix in '{text}' (expected ,X or ,Y)\";");
+        sb.AppendLine("                return false;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            if (digits.Length == 2 && TryHexByte(digits, out lo))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                mode = suffix == string.Empty ? \"ZeroPage\" : suffix == \",X\" ? \"ZeroPageX\" : \"ZeroPageY\";");
+        sb.AppendLine("                return true;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            if (digits.Length == 4 && TryHexWord(digits, out lo, out hi))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                mode = suffix == string.Empty ? \"Absolute\" : suffix == \",X\" ? \"AbsoluteX\" : \"AbsoluteY\";");
+        sb.AppendLine("                return true;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            error = $\"'{text}': write exactly 2 hex digits ($hh, zero page) or exactly 4 ($hhhh, absolute) — no promotion\";");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        error = $\"unrecognised operand '{text}'\";");
+        sb.AppendLine("        return false;");
+        sb.AppendLine("    }");
+
+        // ── TryHexByte / TryHexWord helpers ──
+        sb.AppendLine();
+        sb.AppendLine("    private static bool TryHexByte(string s, out byte value)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        value = 0;");
+        sb.AppendLine("        return s.Length == 2 && byte.TryParse(s, System.Globalization.NumberStyles.HexNumber,");
+        sb.AppendLine("            System.Globalization.CultureInfo.InvariantCulture, out value);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    private static bool TryHexWord(string s, out byte lo, out byte hi)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        lo = 0; hi = 0;");
+        sb.AppendLine("        if (s.Length != 4 || !ushort.TryParse(s, System.Globalization.NumberStyles.HexNumber,");
+        sb.AppendLine("                System.Globalization.CultureInfo.InvariantCulture, out ushort v))");
+        sb.AppendLine("            return false;");
+        sb.AppendLine("        lo = unchecked((byte)v);");
+        sb.AppendLine("        hi = unchecked((byte)(v >> 8));");
+        sb.AppendLine("        return true;");
+        sb.AppendLine("    }");
+
+        // ── InterruptPending partial-property declaration ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>True exactly when the next Step will service an interrupt — the");
+        sb.AppendLine("    /// IMonitorSupport contract: monitor displays say so rather than naming the");
+        sb.AppendLine("    /// instruction at PC that will not run. The hand-written partial implements this");
+        sb.AppendLine("    /// with the same predicate TryServiceInterrupt gates on.</summary>");
+        sb.AppendLine("    public partial bool InterruptPending { get; }");
+
+        // ── Explicit interface implementations ──
+        sb.AppendLine();
+        sb.AppendLine("    string CpuEmulator.Core.IMonitorSupport.Disassemble(byte opcode, byte operandLo, byte operandHi)");
+        sb.AppendLine("        => Disassemble(opcode, operandLo, operandHi);");
+        sb.AppendLine("    int CpuEmulator.Core.IMonitorSupport.InstructionLength(byte opcode)");
+        sb.AppendLine("        => InstructionLength(opcode);");
+        sb.AppendLine("    bool CpuEmulator.Core.IMonitorSupport.TryAssemble(string mnemonic, string operandText, out byte[] bytes, out string? error)");
+        sb.AppendLine("        => TryAssemble(mnemonic, operandText, out bytes, out error);");
+        var pcRegister = model.Registers.First(r => r.Role == "ProgramCounter");
+        sb.AppendLine($"    string CpuEmulator.Core.IMonitorSupport.ProgramCounterName => \"{pcRegister.Name}\";");
+        sb.AppendLine("    int CpuEmulator.Core.IMonitorSupport.RegisterBits(string name) => name switch");
+        sb.AppendLine("    {");
+        foreach (var reg in model.Registers)
+            sb.AppendLine($"        \"{reg.Name}\" => {reg.Bits},");
+        sb.AppendLine("        _ => throw new System.ArgumentException($\"Unknown register '{name}'.\", nameof(name)),");
+        sb.AppendLine("    };");
     }
 
     // ---- Disassembler ----

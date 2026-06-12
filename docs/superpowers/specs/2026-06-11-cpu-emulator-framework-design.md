@@ -38,6 +38,7 @@ CpuEmulator.Core         — contracts + runtime primitives (AOT-clean, zero Ref
 CpuEmulator.Generators   — Roslyn source generator (netstandard2.0, build-time only)
 CpuEmulator.Cpus.Mos6502 — the 6502 spec tables; generated tiers land here
 CpuEmulator.Peripherals  — Ram, Rom, SimpleUart (Timer, IrqController in later milestones)
+CpuEmulator.Monitor      — CPU-agnostic machine-language monitor: engine + REPL (AOT-clean)
 CpuEmulator.Jit          — Tier-1 block compiler (Reflection.Emit lives ONLY here)
 CpuEmulator.Host         — console host: boots a 6502 board, UART ↔ stdio
 CpuEmulator.Tests        — unit tests + TomHarte harness + Klaus integration
