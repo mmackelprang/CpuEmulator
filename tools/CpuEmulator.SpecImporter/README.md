@@ -53,3 +53,9 @@ micro-ops are added.
 register transfer on the 6502 that does **not** affect any flags. The semantics
 map entry is `[Transfer(Reg.X, Reg.S)]` with no `SetNZ`. This is deliberate and
 is pinned by `SemanticsMapTests.TXS_Has_No_SetNZ`.
+
+**Known limitation — duplicate mnemonic keys:** JSON object semantics are
+last-key-wins; `System.Text.Json` silently keeps the final occurrence of a
+duplicated mnemonic key. The loader cannot detect this without a separate
+`JsonDocument` pre-pass. Review diffs carefully when expanding the map (3b) —
+a copy-pasted duplicate key will silently shadow the earlier entry.

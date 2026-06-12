@@ -10,7 +10,7 @@ namespace CpuEmulator.Tests.Importer;
 public class OpcodeDatasetTests
 {
     // Strategy: data files are content-copied to the output directory.
-    // Tests locate them via DataPath.Get(), which walks from AppContext.BaseDirectory.
+    // Tests locate them via DataPath.Get() under AppContext.BaseDirectory/data/.
     private static string DatasetPath => DataPath.Get("mos6502-opcodes.json");
 
     // ─── count + uniqueness ──────────────────────────────────────────────
