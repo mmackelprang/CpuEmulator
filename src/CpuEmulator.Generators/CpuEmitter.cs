@@ -64,6 +64,7 @@ internal static class CpuEmitter
         sb.AppendLine("    }");
 
         EmitExecution(sb, model);
+        EmitDisassembler(sb, model);
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model)
@@ -348,6 +349,53 @@ internal static class CpuEmitter
         "N" => 7,
         _ => throw new System.ArgumentException($"Unknown flag '{flagName}'"),
     };
+
+    // ---- Disassembler ----
+
+    /// <summary>
+    /// Emits a static <c>Disassemble</c> method that formats a decoded opcode as a human-readable
+    /// string. The mnemonic whitelist (CPUGEN004: 1-8 uppercase letters/digits) guarantees every
+    /// mnemonic in the table is safe for direct string interpolation — no escaping is needed.
+    /// Format rules per addressing mode:
+    ///   Implied   → mnemonic only        (e.g. "TAX")
+    ///   Immediate → mnemonic + " #$xx"   (e.g. "LDA #$42")
+    ///   ZeroPage  → mnemonic + " $xx"    (e.g. "LDA $10")
+    ///   Absolute  → mnemonic + " $xxyy"  (e.g. "LDA $1234", hi then lo in address)
+    ///   Relative  → mnemonic + " *±dd"   (e.g. "BNE *+5", "BNE *-4")
+    ///   unknown   → "???"
+    /// </summary>
+    private static void EmitDisassembler(StringBuilder sb, SpecModel model)
+    {
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Disassemble one instruction. Returns a human-readable string.</summary>");
+        sb.AppendLine("    public static string Disassemble(byte opcode, byte operandLo, byte operandHi)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return opcode switch");
+        sb.AppendLine("        {");
+        foreach (var instruction in model.Instructions)
+        {
+            string m = instruction.Mnemonic;
+            string arm = instruction.Mode switch
+            {
+                "Implied" =>
+                    $"            0x{instruction.Opcode:X2} => \"{m}\",",
+                "Immediate" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} #${{operandLo:X2}}\",",
+                "ZeroPage" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}}\",",
+                "Absolute" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}}\",",
+                "Relative" =>
+                    $"            0x{instruction.Opcode:X2} => $\"{m} *{{(sbyte)operandLo:+0;-0}}\",",
+                _ => throw new System.InvalidOperationException(
+                    $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
+            };
+            sb.AppendLine(arm);
+        }
+        sb.AppendLine("            _ => \"???\",");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+    }
 
     private static void EmitBranchBody(
         StringBuilder sb,

@@ -549,6 +549,11 @@ Plus one generator-harness test asserting the generated text contains `public st
 
 - [ ] **Step 3: Tests pass; suite green. Commit** — `feat: emit disassembler from the spec table`
 
+> **Pre-3b restructure item (recorded from Group-2 quality review):** instruction
+> classification currently runs twice (CPUGEN010 validation in SpecParser; ClassifyInstruction
+> in CpuEmitter) — before 3b's class growth, classify once in the parser and carry the class
+> on `InstructionModel` so parser and emitter cannot drift.
+
 ---
 
 ### Task 7: Integration tests — programs run end-to-end
