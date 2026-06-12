@@ -33,7 +33,7 @@ The 4 skips are the vector-gated tests (TomHarte, Klaus) — they skip automatic
 
 ## First session — the Breadboard6502
 
-The `CpuEmulator.Host` project boots a pre-wired 6502 machine (52 KiB RAM, a UART at `$D000`, and an 8 KiB demo ROM at `$E000`) and drops into the machine-language monitor REPL.
+The `CpuEmulator.Host` project boots a pre-wired 6502 machine (52 KiB RAM, a UART at `$D000`, an interval timer at `$D100`, and an 8 KiB demo ROM at `$E000`) and drops into the machine-language monitor REPL.
 
 ### Boot to the monitor
 
@@ -45,7 +45,7 @@ The banner appears and the `*` prompt waits for commands:
 
 ```
 CpuEmulator — Breadboard6502
-6502 · RAM $0000-$CFFF · UART $D000 (DATA $D000, STATUS $D001) · ROM $E000-$FFFF (demo)
+6502 · RAM $0000-$CFFF · UART $D000 (DATA/STATUS/CTRL) · timer $D100 · ROM $E000-$FFFF (demo)
 UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
 *
 ```
@@ -123,7 +123,7 @@ The following transcript was captured from a real run:
 
 ```
 CpuEmulator — Breadboard6502
-6502 · RAM $0000-$CFFF · UART $D000 (DATA $D000, STATUS $D001) · ROM $E000-$FFFF (demo)
+6502 · RAM $0000-$CFFF · UART $D000 (DATA/STATUS/CTRL) · timer $D100 · ROM $E000-$FFFF (demo)
 UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
 * g 1000
 Hello from Breadboard6502!
@@ -176,7 +176,7 @@ After loading, the host drops into the monitor REPL. Use `g` to run the loaded p
 
 These behaviors are deliberate, not bugs. The canonical reference (with examples) is [Monitor Reference — known behaviors](monitor-reference.md#known-behaviors); in brief:
 
-- **Monitor memory commands go through the live bus** — `m`/`d` over the UART DATA register (`$D000`) consume pending input.
+- **Monitor display reads are side-effect-free over honest devices** — `m`/`d`/`s` peek where the device implements `TryPeek` (the UART and the timer do): `m $D000` shows the rx queue head without consuming it. Devices without an honest peek fall back to live-bus reads; `l`/`w` and guest execution always use the real bus.
 - **`a` and `m`-writes over ROM land nothing** — the ROM window is read-only; the echo shows what is really there.
 - **`i` injects verbatim, nothing appended** — no CR/LF is added, and there is currently no escape syntax for control bytes (recorded backlog). Quotes are stripped and carry leading/trailing spaces: `i "HI"` injects 2 bytes; `i " HI "` injects 4.
 - **Ctrl+C kills the process** — bounded `g` budgets (default 1,000,000 cycles) are the runaway protection.

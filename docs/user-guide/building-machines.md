@@ -139,17 +139,60 @@ The optional `inject` delegate is called per-byte by the `i TEXT` command. Wire 
 
 ---
 
+## The scheduler: `IScheduler`
+
+Devices see machine time through `IScheduler` (`machine.Scheduler`) — a cycle counter plus an event queue. Peripherals claim it in `Realize` (via `context.Scheduler`) and schedule callbacks in the cycle domain.
+
+| Member | Contract |
+|---|---|
+| `CurrentCycle` | The device-honest "now": committed scheduler time, OR the CPU's live cycle count when the machine has bound one (a device written mid-slice sees real CPU time), OR — during event dispatch — the firing event's exact cycle (callbacks observe their own fire time). |
+| `ScheduleAt(cycle, callback)` | One-shot at an absolute cycle; returns a `ScheduledEvent` handle. Scheduling in the past throws `ArgumentOutOfRangeException`. Same-cycle callbacks fire in FIFO order. |
+| `ScheduleEvery(interval, callback)` | Repeating: first fire at now + interval, then every interval. `interval <= 0` throws. One handle cancels the whole chain. |
+| `ScheduledEvent.Cancel()` | Idempotent, safe at any time: before the fire (the event never runs), inside its own callback (a repeating chain stops), or after a one-shot fired (no-op). Cancellation is lazy — the queue entry is discarded when it surfaces; it fires nothing and moves no time. |
+
+```csharp
+// One-shot with cancellation
+ScheduledEvent evt = machine.Scheduler.ScheduleAt(machine.Scheduler.CurrentCycle + 100, OnFire);
+evt.Cancel();          // never fires
+
+// Repeat every 64 cycles; stop from inside the callback
+ScheduledEvent? tick = null;
+tick = machine.Scheduler.ScheduleEvery(64, () =>
+{
+    if (Done()) tick!.Cancel();   // the chain stops after this fire
+});
+```
+
+---
+
+## Sharing an interrupt line (wired-OR)
+
+`IInterruptLine.Source()` returns an independent per-device handle on the line. The line is asserted while **any** input is — its own direct `Assert`/`Release` or any source handle. This is how N devices share the 6502's one IRQ pin, exactly like open-collector wired-OR hardware:
+
+```csharp
+public void Realize(IMachineContext context)
+{
+    _irq = context.IrqLine.Source();   // claim a private handle; never Assert the shared line directly
+}
+
+// later, in device logic:
+if (interruptCondition) _irq.Assert();
+else                    _irq.Release();
+```
+
+Two devices, one line: if the UART asserts and then the timer asserts, the line stays high; if the UART releases while the timer still holds its source, the line *stays high* — it drops only when every source has released. A source's `IsAsserted` reflects only its own state; the line's `IsAsserted` is the OR.
+
+Re-presenting a high level is safe by design: the 6502's IRQ input stores level idempotently, and the NMI latch edge-detects against its own previous line state — a second source asserting an already-high line never fabricates an NMI edge.
+
+---
+
 ## `Machine.Run` delegate contract
 
 The fourth `MonitorEngine` constructor argument is a `Func<long, long>`: cycle budget in, cycles consumed out. The contract requires that **given budget 1 it executes exactly one instruction**. Both `Machine.Run` and the bare `ICpuCore.Run` qualify — this property is what makes per-instruction step reports and trap detection exact.
 
-```csharp
-// Machine.Run satisfies the contract because its inner loop steps
-// until CycleCount >= start + cycles:
-public long Run(long cycles) { ... while (Cpu.CycleCount < target) { Cpu.Run(ref budget); ... } }
-```
+`Machine.Run` chunks CPU slices to the next live scheduled event: each inner slice runs only up to the next pending event's cycle (or the budget edge), then `_scheduler.AdvanceTo(Cpu.CycleCount)` fires due callbacks. Events therefore fire at their **exact** cycle, and their IRQs land at the very next instruction boundary. With an empty queue, `Run` is one full-budget slice — byte-identical to the pre-timer behavior.
 
-The machine-level `Run` also calls `_scheduler.AdvanceTo(Cpu.CycleCount)` after each CPU slice, which fires any scheduled callbacks. This is why using `Machine.Run` as the delegate causes monitor `g`/`s` to tick peripherals.
+**Mid-slice latency bound:** an event scheduled *during* a running slice (e.g. a guest store that enables the timer mid-slice) still fires at its exact cycle in scheduler time, but its IRQ reaches the CPU at the end of the slice already in flight — latency bounded by the slice length (one instruction under the monitor's budget-1 stepping; up to the full slice under a large `g` budget). This is documented behavior, not a bug; a re-entrant slice abort is recorded as future machinery nothing currently needs.
 
 ---
 
