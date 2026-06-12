@@ -199,7 +199,10 @@ internal static class SpecParser
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var registerNames = new HashSet<string>(registers.Select(r => r.Name), System.StringComparer.Ordinal);
-        var instructions = ParseInstructions(classDecl, specName, registerNames, diagnostics);
+        bool hasStackPointer = registers.Any(r => r.Role == "StackPointer");
+        bool hasStatus = registers.Any(r => r.Role == "Status");
+        var instructions = ParseInstructions(
+            classDecl, specName, registerNames, hasStackPointer, hasStatus, diagnostics);
 
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
@@ -300,6 +303,8 @@ internal static class SpecParser
         ClassDeclarationSyntax classDecl,
         string specName,
         HashSet<string> registerNames,
+        bool hasStackPointer,
+        bool hasStatus,
         ImmutableArray<DiagnosticInfo>.Builder diagnostics)
     {
         var field = FindArrayField(classDecl, "Instructions");
@@ -376,7 +381,7 @@ internal static class SpecParser
 
             // Mode/op class validation (CPUGEN010); returns the class on success.
             if (!ValidateModeOpClass(element.GetLocation(), mnemonic, mode, ops, registerNames,
-                    diagnostics, out var instructionClass))
+                    hasStackPointer, hasStatus, diagnostics, out var instructionClass))
                 continue;
 
             instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, instructionClass, ops));
@@ -386,7 +391,9 @@ internal static class SpecParser
     }
 
     /// <summary>
-    /// Validates that the instruction's addressing mode is consistent with its op class.
+    /// Validates that the instruction's addressing mode is consistent with its op class,
+    /// that indexed modes have their index register, and that classes touching the stack
+    /// or status flags have the required role registers declared.
     /// Returns false (and emits CPUGEN010) on violation; returns the class via out on success.
     /// </summary>
     private static bool ValidateModeOpClass(
@@ -395,6 +402,8 @@ internal static class SpecParser
         string mode,
         ImmutableArray<OpModel> ops,
         HashSet<string> registerNames,
+        bool hasStackPointer,
+        bool hasStatus,
         ImmutableArray<DiagnosticInfo>.Builder diagnostics,
         out InstructionClass instructionClass)
     {
@@ -410,7 +419,8 @@ internal static class SpecParser
 
         instructionClass = opClass.Value;
 
-        string? modeError = ValidateModeForClass(mode, instructionClass);
+        string? firstOpKind = ops.Length > 0 ? ops[0].Kind : null;
+        string? modeError = ValidateModeForClass(mode, instructionClass, firstOpKind);
         if (modeError is not null)
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
@@ -424,6 +434,27 @@ internal static class SpecParser
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
                 location, mnemonic, $"mode '{mode}' requires a register named '{index}'"));
+            return false;
+        }
+
+        // Stack-touching classes need a StackPointer-role register — the emitter writes its
+        // NAME into the templates; without it the generated code would not compile (CS0103).
+        if (instructionClass is InstructionClass.Stack or InstructionClass.Flow && !hasStackPointer)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic,
+                $"{(instructionClass == InstructionClass.Stack ? "stack" : "flow")} class requires a StackPointer-role register"));
+            return false;
+        }
+
+        // Flag-writing classes need a Status register (alu/rmw write C/V/N/Z; Pull bakes NZ,
+        // PushP/PullP move P itself).
+        if (instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
+            && !hasStatus)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
+                location, mnemonic,
+                $"{instructionClass.ToString().ToLowerInvariant()} class requires a Status-role register"));
             return false;
         }
 
@@ -546,7 +577,7 @@ internal static class SpecParser
         _ => null,
     };
 
-    private static string? ValidateModeForClass(string mode, InstructionClass opClass)
+    private static string? ValidateModeForClass(string mode, InstructionClass opClass, string? firstOpKind)
     {
         return opClass switch
         {
@@ -590,10 +621,12 @@ internal static class SpecParser
                 mode == "Implied" ? null
                 : "stack class (Push/Pull/PushP/PullP) requires Implied mode",
 
-            // flow class: Jsr=Absolute, Rts=Implied
+            // flow class: per-OP matrix — Jsr requires Absolute, Rts requires Implied.
+            // ClassifyOps guarantees flow has exactly one op of kind Jsr or Rts.
+            InstructionClass.Flow when firstOpKind == "Jsr" =>
+                mode == "Absolute" ? null : "Jsr requires Absolute mode",
             InstructionClass.Flow =>
-                (mode == "Absolute" || mode == "Implied") ? null
-                : "flow class (Jsr/Rts) requires Absolute (JSR) or Implied (RTS) mode",
+                mode == "Implied" ? null : "Rts requires Implied mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

@@ -77,6 +77,11 @@ internal static class CpuEmitter
         var statusRegister = model.Registers.FirstOrDefault(r => r.Role == "Status");
         string? statusReg = statusRegister?.Name;
 
+        // StackPointer register (stack/flow templates use its NAME; the parser guarantees
+        // presence for stack/flow instructions via CPUGEN010)
+        var spRegister = model.Registers.FirstOrDefault(r => r.Role == "StackPointer");
+        string? spReg = spRegister?.Name;
+
         sb.AppendLine();
         sb.AppendLine("    // Instruction table parsed from the spec:");
         foreach (var instruction in model.Instructions)
@@ -117,7 +122,7 @@ internal static class CpuEmitter
 
         // Emit all per-opcode methods
         foreach (var instruction in model.Instructions)
-            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg);
+            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg);
     }
 
     private static void EmitOpcodeMethod(
@@ -125,7 +130,8 @@ internal static class CpuEmitter
         InstructionModel instruction,
         string pc,
         string pcType,
-        string? statusReg)
+        string? statusReg,
+        string? spReg)
     {
         // Classification is carried on the model — the parser classified it once (CPUGEN010).
         // The emitter consumes instruction.Class directly; no parallel classifier here.
@@ -168,10 +174,10 @@ internal static class CpuEmitter
                 EmitRmwBody(sb, instruction, pc, pcType, statusReg);
                 break;
             case InstructionClass.Stack:
-                EmitStackBody(sb, instruction, pc, statusReg);
+                EmitStackBody(sb, instruction, pc, statusReg, spReg);
                 break;
             case InstructionClass.Flow:
-                EmitFlowBody(sb, instruction, pc, pcType);
+                EmitFlowBody(sb, instruction, pc, pcType, spReg);
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -776,12 +782,17 @@ internal static class CpuEmitter
         StringBuilder sb,
         InstructionModel instruction,
         string pc,
-        string? statusReg)
+        string? statusReg,
+        string? spReg)
     {
         if (instruction.Mode != "Implied")
             throw new System.InvalidOperationException(
                 $"emitter has no stack template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
 
+        // The parser rejects stack-class instructions in specs without a StackPointer-role
+        // register (CPUGEN010), so spReg is always present here — throw loudly if not.
+        string sp = spReg ?? throw new System.InvalidOperationException(
+            $"stack template requires a StackPointer-role register (opcode 0x{instruction.Opcode:X2})");
         string p = statusReg ?? "P";
         var op = instruction.Ops[0];
 
@@ -791,31 +802,31 @@ internal static class CpuEmitter
             {
                 string src = op.Args[0];
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC (no increment)");
-                sb.AppendLine($"        WriteBus(0x100u + S, {src});");
-                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                sb.AppendLine($"        WriteBus(0x100u + {sp}, {src});");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
                 break;
             }
             case "Pull":
             {
                 string dst = op.Args[0];
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
-                sb.AppendLine($"        _ = ReadBus(0x100u + S); // dummy read at old S (increment cycle)");
-                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
-                sb.AppendLine($"        {dst} = ReadBus(0x100u + S);");
+                sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // dummy read at old S (increment cycle)");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                sb.AppendLine($"        {dst} = ReadBus(0x100u + {sp});");
                 // NZ baked into Pull
                 sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | ({dst} == 0 ? 0x02 : 0x00) | ({dst} & 0x80)));");
                 break;
             }
             case "PushP":
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
-                sb.AppendLine($"        WriteBus(0x100u + S, unchecked((byte)({p} | 0x30))); // phantom bits 4+5 set on push");
-                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte)({p} | 0x30))); // phantom bits 4+5 set on push");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
                 break;
             case "PullP":
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
-                sb.AppendLine($"        _ = ReadBus(0x100u + S); // dummy read at old S");
-                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
-                sb.AppendLine($"        {p} = ReadBus(0x100u + S); // verbatim — 3b-i convention");
+                sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // dummy read at old S");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                sb.AppendLine($"        {p} = ReadBus(0x100u + {sp}); // verbatim — 3b-i convention");
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -829,8 +840,13 @@ internal static class CpuEmitter
         StringBuilder sb,
         InstructionModel instruction,
         string pc,
-        string pcType)
+        string pcType,
+        string? spReg)
     {
+        // The parser rejects flow-class instructions in specs without a StackPointer-role
+        // register (CPUGEN010), so spReg is always present here — throw loudly if not.
+        string sp = spReg ?? throw new System.InvalidOperationException(
+            $"flow template requires a StackPointer-role register (opcode 0x{instruction.Opcode:X2})");
         var op = instruction.Ops[0];
         switch (op.Kind)
         {
@@ -843,11 +859,11 @@ internal static class CpuEmitter
                 // The pushed PC is return-address = 1 before the next instruction.
                 sb.AppendLine($"        uint lo = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        _ = ReadBus(0x100u + S); // stack dummy read");
-                sb.AppendLine($"        WriteBus(0x100u + S, unchecked((byte)({pc} >> 8)));");
-                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
-                sb.AppendLine($"        WriteBus(0x100u + S, unchecked((byte){pc}));");
-                sb.AppendLine($"        S = unchecked((byte)(S - 1));");
+                sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // stack dummy read");
+                sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte)({pc} >> 8)));");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte){pc}));");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
                 sb.AppendLine($"        uint hi = ReadBus({pc}); // hi byte (PC still at hi operand)");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
                 break;
@@ -858,11 +874,11 @@ internal static class CpuEmitter
                 // RTS — 6 cycles. Dummy read at PC; dummy read at old S; S++; pull PCL; S++;
                 // pull PCH; dummy read at new PC; PC++.
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
-                sb.AppendLine($"        _ = ReadBus(0x100u + S); // dummy read at old S");
-                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
-                sb.AppendLine($"        uint lo = ReadBus(0x100u + S);");
-                sb.AppendLine($"        S = unchecked((byte)(S + 1));");
-                sb.AppendLine($"        uint hi = ReadBus(0x100u + S);");
+                sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // dummy read at old S");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                sb.AppendLine($"        uint lo = ReadBus(0x100u + {sp});");
+                sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                sb.AppendLine($"        uint hi = ReadBus(0x100u + {sp});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at new PC before increment");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
