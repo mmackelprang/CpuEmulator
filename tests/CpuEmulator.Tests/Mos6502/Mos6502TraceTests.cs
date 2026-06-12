@@ -62,7 +62,7 @@ public class Mos6502TraceTests
     [Fact]
     public void LDA_immediate_zero_sets_Z()
     {
-        var (cpu, bus) = NewCpu(0xA9, 0x00);
+        var (cpu, _) = NewCpu(0xA9, 0x00);
 
         cpu.Step();
 
@@ -73,7 +73,7 @@ public class Mos6502TraceTests
     [Fact]
     public void LDA_immediate_negative_sets_N()
     {
-        var (cpu, bus) = NewCpu(0xA9, 0x80);
+        var (cpu, _) = NewCpu(0xA9, 0x80);
 
         cpu.Step();
 
@@ -285,11 +285,10 @@ public class Mos6502TraceTests
 
         Assert.Equal(3, cpu.CycleCount);
         Assert.Equal(0x0207ul, cpu.GetRegister("PC"));
-        // 3 accesses: opcode, offset, dummy at PC=0x0202
-        Assert.Equal(3, bus.Trace.Count);
-        Assert.Equal(new BusAccess(0x0200, 0xD0, true), bus.Trace[0]);
-        Assert.Equal(new BusAccess(0x0201, 0x05, true), bus.Trace[1]);
-        Assert.Equal(new BusAccess(0x0202, bus.Trace[2].Value, true), bus.Trace[2]); // dummy
+        AssertTrace(bus,
+            new BusAccess(0x0200, 0xD0, true),
+            new BusAccess(0x0201, 0x05, true),
+            new BusAccess(0x0202, 0x00, true)); // dummy at post-operand PC (zeroed RAM)
     }
 
     [Fact]
@@ -304,7 +303,10 @@ public class Mos6502TraceTests
 
         Assert.Equal(3, cpu.CycleCount);
         Assert.Equal(0x020Eul, cpu.GetRegister("PC"));
-        Assert.Equal(3, bus.Trace.Count);
+        AssertTrace(bus,
+            new BusAccess(0x0210, 0xD0, true),
+            new BusAccess(0x0211, 0xFC, true),
+            new BusAccess(0x0212, 0x00, true)); // dummy at post-operand PC (zeroed RAM)
     }
 
     [Fact]
@@ -320,10 +322,10 @@ public class Mos6502TraceTests
 
         Assert.Equal(4, cpu.CycleCount);
         Assert.Equal(0x0312ul, cpu.GetRegister("PC"));
-        Assert.Equal(4, bus.Trace.Count);
-        Assert.Equal(new BusAccess(0x02F0, 0xD0, true), bus.Trace[0]);
-        Assert.Equal(new BusAccess(0x02F1, 0x20, true), bus.Trace[1]);
-        Assert.Equal(new BusAccess(0x02F2, bus.Trace[2].Value, true), bus.Trace[2]); // dummy at PC
-        Assert.Equal(new BusAccess(0x0212, bus.Trace[3].Value, true), bus.Trace[3]); // wrong-page dummy
+        AssertTrace(bus,
+            new BusAccess(0x02F0, 0xD0, true),
+            new BusAccess(0x02F1, 0x20, true),
+            new BusAccess(0x02F2, 0x00, true),  // dummy at post-operand PC (zeroed RAM)
+            new BusAccess(0x0212, 0x00, true)); // wrong-page dummy: old page 0x02, new lo 0x12
     }
 }

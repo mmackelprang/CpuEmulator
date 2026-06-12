@@ -121,18 +121,23 @@ internal static class CpuEmitter
 
     /// <summary>
     /// Determines the op class of an instruction (must match CPUGEN010 classification).
-    /// The parser guarantees valid combinations reach the emitter.
+    /// The parser guarantees valid combinations reach the emitter; anything else throws,
+    /// failing generation loudly (CS8785) instead of emitting silently-wrong silicon.
     /// </summary>
     private static string ClassifyInstruction(InstructionModel instruction)
     {
         var ops = instruction.Ops;
         if (ops.Length == 0) return "register";
-        string first = ops[0].Kind;
-        if (first == "Load") return "load";
-        if (first == "Store") return "store";
-        if (first == "Jump") return "jump";
-        if (first == "BranchIf") return "branch";
-        return "register"; // Transfer/Increment/SetNZ
+        return ops[0].Kind switch
+        {
+            "Load" => "load",
+            "Store" => "store",
+            "Jump" => "jump",
+            "BranchIf" => "branch",
+            "Transfer" or "Increment" or "SetNZ" => "register",
+            var kind => throw new System.InvalidOperationException(
+                $"emitter has no class for first op kind '{kind}' (opcode 0x{instruction.Opcode:X2})"),
+        };
     }
 
     private static void EmitOpcodeMethod(
@@ -168,6 +173,9 @@ internal static class CpuEmitter
             case "branch":
                 EmitBranchBody(sb, instruction, pc, pcType, statusReg);
                 break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
         }
 
         sb.AppendLine("    }");
@@ -183,8 +191,9 @@ internal static class CpuEmitter
         ("Absolute", "load") => 4,  // +1 lo +1 hi +1 data
         ("Absolute", "store") => 4, // +1 lo +1 hi +1 write
         ("Absolute", "jump") => 3,  // +1 lo +1 hi
-        ("Relative", "branch") => 0, // variable: 2/3/4
-        _ => 0,
+        ("Relative", "branch") => 0, // variable: 2/3/4 — doc string says "2-4 cycles"
+        _ => throw new System.InvalidOperationException(
+            $"emitter has no cycle count for mode '{mode}' / class '{opClass}'"),
     };
 
     // ---- Load class ----
@@ -221,6 +230,9 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte data = ReadBus(ea);");
                 sb.AppendLine($"        {target} = data;");
                 break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no load template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
         }
 
         // Apply remaining register ops (SetNZ etc.)
@@ -270,6 +282,9 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x7D) | ({src} == 0 ? 0x02 : 0x00) | ({src} & 0x80)));");
                 break;
             }
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no template for register op kind '{op.Kind}'");
         }
     }
 
@@ -298,6 +313,9 @@ internal static class CpuEmitter
                 sb.AppendLine($"        uint ea = lo | (hi << 8);");
                 sb.AppendLine($"        WriteBus(ea, {source});");
                 break;
+            default:
+                throw new System.InvalidOperationException(
+                    $"emitter has no store template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
         }
     }
 
