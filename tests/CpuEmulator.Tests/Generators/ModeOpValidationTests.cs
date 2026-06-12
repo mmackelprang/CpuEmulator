@@ -596,4 +596,58 @@ public class ModeOpValidationTests
 
         Assert.Empty(result.GeneratorDiagnostics);
     }
+
+    // ── Task 8 / 3b-ii: BRK/RTI flow-class acceptance + mode matrix ────────────────────────
+
+    [Fact]
+    public void Brk_implied_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
+                ];
+            """));
+
+        Assert.Empty(result.AllErrors);
+    }
+
+    [Fact]
+    public void Rti_implied_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x40, "RTI", AddrMode.Implied, [Rti()]),
+                ];
+            """));
+
+        Assert.Empty(result.AllErrors);
+    }
+
+    [Fact]
+    public void Brk_with_absolute_mode_is_rejected()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "BRK", AddrMode.Absolute, [Brk()]),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void Brk_with_trailing_op_is_rejected()
+    {
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk(), SetNZ(Reg.A)]),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
 }

@@ -43,4 +43,8 @@ public static class Spec
     public static Op SetFlag(Flag flag, bool value) => new SetFlagOp(flag, value);
     public static Op Jsr() => new JsrOp();
     public static Op Rts() => new RtsOp();
+
+    // ── BRK/RTI flow class (Task 8 / 3b-ii) ────────────────────────────────
+    public static Op Brk() => new BrkOp();
+    public static Op Rti() => new RtiOp();
 }

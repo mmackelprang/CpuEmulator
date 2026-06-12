@@ -177,7 +177,7 @@ internal static class CpuEmitter
                 EmitStackBody(sb, instruction, pc, statusReg, spReg);
                 break;
             case InstructionClass.Flow:
-                EmitFlowBody(sb, instruction, pc, pcType, spReg);
+                EmitFlowBody(sb, instruction, pc, pcType, statusReg, spReg);
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -508,6 +508,8 @@ internal static class CpuEmitter
         {
             "Jsr" => "6 cycles",
             "Rts" => "6 cycles",
+            "Brk" => "7 cycles",
+            "Rti" => "6 cycles",
             _ => "6 cycles",
         };
     }
@@ -886,6 +888,7 @@ internal static class CpuEmitter
         InstructionModel instruction,
         string pc,
         string pcType,
+        string? statusReg,
         string? spReg)
     {
         // The parser rejects flow-class instructions in specs without a StackPointer-role
@@ -927,6 +930,43 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at new PC before increment");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                break;
+            case "Brk":
+                if (instruction.Mode != "Implied")
+                    throw new System.InvalidOperationException(
+                        $"emitter has no BRK template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+                {
+                    string p = statusReg ?? "P";
+                    sb.AppendLine($"        _ = ReadBus({pc}); // padding-byte read: BRK is a 2-byte instruction");
+                    sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                    sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte)({pc} >> 8)));");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                    sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte){pc}));");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                    sb.AppendLine($"        WriteBus(0x100u + {sp}, unchecked((byte)({p} | 0x30))); // stacked B=1 marks BRK/PHP");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} - 1));");
+                    sb.AppendLine($"        uint lo = ReadBus(0xFFFE);");
+                    sb.AppendLine($"        uint hi = ReadBus(0xFFFF);");
+                    sb.AppendLine($"        {p} = unchecked((byte)({p} | 0x04)); // I set; D untouched (NMOS — CLD-on-BRK is 65C02)");
+                    sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8)));");
+                }
+                break;
+            case "Rti":
+                if (instruction.Mode != "Implied")
+                    throw new System.InvalidOperationException(
+                        $"emitter has no RTI template for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})");
+                {
+                    string p = statusReg ?? "P";
+                    sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC (no increment)");
+                    sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // dummy read at old S (increment cycle)");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                    sb.AppendLine($"        {p} = unchecked((byte)((ReadBus(0x100u + {sp}) | 0x20) & 0xEF)); // phantom bits: 5=1, 4=0");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                    sb.AppendLine($"        uint lo = ReadBus(0x100u + {sp});");
+                    sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
+                    sb.AppendLine($"        uint hi = ReadBus(0x100u + {sp});");
+                    sb.AppendLine($"        {pc} = unchecked(({pcType})(lo | (hi << 8))); // no increment, no dummy at new PC (≠ RTS)");
+                }
                 break;
             default:
                 throw new System.InvalidOperationException(

@@ -80,6 +80,34 @@ public class PipelineHygieneTests
         Assert.Throws<System.InvalidOperationException>(() => CpuEmitter.Emit(model));
     }
 
+    [Fact]
+    public void Brk_and_Rti_emit_load_bearing_bus_patterns()
+    {
+        string source = GeneratorTestHost.ReplaceSection(
+            GeneratorHappyPathTests.ValidSpecSource,
+            """
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xEA, "NOP", AddrMode.Implied, []),
+                ];
+            """,
+            """
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
+                    Insn(0x40, "RTI", AddrMode.Implied, [Rti()]),
+                ];
+            """);
+
+        var result = GeneratorTestHost.Run(source);
+
+        Assert.Empty(result.AllErrors);
+        Assert.Contains("ReadBus(0xFFFE)", result.GeneratedText);
+        Assert.Contains("(byte)(P | 0x30)", result.GeneratedText);
+        Assert.Contains("(ReadBus(0x100u + S) | 0x20) & 0xEF", result.GeneratedText);
+    }
+
     private static string SpanText(string source, Diagnostic diagnostic) =>
         source.Substring(diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length);
 

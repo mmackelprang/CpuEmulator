@@ -65,6 +65,8 @@ internal static class SpecParser
         ["SetFlag"] = new[] { ArgKind.Flag, ArgKind.Bool },
         ["Jsr"] = System.Array.Empty<ArgKind>(),
         ["Rts"] = System.Array.Empty<ArgKind>(),
+        ["Brk"] = System.Array.Empty<ArgKind>(),
+        ["Rti"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -121,7 +123,7 @@ internal static class SpecParser
 
     private static readonly HashSet<string> s_flowOpKinds = new(System.StringComparer.Ordinal)
     {
-        "Jsr", "Rts",
+        "Jsr", "Rts", "Brk", "Rti",
     };
 
     // Per-class allowed modes: load/alu share the same 9 modes; rmw has its own 5.
@@ -448,13 +450,21 @@ internal static class SpecParser
         }
 
         // Flag-writing classes need a Status register (alu/rmw write C/V/N/Z; Pull bakes NZ,
-        // PushP/PullP move P itself).
-        if (instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
+        // PushP/PullP move P itself). BRK/RTI also touch P: BRK stacks P|0x30 and sets I,
+        // RTI restores P from the stack — the emitter writes the Status NAME into both
+        // templates, so a Status-role register is mandatory (CS0103 otherwise).
+        bool flowTouchesStatus = instructionClass == InstructionClass.Flow
+            && firstOpKind is "Brk" or "Rti";
+        if ((instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
+                || flowTouchesStatus)
             && !hasStatus)
         {
+            string label = flowTouchesStatus
+                ? "flow"
+                : instructionClass.ToString().ToLowerInvariant();
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
                 location, mnemonic,
-                $"{instructionClass.ToString().ToLowerInvariant()} class requires a Status-role register"));
+                $"{label} class requires a Status-role register"));
             return false;
         }
 
@@ -551,7 +561,7 @@ internal static class SpecParser
         {
             if (ops.Length != 1)
             {
-                error = "flow class must contain exactly one op (Jsr/Rts)";
+                error = "flow class must contain exactly one op (Jsr/Rts/Brk/Rti)";
                 return null;
             }
             return InstructionClass.Flow;
@@ -621,10 +631,14 @@ internal static class SpecParser
                 mode == "Implied" ? null
                 : "stack class (Push/Pull/PushP/PullP) requires Implied mode",
 
-            // flow class: per-OP matrix — Jsr requires Absolute, Rts requires Implied.
-            // ClassifyOps guarantees flow has exactly one op of kind Jsr or Rts.
+            // flow class: per-OP matrix — Jsr requires Absolute; Rts/Brk/Rti require Implied.
+            // ClassifyOps guarantees flow has exactly one op of kind Jsr/Rts/Brk/Rti.
             InstructionClass.Flow when firstOpKind == "Jsr" =>
                 mode == "Absolute" ? null : "Jsr requires Absolute mode",
+            InstructionClass.Flow when firstOpKind == "Brk" =>
+                mode == "Implied" ? null : "Brk requires Implied mode",
+            InstructionClass.Flow when firstOpKind == "Rti" =>
+                mode == "Implied" ? null : "Rti requires Implied mode",
             InstructionClass.Flow =>
                 mode == "Implied" ? null : "Rts requires Implied mode",
 
