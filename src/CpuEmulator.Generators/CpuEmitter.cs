@@ -826,7 +826,10 @@ internal static class CpuEmitter
                 sb.AppendLine($"        _ = ReadBus({pc}); // dummy read at PC");
                 sb.AppendLine($"        _ = ReadBus(0x100u + {sp}); // dummy read at old S");
                 sb.AppendLine($"        {sp} = unchecked((byte)({sp} + 1));");
-                sb.AppendLine($"        {p} = ReadBus(0x100u + {sp}); // verbatim — 3b-i convention");
+                // Real hardware: bit5 is always 1, bit4 (B) is forced to 0 in the CPU register
+                // (bit4 is only meaningful in the stacked byte, not the live register).
+                // TomHarte vectors confirm this convention (plan 3b-i truing — pre-authorized).
+                sb.AppendLine($"        {p} = unchecked((byte)((ReadBus(0x100u + {sp}) | 0x20) & 0xEF));");
                 break;
             default:
                 throw new System.InvalidOperationException(

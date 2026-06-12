@@ -8,7 +8,8 @@ namespace CpuEmulator.Tests.Mos6502;
 /// and flow class (JSR/RTS). Silicon ground truth: plan cycle-template table.
 /// Key invariants: JSR pushes return-address = call+2 (the last byte of the 3-byte instruction);
 /// RTS pops that return-address and increments by 1; PHP pushes P|0x30 (phantom bits set);
-/// PLP loads the stored byte verbatim (3b-i convention).
+/// PLP forces bit5=1 and bit4=0 in the live register (real-hardware convention, trued in 3b-i;
+/// TomHarte vectors confirm — pre-authorized by plan amendment).
 /// </summary>
 public class Mos6502StackFlowTraceTests
 {
@@ -89,9 +90,12 @@ public class Mos6502StackFlowTraceTests
     }
 
     [Fact]
-    public void PLP_loads_stored_byte_verbatim()
+    public void PLP_forces_bit5_set_bit4_cleared_real_hardware_convention()
     {
-        // PLP (0x28); S=0xFC; RAM[$01FD]=0xCF => P=0xCF (bits 5,4 as stored — 3b-i convention)
+        // PLP (0x28); S=0xFC; RAM[$01FD]=0xCF
+        // Stacked byte: 0xCF = 1100_1111 (bit5=0, bit4=0)
+        // Real hardware forces bit5=1, bit4=0 in the live register: (0xCF | 0x20) & 0xEF = 0xEF
+        // TomHarte vectors confirm this convention; trued in 3b-i (pre-authorized).
         var (cpu, bus, inner) = NewCpuAt(0x0200, 0x28);
         inner.Write8(0x01FD, 0xCF);
         cpu.SetRegister("S", 0xFC);
@@ -99,7 +103,7 @@ public class Mos6502StackFlowTraceTests
         cpu.Step();
 
         Assert.Equal(4, cpu.CycleCount);
-        Assert.Equal(0xCFul, cpu.GetRegister("P")); // verbatim — 3b-i convention
+        Assert.Equal(0xEFul, cpu.GetRegister("P")); // bit5 forced set, bit4 forced cleared
         Assert.Equal(0xFDul, cpu.GetRegister("S"));
         Mos6502TestHarness.AssertTrace(bus,
             new BusAccess(0x0200, 0x28, true),
