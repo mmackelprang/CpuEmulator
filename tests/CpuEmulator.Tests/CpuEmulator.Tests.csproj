@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\tools\CpuEmulator.SpecImporter\CpuEmulator.SpecImporter.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Monitor\CpuEmulator.Monitor.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Host\CpuEmulator.Host.csproj" />
   </ItemGroup>
 
 </Project>
