@@ -73,8 +73,15 @@ run/run-until with trap detection — a CPU-agnostic engine + line-oriented REPL
 exact inverse of the disassembler from the same spec table, pinned by a 151-opcode roundtrip
 identity test (`assemble(disassemble(op)) == op-bytes`); monitor-driven UAT sessions
 (assemble/run/inspect/disassemble, Klaus-via-monitor) run in the suite under
-`--filter "Category=UAT"`. Next: the datasheet-extraction runbook (M1 item 6), then
-peripherals + console host (chunk 4).
+`--filter "Category=UAT"`. **The live machine is runnable** (see "Try it" above):
+`dotnet run --project src/CpuEmulator.Host` boots a `Breadboard6502` — 52 KiB RAM, a
+partial-decode `SimpleUart` at $D000 (`CpuEmulator.Peripherals`, AOT-clean, Core-only), and
+an 8 KiB demo ROM assembled at boot by the generated assembler — and drops into the monitor
+REPL on stdio, with scheduler-aware `g`/`s` (runs route through `Machine.Run`, so scheduled
+peripherals tick) and UART input via `i`; `--demo` and `--load <bin> [--at $addr]
+[--pc $addr]` modes ship alongside, and host UAT sessions (demo-hello exact transcript,
+echo, Klaus-through-the-host) run in the suite under `--filter "Category=UAT"`. Next: the
+datasheet-extraction runbook (M1 item 6), then M2 (the IL-JIT tier).
 
 - Design: `docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`
 - Research: `docs/research/emulation-framework-research.md`
@@ -83,7 +90,7 @@ Build and test: `dotnet test`
 
 ## Next steps
 
-1. Finish Milestone 1: source-generated 6502 interpreter + one UART, validated against the [SingleStepTests/ProcessorTests](https://github.com/SingleStepTests/ProcessorTests) cycle-accurate vectors.
+1. Finish Milestone 1: the spine is complete — source-generated 6502 interpreter + one UART + live host, validated against the [SingleStepTests/ProcessorTests](https://github.com/SingleStepTests/ProcessorTests) cycle-accurate vectors; remaining: the datasheet-extraction runbook (M1 item 6).
 2. Milestone 2: add the IL-JIT tier for the 6502 and prove parity + speedup.
 3. Milestone 3: add Z80 by writing only a spec — proving the pluggable abstraction.
 
