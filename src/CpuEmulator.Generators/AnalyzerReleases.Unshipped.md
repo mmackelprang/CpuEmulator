@@ -9,3 +9,4 @@ CPUGEN005 | CpuEmulator.Spec | Error | Duplicate opcode
 CPUGEN006 | CpuEmulator.Spec | Error | Unknown micro-op
 CPUGEN007 | CpuEmulator.Spec | Error | Register role violation
 CPUGEN008 | CpuEmulator.Spec | Error | Unknown register in micro-op
+CPUGEN009 | CpuEmulator.Spec | Error | Invalid spec metadata

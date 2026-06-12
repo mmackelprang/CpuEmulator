@@ -18,7 +18,7 @@ public sealed class CpuSpecGenerator : IIncrementalGenerator
             foreach (var diagnostic in parsed.Diagnostics)
                 spc.ReportDiagnostic(diagnostic);
             if (parsed.Model is { } model)
-                spc.AddSource($"{model.CpuName}.g.cs", CpuEmitter.Emit(model));
+                spc.AddSource($"{model.Namespace}.{model.CpuName}.g.cs", CpuEmitter.Emit(model));
         });
     }
 }

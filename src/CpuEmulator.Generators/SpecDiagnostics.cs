@@ -40,4 +40,7 @@ internal static class SpecDiagnostics
     public static readonly DiagnosticDescriptor UnknownRegisterInOp = Make(
         "CPUGEN008", "Unknown register in micro-op",
         "Micro-op references register '{0}' which is not declared in the Registers table");
+
+    public static readonly DiagnosticDescriptor InvalidSpecMetadata = Make(
+        "CPUGEN009", "Invalid spec metadata", "{0}");
 }

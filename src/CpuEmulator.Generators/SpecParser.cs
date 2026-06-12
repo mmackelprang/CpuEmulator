@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace CpuEmulator.Generators;
@@ -19,9 +20,26 @@ internal static class SpecParser
         "Implied", "Immediate", "ZeroPage", "Absolute", "Relative",
     };
 
+    /// <summary>Members of the Reg enum; micro-op args matching these must also appear in the
+    /// spec's Registers table (CPUGEN008 otherwise).</summary>
+    private static readonly HashSet<string> s_regMembers = new(System.StringComparer.Ordinal)
+    {
+        "A", "X", "Y", "S",
+    };
+
     public static ParsedSpec Parse(GeneratorAttributeSyntaxContext context)
     {
         var classDecl = (ClassDeclarationSyntax)context.TargetNode;
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+
+        if (context.TargetSymbol.ContainingNamespace.IsGlobalNamespace)
+        {
+            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidSpecMetadata,
+                classDecl.Identifier.GetLocation(),
+                "spec class must be declared inside a namespace"));
+            return new ParsedSpec(null, diagnostics.ToImmutable());
+        }
+
         string ns = context.TargetSymbol.ContainingNamespace.ToDisplayString();
         string specName = classDecl.Identifier.Text;
 
@@ -39,24 +57,20 @@ internal static class SpecParser
                 cpuName = explicitName;
         }
 
-        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+        if (!SyntaxFacts.IsValidIdentifier(cpuName))
+        {
+            diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidSpecMetadata,
+                classDecl.Identifier.GetLocation(),
+                $"generated CPU class name '{cpuName}' is not a valid C# identifier"));
+        }
 
         var registers = ParseRegisters(classDecl, specName, diagnostics);
 
         if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
-        var instructions = ParseInstructions(classDecl, specName, diagnostics);
-
-        // Cross-check: micro-op register arguments must match declared register names.
         var registerNames = new HashSet<string>(registers.Select(r => r.Name), System.StringComparer.Ordinal);
-        var regMembers = new HashSet<string>(System.StringComparer.Ordinal) { "A", "X", "Y", "S" };
-        foreach (var instruction in instructions)
-            foreach (var op in instruction.Ops)
-                foreach (var arg in op.Args)
-                    if (regMembers.Contains(arg) && !registerNames.Contains(arg))
-                        diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownRegisterInOp,
-                            classDecl.Identifier.GetLocation(), arg));
+        var instructions = ParseInstructions(classDecl, specName, registerNames, diagnostics);
 
         if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
             return new ParsedSpec(null, diagnostics.ToImmutable());
@@ -92,6 +106,13 @@ internal static class SpecParser
                 diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), element.ToString(),
                     "expected new(\"NAME\", bits[, RegisterRole.X]) with literal arguments"));
+                continue;
+            }
+
+            if (!SyntaxFacts.IsValidIdentifier(name))
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name, "register name must be a valid C# identifier"));
                 continue;
             }
 
@@ -139,6 +160,7 @@ internal static class SpecParser
     private static ImmutableArray<InstructionModel> ParseInstructions(
         ClassDeclarationSyntax classDecl,
         string specName,
+        HashSet<string> registerNames,
         ImmutableArray<Diagnostic>.Builder diagnostics)
     {
         var field = FindArrayField(classDecl, "Instructions");
@@ -183,7 +205,14 @@ internal static class SpecParser
                     "third argument must be a known AddrMode member"));
                 continue;
             }
-            if (opcode is < 0 or > 0xFF || !seenOpcodes.Add(opcode.Value))
+            if (opcode is < 0 or > 0xFF)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    $"opcode 0x{opcode.Value:X} is outside 0x00-0xFF"));
+                continue;
+            }
+            if (!seenOpcodes.Add(opcode.Value))
             {
                 diagnostics.Add(Diagnostic.Create(SpecDiagnostics.DuplicateOpcode,
                     element.GetLocation(), opcode.Value.ToString("X2")));
@@ -191,7 +220,7 @@ internal static class SpecParser
             }
 
             if (args[3].Expression is not CollectionExpressionSyntax opsCollection ||
-                ParseOps(opsCollection, diagnostics) is not { } ops)
+                ParseOps(opsCollection, registerNames, diagnostics) is not { } ops)
             {
                 continue; // ParseOps reported the diagnostic
             }
@@ -204,6 +233,7 @@ internal static class SpecParser
 
     private static ImmutableArray<OpModel>? ParseOps(
         CollectionExpressionSyntax collection,
+        HashSet<string> registerNames,
         ImmutableArray<Diagnostic>.Builder diagnostics)
     {
         var ops = ImmutableArray.CreateBuilder<OpModel>();
@@ -217,19 +247,27 @@ internal static class SpecParser
                 return null;
             }
 
-            if (!s_microOpArity.TryGetValue(kind, out int arity) ||
-                invocation.ArgumentList.Arguments.Count != arity)
+            if (!s_microOpArity.TryGetValue(kind, out int arity))
             {
                 diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownMicroOp,
                     element.GetLocation(), kind));
                 return null;
             }
 
+            if (invocation.ArgumentList.Arguments.Count != arity)
+            {
+                diagnostics.Add(Diagnostic.Create(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    $"micro-op '{kind}' expects {arity} argument(s)"));
+                return null;
+            }
+
             var opArgs = ImmutableArray.CreateBuilder<string>();
             foreach (var argument in invocation.ArgumentList.Arguments)
             {
+                string? regName = EnumMemberName(argument.Expression, "Reg");
                 string? value =
-                    EnumMemberName(argument.Expression, "Reg") ??
+                    regName ??
                     EnumMemberName(argument.Expression, "Flag") ??
                     BoolLiteral(argument.Expression);
                 if (value is null)
@@ -238,6 +276,15 @@ internal static class SpecParser
                         argument.GetLocation(), Truncate(argument.ToString())));
                     return null;
                 }
+
+                if (regName is not null && s_regMembers.Contains(regName) &&
+                    !registerNames.Contains(regName))
+                {
+                    diagnostics.Add(Diagnostic.Create(SpecDiagnostics.UnknownRegisterInOp,
+                        argument.GetLocation(), regName));
+                    // Keep parsing: error gating in Parse nulls the model.
+                }
+
                 opArgs.Add(value);
             }
 

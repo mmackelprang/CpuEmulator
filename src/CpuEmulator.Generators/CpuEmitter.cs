@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace CpuEmulator.Generators;
 
@@ -19,7 +20,7 @@ internal static class CpuEmitter
         sb.AppendLine();
         sb.AppendLine($"public sealed partial class {model.CpuName} : CpuEmulator.Core.ICpuCore");
         sb.AppendLine("{");
-        sb.AppendLine($"    public string Architecture => \"{model.Architecture}\";");
+        sb.AppendLine($"    public string Architecture => {SymbolDisplay.FormatLiteral(model.Architecture, quote: true)};");
         sb.AppendLine();
         sb.AppendLine("    internal long _cycles;");
         sb.AppendLine("    public long CycleCount => _cycles;");
@@ -55,7 +56,7 @@ internal static class CpuEmitter
         foreach (var register in model.Registers)
         {
             string cast = register.Bits == 8 ? "byte" : "ushort";
-            sb.AppendLine($"            case \"{register.Name}\": {register.Name} = ({cast})value; break;");
+            sb.AppendLine($"            case \"{register.Name}\": {register.Name} = unchecked(({cast})value); break;");
         }
         sb.AppendLine("            default: throw new System.ArgumentException($\"Unknown register '{name}'.\", nameof(name));");
         sb.AppendLine("        }");
@@ -66,7 +67,9 @@ internal static class CpuEmitter
 
     private static void EmitExecution(StringBuilder sb, SpecModel model)
     {
-        string pc = model.Registers.First(r => r.Role == "ProgramCounter").Name;
+        var pcRegister = model.Registers.First(r => r.Role == "ProgramCounter");
+        string pc = pcRegister.Name;
+        string pcType = pcRegister.Bits == 8 ? "byte" : "ushort";
 
         sb.AppendLine();
         sb.AppendLine("    // Instruction table parsed from the spec (execution emitted in chunk 2b):");
@@ -78,7 +81,7 @@ internal static class CpuEmitter
         sb.AppendLine("    public void Step()");
         sb.AppendLine("    {");
         sb.AppendLine($"        byte opcode = ReadBus({pc});");
-        sb.AppendLine($"        {pc}++;");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
         sb.AppendLine("        Execute(opcode);");
         sb.AppendLine("    }");
 

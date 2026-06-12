@@ -1297,6 +1297,16 @@ public class InstructionParsingTests
 > else is already a CPUGEN diagnostic, and a user-defined same-name helper in a spec class is
 > considered out of contract for M1.
 
+> **Post-quality-review hardenings (applied before Task 6):** spec mistakes that compile
+> cleanly now surface as CPUGEN diagnostics, never as errors inside generated code — register
+> and CpuName identifiers validated, Architecture emitted via FormatLiteral, CPUGEN009 added
+> (global-namespace spec, invalid CpuName), hint names namespace-qualified, CPUGEN008 points
+> at the offending argument, out-of-range opcodes are CPUGEN004 (not "duplicate"), known-factory
+> arity mismatches get a specific message, and emitted truncation casts + the PC increment are
+> `unchecked(...)` (correct under consumer CheckForOverflowUnderflow). Tripwire for chunk 2b:
+> convert pipeline Diagnostics to an equatable DiagnosticInfo BEFORE any `Combine` is added to
+> the incremental pipeline.
+
 ---
 
 ### Task 6: The real Mos6502 — spec table, hand-written partial, behavioral tests

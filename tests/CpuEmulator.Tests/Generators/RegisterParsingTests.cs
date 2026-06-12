@@ -105,4 +105,29 @@ public class RegisterParsingTests
 
         Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN002");
     }
+
+    [Fact]
+    public void Non_identifier_register_name_reports_CPUGEN002()
+    {
+        var result = GeneratorTestHost.Run(WithRegisters("""
+                public static readonly RegisterDef[] Registers =
+                [
+                    new("A B", 8),
+                    new("PC", 16, RegisterRole.ProgramCounter),
+                ];
+            """));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN002");
+    }
+
+    [Fact]
+    public void Generated_truncation_casts_are_unchecked()
+    {
+        // Generated code must stay correct under consumer CheckForOverflowUnderflow=true.
+        var result = GeneratorTestHost.Run(GeneratorHappyPathTests.ValidSpecSource);
+
+        Assert.Empty(result.AllErrors);
+        Assert.Contains("unchecked((byte)value)", result.GeneratedText);
+        Assert.Contains("PC = unchecked((ushort)(PC + 1));", result.GeneratedText);
+    }
 }

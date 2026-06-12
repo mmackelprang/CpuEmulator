@@ -77,4 +77,90 @@ public class GeneratorHappyPathTests
         Assert.Empty(result.GeneratedTrees);
         Assert.Empty(result.GeneratorDiagnostics);
     }
+
+    [Fact]
+    public void Global_namespace_spec_reports_CPUGEN009()
+    {
+        var source = ValidSpecSource.Replace("namespace TestCpu;", "");
+
+        var result = GeneratorTestHost.Run(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN009");
+        Assert.Empty(result.GeneratedTrees);
+    }
+
+    [Fact]
+    public void Invalid_CpuName_reports_CPUGEN009()
+    {
+        var source = ValidSpecSource.Replace("[CpuSpecification(\"test6502\")]",
+            "[CpuSpecification(\"test6502\", CpuName = \"1Bad\")]");
+
+        var result = GeneratorTestHost.Run(source);
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN009");
+        Assert.Empty(result.GeneratedTrees);
+    }
+
+    [Fact]
+    public void Same_CpuName_in_two_namespaces_generates_both_without_collision()
+    {
+        var source = $$"""
+            using CpuEmulator.Core.Specification;
+            using static CpuEmulator.Core.Specification.Spec;
+
+            namespace NsOne
+            {
+            {{MinimalSpecClass("SameSpec", "one")}}
+            }
+
+            namespace NsTwo
+            {
+            {{MinimalSpecClass("SameSpec", "two")}}
+            }
+            """;
+
+        var result = GeneratorTestHost.Run(source);
+
+        Assert.Equal(2, result.GeneratedTrees.Length);
+        Assert.Empty(result.GeneratorDiagnostics);
+        Assert.DoesNotContain(result.CompilationDiagnostics, d => d.Id == "CS8785");
+    }
+
+    [Fact]
+    public void Two_distinct_specs_generate_two_files()
+    {
+        var source = $$"""
+            using CpuEmulator.Core.Specification;
+            using static CpuEmulator.Core.Specification.Spec;
+
+            namespace TestCpu
+            {
+            {{MinimalSpecClass("AlphaSpec", "alpha")}}
+
+            {{MinimalSpecClass("BetaSpec", "beta")}}
+            }
+            """;
+
+        var result = GeneratorTestHost.Run(source);
+
+        Assert.Equal(2, result.GeneratedTrees.Length);
+        Assert.Contains(result.GeneratedTrees, t => t.FilePath.EndsWith("AlphaCpu.g.cs"));
+        Assert.Contains(result.GeneratedTrees, t => t.FilePath.EndsWith("BetaCpu.g.cs"));
+    }
+
+    private static string MinimalSpecClass(string className, string architecture) => $$"""
+            [CpuSpecification("{{architecture}}")]
+            public static class {{className}}
+            {
+                public static readonly RegisterDef[] Registers =
+                [
+                    new("PC", 16, RegisterRole.ProgramCounter),
+                ];
+
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0xEA, "NOP", AddrMode.Implied, []),
+                ];
+            }
+        """;
 }
