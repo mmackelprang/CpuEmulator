@@ -1305,7 +1305,7 @@ public class InstructionParsingTests
 > arity mismatches get a specific message, and emitted truncation casts + the PC increment are
 > `unchecked(...)` (correct under consumer CheckForOverflowUnderflow). Tripwire for chunk 2b:
 > convert pipeline Diagnostics to an equatable DiagnosticInfo BEFORE any `Combine` is added to
-> the incremental pipeline.
+> the incremental pipeline. Second 2b carry-forward: mnemonic strings currently flow into a generated comment unsanitized — validate them when 2b turns mnemonics into emitted identifiers/disassembler strings.
 
 ---
 
