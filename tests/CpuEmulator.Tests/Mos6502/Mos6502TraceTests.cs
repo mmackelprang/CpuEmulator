@@ -5,41 +5,18 @@ namespace CpuEmulator.Tests.Mos6502;
 
 public class Mos6502TraceTests
 {
-    /// <summary>CPU with 64 KiB RAM, program bytes at 0x0200, PC set there, tracing bus.</summary>
-    private static (Mos6502Cpu Cpu, TracingAddressSpace Bus) NewCpu(params byte[] program)
-    {
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
-        for (uint i = 0; i < program.Length; i++)
-            inner.Write8(0x0200 + i, program[i]);
-        var bus = new TracingAddressSpace(inner);
-        var cpu = new Mos6502Cpu(bus);
-        cpu.SetRegister("PC", 0x0200);
-        return (cpu, bus);
-    }
+    // Helpers delegate to Mos6502TestHarness — kept as private aliases so the tests below are unchanged.
+    private static (Mos6502Cpu Cpu, TracingAddressSpace Bus) NewCpu(params byte[] program) =>
+        Mos6502TestHarness.NewCpu(program);
 
-    /// <summary>CPU with program at a specified origin address.</summary>
-    private static (Mos6502Cpu Cpu, TracingAddressSpace Bus) NewCpuAt(ushort origin, params byte[] program)
-    {
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
-        for (uint i = 0; i < program.Length; i++)
-            inner.Write8((uint)(origin + i), program[i]);
-        var bus = new TracingAddressSpace(inner);
-        var cpu = new Mos6502Cpu(bus);
-        cpu.SetRegister("PC", origin);
-        return (cpu, bus);
-    }
+    private static (Mos6502Cpu Cpu, TracingAddressSpace Bus) NewCpuAt(ushort origin, params byte[] program) =>
+        Mos6502TestHarness.NewCpuAt(origin, program);
 
     private static void AssertTrace(TracingAddressSpace bus, params BusAccess[] expected) =>
-        Assert.Equal(expected, bus.Trace);
+        Mos6502TestHarness.AssertTrace(bus, expected);
 
-    private static void AssertNZ(Mos6502Cpu cpu, bool n, bool z)
-    {
-        ulong p = cpu.GetRegister("P");
-        Assert.Equal(n, (p & 0x80) != 0);
-        Assert.Equal(z, (p & 0x02) != 0);
-    }
+    private static void AssertNZ(Mos6502Cpu cpu, bool n, bool z) =>
+        Mos6502TestHarness.AssertNZ(cpu, n, z);
 
     // ---- Task 3: Load class ----
 
