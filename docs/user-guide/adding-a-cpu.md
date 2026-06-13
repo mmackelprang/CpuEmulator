@@ -40,8 +40,8 @@ public static class Mos6502Spec
     public static readonly InstructionDef[] Instructions =
     [
         Insn(0x00, "BRK", AddrMode.Implied, [Brk()]),
-        Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
-        Insn(0xBD, "LDA", AddrMode.AbsoluteX, [Load(Reg.A), SetNZ(Reg.A)]),
+        Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A"), SetNZ("A")]),
+        Insn(0xBD, "LDA", AddrMode.AbsoluteX, [Load("A"), SetNZ("A")]),
         // ... 151 rows total for the 6502
     ];
 }
@@ -62,7 +62,7 @@ For LLM-assisted extraction from a CPU PDF or datasheet — generating both the 
 The spec importer (`tools/CpuEmulator.SpecImporter`) generates the spec table from two data files:
 
 - **`data/mos6502-opcodes.json`** — curated 151-opcode dataset. Each row has: opcode byte, mnemonic, addressing mode, byte count, cycle count, page-cross flag, and optional provenance citation.
-- **`data/mos6502-semantics.json`** — hand-authored map: mnemonic → micro-op expression string (e.g. `"LDA": "[Load(Reg.A), SetNZ(Reg.A)]"` — the addressing mode comes from the dataset row, so the semantics expression names only the destination register and flag effects).
+- **`data/mos6502-semantics.json`** — hand-authored map: mnemonic → micro-op expression string (e.g. `"LDA": "[Load(\"A\"), SetNZ(\"A\")]"` — the register argument is a quoted register-name string validated against the spec's Registers table; the addressing mode comes from the dataset row, so the semantics expression names only the destination register and flag effects).
 
 ### Regeneration command
 

@@ -60,7 +60,7 @@ Field constraints:
     { "name": "PC", "bits": 16, "role": "ProgramCounter" }
   ],
   "mnemonics": {
-    "LDA": "[Load(Reg.A), SetNZ(Reg.A)]",
+    "LDA": "[Load(\"A\"), SetNZ(\"A\")]",
     "NOP": "[]",
     "BRK": "[Brk()]"
   }
@@ -113,12 +113,12 @@ One entry per mnemonic (not per addressing mode) mapping to a micro-op expressio
 The ops text is a bracketed list of factory calls: [Factory(args...), ...]
 
 Allowed factories and their exact signatures (use ONLY these — no other expressions):
-  Load(Reg.<name>)           — load operand into register
-  Store(Reg.<name>)          — store register to operand address
-  Transfer(Reg.<src>, Reg.<dst>) — copy one register to another
-  Increment(Reg.<name>)      — increment register by 1
-  Decrement(Reg.<name>)      — decrement register by 1
-  SetNZ(Reg.<name>)          — set N and Z flags from register value
+  Load("<name>")             — load operand into register
+  Store("<name>")            — store register to operand address
+  Transfer("<src>", "<dst>") — copy one register to another
+  Increment("<name>")        — increment register by 1
+  Decrement("<name>")        — decrement register by 1
+  SetNZ("<name>")            — set N and Z flags from register value
   Jump()                     — set PC to operand address
   BranchIf(Flag.<name>, true/false) — branch if flag equals the boolean
   Adc()                      — add with carry (A + operand + C → A, sets NZCV)
@@ -126,7 +126,7 @@ Allowed factories and their exact signatures (use ONLY these — no other expres
   And()                      — bitwise AND into A
   Ora()                      — bitwise OR into A
   Eor()                      — bitwise XOR into A
-  Compare(Reg.<name>)        — compare register to operand (sets NZC, no store)
+  Compare("<name>")          — compare register to operand (sets NZC, no store)
   Bit()                      — BIT test (N←bit7, V←bit6, Z←A&mem)
   ShiftLeft()                — arithmetic shift left (operand or accumulator)
   ShiftRight()               — logical shift right
@@ -134,8 +134,8 @@ Allowed factories and their exact signatures (use ONLY these — no other expres
   RotateRight()              — rotate right through carry
   IncrementMem()             — increment memory operand
   DecrementMem()             — decrement memory operand
-  Push(Reg.<name>)           — push register onto stack
-  Pull(Reg.<name>)           — pull register from stack
+  Push("<name>")             — push register onto stack
+  Pull("<name>")             — pull register from stack
   PushP()                    — push P (status) with B flag set
   PullP()                    — pull P from stack
   SetFlag(Flag.<name>, true/false) — set or clear a flag
@@ -145,12 +145,13 @@ Allowed factories and their exact signatures (use ONLY these — no other expres
   Rti()                      — return from interrupt (pull P, pull PC)
 
 Arguments MUST be one of:
-  Reg.<RegisterName>   (e.g. Reg.A, Reg.X, Reg.PC)
+  "<RegisterName>"     a quoted register-name string (e.g. "A", "X", "PC") validated
+                       against the spec's Registers table — there is no closed Reg enum
   Flag.<FlagName>      (e.g. Flag.N, Flag.Z, Flag.C, Flag.V, Flag.I, Flag.D, Flag.B)
   true
   false
 
-No arbitrary C# expressions, no string literals, no lambdas.
+No arbitrary C# expressions, no non-register-name string literals, no lambdas.
 An empty ops text is valid for NOP: "[]"
 
 ## Output

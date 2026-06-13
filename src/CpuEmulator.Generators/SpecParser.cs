@@ -15,17 +15,22 @@ internal static class SpecParser
     // ───────────────────────── MIRROR TABLES ─────────────────────────
     // These sets mirror, by name, surface defined elsewhere and MUST be updated together:
     //   • s_addrModes        ↔ CpuEmulator.Core.Specification.AddrMode members
-    //   • s_regMembers       ↔ Reg members            • s_flagMembers ↔ Flag members
+    //   • s_flagMembers      ↔ Flag members
     //   • s_microOpSignatures (names+arity+arg kinds) ↔ Spec factory methods / Op records
     //   • op-kind class sets ↔ CpuEmitter's per-class emission switches
     // External mirrors of the same surface: CpuEmitter.FlagBit (Flag bit values),
     // tools/CpuEmulator.SpecImporter SemanticsMap.FactoryArity + SpecFileEmitter.SupportedModes.
     // The syntax-only generator cannot see the real enums; these tables ARE its truth.
+    //
+    // M3.1a: register identity is no longer a fixed enum. A register-arg micro-op argument is a
+    // register-NAME string literal (CPUGEN011 if not a string literal) cross-checked against the
+    // spec's OWN Registers table (CPUGEN008 — the primary, per-spec register-name gate). There is
+    // no s_regMembers whitelist to mirror; the spec's declared register set IS the truth.
     // ──────────────────────────────────────────────────────────────────
 
     /// <summary>Per-op argument signatures; arity is the signature length. Each argument is
     /// parsed against its EXPECTED kind only (CPUGEN011 on mismatch) — no coalescing chain,
-    /// so e.g. SetNZ(Flag.Z) or BranchIf(Reg.A, ...) cannot reach the emitter.
+    /// so e.g. SetNZ(Flag.Z) or BranchIf("A", ...) cannot reach the emitter.
     /// Allowed op names: Load, Store, Transfer, Increment, SetNZ, Jump, BranchIf,
     /// Adc, Sbc, And, Ora, Eor, Compare, Bit,
     /// ShiftLeft, ShiftRight, RotateLeft, RotateRight, IncrementMem, DecrementMem, Decrement,
@@ -75,13 +80,6 @@ internal static class SpecParser
         "ZeroPage", "ZeroPageX", "ZeroPageY",
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
-    };
-
-    /// <summary>Members of the Reg enum. A micro-op Reg argument MUST be one of these
-    /// (CPUGEN011 if not) AND must be declared in the spec's Registers table (CPUGEN008).</summary>
-    private static readonly HashSet<string> s_regMembers = new(System.StringComparer.Ordinal)
-    {
-        "A", "X", "Y", "S",
     };
 
     /// <summary>Valid Flag enum members for BranchIf (CPUGEN006 for anything else).</summary>
@@ -700,41 +698,31 @@ internal static class SpecParser
 
                 string? value = expected switch
                 {
-                    ArgKind.Reg => EnumMemberName(argument.Expression, "Reg"),
-                    ArgKind.Flag => EnumMemberName(argument.Expression, "Flag"),
+                    ArgKind.Reg => LiteralString(argument.Expression),            // register arg is a STRING LITERAL
+                    ArgKind.Flag => EnumMemberName(argument.Expression, "Flag"),  // Flag UNCHANGED (out of scope)
                     _ => BoolLiteral(argument.Expression),
                 };
                 if (value is null)
                 {
                     string description = expected switch
                     {
-                        ArgKind.Reg => "Reg member",
+                        ArgKind.Reg => "register-name string literal",
                         ArgKind.Flag => "Flag member",
                         _ => "bool literal",
                     };
                     diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
-                        argument.GetLocation(), (i + 1).ToString(), kind, description));
+                        argument.GetLocation(), (i + 1).ToString(), kind, description));   // CPUGEN011 (kind)
                     return null;
                 }
 
-                // Reg hardening: FIRST check that the value is a known Reg enum member (CPUGEN011).
-                // Then check it's declared in the spec's Registers table (CPUGEN008).
-                if (expected == ArgKind.Reg)
+                // CPUGEN008 — THE primary register-name check (was a two-stage enum-then-table check).
+                // The register name must name a row in the spec's OWN Registers table. With no enum
+                // pre-filter, an undeclared name is a hard stop here (the model nulls in Parse).
+                if (expected == ArgKind.Reg && !registerNames.Contains(value))
                 {
-                    if (!s_regMembers.Contains(value))
-                    {
-                        // Not a Reg enum member — report CPUGEN011 via the kind-mismatch path.
-                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
-                            argument.GetLocation(), (i + 1).ToString(), kind, "Reg member"));
-                        return null;
-                    }
-
-                    if (!registerNames.Contains(value))
-                    {
-                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
-                            argument.GetLocation(), value));
-                        // Keep parsing: error gating in Parse nulls the model.
-                    }
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnknownRegisterInOp,
+                        argument.GetLocation(), value));
+                    return null;
                 }
 
                 // Flag whitelist: only C, Z, I, D, V, N are allowed (CPUGEN006)

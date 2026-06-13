@@ -26,10 +26,15 @@ public enum JitMode
 
 /// <summary>One micro-op the compiler emits, in spec order. Kind is the interpreter OpModel
 /// kind string ("Ora", "ShiftLeft", "Compare", "BranchIf", "SetFlag", ...) — the SAME closed
-/// vocabulary the CpuEmitter switches on; RegA/RegB carry register operands (e.g. Compare
-/// carries the compared register; Transfer carries source+target; BranchIf carries the flag
-/// bit in FlagBit + the When sense in BoolArg). The descriptorized form of OpModel.</summary>
-public readonly record struct JitOp(string Kind, byte RegA, byte RegB, byte FlagBit, bool BoolArg);
+/// vocabulary the CpuEmitter switches on; RegA/RegB carry register operands as register-NAME
+/// strings (e.g. Compare carries the compared register's name; Transfer carries source+target;
+/// BranchIf carries the flag bit in FlagBit + the When sense in BoolArg). An empty string ""
+/// marks "no register operand" (the zero-arg ops). The descriptorized form of OpModel.
+///
+/// M3.1a (J2): RegA/RegB are NAMES, not byte indices. The register file is DATA — a name
+/// resolves against whatever register set the spec declared (BlockCompiler builds a per-compile
+/// name→FieldInfo map), so adding a register needs no fixed-ordering edit.</summary>
+public readonly record struct JitOp(string Kind, string RegA, string RegB, byte FlagBit, bool BoolArg);
 
 /// <summary>One opcode row. Immutable value data; the whole table is a static readonly array.</summary>
 public sealed record OpcodeDescriptor(

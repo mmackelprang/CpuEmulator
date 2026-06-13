@@ -10,7 +10,7 @@
     { "name": "PC", "bits": 16, "role": "ProgramCounter" }
   ],
   "mnemonics": {
-    "LDA": "[Load(Reg.A), SetNZ(Reg.A)]",
+    "LDA": "[Load(\"A\"), SetNZ(\"A\")]",
     "JMP": "[Jump()]",
     "NOP": "[]",
     "BRK": "[Brk()]"

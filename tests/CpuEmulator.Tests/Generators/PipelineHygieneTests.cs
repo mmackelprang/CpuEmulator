@@ -88,7 +88,7 @@ public class PipelineHygieneTests
             """
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A"), SetNZ("A")]),
                     Insn(0xEA, "NOP", AddrMode.Implied, []),
                 ];
             """,

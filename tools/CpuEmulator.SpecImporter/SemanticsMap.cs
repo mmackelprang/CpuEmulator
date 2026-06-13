@@ -32,16 +32,22 @@ public sealed class SemanticsMap
     // SYNC HAZARD: if the DSL grows new factories (or changes signatures)
     // this table must change too.
     //
+    // M3.1a: a register argument is now a register-NAME string literal ("A"), not a Reg enum
+    // member. The arity table is UNCHANGED (register-ness is not encoded in arity — Load is still
+    // arity 1); only the argument SPELLING changed, mirrored in AllowedArgPattern below. There is
+    // no s_regMembers whitelist to mirror — the generator cross-checks names against the spec's
+    // OWN Registers table (CPUGEN008), the real gate (it runs in the e2e test).
+    //
     // See also the MIRROR TABLES block in SpecParser.cs (the generator's truth):
-    //   s_microOpSignatures, s_addrModes, s_regMembers, s_flagMembers, op-kind sets.
+    //   s_microOpSignatures, s_addrModes, s_flagMembers, op-kind sets.
     // SpecFileEmitter.SupportedModes mirrors AddrMode enum members.
     private static readonly Dictionary<string, int> FactoryArity = new()
     {
-        ["Load"]          = 1,  // Load(Reg)
-        ["Store"]         = 1,  // Store(Reg)
-        ["Transfer"]      = 2,  // Transfer(Reg, Reg)
-        ["Increment"]     = 1,  // Increment(Reg)
-        ["SetNZ"]         = 1,  // SetNZ(Reg)
+        ["Load"]          = 1,  // Load("reg")
+        ["Store"]         = 1,  // Store("reg")
+        ["Transfer"]      = 2,  // Transfer("reg", "reg")
+        ["Increment"]     = 1,  // Increment("reg")
+        ["SetNZ"]         = 1,  // SetNZ("reg")
         ["Jump"]          = 0,  // Jump()
         ["BranchIf"]      = 2,  // BranchIf(Flag, bool)
         // ALU ops (Task 5)
@@ -50,7 +56,7 @@ public sealed class SemanticsMap
         ["And"]           = 0,  // And()
         ["Ora"]           = 0,  // Ora()
         ["Eor"]           = 0,  // Eor()
-        ["Compare"]       = 1,  // Compare(Reg)
+        ["Compare"]       = 1,  // Compare("reg")
         ["Bit"]           = 0,  // Bit()
         // RMW ops (Task 6)
         ["ShiftLeft"]     = 0,  // ShiftLeft()
@@ -59,10 +65,10 @@ public sealed class SemanticsMap
         ["RotateRight"]   = 0,  // RotateRight()
         ["IncrementMem"]  = 0,  // IncrementMem()
         ["DecrementMem"]  = 0,  // DecrementMem()
-        ["Decrement"]     = 1,  // Decrement(Reg)
+        ["Decrement"]     = 1,  // Decrement("reg")
         // Stack ops (Task 7)
-        ["Push"]          = 1,  // Push(Reg)
-        ["Pull"]          = 1,  // Pull(Reg)
+        ["Push"]          = 1,  // Push("reg")
+        ["Pull"]          = 1,  // Pull("reg")
         ["PushP"]         = 0,  // PushP()
         ["PullP"]         = 0,  // PullP()
         // Flag ops (Task 7)
@@ -76,10 +82,13 @@ public sealed class SemanticsMap
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────
-    // Accepts: Reg.<word>, Flag.<word>, true, false  (no full parser — the
-    // generator is the real gate and runs in the e2e test).
+    // Accepts: "<regname>" (a quoted register-name string), Flag.<word>, true, false
+    // (no full parser — the generator is the real gate and runs in the e2e test).
+    // M3.1a: the register-arg form moved from Reg.<word> to a double-quoted identifier; a bare
+    // unquoted register token (e.g. A) is now rejected here, mirroring the parser's string-literal
+    // requirement (CPUGEN011).
     private static readonly Regex AllowedArgPattern =
-        new(@"^(Reg\.\w+|Flag\.\w+|true|false)$", RegexOptions.Compiled);
+        new(@"^(""\w+""|Flag\.\w+|true|false)$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -187,7 +196,7 @@ public sealed class SemanticsMap
     private static void ParseCalls(string mnemonic, string inner)
     {
         // Scan call-by-call: factory name up to '(', args up to the FIRST ')'.
-        // No nested-paren support — the argument whitelist (Reg.*/Flag.*/bool)
+        // No nested-paren support — the argument whitelist ("regname"/Flag.*/bool)
         // forbids parens anyway, so nesting can never appear in valid input.
         var remaining = inner;
         while (remaining.Length > 0)
@@ -242,7 +251,7 @@ public sealed class SemanticsMap
             if (!AllowedArgPattern.IsMatch(arg))
                 throw new InvalidDataException(
                     $"Ops text for '{mnemonic}': invalid argument '{arg}' in call to '{factory}'. " +
-                    "Arguments must be Reg.<name>, Flag.<name>, true, or false.");
+                    "Arguments must be \"<regname>\", Flag.<name>, true, or false.");
         }
     }
 }

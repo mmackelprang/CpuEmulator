@@ -10,7 +10,7 @@ public class ModeOpValidationTests
             """
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A"), SetNZ("A")]),
                     Insn(0xEA, "NOP", AddrMode.Implied, []),
                 ];
             """,
@@ -29,7 +29,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "STA", AddrMode.Immediate, [Store(Reg.A)]),
+                    Insn(0x99, "STA", AddrMode.Immediate, [Store("A")]),
                 ];
             """));
 
@@ -68,7 +68,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "BNE", AddrMode.Relative, [BranchIf(Flag.Z, false), SetNZ(Reg.A)]),
+                    Insn(0x99, "BNE", AddrMode.Relative, [BranchIf(Flag.Z, false), SetNZ("A")]),
                 ];
             """));
 
@@ -81,7 +81,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "LDA", AddrMode.Absolute, [SetNZ(Reg.A), Load(Reg.A)]),
+                    Insn(0x99, "LDA", AddrMode.Absolute, [SetNZ("A"), Load("A")]),
                 ];
             """));
 
@@ -94,7 +94,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "STA", AddrMode.Implied, [Store(Reg.A)]),
+                    Insn(0x99, "STA", AddrMode.Implied, [Store("A")]),
                 ];
             """));
 
@@ -156,7 +156,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(source);
 
         var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
-        Assert.Contains("must be a Reg member", diagnostic.GetMessage());
+        Assert.Contains("must be a register-name string literal", diagnostic.GetMessage());
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public class ModeOpValidationTests
         string source = WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "TAX", AddrMode.Implied, [Transfer(Reg.A, Flag.C)]),
+                    Insn(0x99, "TAX", AddrMode.Implied, [Transfer("A", Flag.C)]),
                 ];
             """);
         var result = GeneratorTestHost.Run(source);
@@ -192,7 +192,7 @@ public class ModeOpValidationTests
         string locationText = source.Substring(
             diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length);
         Assert.Equal("Flag.C", locationText); // points at the SECOND argument
-        Assert.Contains("Argument 2 of 'Transfer' must be a Reg member", diagnostic.GetMessage());
+        Assert.Contains("Argument 2 of 'Transfer' must be a register-name string literal", diagnostic.GetMessage());
     }
 
     // ── Task 2: 13-mode acceptance + class/mode matrix tests ──────────────────────────────
@@ -204,7 +204,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xB5, "LDA", AddrMode.ZeroPageX, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xB5, "LDA", AddrMode.ZeroPageX, [Load("A"), SetNZ("A")]),
                 ];
             """));
 
@@ -218,7 +218,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructionsAndY("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xB9, "LDA", AddrMode.AbsoluteY, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xB9, "LDA", AddrMode.AbsoluteY, [Load("A"), SetNZ("A")]),
                 ];
             """));
 
@@ -232,7 +232,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructionsAndY("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x91, "STA", AddrMode.IndirectY, [Store(Reg.A)]),
+                    Insn(0x91, "STA", AddrMode.IndirectY, [Store("A")]),
                 ];
             """));
 
@@ -260,7 +260,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "LDA", AddrMode.Accumulator, [Load(Reg.A)]),
+                    Insn(0x99, "LDA", AddrMode.Accumulator, [Load("A")]),
                 ];
             """));
 
@@ -300,7 +300,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "LDA", AddrMode.AbsoluteY, [Load(Reg.A)]),
+                    Insn(0x99, "LDA", AddrMode.AbsoluteY, [Load("A")]),
                 ];
             """));
 
@@ -316,7 +316,7 @@ public class ModeOpValidationTests
             WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xB5, "LDA", AddrMode.ZeroPageX, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xB5, "LDA", AddrMode.ZeroPageX, [Load("A"), SetNZ("A")]),
                 ];
             """),
             """new("X", 8),""",
@@ -335,7 +335,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "ADC", AddrMode.Immediate, [Adc(), SetNZ(Reg.A)]),
+                    Insn(0x99, "ADC", AddrMode.Immediate, [Adc(), SetNZ("A")]),
                 ];
             """));
 
@@ -367,7 +367,7 @@ public class ModeOpValidationTests
             """));
 
         var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
-        Assert.Contains("must be a Reg member", diagnostic.GetMessage());
+        Assert.Contains("must be a register-name string literal", diagnostic.GetMessage());
     }
 
     [Fact]
@@ -423,7 +423,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "ASL", AddrMode.ZeroPage, [ShiftLeft(), SetNZ(Reg.A)]),
+                    Insn(0x99, "ASL", AddrMode.ZeroPage, [ShiftLeft(), SetNZ("A")]),
                 ];
             """));
 
@@ -451,7 +451,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "PHA", AddrMode.Absolute, [Push(Reg.A)]),
+                    Insn(0x99, "PHA", AddrMode.Absolute, [Push("A")]),
                 ];
             """));
 
@@ -497,7 +497,7 @@ public class ModeOpValidationTests
             WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x48, "PHA", AddrMode.Implied, [Push(Reg.A)]),
+                    Insn(0x48, "PHA", AddrMode.Implied, [Push("A")]),
                 ];
             """),
             """new("S", 8, RegisterRole.StackPointer),""",
@@ -516,7 +516,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "PLA", AddrMode.Implied, [Pull(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0x99, "PLA", AddrMode.Implied, [Pull("A"), SetNZ("A")]),
                 ];
             """));
 
@@ -538,32 +538,51 @@ public class ModeOpValidationTests
         Assert.Empty(result.AllErrors); // emitted body must also COMPILE
     }
 
-    // ── Task 1: Reg-hardening tests ────────────────────────────────────────────────────────
+    // ── M3.1a: register-name validation (CPUGEN011 = not-a-string-literal; CPUGEN008 = undeclared) ──
 
     [Fact]
-    public void Unknown_Reg_member_in_op_reports_CPUGEN011()
+    public void Non_string_register_argument_reports_CPUGEN011()
     {
-        // Reg.Q is not in the Reg enum whitelist. Previously flowed silently to the emitter
-        // and only failed as CS0103 in generated code — this test closes that hole.
+        // The OLD enum form (Reg.A) no longer names anything — Reg is retired. In a register
+        // position the argument must be a STRING LITERAL; a member-access expression is not one,
+        // so it is a kind error (CPUGEN011), not a register-name error.
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "LDQ", AddrMode.Immediate, [Load(Reg.Q), SetNZ(Reg.Q)]),
+                    Insn(0x99, "LDQ", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
                 ];
             """));
 
         var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
-        Assert.Contains("must be a Reg member", diagnostic.GetMessage());
+        Assert.Contains("must be a register-name string literal", diagnostic.GetMessage());
     }
 
     [Fact]
-    public void Declared_register_not_in_Reg_enum_is_still_CPUGEN008_when_undeclared()
+    public void Non_literal_register_argument_reports_CPUGEN011()
     {
-        // Y is a valid Reg enum member but not declared in ValidSpecSource's Registers.
+        // An identifier (not a literal) in a register position is also a kind error: the DSL
+        // requires a statically-analyzable string literal, not a variable reference.
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x99, "LDY", AddrMode.Immediate, [Load(Reg.Y), SetNZ(Reg.Y)]),
+                    Insn(0x99, "LDQ", AddrMode.Immediate, [Load(someName)]),
+                ];
+            """));
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN011");
+        Assert.Contains("must be a register-name string literal", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void Undeclared_register_in_op_reports_CPUGEN008()
+    {
+        // "Y" is a syntactically valid register-name string literal but is NOT declared in
+        // ValidSpecSource's Registers table. CPUGEN008 is now the PRIMARY (and only) register-name
+        // gate — the spec's OWN declared set is the truth, not a fixed enum.
+        var result = GeneratorTestHost.Run(WithInstructions("""
+                public static readonly InstructionDef[] Instructions =
+                [
+                    Insn(0x99, "LDY", AddrMode.Immediate, [Load("Y"), SetNZ("Y")]),
                 ];
             """));
 
@@ -580,14 +599,14 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
-                    Insn(0xA5, "LDA", AddrMode.ZeroPage,  [Load(Reg.A), SetNZ(Reg.A)]),
-                    Insn(0xAD, "LDA", AddrMode.Absolute,  [Load(Reg.A), SetNZ(Reg.A)]),
-                    Insn(0x85, "STA", AddrMode.ZeroPage,  [Store(Reg.A)]),
-                    Insn(0x8D, "STA", AddrMode.Absolute,  [Store(Reg.A)]),
-                    Insn(0xA2, "LDX", AddrMode.Immediate, [Load(Reg.X), SetNZ(Reg.X)]),
-                    Insn(0xAA, "TAX", AddrMode.Implied,   [Transfer(Reg.A, Reg.X), SetNZ(Reg.X)]),
-                    Insn(0xE8, "INX", AddrMode.Implied,   [Increment(Reg.X), SetNZ(Reg.X)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A"), SetNZ("A")]),
+                    Insn(0xA5, "LDA", AddrMode.ZeroPage,  [Load("A"), SetNZ("A")]),
+                    Insn(0xAD, "LDA", AddrMode.Absolute,  [Load("A"), SetNZ("A")]),
+                    Insn(0x85, "STA", AddrMode.ZeroPage,  [Store("A")]),
+                    Insn(0x8D, "STA", AddrMode.Absolute,  [Store("A")]),
+                    Insn(0xA2, "LDX", AddrMode.Immediate, [Load("X"), SetNZ("X")]),
+                    Insn(0xAA, "TAX", AddrMode.Implied,   [Transfer("A", "X"), SetNZ("X")]),
+                    Insn(0xE8, "INX", AddrMode.Implied,   [Increment("X"), SetNZ("X")]),
                     Insn(0x4C, "JMP", AddrMode.Absolute,  [Jump()]),
                     Insn(0xD0, "BNE", AddrMode.Relative,  [BranchIf(Flag.Z, false)]),
                     Insn(0xEA, "NOP", AddrMode.Implied,   []),
@@ -647,7 +666,7 @@ public class ModeOpValidationTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x00, "BRK", AddrMode.Implied, [Brk(), SetNZ(Reg.A)]),
+                    Insn(0x00, "BRK", AddrMode.Implied, [Brk(), SetNZ("A")]),
                 ];
             """));
 

@@ -108,7 +108,7 @@ micro-op; the count is pinned by `SemanticsMapTests.Loads_56_Mnemonics`.
 
 **NOTE — TXS has no SetNZ:** TXS (Transfer X → Stack Pointer, 0x9A) is the one
 register transfer on the 6502 that does **not** affect any flags. The semantics
-map entry is `[Transfer(Reg.X, Reg.S)]` with no `SetNZ`. This is deliberate and
+map entry is `[Transfer("X", "S")]` with no `SetNZ`. This is deliberate and
 is pinned by `SemanticsMapTests.TXS_Has_No_SetNZ`.
 
 **Known limitation — duplicate mnemonic keys:** JSON object semantics are

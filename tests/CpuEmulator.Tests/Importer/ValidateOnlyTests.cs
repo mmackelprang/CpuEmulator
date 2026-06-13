@@ -85,7 +85,7 @@ public class ValidateOnlyTests
             """);
         var sem = TempFile("""
             { "architecture": "test", "namespace": "T", "specClassName": "TSpec",
-              "registers": [], "mnemonics": { "LDA": "[Load(Reg.A), SetNZ(Reg.A)]" } }
+              "registers": [], "mnemonics": { "LDA": "[Load(\"A\"), SetNZ(\"A\")]" } }
             """);
         try
         {
