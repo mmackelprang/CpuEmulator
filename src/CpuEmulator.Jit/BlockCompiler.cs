@@ -33,6 +33,10 @@ internal sealed partial class BlockCompiler
         typeof(Mos6502Cpu).GetMethod("AdvanceCycles", BindingFlags.NonPublic | BindingFlags.Instance)!;
     private static readonly MethodInfo MStep = typeof(Mos6502Cpu).GetMethod("Step")!;
     private static readonly MethodInfo MCycleCount = typeof(Mos6502Cpu).GetProperty("CycleCount")!.GetGetMethod()!;
+    // Pre-positioned for the M2-ii emitted block-entry interrupt check. M2-i does NOT emit an
+    // entry check — the dispatcher (JittedCpu.Run) checks InterruptPending before each block,
+    // which is authoritative without chaining (plan Task 4 note). This handle is intentionally
+    // unused until chaining lands; it is NOT a wired-up emitted check.
     private static readonly MethodInfo MInterruptPending =
         typeof(Mos6502Cpu).GetProperty("InterruptPending")!.GetGetMethod()!;
 

@@ -18,7 +18,10 @@ internal sealed class EmitContext
     /// <summary>int — a data byte read from memory (held as int so byte ops compose).</summary>
     public LocalBuilder DataLocal { get; }
 
-    /// <summary>uint — the effective address an access targets (the page-class branch keys on it).</summary>
+    /// <summary>uint — the effective address an access targets (the page-class branch keys on it).
+    /// INVARIANT: both LoadByteFromBus and EmitStoreByte CLOBBER this local (they stash the access
+    /// address here). An arm that needs an address to survive across a bus access must hold it in
+    /// AddrLocal and re-store ea before each access (the RMW memory arms do exactly this).</summary>
     public LocalBuilder EaLocal { get; }
 
     /// <summary>uint — a low byte during multi-byte address resolution.</summary>
