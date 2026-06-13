@@ -56,6 +56,14 @@ internal static class SpecDiagnostics
         "CPUGEN012", "Invalid decode structure",
         "Decode structure is not analyzable: {0}");
 
+    public static readonly DiagnosticDescriptor InvalidFlagLayout = Make(
+        "CPUGEN013", "Invalid flag layout",
+        "Flag layout is not analyzable: {0}");
+
+    public static readonly DiagnosticDescriptor InvalidPairView = Make(
+        "CPUGEN014", "Invalid register pair view",
+        "Register pair view '{0}': {1}");
+
     public static DiagnosticDescriptor ById(string id) => id switch
     {
         "CPUGEN001" => MissingRegisters,
@@ -70,6 +78,8 @@ internal static class SpecDiagnostics
         "CPUGEN010" => UnsupportedModeOpCombination,
         "CPUGEN011" => InvalidMicroOpArgument,
         "CPUGEN012" => InvalidDecodeStructure,
+        "CPUGEN013" => InvalidFlagLayout,
+        "CPUGEN014" => InvalidPairView,
         _ => throw new System.ArgumentException($"Unknown diagnostic id '{id}'."),
     };
 }

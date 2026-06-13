@@ -76,6 +76,12 @@ internal static class SpecParser
         ["PortIn"] = new[] { ArgKind.Reg },
         ["PortOut"] = new[] { ArgKind.Reg },
         ["Halt"] = System.Array.Empty<ArgKind>(),
+        // Composable flag micro-ops (M3.4a — general). SetSZ/SetParity/SetXY name a result register;
+        // SetAddSub takes a bool (true = subtract).
+        ["SetSZ"] = new[] { ArgKind.Reg },
+        ["SetParity"] = new[] { ArgKind.Reg },
+        ["SetXY"] = new[] { ArgKind.Reg },
+        ["SetAddSub"] = new[] { ArgKind.Bool },
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -87,10 +93,13 @@ internal static class SpecParser
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
     };
 
-    /// <summary>Valid Flag enum members for BranchIf (CPUGEN006 for anything else).</summary>
+    /// <summary>Valid Flag enum members for BranchIf/SetFlag/cc args (CPUGEN006 for anything else).
+    /// M3.4a (additive): the Z80 names S/H/P/Y/X join so SetFlag(Flag.H, …)/JumpIf(Flag.P, …) parse.
+    /// The 6502 names C/Z/I/D/V/N are unchanged — the 6502 spec uses only those.</summary>
     private static readonly HashSet<string> s_flagMembers = new(System.StringComparer.Ordinal)
     {
         "C", "Z", "I", "D", "V", "N",
+        "S", "H", "P", "Y", "X",   // M3.4a: Z80 flag names (additive)
     };
 
     /// <summary>Local variable names the emitter writes into opcode bodies (and Step/Run).
@@ -108,6 +117,8 @@ internal static class SpecParser
         "Decrement",  // register-class use: DEX/DEY (op is register class, not rmw class)
         "SetFlag",    // register-class use: CLC/SEC/CLI/SEI/CLV/CLD/SED
         "Halt",       // M3.2: HALT/STOP — an Implied/Register-class op that sets the halted latch
+        // M3.4a: composable flag micro-ops — register-class (they only modify the Status register).
+        "SetSZ", "SetParity", "SetXY", "SetAddSub",
     };
 
     // M3.2 (additive): the I/O-port op kinds + their legal modes. A Port-class row's first op is
@@ -226,11 +237,15 @@ internal static class SpecParser
         // Optional decode structure (Ground truth G). ABSENT (the 6502) ⇒ the degenerate walk.
         var decode = ParseDecodeStructure(classDecl, instructions, diagnostics);
 
+        // Optional flag layout (M3.4a Ground truth B). ABSENT (the 6502) ⇒ the FlagBit enum fallback.
+        var flags = ParseFlagLayout(classDecl, diagnostics);
+
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var model = new SpecModel(ns, cpuName, architecture,
-            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode);
+            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode,
+            FetchUnit.Byte, flags);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -565,6 +580,66 @@ internal static class SpecParser
             }
 
         return new DecodeStructureModel(prefixes.ToImmutable(), modRm.ToImmutable(), subField.ToImmutable());
+    }
+
+    /// <summary>Parse the optional <c>Flags</c> field (M3.4a Ground truth B). ABSENT ⇒ empty (the
+    /// 6502 FlagBit enum-fallback). Present ⇒ a <c>new([ new("S", 7), new("Z", 6), … ])</c> /
+    /// <c>new FlagLayout([...])</c> creation whose collection of <c>FlagBitDef("NAME", bit)</c>
+    /// entries is parsed into the model. A malformed structure or a bit outside 0–7 reports
+    /// CPUGEN013. Each name must be a known Flag member (CPUGEN013 otherwise).</summary>
+    private static ImmutableArray<FlagBitModel> ParseFlagLayout(
+        ClassDeclarationSyntax classDecl,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        var field = FindArrayField(classDecl, "Flags");
+        if (field is null)
+            return ImmutableArray<FlagBitModel>.Empty;   // ABSENT — the 6502 default.
+
+        Location loc = field.GetLocation();
+        if (field.Declaration.Variables[0].Initializer?.Value is not { } init ||
+            GetCreationArguments(init) is not { Count: 1 } args ||
+            args[0] is not CollectionExpressionSyntax bitsColl)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout, loc,
+                "expected new([ new(\"NAME\", bit), ... ]) with literal arguments"));
+            return ImmutableArray<FlagBitModel>.Empty;
+        }
+
+        var bits = ImmutableArray.CreateBuilder<FlagBitModel>();
+        var seen = new HashSet<string>(System.StringComparer.Ordinal);
+        foreach (var element in bitsColl.Elements)
+        {
+            if (element is not ExpressionElementSyntax expr ||
+                GetCreationArguments(expr.Expression) is not { Count: 2 } bargs ||
+                LiteralString(bargs[0]) is not { } name ||
+                LiteralInt(bargs[1]) is not { } bit)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), "expected new(\"NAME\", bit) with literal arguments"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            if (!s_flagMembers.Contains(name))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), $"'{name}' is not a known Flag member"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            if (bit is < 0 or > 7)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), $"bit {bit} for flag '{name}' is outside 0–7"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            if (!seen.Add(name))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), $"duplicate flag '{name}' in layout"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            bits.Add(new FlagBitModel(name, bit));
+        }
+
+        return bits.ToImmutable();
     }
 
     /// <summary>Parse a collection of 0xNN byte literals into the builder; false on any non-literal

@@ -49,12 +49,13 @@ internal static class CpuEmitter
         sb.AppendLine();
         sb.AppendLine("    private long _cycles;");
         sb.AppendLine("    public long CycleCount => _cycles;");
-        EmitBody(sb, model);
+        var flags = FlagBitMap.From(model.Flags.Length > 0 ? model.Flags.Values : null);
+        EmitBody(sb, model, flags);
         sb.AppendLine("}");
         return sb.ToString();
     }
 
-    private static void EmitBody(StringBuilder sb, SpecModel model)
+    private static void EmitBody(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
         sb.AppendLine();
         foreach (var register in model.Registers)
@@ -87,14 +88,14 @@ internal static class CpuEmitter
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
-        EmitExecution(sb, model);
+        EmitExecution(sb, model, flags);
         EmitDisassembler(sb, model);
         EmitMonitorSupport(sb, model);
-        EmitJitDescriptors(sb, model);
+        EmitJitDescriptors(sb, model, flags);
         EmitDecodeWalk(sb, model);
     }
 
-    private static void EmitExecution(StringBuilder sb, SpecModel model)
+    private static void EmitExecution(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
         var pcRegister = model.Registers.First(r => r.Role == "ProgramCounter");
         string pc = pcRegister.Name;
@@ -229,7 +230,7 @@ internal static class CpuEmitter
         // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
         // etc. are byte-identical method names).
         foreach (var instruction in model.Instructions)
-            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg);
+            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags);
     }
 
     private static void EmitOpcodeMethod(
@@ -238,7 +239,8 @@ internal static class CpuEmitter
         string pc,
         string pcType,
         string? statusReg,
-        string? spReg)
+        string? spReg,
+        FlagBitMap flags)
     {
         // Classification is carried on the model — the parser classified it once (CPUGEN010).
         // The emitter consumes instruction.Class directly; no parallel classifier here.
@@ -262,10 +264,10 @@ internal static class CpuEmitter
         switch (opClass)
         {
             case InstructionClass.Load:
-                EmitLoadBody(sb, instruction, pc, pcType, statusReg);
+                EmitLoadBody(sb, instruction, pc, pcType, statusReg, flags);
                 break;
             case InstructionClass.Register:
-                EmitRegisterBody(sb, instruction, pc, statusReg);
+                EmitRegisterBody(sb, instruction, pc, statusReg, flags);
                 break;
             case InstructionClass.Store:
                 EmitStoreBody(sb, instruction, pc, pcType);
@@ -274,7 +276,7 @@ internal static class CpuEmitter
                 EmitJumpBody(sb, instruction, pc, pcType);
                 break;
             case InstructionClass.Branch:
-                EmitBranchBody(sb, instruction, pc, pcType, statusReg);
+                EmitBranchBody(sb, instruction, pc, pcType, statusReg, flags);
                 break;
             case InstructionClass.Alu:
                 EmitAluBody(sb, instruction, pc, pcType, statusReg);
@@ -353,7 +355,8 @@ internal static class CpuEmitter
         InstructionModel instruction,
         string pc,
         string pcType,
-        string? statusReg)
+        string? statusReg,
+        FlagBitMap flags)
     {
         // First op is Load(target) — use shared operand resolution, then assign
         string target = instruction.Ops[0].Args[0]; // register name
@@ -362,7 +365,7 @@ internal static class CpuEmitter
 
         // Apply remaining register ops (SetNZ etc.)
         for (int i = 1; i < instruction.Ops.Length; i++)
-            EmitRegisterOp(sb, instruction.Ops[i], statusReg);
+            EmitRegisterOp(sb, instruction.Ops[i], statusReg, flags);
     }
 
     // ---- Register class (Implied mode) ----
@@ -371,7 +374,8 @@ internal static class CpuEmitter
         StringBuilder sb,
         InstructionModel instruction,
         string pc,
-        string? statusReg)
+        string? statusReg,
+        FlagBitMap flags)
     {
         if (instruction.Mode != "Implied")
             throw new System.InvalidOperationException(
@@ -382,10 +386,10 @@ internal static class CpuEmitter
 
         // Apply each op in order
         foreach (var op in instruction.Ops)
-            EmitRegisterOp(sb, op, statusReg);
+            EmitRegisterOp(sb, op, statusReg, flags);
     }
 
-    private static void EmitRegisterOp(StringBuilder sb, OpModel op, string? statusReg)
+    private static void EmitRegisterOp(StringBuilder sb, OpModel op, string? statusReg, FlagBitMap flags)
     {
         switch (op.Kind)
         {
@@ -422,7 +426,7 @@ internal static class CpuEmitter
                 string flagName = op.Args[0];
                 bool setValue = op.Args[1] == "true";
                 string p = statusReg ?? "P";
-                byte mask = (byte)(1 << FlagBit(flagName));
+                byte mask = (byte)(1 << flags.BitOf(flagName));
                 if (setValue)
                     sb.AppendLine($"        {p} = unchecked((byte)({p} | 0x{mask:X2}));");
                 else
@@ -435,6 +439,56 @@ internal static class CpuEmitter
                 // services + clears the latch (the wake). The partial owns the latch + DoHalt.
                 sb.AppendLine("        DoHalt();");
                 break;
+            // ── Composable flag micro-ops (M3.4a — general, 8086-reusable). Each is a read-modify-
+            //    write of the Status register using PER-SPEC FlagBit masks (Ground truth C). ──
+            case "SetSZ":
+            {
+                string src = op.Args[0];
+                string p = statusReg ?? "P";
+                byte sMask = (byte)(1 << flags.BitOf("S"));
+                byte zMask = (byte)(1 << flags.BitOf("Z"));
+                byte clear = (byte)~(sMask | zMask);
+                // S = src bit7; Z = (src == 0). The src's bit7 is mapped to the S bit position.
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x{clear:X2})");
+                sb.AppendLine($"            | ((({src} >> 7) & 1) << {flags.BitOf("S")})");
+                sb.AppendLine($"            | ({src} == 0 ? 0x{zMask:X2} : 0x00)));");
+                break;
+            }
+            case "SetParity":
+            {
+                string src = op.Args[0];
+                string p = statusReg ?? "P";
+                byte pMask = (byte)(1 << flags.BitOf("P"));
+                byte clear = (byte)~pMask;
+                // P/V = even parity of src: System.Numerics.BitOperations.PopCount(src) even ⇒ set.
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x{clear:X2})");
+                sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint){src}) & 1) == 0 ? 0x{pMask:X2} : 0x00)));");
+                break;
+            }
+            case "SetXY":
+            {
+                string src = op.Args[0];
+                string p = statusReg ?? "P";
+                byte xMask = (byte)(1 << flags.BitOf("X"));
+                byte yMask = (byte)(1 << flags.BitOf("Y"));
+                byte clear = (byte)~(xMask | yMask);
+                // X = src bit3 (mapped to the X bit position); Y = src bit5 (mapped to the Y bit position).
+                sb.AppendLine($"        {p} = unchecked((byte)(({p} & 0x{clear:X2})");
+                sb.AppendLine($"            | ((({src} >> 3) & 1) << {flags.BitOf("X")})");
+                sb.AppendLine($"            | ((({src} >> 5) & 1) << {flags.BitOf("Y")})));");
+                break;
+            }
+            case "SetAddSub":
+            {
+                bool subtract = op.Args[0] == "true";
+                string p = statusReg ?? "P";
+                byte nMask = (byte)(1 << flags.BitOf("N"));
+                if (subtract)
+                    sb.AppendLine($"        {p} = unchecked((byte)({p} | 0x{nMask:X2}));");
+                else
+                    sb.AppendLine($"        {p} = unchecked((byte)({p} & ~0x{nMask:X2}));");
+                break;
+            }
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no template for register op kind '{op.Kind}'");
@@ -558,25 +612,17 @@ internal static class CpuEmitter
 
     // ---- Branch class ----
 
-    // Flag name -> hardware bit position (mirrors Flag enum values)
-    // MIRROR TABLES: this map mirrors CpuEmulator.Core.Specification.Flag enum bit values.
-    private static int FlagBit(string flagName) => flagName switch
-    {
-        "C" => 0,
-        "Z" => 1,
-        "I" => 2,
-        "D" => 3,
-        "V" => 6,
-        "N" => 7,
-        _ => throw new System.ArgumentException($"Unknown flag '{flagName}'"),
-    };
+    // Flag name -> hardware bit position. M3.4a: PER-SPEC via the model's FlagBitMap (Ground truth B):
+    // a spec that declares a FlagLayout resolves the Z80 bit positions (Z=6, N=1, …); the 6502 (no
+    // layout) falls back to the Flag enum's 6502 values (C=0 Z=1 I=2 D=3 V=6 N=7) — byte-identical.
 
     private static void EmitBranchBody(
         StringBuilder sb,
         InstructionModel instruction,
         string pc,
         string pcType,
-        string? statusReg)
+        string? statusReg,
+        FlagBitMap flags)
     {
         if (instruction.Mode != "Relative")
             throw new System.InvalidOperationException(
@@ -585,7 +631,7 @@ internal static class CpuEmitter
         string p = statusReg ?? "P";
         string flagName = instruction.Ops[0].Args[0];
         bool when = instruction.Ops[0].Args[1] == "true";
-        int bit = FlagBit(flagName);
+        int bit = flags.BitOf(flagName);
         int expectedBit = when ? 1 : 0;
 
         // Branch template from the plan:
@@ -1462,11 +1508,11 @@ internal static class CpuEmitter
     /// ComputeCycles, and isPageCross logic the interpreter body emission uses, so the table
     /// can never drift from the interpreter on length or cycle template. Pure data — no
     /// Reflection.Emit here; the JIT assembly is the only place that emits IL.</summary>
-    private static void EmitJitDescriptors(StringBuilder sb, SpecModel model)
+    private static void EmitJitDescriptors(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
         if (model.Decode is not null)
         {
-            EmitKeyedDescriptorTable(sb, model);
+            EmitKeyedDescriptorTable(sb, model, flags);
             return;
         }
 
@@ -1483,7 +1529,7 @@ internal static class CpuEmitter
         for (int op = 0; op <= 0xFF; op++)
         {
             if (byOpcode.TryGetValue((byte)op, out var insn))
-                sb.AppendLine($"        {DescriptorLiteral(insn)},");
+                sb.AppendLine($"        {DescriptorLiteral(insn, flags)},");
             else
                 sb.AppendLine($"        CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined(0x{op:X2}),");
         }
@@ -1495,7 +1541,7 @@ internal static class CpuEmitter
     /// opcode-group rows that share an opcode byte, so the structured CPU keys its descriptors on the
     /// opaque OperationKey instead. ModR/M rows carry LengthRule.ModRmDetermined; every other row is
     /// LengthRule.Fixed. The 6502 (no DecodeStructure) keeps the dense array path above.</summary>
-    private static void EmitKeyedDescriptorTable(StringBuilder sb, SpecModel model)
+    private static void EmitKeyedDescriptorTable(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
         var modRm = model.Decode!.ModRmOpcodes.Values;
         sb.AppendLine();
@@ -1507,7 +1553,7 @@ internal static class CpuEmitter
         foreach (var insn in model.Instructions)
         {
             bool isModRm = modRm.Contains(insn.Opcode) && insn.KeyShape == KeyShape.OpcodeByte;
-            sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm)},");
+            sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm, flags)},");
         }
         sb.AppendLine("    };");
     }
@@ -1515,7 +1561,7 @@ internal static class CpuEmitter
     /// <summary>One descriptor row as a C# object-creation expression. Reuses ModeLength,
     /// ComputeCycles, and the isPageCross predicate — the SAME functions the interpreter
     /// body emission uses, so the table cannot drift from the interpreter.</summary>
-    private static string DescriptorLiteral(InstructionModel insn)
+    private static string DescriptorLiteral(InstructionModel insn, FlagBitMap flags)
     {
         InstructionClass cls = insn.Class;
         int length = ModeLength(insn.Mode);
@@ -1523,7 +1569,7 @@ internal static class CpuEmitter
         bool pageCross = insn.Mode is "AbsoluteX" or "AbsoluteY" or "IndirectY"
             && cls is InstructionClass.Load or InstructionClass.Alu;
         (string jitClass, bool endsBlock, bool fallback) = ClassifyForJit(insn, cls);
-        string ops = string.Join(", ", insn.Ops.Select(JitOpLiteral));
+        string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
         return $"new(0x{insn.Opcode:X2}, \"{insn.Mnemonic}\", "
              + $"CpuEmulator.Core.Jit.JitMode.{insn.Mode}, "
              + $"CpuEmulator.Core.Jit.JitOpClass.{jitClass}, "
@@ -1539,12 +1585,12 @@ internal static class CpuEmitter
     /// byte); ModRm → 2 base (opcode + the length-determining byte) with LengthRule.ModRmDetermined,
     /// the walk reading the variable tail. (The synthetic ops are Implied with no operand bytes —
     /// the proof is the DECODE SHAPE, not operand carriage; Ground truth F scope honesty.)</summary>
-    private static string KeyedDescriptorLiteral(InstructionModel insn, bool isModRm)
+    private static string KeyedDescriptorLiteral(InstructionModel insn, bool isModRm, FlagBitMap flags)
     {
         InstructionClass cls = insn.Class;
         int baseCycles = JitBaseCycles(insn, cls);
         (string jitClass, bool endsBlock, bool fallback) = ClassifyForJit(insn, cls);
-        string ops = string.Join(", ", insn.Ops.Select(JitOpLiteral));
+        string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
 
         int fixedLength = insn.KeyShape switch
         {
@@ -1652,7 +1698,7 @@ internal static class CpuEmitter
     /// to their hardware bit via <see cref="FlagBit"/>; a trailing bool literal becomes BoolArg.
     /// Unused register slots are the empty string "" (the unambiguous "no register operand"
     /// marker — no register is ever named "").</summary>
-    private static string JitOpLiteral(OpModel op)
+    private static string JitOpLiteral(OpModel op, FlagBitMap flags)
     {
         string regA = "\"\"", regB = "\"\"";
         byte flagBit = 0;
@@ -1674,11 +1720,17 @@ internal static class CpuEmitter
             case "Pull":       // (reg target)
             case "PortIn":     // (reg target) — M3.2
             case "PortOut":    // (reg source) — M3.2
+            case "SetSZ":      // (reg source) — M3.4a
+            case "SetParity":  // (reg source) — M3.4a
+            case "SetXY":      // (reg source) — M3.4a
                 regA = Quote(op.Args[0]);
+                break;
+            case "SetAddSub":  // (bool subtract) — M3.4a
+                boolArg = op.Args[0] == "true";
                 break;
             case "BranchIf":   // (Flag, bool when)
             case "SetFlag":    // (Flag, bool value)
-                flagBit = (byte)FlagBit(op.Args[0]);
+                flagBit = (byte)flags.BitOf(op.Args[0]);
                 boolArg = op.Args[1] == "true";
                 break;
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,

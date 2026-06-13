@@ -34,9 +34,14 @@ internal sealed record SpecModel(
     EquatableArray<RegisterModel> Registers,
     EquatableArray<InstructionModel> Instructions,
     DecodeStructureModel? Decode = null,          // ABSENT (the 6502) ⇒ the degenerate walk
-    FetchUnit FetchUnit = FetchUnit.Byte);
+    FetchUnit FetchUnit = FetchUnit.Byte,
+    EquatableArray<FlagBitModel> Flags = default);  // ABSENT (the 6502) ⇒ FlagBit enum fallback
 
-internal sealed record RegisterModel(string Name, int Bits, string Role);
+/// <summary>One flag name → hardware bit position parsed from a declared <c>FlagLayout</c>
+/// (Ground truth B). ABSENT on the model (empty array) ⇒ the 6502 enum-fallback FlagBit map.</summary>
+internal sealed record FlagBitModel(string Name, int Bit);
+
+internal sealed record RegisterModel(string Name, int Bits, string Role, string? HighHalf = null, string? LowHalf = null);
 
 /// <summary>The parsed decode structure (Ground truth G). ABSENT on the model means the 6502
 /// degenerate walk. Carries the prefix bytes, the ModR/M (length-determining) opcodes, and the

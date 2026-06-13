@@ -13,3 +13,5 @@ CPUGEN009 | CpuEmulator.Spec | Error | Invalid spec metadata
 CPUGEN010 | CpuEmulator.Spec | Error | Unsupported mode/op combination
 CPUGEN011 | CpuEmulator.Spec | Error | Invalid micro-op argument
 CPUGEN012 | CpuEmulator.Spec | Error | Invalid decode structure
+CPUGEN013 | CpuEmulator.Spec | Error | Invalid flag layout
+CPUGEN014 | CpuEmulator.Spec | Error | Invalid register pair view
