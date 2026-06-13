@@ -37,4 +37,74 @@ public class PortHaltVocabularyTests
         Assert.Equal("PortIn", d.Ops[0].Kind);
         Assert.Equal("A", d.Ops[0].RegA);
     }
+
+    // ── Task 2: the PortIn/PortOut/Halt micro-op factories are recognized by the generator ────
+
+    private const string PortHaltSpec = """
+        using CpuEmulator.Core;
+        using CpuEmulator.Core.Specification;
+        using static CpuEmulator.Core.Specification.Spec;
+
+        namespace SyntheticCpu;
+
+        [CpuSpecification("vocabtest")]
+        public static class VocabTestSpec
+        {
+            public static readonly RegisterDef[] Registers =
+            [
+                new("A", 8),
+                new("PC", 16, RegisterRole.ProgramCounter),
+            ];
+
+            public static readonly InstructionDef[] Instructions =
+            [
+                Insn(0xDB, "IN",   AddrMode.IoPortImmediate, [PortIn("A")]),
+                Insn(0xD3, "OUT",  AddrMode.IoPortImmediate, [PortOut("A")]),
+                Insn(0x76, "HALT", AddrMode.Implied,         [Halt()]),
+                Insn(0xEA, "NOP",  AddrMode.Implied,         []),
+            ];
+        }
+
+        public sealed partial class VocabTestCpu
+        {
+            private readonly IAddressSpace _bus;
+            private readonly IAddressSpace _ioBus;
+            private bool _halted;
+            public VocabTestCpu(IAddressSpace bus, IAddressSpace ioBus) { _bus = bus; _ioBus = ioBus; }
+            public void Reset() { }
+            public void SetIrqLine(bool a) { }
+            public void SetNmiLine(bool a) { }
+            private byte ReadBus(uint a) { _cycles++; return _bus.Read8(a); }
+            private void WriteBus(uint a, byte v) { _cycles++; _bus.Write8(a, v); }
+            private byte ReadIo(uint p) { _cycles++; return _ioBus.Read8(p); }
+            private void WriteIo(uint p, byte v) { _cycles++; _ioBus.Write8(p, v); }
+            private void IdleCycle() { _cycles++; }
+            private void HandleUndefinedOpcode(byte op) { _cycles++; }
+            public partial bool Halted => _halted;
+            private void DoHalt() { _halted = true; }
+            private partial bool TryServiceInterrupt() => false;
+            public partial bool InterruptPending => false;
+        }
+        """;
+
+    [Fact]
+    public void PortIn_PortOut_Halt_are_recognized_micro_ops()
+    {
+        // Task 2: the three factories exist (the spec source compiles the Spec.PortIn/PortOut/Halt
+        // calls) and the generator recognizes their names — no CPUGEN "unknown micro-op" diagnostic.
+        // (Full generate-clean — the Port class + the interpreter/Halt bodies — lands at Tasks 3/4/6;
+        // this unit isolates the vocabulary recognition only.)
+        var result = GeneratorTestHost.Run(PortHaltSpec);
+
+        // The names are KNOWN micro-ops — no CPUGEN006 "unknown micro-op". (Classification into the
+        // Port class is Task 3; the CPUGEN010 mode/op-combination diagnostic until then is expected.)
+        Assert.DoesNotContain(result.GeneratorDiagnostics, d => d.Id == "CPUGEN006");
+        // No C# compile error from a MISSING Spec.PortIn/PortOut/Halt factory (CS0103) — the
+        // factories exist and resolve. (Downstream CS errors from the not-yet-emitted Port/Halt
+        // bodies are Tasks 4/6; the factory-resolution gate is what Task 2 proves.)
+        Assert.DoesNotContain(result.AllErrors,
+            d => d.Id == "CS0103" &&
+                 (d.GetMessage().Contains("PortIn") || d.GetMessage().Contains("PortOut")
+               || d.GetMessage().Contains("Halt")));
+    }
 }

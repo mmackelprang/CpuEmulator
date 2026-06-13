@@ -72,6 +72,10 @@ internal static class SpecParser
         ["Rts"] = System.Array.Empty<ArgKind>(),
         ["Brk"] = System.Array.Empty<ArgKind>(),
         ["Rti"] = System.Array.Empty<ArgKind>(),
+        // I/O-port + halt (M3.2 — additive). PortIn/PortOut name a register; Halt takes nothing.
+        ["PortIn"] = new[] { ArgKind.Reg },
+        ["PortOut"] = new[] { ArgKind.Reg },
+        ["Halt"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
