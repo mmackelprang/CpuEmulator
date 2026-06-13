@@ -655,6 +655,25 @@ they are not "more CPUs," they are the **second half of the genericity proof**.
 
 ---
 
+### Decision (human checkpoint, 2026-06-13): a three-architecture ladder before optimization
+
+The human accepted all four consequential recommendations (data-driven register file; generic
+multi-byte-key decoder; partial Z80-through-JIT in M3; full cycle + undocumented-flag fidelity) and
+**strengthened the genericity plan beyond this ADR's proposal**: rather than Z80 + one more, the
+cross-architecture optimization is gated behind **three** diverse architectures, sequenced
+**M3 Z80 → M4 68000 → M5 8086 → M6 optimization**. Rationale: the three together leave essentially
+no genericity dimension untested — Z80 the front half (decode/register/flag/block), **68000** the
+register-width + **big-endian** + word/long-bus + 24-bit-address half (the dimension this ADR's
+verdict flagged as surviving Z80 untested), **8086** segmentation + variable-length decode. Both
+68000 (24-bit address bus) and 8086 (20-bit physical) fit the current `addressBits ≤ 24` design, so
+neither forces the deferred two-level page table; 68000's 32-bit registers + big-endian + word/long
+transactions are the genuinely new pressure. Accepted trade-off: the JIT remains slower-than-Tier-0
+until M6 — thoroughness over speed-now, consistent with the project's "the value is the abstractions"
+thesis. Supersedes this section's "M4 8086 as the second half" framing: it is now M4 68000 **and**
+M5 8086, in that order, *both* before the optimization.
+
+---
+
 ## 4. Risks & open questions for the human
 
 1. **Replace the `Reg` enum with spec-declared register names (Decision 3(ii))?** This is the

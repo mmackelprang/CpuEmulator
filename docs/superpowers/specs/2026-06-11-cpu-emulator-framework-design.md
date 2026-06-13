@@ -257,19 +257,32 @@ Each numbered item ≈ one PR-sized chunk on a branch.
      revisit gates were measured (`--gates`) and recorded with their numbers; the decision on each
      is "measured, kept current" (the Tier-1 JIT — chaining + emitted decimal arms — is where the
      speed now lives; a Tier-0 dispatch/layout micro-opt is not material to the overall picture).
-- **M3 — the pluggability proof**
-  10. Z80 by spec only — and **by extraction**: M3 doubles as the acceptance test of the
-      datasheet-extraction approach (run the runbook against the Z80 manual, hand-build the
-      Z80 mode templates + new micro-ops, prove the extracted table with the SingleStepTests
-      Z80 vectors). The Z80 itself: prefix opcodes, separate I/O space, R refresh register.
-      Framework changes required here are measured and treated as findings, not failures.
-- **M4+ (phase-A horizon):** 8086 or 68000, interrupt-controller *device* (timers + wired-OR
-  multi-source lines DELIVERED PR #11; a prioritized controller device remains), real board
+- **M3 — the pluggability proof (Z80).** ADR: `docs/architecture/0001-z80-second-architecture.md`.
+  Z80 by spec **and by extraction** (the runbook's first real non-6502 use): prefix opcodes
+  (CB/ED/DD/FD + DDCB/FDCB), separate 16-bit I/O space, the alternate register set + IX/IY/I/R,
+  the S Z Y H X P/V N C flag model, 16-bit ALU, block ops, IM 0/1/2. Proven against the
+  SingleStepTests Z80 vectors. Cross-cutting decisions locked (checkpoint 2026-06-13):
+  data-driven register file (retire the closed `Reg` enum), a generic multi-byte-key decoder
+  (retire the `[256]`/`switch(opcode)` shape), partial Z80-through-JIT in M3 (hot straight-line
+  ops emitted, block-ops/DAA/EX/IO fall back), full cycle + undocumented-flag fidelity.
+  M3 proves the framework's **front half** is architecture-generic.
+- **The genericity ladder before optimization (decision 2026-06-13).** The cross-architecture
+  JIT optimization is gated behind THREE diverse architectures, in this order, each through both
+  tiers and TomHarte-validated:
+  - **M3 — Z80:** decode structure, register file, flag model, block/chain model.
+  - **M4 — 68000:** 32-bit registers, **big-endian**, word/long bus transactions, the 24-bit
+    address space (the bus + register-width model). Fits the current `addressBits ≤ 24` wall.
+  - **M5 — 8086:** **segmentation** (non-flat addressing), variable-length decode (hammers the
+    generic decoder), instruction prefixes. 20-bit physical; also under the ≤24 wall.
+  - **M6 — cross-architecture JIT optimization:** make Tier-1 beat Tier-0 (cheaper SMC
+    invalidation, register allocation, lower per-block dispatch cost) — only optimizations that
+    help across all four ISAs count, validated by the multi-architecture parity + bench suites.
+- **Phase-A horizon (post-M6):** interrupt-controller *device* (timers + wired-OR multi-source
+  lines DELIVERED PR #11; a prioritized 8259-style controller device remains), real board
   recreations, NuGet packaging polish, and a TomHarte-derived **spec linter** that infers
   per-opcode behavior (operand size, addressing mode, cycle shape) from the SingleStepTests
-  vectors and cross-checks the curated opcode dataset. The linter is Stage 3 of the
-  datasheet-extraction pipeline (decision 2026-06-12): extraction proposes, vector
-  inference disposes.
+  vectors and cross-checks the curated opcode dataset — Stage 3 of the datasheet-extraction
+  pipeline (decision 2026-06-12): extraction proposes, vector inference disposes.
 
 ## 10. Success criteria
 
