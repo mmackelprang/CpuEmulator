@@ -1,0 +1,33 @@
+{
+  "architecture": "z80",
+  "namespace": "CpuEmulator.Cpus.Z80",
+  "specClassName": "Z80Spec",
+  "registers": [
+    { "name": "A",  "bits": 8 },
+    { "name": "F",  "bits": 8, "role": "Status" },
+    { "name": "B",  "bits": 8 },
+    { "name": "C",  "bits": 8 },
+    { "name": "D",  "bits": 8 },
+    { "name": "E",  "bits": 8 },
+    { "name": "H",  "bits": 8 },
+    { "name": "L",  "bits": 8 },
+    { "name": "A_", "bits": 8 },
+    { "name": "F_", "bits": 8 },
+    { "name": "B_", "bits": 8 },
+    { "name": "C_", "bits": 8 },
+    { "name": "D_", "bits": 8 },
+    { "name": "E_", "bits": 8 },
+    { "name": "H_", "bits": 8 },
+    { "name": "L_", "bits": 8 },
+    { "name": "I",  "bits": 8 },
+    { "name": "R",  "bits": 8 },
+    { "name": "IX", "bits": 16 },
+    { "name": "IY", "bits": 16 },
+    { "name": "SP", "bits": 16, "role": "StackPointer" },
+    { "name": "PC", "bits": 16, "role": "ProgramCounter" }
+  ],
+  "mnemonics": {
+    "NOP":  "[]",
+    "HALT": "[Halt()]"
+  }
+}

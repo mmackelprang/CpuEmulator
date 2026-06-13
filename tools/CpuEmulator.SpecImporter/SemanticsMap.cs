@@ -79,6 +79,14 @@ public sealed class SemanticsMap
         // BRK/RTI flow ops (Task 8 / 3b-ii)
         ["Brk"]           = 0,  // Brk()
         ["Rti"]           = 0,  // Rti()
+        // I/O-port + halt class (M3.2 — additive). Mirrors Spec.PortIn/PortOut/Halt + the parser's
+        // s_microOpSignatures. These already SHIPPED in M3.2 (Spec.cs:68-70); this mirror table was
+        // not updated in concert (the SYNC HAZARD noted above). M3.3 syncs it so a Z80 covered
+        // mnemonic (HALT -> Halt, IN/OUT -> PortIn/PortOut, Ground truth E.2) validates against the
+        // EXISTING factory set. NO M3.4 vocabulary is added here — these are pre-existing factories.
+        ["PortIn"]        = 1,  // PortIn("reg")
+        ["PortOut"]       = 1,  // PortOut("reg")
+        ["Halt"]          = 0,  // Halt()
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────
