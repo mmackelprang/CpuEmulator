@@ -139,6 +139,36 @@ The optional `inject` delegate is called per-byte by the `i TEXT` command. Wire 
 
 ---
 
+## Running on the JIT tier
+
+By default a machine runs on the interpreter (Tier 0). To run it on the IL-JIT (Tier 1, the speed
+path), have the CPU factory return a `JittedCpu` wrapping the interpreter and the concrete address
+space:
+
+```csharp
+using CpuEmulator.Jit;
+
+var machine = Machine.Create("jit-board")
+    .WithAddressSpace(AddressSpaceKind.Program, addressBits: 16)
+    .WithRam(AddressSpaceKind.Program, 0x0000, 0xD000)
+    // ... peripherals, ROM ...
+    .WithCpu(ctx =>
+    {
+        var space = (AddressSpace)ctx.Space(AddressSpaceKind.Program); // concrete type for fastmem
+        return new JittedCpu(new Mos6502Cpu(space), space);
+    })
+    .Build();
+```
+
+The `JittedCpu` is the machine's `Cpu`, so `Machine.Run`, the monitor, and the REPL drive it
+unchanged. The trade-off: JIT parity is **state + cycle-count equivalence, not per-cycle bus-trace
+equivalence** while its fastmem fast path is on (RAM/ROM access bypasses the bus for speed).
+Construct with `new JitOptions { DisableFastmem = true }` to route every data access through the bus
+when you need a bus trace. See [The JIT Tier](jit.md) for the full accuracy contract, the
+interpreter-fallback caveat, and troubleshooting.
+
+---
+
 ## The scheduler: `IScheduler`
 
 Devices see machine time through `IScheduler` (`machine.Scheduler`) — a cycle counter plus an event queue. Peripherals claim it in `Realize` (via `context.Scheduler`) and schedule callbacks in the cycle domain.

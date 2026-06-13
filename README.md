@@ -72,6 +72,22 @@ reads are side-effect-free over honest devices (`TryPeek`), and `--terminal` ope
 per-keystroke terminal onto the guest — all pinned by interrupt-driven UAT sessions
 (a WAI-free echo and a timer-IRQ counter, both monitor-assembled).
 
+**M2-i — the IL-JIT tier — is in progress (PR #12, this branch).** Tier 1 (`CpuEmulator.Jit`,
+the only `Reflection.Emit` assembly, deliberately not AOT-compatible) stands up as a
+*provably-equivalent* execution path: a generated per-opcode descriptor table drives a CPU-agnostic
+block compiler that walks descriptors into one `DynamicMethod` per block, with a PC-keyed block
+cache, the RAM/ROM-direct **fastmem split** (MMIO falls back to a bus callout), a per-block cycle
+budget + exit, block-entry interrupt checks, and dirty-page invalidation for self-modifying code.
+`JittedCpu` wraps the interpreter, which remains the oracle, the fallback (ADC/SBC/BRK/RTI run
+through it in M2-i), and the state owner. The tier is gated at construction on
+`RuntimeFeature.IsDynamicCodeSupported`, keeping Core/Cpus/Peripherals/Monitor/Host AOT-clean by
+construction (pinned by a reference-graph build check). Validated sampled: **TomHarte parity through
+the JIT** (151 opcodes), the **Klaus functional test run to the success trap ($3469) under the JIT
+at the interpreter's exact cycle count**, the 8 UAT sessions re-run JIT-wrapped, and
+trace-equivalence spot tests under `DisableFastmem`. The full parity battery, block chaining, and
+the comparative benchmarks are M2-ii. See [The JIT Tier](docs/user-guide/jit.md) for the accuracy
+contract.
+
 For full detail see the [User Guide](docs/user-guide/README.md).
 
 ## User Guide
@@ -80,12 +96,13 @@ For full detail see the [User Guide](docs/user-guide/README.md).
 - [Monitor Reference](docs/user-guide/monitor-reference.md) — every REPL command
 - [Breadboard6502](docs/user-guide/breadboard6502.md) — memory map, UART, interval timer, demo ROM
 - [Building Machines](docs/user-guide/building-machines.md) — MachineBuilder, peripherals, monitor wiring
+- [The JIT Tier](docs/user-guide/jit.md) — Tier 1 (IL-JIT): enabling it, the accuracy contract, troubleshooting
 - [Adding a CPU](docs/user-guide/adding-a-cpu.md) — spec tables, importer, generated artifacts
 - [Testing](docs/user-guide/testing.md) — suite, TomHarte vectors, Klaus, UAT sessions
 
 ## Architecture
 
-The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler; the IL-emission tier lands with M2); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point. All library projects are AOT-compatible; the future JIT tier (`CpuEmulator.Jit`) will be the only project that uses `Reflection.Emit`.
+The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler, and — as of M2-i — a per-opcode JIT descriptor table the IL-JIT consumes); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point; `CpuEmulator.Jit` (M2-i) is the IL-JIT tier. All library projects are AOT-compatible except `CpuEmulator.Jit`, which is the only project that uses `Reflection.Emit` and is therefore the only non-AOT member of the build graph (the others never reference it — a packaging law pinned by a build-time reference-graph check).
 
 Full design: [`docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`](docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md)
 
