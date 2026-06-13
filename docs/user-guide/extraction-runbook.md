@@ -188,6 +188,53 @@ Produce two JSON outputs:
 
 **Vocabulary scope (important for non-6502 families):** the 13 mode names, the byte-count rules, the `"0xNN"` opcode format, and the 30-factory list in this template are the **current 6502-family loader vocabulary** — they are hardcoded in `OpcodeDataset` and `SemanticsMap` today. A new CPU family (e.g. the Z80, with its CB/DD/ED/FD-prefixed opcodes, separate I/O space, and different mode set) **extends the loaders first**: new mode names and byte rules in `OpcodeDataset`, new factories in `SemanticsMap.FactoryArity` (and the generator's mirror tables — see the SYNC HAZARD comments in both files), then updates this template to match. Per spec §9 item 10, the framework changes a new family forces are measured and treated as findings, not failures — expect this template to grow per family.
 
+### 1.2.1 Z80 prompt-vocabulary substitution (the M3.3 worked family)
+
+The Z80 extraction (M3.3) is the first non-6502 use. Substitute the following Z80 vocabulary into
+the Stage-1 template slots above. Extract **one prefix plane per pass** (base, then CB, ED, DD, FD,
+DDCB, FDCB — paste one manual section at a time).
+
+**Opcode dataset schema — Z80 overrides:**
+- Add an optional `"prefix"` field (string): one of `"0xCB"`, `"0xED"`, `"0xDD"`, `"0xFD"`, `"0xDDCB"`,
+  `"0xFDCB"`. Omit it (null) for a base-plane row — a null-prefix Z80 row is shaped exactly like a
+  6502 row. The `"opcode"` field is always the **final** opcode byte (the op within its plane); the
+  prefix is carried separately. The plane-qualified key is `prefix:opcode` (e.g. `0xED:0xB0` for
+  LDIR), so `ED B0` (LDIR) never collides with base `0xB0` (OR B).
+- `"mode"` — the Z80 mode vocabulary (added to `OpcodeDataset.ValidModes`):
+  `Implied`, `Immediate` (shared with the 6502), plus
+  `Register` (LD r,r' / OR r), `RegisterIndirect` ((HL)/(BC)/(DE)), `Indexed` ((IX+d)/(IY+d) — a
+  computed-length mode, like the 6502 `ModRm` seam), `ImmediateExtended` (16-bit immediate, LD HL,nn),
+  `ExtendedAddress` ((nn) 16-bit absolute), `RelativeJump` (JR/DJNZ PC+d), `Bit` (the CB-plane bit
+  ops), and the M3.2 I/O modes `IoPortImmediate` (IN A,(n) / OUT (n),A) and `IoPortIndirect` (IN r,(C)).
+- `"bytes"` — the **total** instruction length INCLUDING the prefix byte(s). A single-byte prefix
+  (CB/ED/DD/FD) adds 1; a compound DDCB/FDCB adds 2. Base byte rules per mode: Register/RegisterIndirect
+  = 1; Bit = 1 (+ the CB prefix = 2); RelativeJump/IoPort* = 2; ImmediateExtended/ExtendedAddress = 3.
+  `Indexed` is computed-length (declare the real total; the byte-equality is skipped).
+- `"cycles"` = **T-states** (total clock periods), the unambiguous scalar Zilog tabulates. The Z80 has
+  no 6502-style page-cross penalty, so `"pageCrossPenalty"` is **always `false`**. Conditional rows
+  (JR cc / CALL cc / RET cc / DJNZ / block-op repeat) record the **not-taken / single-iteration base**
+  count, with a `"source"` note (e.g. `"… JR cc taken=12 not-taken=7; dataset records not-taken base"`).
+- **Documented set only.** Exclude the wholly-undocumented `SLL`/`SL1`, the `IXH`/`IXL` half-registers,
+  `IN F,(C)`, and the Z180/eZ80 superset ops (IN0/OUT0/TST/MLT/TSTIO/SLP/OTIM/OTDM/…) — those are a
+  recorded gap (a TODO inventory), not part of the M3.3 documented extraction.
+
+**Semantics map — Z80 overrides:**
+- `registers`: the eight main 8-bit `A F B C D E H L`, the eight alternate `A_ F_ B_ C_ D_ E_ H_ L_`
+  (the `EX`/`EXX` shadow set — declared as eight more 8-bit generals; the swap is M3.4), the two
+  special 8-bit `I R`, and the four 16-bit `IX IY SP PC`. `F` carries `"role": "Status"`; `SP`
+  `StackPointer`; `PC` `ProgramCounter`. The pairs `BC`/`DE`/`HL`/`AF` are NOT separate declarations —
+  they are a generated 16-bit VIEW the M3.4 work synthesizes from the halves.
+- `mnemonics`: author ONLY the covered decode-shapes that map to the EXISTING factory vocabulary —
+  do NOT invent new Z80 factories (those are M3.4). The covered set is the loads/transfers that name a
+  fixed register, the 8-bit-ALU-immediate-on-A (`ADD/ADC → Adc()`, `SUB/SBC → Sbc()`, `AND → And()`,
+  `OR → Ora()`, `XOR → Eor()`, `CP → Compare("A")`), `IN/OUT` immediate (`PortIn("A")`/`PortOut("A")`),
+  `NOP → []`, `HALT → Halt()`, `NEG → []` (decode-shape; flags TODO). Everything else (16-bit ALU,
+  bit group, rotate/shift family, block ops, EX/EXX, indexed EA, conditional flow, DAA/CPL/IM/…, the
+  flag-model micro-ops) is **TODO(vocab)** — absent from the map, emitted as `// TODO(semantics):`.
+
+The Z80 flag bit layout (declared in `F`, the bit-model micro-ops are M3.4):
+`S(7) Z(6) Y(5) H(4) X(3) P/V(2) N(1) C(0)`.
+
 ### 1.3 The Verification Ladder
 
 Each rung gates the next. A clean rung is required before proceeding.
