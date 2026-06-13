@@ -374,7 +374,7 @@ internal sealed partial class BlockCompiler
     }
 
     // ── Branch class (Relative) ──────────────────────────────────────────────────────────────
-    private void EmitBranch(EmitContext ctx, ushort pc, OpcodeDescriptor d)
+    private void EmitBranch(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
     {
         ILGenerator il = ctx.Il;
         int bit = d.Ops[0].FlagBit;
@@ -382,9 +382,9 @@ internal sealed partial class BlockCompiler
 
         // The two static successors (both compile-time constants from the offset byte in the code
         // stream — Ground truth A): the fall-through PC and the taken target. PC after the operand
-        // is pc + d.Length; the taken target adds the signed offset to it.
+        // is pc + the walk's COMPUTED length; the taken target adds the signed offset to it.
         byte offset = _bus.Read8((ushort)(pc + 1));
-        ushort fallThroughPc = (ushort)(pc + d.Length);
+        ushort fallThroughPc = (ushort)(pc + length);
         ushort takenTargetPc = (ushort)(fallThroughPc + (sbyte)offset);
 
         // offset = bus[PC]; PC++   (LoLocal holds offset as int)

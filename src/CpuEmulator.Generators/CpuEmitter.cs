@@ -69,6 +69,7 @@ internal static class CpuEmitter
         EmitDisassembler(sb, model);
         EmitMonitorSupport(sb, model);
         EmitJitDescriptors(sb, model);
+        EmitDecodeWalk(sb, model);
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model)
@@ -1009,20 +1010,16 @@ internal static class CpuEmitter
     private static void EmitMonitorSupport(StringBuilder sb, SpecModel model)
     {
         // ── InstructionLength ──────────────────────────────────────────────────
+        // Routes through the one decode model (Ground truth E note): the signature is UNCHANGED
+        // (IMonitorSupport stable), and the body resolves the opcode's descriptor via DescriptorFor
+        // and returns its FixedLength. For the 6502 every opcode is LengthRule.Fixed, so this is the
+        // exact value the old ModeLength(mode) switch produced — byte-identical behavior.
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1</summary>");
+        sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1.");
+        sb.AppendLine("    /// Routes through the decode walk's DescriptorFor(key)/FixedLength — the one length");
+        sb.AppendLine("    /// source (Ground truth E).</summary>");
         sb.AppendLine("    public static int InstructionLength(byte opcode)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        return opcode switch");
-        sb.AppendLine("        {");
-        foreach (var instruction in model.Instructions)
-        {
-            int len = ModeLength(instruction.Mode);
-            sb.AppendLine($"            0x{instruction.Opcode:X2} => {len},");
-        }
-        sb.AppendLine("            _ => 1,");
-        sb.AppendLine("        };");
-        sb.AppendLine("    }");
+        sb.AppendLine("        => DescriptorFor(opcode).FixedLength;");
 
         // ── TryAssemble — the single-instruction assembler (generated artifact ⑤) ──
         sb.AppendLine();
@@ -1338,7 +1335,8 @@ internal static class CpuEmitter
         return $"new(0x{insn.Opcode:X2}, \"{insn.Mnemonic}\", "
              + $"CpuEmulator.Core.Jit.JitMode.{insn.Mode}, "
              + $"CpuEmulator.Core.Jit.JitOpClass.{jitClass}, "
-             + $"{length}, {baseCycles}, {(pageCross ? "true" : "false")}, "
+             + $"CpuEmulator.Core.Jit.LengthRule.Fixed, {length}, {baseCycles}, "
+             + $"{(pageCross ? "true" : "false")}, "
              + $"{(fallback ? "true" : "false")}, {(endsBlock ? "true" : "false")}, "
              + $"[{ops}])";
     }
@@ -1470,4 +1468,50 @@ internal static class CpuEmitter
     /// the identifier-validity check), so direct interpolation is injection-safe — same posture as
     /// the mnemonic whitelist used elsewhere in this emitter.</summary>
     private static string Quote(string s) => $"\"{s}\"";
+
+    // ---- The decode walk (Ground truths A/C/E) ----
+
+    /// <summary>Emit the single generated decode walk — <c>Decode(IFetchStream)</c> + the key→
+    /// descriptor resolver <c>DescriptorFor(uint)</c> — that replaces the four switch(opcode) decode
+    /// sites with ONE model (Ground truth A). For a spec with NO DecodeStructure (the 6502 — the
+    /// default), this is the degenerate byte-key / fixed-length walk: consume the opcode unit, look
+    /// up its descriptor, consume the operand units its FixedLength implies, and return
+    /// (key == opcode, COMPUTED Length, operands). A spec that declares a DecodeStructure (the
+    /// synthetic CPU — Task 7) emits the non-degenerate walk (prefix / ModR/M-length / sub-field key)
+    /// + a dictionary resolver. Length == stream.UnitsConsumed × stream.UnitBytes — a COMPUTED
+    /// output, never a field read (Ground truth B).</summary>
+    private static void EmitDecodeWalk(StringBuilder sb, SpecModel model)
+    {
+        // Degenerate (6502) walk: single byte opcode, key == opcode, fixed length per mode.
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated decode walk (Ground truth A): consume the opcode unit, look up");
+        sb.AppendLine("    /// its descriptor, consume the operand units its FixedLength implies, and return");
+        sb.AppendLine("    /// (OperationKey, COMPUTED Length, Operands). For this CPU every row is LengthRule.Fixed");
+        sb.AppendLine("    /// and the key is the opcode byte — the degenerate walk the 6502 always takes.");
+        sb.AppendLine("    /// Length == stream.UnitsConsumed × stream.UnitBytes (a COMPUTED output, not a field).</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        uint opcode = stream.NextUnit();                       // consume the opcode unit");
+        sb.AppendLine("        uint key = opcode;                                     // KeyShape.OpcodeByte — key == opcode");
+        sb.AppendLine("        CpuEmulator.Core.Jit.OpcodeDescriptor d = DescriptorFor(key);");
+        sb.AppendLine("        byte lo = 0, hi = 0, count = 0;");
+        sb.AppendLine("        // Fixed rule: consume (FixedLength - 1) operand units (the mode's operand bytes).");
+        sb.AppendLine("        for (int i = 1; i < d.FixedLength; i++)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            byte b = (byte)stream.NextUnit();");
+        sb.AppendLine("            if (count == 0) { lo = b; count = 1; }");
+        sb.AppendLine("            else { hi = b; count = 2; }");
+        sb.AppendLine("        }");
+        sb.AppendLine("        int length = stream.UnitsConsumed * stream.UnitBytes;  // COMPUTED — not a field read");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(lo, hi, count));");
+        sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Resolve an operation-key to its descriptor (Ground truth C). The dense [256]");
+        sb.AppendLine("    /// array index — key fits a byte, so zero hot-path regression. A prefixed CPU emits a");
+        sb.AppendLine("    /// dictionary here; the consumers call this, never the raw table, so the key packing is");
+        sb.AppendLine("    /// fully encapsulated.</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
+        sb.AppendLine("        => JitDescriptors[(byte)operationKey];");
+    }
 }

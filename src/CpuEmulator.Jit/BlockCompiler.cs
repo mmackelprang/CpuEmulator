@@ -89,19 +89,25 @@ internal sealed partial class BlockCompiler
                 ?? throw new EmulationException($"register '{name}' has no field on the CPU type");
     }
 
-    /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap. Reads opcode
-    /// bytes through the bus (a debugger-view decode; never executes). The discovered run is a
-    /// list of (pc, descriptor) pairs.</summary>
-    public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D)> Discover(ushort pc)
+    /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the
+    /// generated decode walk (Ground truth B) — NOT a static descriptor Length field. The walk
+    /// reads opcode/operand bytes through a BusFetchStream (a debugger-view decode; never executes,
+    /// charges no cycle) and returns (key, COMPUTED length); Discover advances the cursor by that
+    /// returned length and SeekTo's the next instruction. The discovered run is a list of
+    /// (pc, descriptor, computed-length) tuples — the length is the walk's output, the only length
+    /// source the rest of Compile/PagesSpanned reads.</summary>
+    public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length)> Discover(ushort pc)
     {
-        var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor)>();
+        var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor, int)>();
+        var stream = new BusFetchStream(_bus, pc);          // byte-granular, positioned at pc
         for (int i = 0; i < _opts.BlockLengthCap; i++)
         {
-            byte opcode = _bus.Read8(pc);
-            OpcodeDescriptor d = Mos6502Cpu.JitDescriptors[opcode];
-            run.Add((pc, d));
+            DecodeResult r = Mos6502Cpu.Decode(stream);     // the walk — computes key + length
+            OpcodeDescriptor d = Mos6502Cpu.DescriptorFor(r.OperationKey);  // 6502: key == opcode → [256]
+            run.Add((pc, d, r.Length));
             if (d.EndsBlock) break;
-            pc = unchecked((ushort)(pc + d.Length));
+            pc = unchecked((ushort)(pc + r.Length));         // advance by the COMPUTED length
+            stream.SeekTo(pc);                               // reposition at the next instruction
         }
         return run;
     }
@@ -121,19 +127,19 @@ internal sealed partial class BlockCompiler
         ILGenerator il = dm.GetILGenerator();
         var ctx = new EmitContext(il, spannedPages);
 
-        var (lastPc, lastD) = run[^1];
-        foreach (var (pc, d) in run)
+        var (lastPc, lastD, lastLen) = run[^1];
+        foreach (var (pc, d, length) in run)
         {
-            EmitInstruction(ctx, pc, d);
+            EmitInstruction(ctx, pc, d, length);
             if (!d.EndsBlock)
-                EmitBudgetCheck(ctx, (ushort)(pc + d.Length));   // the cc_interrupt-style budget exit
+                EmitBudgetCheck(ctx, (ushort)(pc + length));   // the cc_interrupt-style budget exit
         }
         // Terminal exit. A block-ending opcode's arm self-terminates (it sets PC, then emits its own
         // chain-or-normal exit + ret — see the EndsBlock flow arms). The ONLY path that falls through
         // to here is a straight-line run capped at BlockLengthCap (no EndsBlock opcode): its successor
         // PC is the (compile-time-constant) continuation, so it is a chainable fall-through edge.
         if (!lastD.EndsBlock)
-            EmitChainOrExit(ctx, (ushort)(lastPc + lastD.Length));
+            EmitChainOrExit(ctx, (ushort)(lastPc + lastLen));
         else
             EmitNormalExit(ctx);   // safety net (unreachable for self-terminating ending arms)
         var del = (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
@@ -141,18 +147,20 @@ internal sealed partial class BlockCompiler
     }
 
     private static System.Collections.Generic.HashSet<int> PagesSpanned(
-        System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D)> run)
+        System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length)> run)
     {
         var pages = new System.Collections.Generic.HashSet<int>();
-        foreach (var (pc, d) in run)
-            for (int b = 0; b < d.Length; b++)
+        foreach (var (pc, d, length) in run)
+            for (int b = 0; b < length; b++)        // the walk's COMPUTED length, not a field
                 pages.Add(((pc + b) & 0xFFFF) >> 8);
         return pages;
     }
 
     /// <summary>Emit one instruction. NeedsFallback rows emit a callout to inner.Step() (the
-    /// safety valve). Each emit arm mirrors the proven CpuEmitter body.</summary>
-    private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d)
+    /// safety valve). Each emit arm mirrors the proven CpuEmitter body. <paramref name="length"/> is
+    /// the walk's COMPUTED instruction length — threaded to the branch arm (the only arm that needs
+    /// the post-operand fall-through PC) so no static descriptor Length field is read.</summary>
+    private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
     {
         if (d.NeedsFallback) { EmitFallbackStep(ctx); return; }
         // Mirror the interpreter Step's opcode fetch EXACTLY: charge the opcode-fetch cycle FIRST
@@ -179,7 +187,7 @@ internal sealed partial class BlockCompiler
             case JitOpClass.Register: EmitRegister(ctx, d); break;
             case JitOpClass.Alu: EmitAlu(ctx, d); break;
             case JitOpClass.Rmw: EmitRmw(ctx, d); break;
-            case JitOpClass.Branch: EmitBranch(ctx, pc, d); break;
+            case JitOpClass.Branch: EmitBranch(ctx, pc, d, length); break;
             case JitOpClass.Jump: EmitJump(ctx, pc, d); break;
             case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;

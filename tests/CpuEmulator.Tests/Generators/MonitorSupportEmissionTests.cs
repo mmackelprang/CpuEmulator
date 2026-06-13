@@ -28,15 +28,20 @@ public class MonitorSupportEmissionTests
     [Fact]
     public void Generated_length_table_maps_modes()
     {
+        // M3.1b (authorized test-change row 5): InstructionLength's signature is UNCHANGED but its
+        // body now routes through the ONE decode model — DescriptorFor(opcode).FixedLength — instead
+        // of its own switch(opcode) => ModeLength. The per-mode length now lives in the JitDescriptors
+        // rows as LengthRule.Fixed, <len>. Behavior is byte-identical (the runtime InstructionLength
+        // values are pinned by Mos6502MonitorSupportTests + GeneratedDecodeWalkTests).
         var result = GeneratorTestHost.Run(GeneratorHappyPathTests.ValidSpecSource);
 
         Assert.Empty(result.AllErrors);
-        // Immediate (LDA #imm) → length 2
-        Assert.Contains("0xA9 => 2,", result.GeneratedText);
-        // Implied (NOP) → length 1
-        Assert.Contains("0xEA => 1,", result.GeneratedText);
-        // Undefined default
-        Assert.Contains("_ => 1,", result.GeneratedText);
+        // The body routes through the walk's resolver, not a per-opcode switch.
+        Assert.Contains("public static int InstructionLength(byte opcode)", result.GeneratedText);
+        Assert.Contains("=> DescriptorFor(opcode).FixedLength;", result.GeneratedText);
+        // The per-mode length lives in the descriptor rows: Immediate (LDA #imm) → 2, Implied (NOP) → 1.
+        Assert.Contains("CpuEmulator.Core.Jit.LengthRule.Fixed, 2", result.GeneratedText);
+        Assert.Contains("CpuEmulator.Core.Jit.LengthRule.Fixed, 1", result.GeneratedText);
     }
 
     [Fact]

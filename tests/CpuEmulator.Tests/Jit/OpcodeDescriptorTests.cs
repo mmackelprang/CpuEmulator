@@ -46,10 +46,55 @@ public class OpcodeDescriptorTests
             // The mnemonic is the first whitespace-delimited token of the disassembly.
             string mnemonic = disasm.Split(' ')[0];
             Assert.Equal(mnemonic, d.Mnemonic);
-            Assert.Equal(Mos6502Cpu.InstructionLength((byte)op), d.Length);
+            Assert.Equal(Mos6502Cpu.InstructionLength((byte)op), d.FixedLength);
         }
 
         Assert.Equal(151, documented);
+    }
+
+    // ── Length rule shape (Task 2 — authorized rows 1-2) ─────────────────────
+
+    [Fact]
+    public void Descriptor_carries_a_LengthRule_and_FixedLength()
+    {
+        // The static int Length is gone; the descriptor carries the data the walk computes length
+        // from — a LengthRule + the per-mode FixedLength constant (the ctor-arg migration from the
+        // old positional Length: 3). Authorized row 1.
+        var d = new OpcodeDescriptor(
+            0xAD, "LDA", JitMode.Absolute, JitOpClass.Load,
+            LengthRule.Fixed, FixedLength: 3, BaseCycles: 4, PageCrossPenalty: false,
+            NeedsFallback: false, EndsBlock: false, Ops: []);
+
+        Assert.Equal(LengthRule.Fixed, d.LengthRule);
+        Assert.Equal(3, d.FixedLength);
+    }
+
+    [Fact]
+    public void Undefined_sentinel_is_Fixed_length_1()
+    {
+        // The Undefined sentinel now sets LengthRule.Fixed, FixedLength: 1 (was Length: 1);
+        // NeedsFallback + EndsBlock unchanged. Authorized row 2.
+        OpcodeDescriptor d = OpcodeDescriptor.Undefined(0x02);
+
+        Assert.Equal(LengthRule.Fixed, d.LengthRule);
+        Assert.Equal(1, d.FixedLength);
+        Assert.True(d.NeedsFallback);
+        Assert.True(d.EndsBlock);
+    }
+
+    [Fact]
+    public void ModRmDetermined_rule_is_expressible()
+    {
+        // The enum's second member exists for the synthetic CPU (no 6502 row uses it). A descriptor
+        // constructed with LengthRule.ModRmDetermined carries a base FixedLength (before the
+        // variable tail) and round-trips both fields.
+        var d = new OpcodeDescriptor(
+            0x80, "MODRMOP", JitMode.Implied, JitOpClass.Load,
+            LengthRule.ModRmDetermined, FixedLength: 2, BaseCycles: 2, PageCrossPenalty: false,
+            NeedsFallback: false, EndsBlock: false, Ops: []);
+
+        Assert.Equal(LengthRule.ModRmDetermined, d.LengthRule);
+        Assert.Equal(2, d.FixedLength);
     }
 
     public static TheoryData<byte, int> CycleTemplate() => new()
