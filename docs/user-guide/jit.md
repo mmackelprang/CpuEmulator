@@ -193,8 +193,18 @@ The comparative cross-language benchmark suite (`bench/`) measures emulated cycl
 across the two tiers and, opt-in, third-party 6502 emulators. The Klaus functional test under the
 JIT (chaining on, decimal arms emitted) reaches its `$3469` success trap at the exact interpreter
 cycle count (96,241,367) and is **dramatically faster than the M2-i fallback + dispatcher-round-trip
-path** (M2-i: ~40.9 min; M2-ii: well under two minutes). For the full methodology, the
-JIT-vs-interpreter speedup table, and the cross-language numbers, see
+path** (M2-i: ~40.9 min; M2-ii: well under two minutes — a large multiple over the prior JIT).
+
+**The honest measured headline, though, is that the Tier-1 JIT is currently SLOWER than the Tier-0
+interpreter on both benchmark workloads** — on the SMC-heavy Klaus run the JIT's per-dispatch
+`InvalidateIfDirty` thrashes (it evicts + recompiles blocks on Klaus's frequent code-page writes
+rather than executing them), and on the tight non-SMC arithmetic kernel the interpreter's
+well-predicted `switch` dispatch is hard for a block JIT to beat. The JIT's delivered value in M2 is
+**correctness parity** (the full TomHarte sweep through the JIT, the committed differential fuzzer,
+Klaus cycle-exact) — not raw throughput. Reducing the SMC-invalidation cost is the recorded next
+optimization. See the report for the numbers, the cross-language spread, and the full analysis.
+
+For the full methodology, the JIT-vs-interpreter table, and the cross-language numbers, see
 [`bench/README.md`](../../bench/README.md) and the regenerated
 [`bench/results/REPORT.md`](../../bench/results/REPORT.md), or the
 [Benchmarks user-guide page](benchmarks.md).

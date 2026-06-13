@@ -33,6 +33,9 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
   behind adapter shims that skip-with-a-note when their runtime is absent — the report commits only
   measured data, never a fabricated number.
 
-The JIT-vs-interpreter speedup and the cross-language comparison table are in the generated report.
-See also [the JIT tier guide](jit.md) for the accuracy contract and how chaining + the emitted decimal
-arms produce the speedup.
+The JIT-vs-interpreter comparison and the cross-language comparison table are in the generated report.
+**The honest measured finding is that the Tier-1 JIT is currently slower than the Tier-0 interpreter
+on both workloads** (SMC-invalidation thrash on the Klaus run; per-instruction overhead on the tiny
+non-SMC kernel) — the JIT's M2 value is correctness parity, not raw throughput, and reducing the
+SMC-invalidation cost is the recorded next optimization. See also [the JIT tier guide](jit.md) for the
+accuracy contract, chaining, and the emitted decimal arms.
