@@ -1,6 +1,7 @@
 using System.Text;
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
+using CpuEmulator.Jit;
 using CpuEmulator.Tests.Mos6502;
 
 namespace CpuEmulator.Tests.TomHarte;
@@ -64,6 +65,74 @@ internal static class TomHarteRunner
         }
 
         return problems.Count == 0 ? null : Format(testCase, bus, problems);
+    }
+
+    /// <summary>
+    /// Executes one vector case through a Tier-1 <see cref="JittedCpu"/> wrapping a fresh
+    /// interpreter + full-64KiB RAM, and diffs the result against the expected final state,
+    /// RAM, and cycle count. **It does NOT diff the bus trace** — fastmem bypasses the bus for
+    /// RAM/ROM (Ground truth E: JIT parity is state + cycle-count equivalence, not bus-trace
+    /// equivalence while fastmem is on). Trace-equivalence is the DisableFastmem mode, pinned
+    /// separately by JitTraceEquivalenceTests.
+    ///
+    /// Crucially, TomHarte exercises ONE instruction, and <see cref="JittedCpu.Step"/> delegates
+    /// to the interpreter — so a naive Step run would just re-test the interpreter. This drives
+    /// <see cref="JittedCpu.Run"/> with a budget equal to the case's cycle count (one
+    /// instruction's worth), forcing block compilation + execution of the single instruction.
+    /// ADC/SBC/BRK/RTI run through the JIT's interpreter-fallback path (still a valid parity
+    /// check — the JIT must produce the interpreter's result whether by emit or by fallback).
+    /// Returns null on pass, or a multi-line failure report.
+    /// </summary>
+    public static string? RunCaseThroughJit(TomHarteCase testCase)
+    {
+        var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+        space.MapMemory(0x0000, new byte[0x10000], writable: true);
+        foreach (var entry in testCase.Initial.Ram)
+            space.Write8(entry.Address, entry.Value);
+
+        var inner = new Mos6502Cpu(space);
+        inner.SetRegister("PC", testCase.Initial.Pc);
+        inner.SetRegister("S", testCase.Initial.S);
+        inner.SetRegister("A", testCase.Initial.A);
+        inner.SetRegister("X", testCase.Initial.X);
+        inner.SetRegister("Y", testCase.Initial.Y);
+        inner.SetRegister("P", testCase.Initial.P);
+
+        var jit = new JittedCpu(inner, space);
+        long budget = testCase.Cycles.Length; // one instruction's worth of cycles
+        jit.Run(ref budget);
+
+        var problems = new List<string>();
+        CheckRegister(problems, inner, "PC", testCase.Final.Pc);
+        CheckRegister(problems, inner, "S",  testCase.Final.S);
+        CheckRegister(problems, inner, "A",  testCase.Final.A);
+        CheckRegister(problems, inner, "X",  testCase.Final.X);
+        CheckRegister(problems, inner, "Y",  testCase.Final.Y);
+        CheckRegister(problems, inner, "P",  testCase.Final.P);
+
+        foreach (var entry in testCase.Final.Ram)
+        {
+            byte actual = space.Read8(entry.Address);
+            if (actual != entry.Value)
+                problems.Add($"RAM[{entry.Address:X4}]: expected {entry.Value:X2}, got {actual:X2}");
+        }
+
+        if (inner.CycleCount != testCase.Cycles.Length)
+            problems.Add($"cycle count: expected {testCase.Cycles.Length}, got {inner.CycleCount}");
+
+        if (problems.Count == 0)
+            return null;
+
+        ushort pc = testCase.Initial.Pc;
+        byte ByteAt(ushort address) =>
+            testCase.Initial.Ram.FirstOrDefault(r => r.Address == address)?.Value ?? 0;
+        string disassembly = Mos6502Cpu.Disassemble(
+            ByteAt(pc), ByteAt((ushort)(pc + 1)), ByteAt((ushort)(pc + 2)));
+        var sb = new StringBuilder();
+        sb.AppendLine($"case '{testCase.Name}' (JIT) — {disassembly}");
+        foreach (string problem in problems)
+            sb.AppendLine($"  {problem}");
+        return sb.ToString();
     }
 
     private static void CheckRegister(
