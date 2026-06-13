@@ -19,6 +19,12 @@ internal sealed partial class BlockCompiler
     private readonly JitOptions _opts;
     internal int CompileCount { get; private set; }   // test seam (Block_cache_hits pin)
 
+    /// <summary>Test seam (Task 6): how many interpreter-Step fallbacks the LAST Compile emitted.
+    /// Reset at the start of each Compile; incremented by <see cref="EmitFallbackStep"/>. The
+    /// emit-not-fallback probe reads this: an ADC/SBC block emits 0 (they emit now); a BRK block
+    /// emits 1 (BRK/RTI/undefined stay fallbacks).</summary>
+    internal int FallbackEmitCount { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
     //   5 = ref long budget, 6 = out BlockExit exit.
@@ -83,6 +89,7 @@ internal sealed partial class BlockCompiler
     public CompiledBlock Compile(ushort entryPc)
     {
         CompileCount++;
+        FallbackEmitCount = 0;   // reset the per-Compile fallback seam (Task 6 emit-not-fallback probe)
         var run = Discover(entryPc);
         var spannedPages = PagesSpanned(run);
         var dm = new DynamicMethod(
@@ -531,8 +538,9 @@ internal sealed partial class BlockCompiler
     /// undefined). Runs one authentic interpreter Step (which charges its own cycles via
     /// ReadBus/WriteBus and advances PC), subtracts the consumed cycles from budget, then exits
     /// the block (the post-Step PC is dynamic — the block cannot statically continue).</summary>
-    private static void EmitFallbackStep(EmitContext ctx)
+    private void EmitFallbackStep(EmitContext ctx)
     {
+        FallbackEmitCount++;   // test seam (Task 6): count the fallbacks this Compile emitted
         ILGenerator il = ctx.Il;
         // long before = cpu.CycleCount;
         il.Emit(OpCodes.Ldarg_0);
