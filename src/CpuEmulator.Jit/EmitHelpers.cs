@@ -34,6 +34,21 @@ internal sealed class EmitContext
     /// <summary>long — scratch for the fallback's cycle-delta math.</summary>
     public LocalBuilder TmpLong { get; }
 
+    /// <summary>int — the binary sum the ADC/SBC arms compute first (the interpreter's <c>temp</c>):
+    /// for ADC it carries the Z-from-binary quirk; for SBC it carries ALL the decimal-mode flags
+    /// (Ground truth E). Held as a signed int so the SBC subtraction composes (the interpreter's
+    /// <c>temp</c> is an int). No bus access occurs between writing and reading it.</summary>
+    public LocalBuilder TmpInt { get; }
+
+    /// <summary>int — the ADC/SBC decimal low-nibble intermediate (the interpreter's <c>before</c>),
+    /// signed (SBC's <c>before</c> can go negative). Decimal arm only.</summary>
+    public LocalBuilder NibLocal { get; }
+
+    /// <summary>int — the ADC/SBC decimal BCD sum (the interpreter's <c>sum</c>), signed (SBC's
+    /// <c>sum</c> can go negative; N/V/C derive from it before the +/-0x60 correction). Decimal arm
+    /// only. A dedicated int local (NOT EaLocal, which is uint and clobbered by bus accesses).</summary>
+    public LocalBuilder SumLocal { get; }
+
     /// <summary>The set of 256-byte pages this block's instruction bytes occupy. The intra-block
     /// SMC guard (Ground truth B / Task-5 hand-off note #2) uses this: a writable-RAM store whose
     /// target page is one of these MUST end the block, so the next dispatch re-decodes the
@@ -59,5 +74,8 @@ internal sealed class EmitContext
         HiLocal = il.DeclareLocal(typeof(uint));
         TmpLong = il.DeclareLocal(typeof(long));
         SmcPageLocal = il.DeclareLocal(typeof(int));
+        TmpInt = il.DeclareLocal(typeof(int));
+        NibLocal = il.DeclareLocal(typeof(int));
+        SumLocal = il.DeclareLocal(typeof(int));
     }
 }

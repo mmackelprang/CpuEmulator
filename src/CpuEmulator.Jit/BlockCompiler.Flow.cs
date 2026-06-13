@@ -91,6 +91,12 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.Stfld, FP);
                 break;
             }
+            case "Adc":
+                EmitAdc(ctx);   // data already in ctx.DataLocal (EmitOperandRead ran above)
+                break;
+            case "Sbc":
+                EmitSbc(ctx);
+                break;
             case "Bit":
             {
                 // P = (P & 0x3D) | ((A & data) == 0 ? 2 : 0) | (data & 0xC0)

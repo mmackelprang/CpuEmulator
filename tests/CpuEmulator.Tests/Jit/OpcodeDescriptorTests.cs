@@ -99,23 +99,42 @@ public class OpcodeDescriptorTests
             $"opcode 0x{opcode:X2} must NOT carry the page-cross penalty");
     }
 
-    public static TheoryData<byte> AdcSbcBrkRtiOpcodes() => new()
+    // BRK + RTI remain interpreter fallbacks (M2-ii recorded decision: they touch the
+    // interrupt/vector machinery the interpreter owns; emitting them buys ~0 throughput and risks
+    // the highest-cost parity hole). ADC/SBC are NO LONGER here — Task 5 emits them (below).
+    public static TheoryData<byte> BrkRtiOpcodes() => new()
+    {
+        0x00, 0x40,   // BRK, RTI
+    };
+
+    [Theory]
+    [MemberData(nameof(BrkRtiOpcodes))]
+    public void JitDescriptor_NeedsFallback_exactly_on_BRK_RTI_and_undefined(byte opcode)
+    {
+        OpcodeDescriptor d = Mos6502Cpu.JitDescriptors[opcode];
+        Assert.True(d.NeedsFallback, $"opcode 0x{opcode:X2} must carry NeedsFallback");
+        Assert.True(d.EndsBlock, $"opcode 0x{opcode:X2} fallback must end the block");
+    }
+
+    public static TheoryData<byte> AdcSbcOpcodes() => new()
     {
         // ADC, all 8 modes
         0x69, 0x65, 0x75, 0x6D, 0x7D, 0x79, 0x61, 0x71,
         // SBC, all 8 modes
         0xE9, 0xE5, 0xF5, 0xED, 0xFD, 0xF9, 0xE1, 0xF1,
-        // BRK + RTI
-        0x00, 0x40,
     };
 
     [Theory]
-    [MemberData(nameof(AdcSbcBrkRtiOpcodes))]
-    public void JitDescriptor_NeedsFallback_set_on_ADC_SBC_BRK_RTI(byte opcode)
+    [MemberData(nameof(AdcSbcOpcodes))]
+    public void JitDescriptor_ADC_SBC_are_now_emitted_not_fallback(byte opcode)
     {
+        // Task 5 (the M2-i ambition decision's planned M2-ii flip): ADC/SBC are emitted in both the
+        // binary and decimal arms, so they are straight-line Alu-class — NeedsFallback false AND
+        // EndsBlock false (an ADC/SBC no longer ends a block).
         OpcodeDescriptor d = Mos6502Cpu.JitDescriptors[opcode];
-        Assert.True(d.NeedsFallback, $"opcode 0x{opcode:X2} must carry NeedsFallback");
-        Assert.True(d.EndsBlock, $"opcode 0x{opcode:X2} fallback must end the block");
+        Assert.Equal(JitOpClass.Alu, d.Class);
+        Assert.False(d.NeedsFallback, $"opcode 0x{opcode:X2} (ADC/SBC) is now emitted — no fallback");
+        Assert.False(d.EndsBlock, $"opcode 0x{opcode:X2} (ADC/SBC) is straight-line — must not end a block");
     }
 
     [Theory]
