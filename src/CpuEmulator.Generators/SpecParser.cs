@@ -204,11 +204,14 @@ internal static class SpecParser
         var instructions = ParseInstructions(
             classDecl, specName, registerNames, hasStackPointer, hasStatus, diagnostics);
 
+        // Optional decode structure (Ground truth G). ABSENT (the 6502) ⇒ the degenerate walk.
+        var decode = ParseDecodeStructure(classDecl, instructions, diagnostics);
+
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var model = new SpecModel(ns, cpuName, architecture,
-            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions);
+            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -321,8 +324,7 @@ internal static class SpecParser
         foreach (var element in collection.Elements)
         {
             if (element is not ExpressionElementSyntax { Expression: InvocationExpressionSyntax invocation } ||
-                InvokedName(invocation) != "Insn" ||
-                invocation.ArgumentList.Arguments.Count != 4)
+                InvokedName(invocation) != "Insn")
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
@@ -331,9 +333,61 @@ internal static class SpecParser
             }
 
             var args = invocation.ArgumentList.Arguments;
-            int? opcode = LiteralInt(args[0].Expression);
-            string? mnemonic = LiteralString(args[1].Expression);
-            string? mode = EnumMemberName(args[2].Expression, "AddrMode");
+
+            // Resolve which Insn overload this is (Ground truth G — the 6502 single-byte form is the
+            // default; the prefixed/opcode-group overloads are M3.1b, default-off):
+            //   Insn(opcode, mnemonic, mode, ops)                      — 4 args, KeyShape.OpcodeByte
+            //   Insn(prefix, opcode, mnemonic, mode, ops)              — 5 args, KeyShape.PrefixedOpcode
+            //   Insn(opcode, subfield: n, mnemonic, mode, ops)         — 5 args (2nd named 'subfield'),
+            //                                                             KeyShape.OpcodeGroup
+            int? opcode, prefix = null, subField = null;
+            KeyShape keyShape;
+            int mnemonicIdx, modeIdx, opsIdx;
+
+            if (args.Count == 4)
+            {
+                keyShape = KeyShape.OpcodeByte;
+                opcode = LiteralInt(args[0].Expression);
+                mnemonicIdx = 1; modeIdx = 2; opsIdx = 3;
+            }
+            else if (args.Count == 5 && args[1].NameColon?.Name.Identifier.Text == "subfield")
+            {
+                keyShape = KeyShape.OpcodeGroup;
+                opcode = LiteralInt(args[0].Expression);
+                subField = LiteralInt(args[1].Expression);
+                mnemonicIdx = 2; modeIdx = 3; opsIdx = 4;
+                if (subField is null or < 0 or > 7)
+                {
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
+                        element.GetLocation(), Truncate(element.ToString()),
+                        "subfield must be a literal in 0-7"));
+                    continue;
+                }
+            }
+            else if (args.Count == 5)
+            {
+                keyShape = KeyShape.PrefixedOpcode;
+                prefix = LiteralInt(args[0].Expression);
+                opcode = LiteralInt(args[1].Expression);
+                mnemonicIdx = 2; modeIdx = 3; opsIdx = 4;
+                if (prefix is null or < 0 or > 0xFF)
+                {
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
+                        element.GetLocation(), Truncate(element.ToString()),
+                        "prefix must be a literal in 0x00-0xFF"));
+                    continue;
+                }
+            }
+            else
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
+                    element.GetLocation(), Truncate(element.ToString()),
+                    "expected Insn(opcode, \"MNEMONIC\", AddrMode.X, [micro-ops])"));
+                continue;
+            }
+
+            string? mnemonic = LiteralString(args[mnemonicIdx].Expression);
+            string? mode = EnumMemberName(args[modeIdx].Expression, "AddrMode");
 
             if (opcode is null || mnemonic is null)
             {
@@ -346,7 +400,7 @@ internal static class SpecParser
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                     element.GetLocation(), Truncate(element.ToString()),
-                    "third argument must be a known AddrMode member"));
+                    "addressing-mode argument must be a known AddrMode member"));
                 continue;
             }
             if (opcode is < 0 or > 0xFF)
@@ -366,14 +420,26 @@ internal static class SpecParser
                 continue;
             }
 
-            if (!seenOpcodes.Add(opcode.Value))
+            // The opaque operation-key (Ground truth C): the generated Decode packs it; here we
+            // compute the value the descriptor table is keyed on. Single-byte: key == opcode (≤ 0xFF,
+            // dense [256] index). Prefixed: (prefix << 8) | opcode. Opcode-group: (opcode << 3) | sub.
+            uint operationKey = keyShape switch
+            {
+                KeyShape.PrefixedOpcode => (uint)((prefix!.Value << 8) | opcode.Value),
+                KeyShape.OpcodeGroup => (uint)((opcode.Value << 3) | subField!.Value),
+                _ => (uint)opcode.Value,
+            };
+
+            // Duplicate detection is on the full operation-key (so a prefixed 0x10 and a bare 0x10 are
+            // distinct rows — the 256-table-cannot-express case, Ground truth C / 0001-…:119).
+            if (!seenOpcodes.Add((int)operationKey))
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.DuplicateOpcode,
-                    element.GetLocation(), opcode.Value.ToString("X2")));
+                    element.GetLocation(), operationKey.ToString("X2")));
                 continue;
             }
 
-            if (args[3].Expression is not CollectionExpressionSyntax opsCollection ||
+            if (args[opsIdx].Expression is not CollectionExpressionSyntax opsCollection ||
                 ParseOps(opsCollection, registerNames, diagnostics) is not { } ops)
             {
                 continue; // ParseOps reported the diagnostic
@@ -384,10 +450,118 @@ internal static class SpecParser
                     hasStackPointer, hasStatus, diagnostics, out var instructionClass))
                 continue;
 
-            instructions.Add(new InstructionModel((byte)opcode.Value, mnemonic, mode, instructionClass, ops));
+            instructions.Add(new InstructionModel(
+                (byte)opcode.Value, mnemonic, mode, instructionClass, ops,
+                operationKey, keyShape, prefix ?? -1, subField ?? -1));
         }
 
         return instructions.ToImmutable();
+    }
+
+    /// <summary>Parse the optional <c>Decode</c> field (Ground truth G). ABSENT ⇒ null (the 6502
+    /// degenerate walk). Present ⇒ a <c>new(Prefixes: [...], ModRmOpcodes: [...], SubFieldOpcodes:
+    /// [...])</c> creation whose three byte/PrefixByte collections are parsed into the model. A
+    /// malformed structure reports CPUGEN012. A prefix byte must have a matching prefixed Insn row;
+    /// a ModRm/sub-field opcode must have a matching row — the cross-checks that keep the structure
+    /// and the instruction table consistent.</summary>
+    private static DecodeStructureModel? ParseDecodeStructure(
+        ClassDeclarationSyntax classDecl,
+        ImmutableArray<InstructionModel> instructions,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        var field = FindArrayField(classDecl, "Decode");
+        if (field is null)
+            return null;   // ABSENT — the 6502 default.
+
+        Location loc = field.GetLocation();
+        if (field.Declaration.Variables[0].Initializer?.Value is not { } init ||
+            GetCreationArguments(init) is not { } args)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
+                "expected new(Prefixes: [..], ModRmOpcodes: [..], SubFieldOpcodes: [..])"));
+            return null;
+        }
+
+        var prefixes = ImmutableArray.CreateBuilder<byte>();
+        var modRm = ImmutableArray.CreateBuilder<byte>();
+        var subField = ImmutableArray.CreateBuilder<byte>();
+
+        // The three args are positional or named; parse each collection by position
+        // (Prefixes, ModRmOpcodes, SubFieldOpcodes — the DecodeStructure record order).
+        bool ok = true;
+        if (args.Count != 3)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
+                "DecodeStructure takes exactly Prefixes, ModRmOpcodes, SubFieldOpcodes"));
+            return null;
+        }
+
+        // Prefixes: a collection of PrefixByte(0xNN) creations.
+        if (args[0] is CollectionExpressionSyntax prefixColl)
+        {
+            foreach (var e in prefixColl.Elements)
+            {
+                if (e is ExpressionElementSyntax pe &&
+                    GetCreationArguments(pe.Expression) is { Count: 1 } pargs &&
+                    LiteralInt(pargs[0]) is { } pv and >= 0 and <= 0xFF)
+                    prefixes.Add((byte)pv);
+                else { ok = false; }
+            }
+        }
+        else { ok = false; }
+
+        ok &= ParseByteCollection(args[1], modRm);
+        ok &= ParseByteCollection(args[2], subField);
+
+        if (!ok)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
+                "Prefixes must be PrefixByte(0xNN); ModRmOpcodes/SubFieldOpcodes must be 0xNN byte literals"));
+            return null;
+        }
+
+        // Cross-check: every declared prefix byte must back at least one prefixed Insn row, and every
+        // ModRm/sub-field opcode must back at least one matching row (so the structure and the table
+        // cannot drift). A malformed/orphan declaration is CPUGEN012.
+        foreach (byte p in prefixes)
+            if (!instructions.Any(i => i.KeyShape == KeyShape.PrefixedOpcode && i.Prefix == p))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
+                    $"prefix 0x{p:X2} has no prefixed Insn row"));
+                return null;
+            }
+        foreach (byte m in modRm)
+            if (!instructions.Any(i => i.Opcode == m && i.KeyShape == KeyShape.OpcodeByte))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
+                    $"ModRm opcode 0x{m:X2} has no Insn row"));
+                return null;
+            }
+        foreach (byte s in subField)
+            if (!instructions.Any(i => i.Opcode == s && i.KeyShape == KeyShape.OpcodeGroup))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
+                    $"sub-field opcode 0x{s:X2} has no opcode-group Insn row"));
+                return null;
+            }
+
+        return new DecodeStructureModel(prefixes.ToImmutable(), modRm.ToImmutable(), subField.ToImmutable());
+    }
+
+    /// <summary>Parse a collection of 0xNN byte literals into the builder; false on any non-literal
+    /// or out-of-range element.</summary>
+    private static bool ParseByteCollection(ExpressionSyntax expr, ImmutableArray<byte>.Builder into)
+    {
+        if (expr is not CollectionExpressionSyntax coll)
+            return false;
+        foreach (var e in coll.Elements)
+        {
+            if (e is ExpressionElementSyntax ee && LiteralInt(ee.Expression) is { } v and >= 0 and <= 0xFF)
+                into.Add((byte)v);
+            else
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

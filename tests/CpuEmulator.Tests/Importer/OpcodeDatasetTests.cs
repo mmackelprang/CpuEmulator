@@ -181,6 +181,62 @@ public class OpcodeDatasetTests
         Assert.Contains("empty", ex.Message);
     }
 
+    // ─── M3.1b: a computed-length row is NOT forbidden (Task 6) ──────────────
+
+    [Fact]
+    public void Existing_6502_rows_still_validate_byte_for_byte()
+    {
+        // The headline invariant: the 6502 dataset rules are UNCHANGED. All 151 rows load with the
+        // same byte counts, zero byte-count errors. (Regression guard for the relaxation.)
+        var entries = OpcodeDataset.Load(DatasetPath);
+
+        Assert.Equal(151, entries.Length);
+        foreach (var entry in entries)
+        {
+            var expected = entry.Mode switch
+            {
+                "Implied" or "Accumulator" => 1,
+                "Immediate" or "ZeroPage" or "ZeroPageX" or "ZeroPageY"
+                    or "IndirectX" or "IndirectY" or "Relative" => 2,
+                "Absolute" or "AbsoluteX" or "AbsoluteY" or "Indirect" => 3,
+                _ => throw new InvalidOperationException($"Unknown mode: {entry.Mode}")
+            };
+            Assert.Equal(expected, entry.Bytes);
+        }
+    }
+
+    [Fact]
+    public void A_computed_length_mode_is_not_forbidden()
+    {
+        // A ModR/M-tagged row (length computed by the decode walk from a mid-stream byte) carries a
+        // BASE byte count and is accepted WITHOUT the fixed-length byte-count equality. This only
+        // stops the schema from FORBIDDING the row — it does not compute the real tail (M3.3+).
+        var json = """
+            [
+              { "opcode": "0x80", "mnemonic": "GRP", "mode": "ModRm", "bytes": 2, "cycles": 2, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+
+        var row = Assert.Single(entries);
+        Assert.Equal("ModRm", row.Mode);
+        Assert.Equal(2, row.Bytes);   // the declared base; no equality enforced
+    }
+
+    [Fact]
+    public void A_bare_unknown_mode_still_throws()
+    {
+        // A genuinely unknown mode (not a recognized computed-length marker) still throws — the
+        // vocabulary gate is preserved; the relaxation is narrow.
+        var json = """
+            [
+              { "opcode": "0xA9", "mnemonic": "LDA", "mode": "SuperMode", "bytes": 2, "cycles": 2, "pageCrossPenalty": false }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("Unknown mode", ex.Message);
+    }
+
     [Fact]
     public void Rejects_Malformed_Json()
     {
