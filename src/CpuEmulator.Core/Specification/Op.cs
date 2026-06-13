@@ -43,3 +43,8 @@ public sealed record RtsOp : Op;
 // ── BRK/RTI flow class (Task 8 / 3b-ii) ────────────────────────────────────
 public sealed record BrkOp : Op;
 public sealed record RtiOp : Op;
+
+// ── I/O-port + halt class (M3.2 — additive; the 6502 uses none) ─────────────
+public sealed record PortInOp(string Target) : Op;   // IN reg,(port) — read the Io bus into reg
+public sealed record PortOutOp(string Source) : Op;  // OUT (port),reg — write reg to the Io bus
+public sealed record HaltOp : Op;                     // HALT (Z80) / STOP (68000) — the generic halted state

@@ -94,6 +94,18 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
                 cycleBudget -= _inner.CycleCount - before;
                 continue;
             }
+            if (_inner.Halted)                   // M3.2 (Ground truth B.3): halted fast path
+            {
+                // A halted CPU does no memory access, sets no flags, follows no chain — there is
+                // nothing to emit. Delegate the idle cycle to _inner.Step (the interpreter's halted
+                // guard, B.1) — keeping the halted path in ONE place and NOT busy-compiling a
+                // degenerate block. Re-checks InterruptPending next iteration (the wake). For the
+                // 6502 _inner.Halted is always false, so this branch is dead (byte-identical JIT).
+                long before = _inner.CycleCount;
+                _inner.Step();                   // one idle cycle
+                cycleBudget -= _inner.CycleCount - before;
+                continue;
+            }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
             CompiledBlock block = _cache.GetOrCompile((ushort)_inner.PC, _compiler);
             RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
@@ -119,7 +131,11 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
         {
             _chainPredecessor = current;            // the inbound-link record (read by ChainEdge)
             _chainNext = null;
-            current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit);
+            // The 6502 has no Io space, so its blocks never contain a Port op and never reference the
+            // ioBus arg (M3.2) — pass _calloutBus as a harmless placeholder. The live second-bus Io
+            // wiring for a port-using CPU is M3.5 (J1); M3.2 proves the EmitPort arm directly (F.1).
+            current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit,
+                _calloutBus);
             if (exit is BlockExit.Budget or BlockExit.Recompile) return; // round-trip required
             if (_chainNext is null) return;         // chain broke (gates/flag) or a dynamic exit
             current = _chainNext;                   // continue the chain in THIS frame

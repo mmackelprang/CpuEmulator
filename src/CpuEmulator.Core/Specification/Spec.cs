@@ -62,4 +62,10 @@ public static class Spec
     // ── BRK/RTI flow class (Task 8 / 3b-ii) ────────────────────────────────
     public static Op Brk() => new BrkOp();
     public static Op Rti() => new RtiOp();
+
+    // ── I/O-port + halt class (M3.2 — additive). Register args are register-NAME string literals
+    // (the J2 convention, validated against the spec's Registers table by CPUGEN008), NOT a Reg.
+    public static Op PortIn(string target) => new PortInOp(target);   // Z80: IN A,(n) / IN r,(C)
+    public static Op PortOut(string source) => new PortOutOp(source); // Z80: OUT (n),A / OUT (C),r
+    public static Op Halt() => new HaltOp();                          // Z80 HALT / 68000 STOP
 }

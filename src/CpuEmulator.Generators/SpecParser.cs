@@ -72,6 +72,10 @@ internal static class SpecParser
         ["Rts"] = System.Array.Empty<ArgKind>(),
         ["Brk"] = System.Array.Empty<ArgKind>(),
         ["Rti"] = System.Array.Empty<ArgKind>(),
+        // I/O-port + halt (M3.2 — additive). PortIn/PortOut name a register; Halt takes nothing.
+        ["PortIn"] = new[] { ArgKind.Reg },
+        ["PortOut"] = new[] { ArgKind.Reg },
+        ["Halt"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -80,6 +84,7 @@ internal static class SpecParser
         "ZeroPage", "ZeroPageX", "ZeroPageY",
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
+        "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
     };
 
     /// <summary>Valid Flag enum members for BranchIf (CPUGEN006 for anything else).</summary>
@@ -102,6 +107,20 @@ internal static class SpecParser
         "Transfer", "Increment", "SetNZ",
         "Decrement",  // register-class use: DEX/DEY (op is register class, not rmw class)
         "SetFlag",    // register-class use: CLC/SEC/CLI/SEI/CLV/CLD/SED
+        "Halt",       // M3.2: HALT/STOP — an Implied/Register-class op that sets the halted latch
+    };
+
+    // M3.2 (additive): the I/O-port op kinds + their legal modes. A Port-class row's first op is
+    // PortIn/PortOut and its mode MUST be one of s_portModes (CPUGEN010 otherwise — a port op in,
+    // say, Absolute is rejected). The 6502 declares no port op, so this gate is never reached by it.
+    private static readonly HashSet<string> s_portOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "PortIn", "PortOut",
+    };
+
+    private static readonly HashSet<string> s_portModes = new(System.StringComparer.Ordinal)
+    {
+        "IoPortImmediate", "IoPortIndirect",
     };
 
     private static readonly HashSet<string> s_aluOpKinds = new(System.StringComparer.Ordinal)
@@ -738,6 +757,17 @@ internal static class SpecParser
             return InstructionClass.Flow;
         }
 
+        // Port class (M3.2): exactly one port op (PortIn/PortOut) — an Io-bus access.
+        if (s_portOpKinds.Contains(first))
+        {
+            if (ops.Length != 1)
+            {
+                error = "port class must contain exactly one op (PortIn/PortOut)";
+                return null;
+            }
+            return InstructionClass.Port;
+        }
+
         // All must be register ops
         foreach (var op in ops)
         {
@@ -812,6 +842,12 @@ internal static class SpecParser
                 mode == "Implied" ? null : "Rti requires Implied mode",
             InstructionClass.Flow =>
                 mode == "Implied" ? null : "Rts requires Implied mode",
+
+            // port class (M3.2): IoPortImmediate ((n)) or IoPortIndirect ((C)) — the Io-bus
+            // port-operand modes. A port op in any other mode is rejected here.
+            InstructionClass.Port =>
+                s_portModes.Contains(mode) ? null
+                : "port class (PortIn/PortOut) requires IoPortImmediate or IoPortIndirect mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };
