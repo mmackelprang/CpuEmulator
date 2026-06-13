@@ -10,6 +10,7 @@ public enum JitOpClass
     Branch,                             // conditional control flow; ends a block
     Jump, Jsr, Rts,                     // unconditional control flow; ends a block
     Flow,                               // BRK/RTI — interrupt/vector machinery; fallback + ends block
+    Port,                               // M3.2: IN/OUT — an Io-bus callout (NEVER fastmem); straight-line
     Undefined,                          // not in the dispatch table; fallback + ends block
 }
 

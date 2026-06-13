@@ -107,4 +107,91 @@ public class PortHaltVocabularyTests
                  (d.GetMessage().Contains("PortIn") || d.GetMessage().Contains("PortOut")
                || d.GetMessage().Contains("Halt")));
     }
+
+    // ── Task 3: the Port class — mode-legality gate (CPUGEN010) ───────────────────────────────
+
+    /// <summary>A spec whose ops + modes are EDITABLE per-test, so the Port-class mode-legality
+    /// gate can be exercised positive (IoPort* accepted) and negative (a port op in Absolute
+    /// rejected). The partial supplies the port-bus + halt hooks so the generated class compiles
+    /// once the bodies land (Tasks 4/6); for the mode-gate tests only the GENERATOR diagnostics
+    /// are read, so a downstream CS error before Task 4/6 does not affect the CPUGEN010 assertions.</summary>
+    private static string PortModeSpec(string row) => $$"""
+        using CpuEmulator.Core;
+        using CpuEmulator.Core.Specification;
+        using static CpuEmulator.Core.Specification.Spec;
+
+        namespace SyntheticCpu;
+
+        [CpuSpecification("portmodetest")]
+        public static class PortModeTestSpec
+        {
+            public static readonly RegisterDef[] Registers =
+            [
+                new("A", 8),
+                new("PC", 16, RegisterRole.ProgramCounter),
+            ];
+
+            public static readonly InstructionDef[] Instructions =
+            [
+                {{row}}
+                Insn(0xEA, "NOP", AddrMode.Implied, []),
+            ];
+        }
+
+        public sealed partial class PortModeTestCpu
+        {
+            private readonly IAddressSpace _bus;
+            private readonly IAddressSpace _ioBus;
+            public PortModeTestCpu(IAddressSpace bus, IAddressSpace ioBus) { _bus = bus; _ioBus = ioBus; }
+            public void Reset() { }
+            public void SetIrqLine(bool a) { }
+            public void SetNmiLine(bool a) { }
+            private byte ReadBus(uint a) { _cycles++; return _bus.Read8(a); }
+            private void WriteBus(uint a, byte v) { _cycles++; _bus.Write8(a, v); }
+            private byte ReadIo(uint p) { _cycles++; return _ioBus.Read8(p); }
+            private void WriteIo(uint p, byte v) { _cycles++; _ioBus.Write8(p, v); }
+            private void HandleUndefinedOpcode(byte op) { _cycles++; }
+            private partial bool TryServiceInterrupt() => false;
+            public partial bool InterruptPending => false;
+        }
+        """;
+
+    [Fact]
+    public void PortIn_in_IoPortImmediate_mode_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(
+            PortModeSpec("""Insn(0xDB, "IN", AddrMode.IoPortImmediate, [PortIn("A")]),"""));
+
+        // The Port class accepts the IoPort* modes — no CPUGEN010 mode/op-combination diagnostic.
+        Assert.DoesNotContain(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void PortOut_in_IoPortIndirect_mode_is_accepted()
+    {
+        var result = GeneratorTestHost.Run(
+            PortModeSpec("""Insn(0xED, "OUT", AddrMode.IoPortIndirect, [PortOut("A")]),"""));
+
+        Assert.DoesNotContain(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void Port_op_in_a_non_port_mode_is_a_CPUGEN010_diagnostic()
+    {
+        // A port op in Absolute mode is rejected — the per-class mode-legality gate every class has.
+        var result = GeneratorTestHost.Run(
+            PortModeSpec("""Insn(0xDB, "IN", AddrMode.Absolute, [PortIn("A")]),"""));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
+
+    [Fact]
+    public void A_non_port_op_in_an_IoPort_mode_is_a_CPUGEN010_diagnostic()
+    {
+        // The gate is symmetric: a Load in an IoPort* mode is rejected (IoPort* is Port-class only).
+        var result = GeneratorTestHost.Run(
+            PortModeSpec("""Insn(0xA9, "LDA", AddrMode.IoPortImmediate, [Load("A")]),"""));
+
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
+    }
 }

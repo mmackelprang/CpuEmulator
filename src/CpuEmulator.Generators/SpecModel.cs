@@ -13,6 +13,7 @@ internal enum InstructionClass
     Rmw,    // Task 6: ASL/LSR/ROL/ROR/INC/DEC (memory and accumulator forms)
     Stack,  // Task 7: PHA/PLA/PHP/PLP
     Flow,   // Task 7: JSR/RTS
+    Port,   // M3.2: IN/OUT — an Io-bus access (PortIn/PortOut); the 6502 uses none
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502
