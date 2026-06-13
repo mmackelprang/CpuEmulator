@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The comparative-benchmark console RUNNER (spec §9 item 9). Owns BenchmarkDotNet + the
+    [Benchmark]-attributed TierBenchmarks harness + the Program entry point. References the bench
+    CORE library (CpuEmulator.Benchmarks) for the measurement logic; BenchmarkDotNet is referenced
+    ONLY here, so it never enters the test graph (wiring choice (b)).
+
+    A dev tool, never shipped: transitively references the non-AOT Jit assembly (through the core
+    library) + BenchmarkDotNet (emits its own non-AOT harness assemblies). NOT in any runtime graph;
+    the AOT-cleanliness test asserts no runtime-graph assembly references the core library.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CpuEmulator.Benchmarks.Runner</AssemblyName>
+    <RootNamespace>CpuEmulator.Benchmarks.Runner</RootNamespace>
+    <!-- The Gate A micro-bench uses a delegate*<void>[] function-pointer table. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
+    <ProjectReference Include="..\CpuEmulator.Benchmarks\CpuEmulator.Benchmarks.csproj" />
+  </ItemGroup>
+
+</Project>

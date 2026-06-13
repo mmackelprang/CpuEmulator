@@ -39,12 +39,13 @@ internal static class FuzzProgramGenerator
             int len = Mos6502Cpu.InstructionLength(opcode);
             if (len >= 2)
             {
-                // For a store opcode, bias the operand toward the code region (SMC).
-                if (IsZeroPageStore(opcode) && rng.NextDouble() < smcBias)
-                {
-                    ram[pc++] = (byte)(CodeBase & 0xFF); storesToCode++;       // a zp store into code
-                }
-                else if (IsAbsoluteStore(opcode) && len == 3 && rng.NextDouble() < smcBias)
+                // For an ABSOLUTE store opcode, bias the operand toward the code region (SMC). The
+                // code window lives at $0200.. (CodeBase) — outside zero page — so ONLY an absolute
+                // store can target it; a zero-page store (operand 0x00..0xFF) can never reach the
+                // code region, so there is no zp-store SMC branch (the prior zp branch wrote operand
+                // 0x00, targeting $0000, NOT code — it was dead SMC bias). The absolute-store bias is
+                // the real self-modifying path the SMC guard + chaining-sever tests exercise.
+                if (IsAbsoluteStore(opcode) && len == 3 && rng.NextDouble() < smcBias)
                 {
                     ushort t = (ushort)(CodeBase + rng.Next(CodeLen));
                     ram[pc++] = (byte)(t & 0xFF); ram[pc++] = (byte)(t >> 8); storesToCode++;
@@ -103,6 +104,5 @@ internal static class FuzzProgramGenerator
         _ => false,
     };
 
-    private static bool IsZeroPageStore(byte opcode) => opcode is 0x85 or 0x86 or 0x84;  // STA/STX/STY zp
     private static bool IsAbsoluteStore(byte opcode) => opcode is 0x8D or 0x8E or 0x8C;   // STA/STX/STY abs
 }

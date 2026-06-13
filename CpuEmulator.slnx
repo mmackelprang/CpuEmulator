@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/bench/">
+    <Project Path="bench/CpuEmulator.Benchmarks.Runner/CpuEmulator.Benchmarks.Runner.csproj" />
+    <Project Path="bench/CpuEmulator.Benchmarks/CpuEmulator.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/CpuEmulator.Core/CpuEmulator.Core.csproj" />
     <Project Path="src/CpuEmulator.Generators/CpuEmulator.Generators.csproj" />
