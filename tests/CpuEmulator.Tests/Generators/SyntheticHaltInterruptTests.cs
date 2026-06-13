@@ -174,4 +174,91 @@ public class SyntheticHaltInterruptTests
         var ex = Assert.Throws<EmulationException>(() => machine.Run(100));
         Assert.Contains("no progress", ex.Message);
     }
+
+    // ── Task 8: the wake (interpreter) + the JIT dispatcher halted fast path (seam pin) ───────
+
+    [Fact]
+    public void Halted_cpu_wakes_on_a_serviced_interrupt()
+    {
+        var (cpu, program) = NewCpu();
+        program.Write8(0x0200, 0x76);   // HALT
+        // A handler at the table vector 0xFF00 (VectorBase 0) -> 0x0300.
+        program.Write8(0x0300, 0xEA);   // NOP at the handler
+        program.Write8(0xFF00, 0x00);   // vector lo
+        program.Write8(0xFF01, 0x03);   // vector hi -> 0x0300
+        SetPc(cpu, 0x0200);
+        SetVectorBase(cpu, 0);
+
+        Step(cpu);                      // HALT -> halted
+        Assert.True(Halted(cpu));
+
+        Step(cpu);                      // halted, no IRQ -> idle (still halted)
+        Assert.True(Halted(cpu));
+
+        SetIrq(cpu, true);              // assert the IRQ line mid-halt
+        Step(cpu);                      // TryServiceInterrupt services it: clears _halted, PC -> vector
+        Assert.False(Halted(cpu));      // woke
+        Assert.Equal(0x0300, GetPc(cpu));   // vectored through the table to the handler
+
+        ushort pcAtHandler = GetPc(cpu);
+        SetIrq(cpu, false);
+        Step(cpu);                      // normal fetch resumes — runs the NOP at the handler
+        Assert.Equal((ushort)(pcAtHandler + 1), GetPc(cpu));   // PC advanced past the NOP (real fetch)
+    }
+
+    [Fact]
+    public void Jit_dispatcher_halted_fast_path_idles()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // JIT-only; skip where dynamic code is disabled
+
+        // The JIT dispatcher's halted fast path delegates the idle to _inner.Step (Ground truth B.3),
+        // decrementing the budget by the consumed (idle) cycles WITHOUT compiling a block. Pin the
+        // delegation semantics directly on the synthetic halt CPU (the live second-CPU JittedCpu run
+        // is M3.5 — JittedCpu is hardcoded to Mos6502Cpu, which never halts): a halted CPU stepped in
+        // the dispatcher's loop shape consumes exactly one cycle/Step and the budget tracks it.
+        var (cpu, program) = NewCpu();
+        program.Write8(0x0200, 0x76);   // HALT
+        SetPc(cpu, 0x0200);
+        Step(cpu);                      // -> halted
+        Assert.True(Halted(cpu));
+
+        // Mirror the dispatcher's halted branch: while halted, idle via Step and decrement budget.
+        long budget = 5;
+        int idleSteps = 0;
+        while (budget > 0 && Halted(cpu))
+        {
+            long before = Cycles(cpu);
+            Step(cpu);                  // the same _inner.Step() the dispatcher calls (no block compile)
+            budget -= Cycles(cpu) - before;
+            idleSteps++;
+        }
+
+        Assert.Equal(5, idleSteps);     // 5 idle cycles consumed the 5-cycle budget, one per Step
+        Assert.True(budget <= 0);
+    }
+
+    [Fact]
+    public void Jit_dispatcher_halted_branch_is_dead_for_the_non_halting_6502()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;
+
+        // The 6502 never halts (_inner.Halted is always false), so the dispatcher's halted branch is
+        // dead and a normal program runs through compiled blocks exactly as before (byte-identical).
+        var space = new AddressSpace(AddressSpaceKind.Program, 16);
+        space.MapMemory(0, new byte[0x10000], writable: true);
+        // LDA #$42 ; JMP-self
+        space.Write8(0x0200, 0xA9); space.Write8(0x0201, 0x42);
+        space.Write8(0x0202, 0x4C); space.Write8(0x0203, 0x02); space.Write8(0x0204, 0x02);
+        var inner = new CpuEmulator.Cpus.Mos6502.Mos6502Cpu(space);
+        inner.PC = 0x0200;
+        Assert.False(inner.Halted);     // the 6502 hand-written Halted hook is always false
+
+        var jit = new CpuEmulator.Jit.JittedCpu(inner, space);
+        long budget = 20;
+        jit.Run(ref budget);            // does not hang on the JMP-self; the halted branch never fires
+
+        Assert.Equal(0x42, inner.A);    // the LDA ran through a compiled block
+    }
 }
