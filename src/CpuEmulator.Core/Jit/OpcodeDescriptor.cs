@@ -22,6 +22,8 @@ public enum JitMode
     ZeroPage, ZeroPageX, ZeroPageY,
     Absolute, AbsoluteX, AbsoluteY,
     IndirectX, IndirectY, Indirect, Relative,
+    IoPortImmediate,   // (n) — Z80 IN A,(n)/OUT (n),A. Additive (M3.2); no 6502 row names it.
+    IoPortIndirect,    // (C) — Z80 IN r,(C)/OUT (C),r. Additive (M3.2); no 6502 row names it.
 }
 
 /// <summary>One micro-op the compiler emits, in spec order. Kind is the interpreter OpModel

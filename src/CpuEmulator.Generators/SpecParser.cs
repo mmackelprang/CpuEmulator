@@ -80,6 +80,7 @@ internal static class SpecParser
         "ZeroPage", "ZeroPageX", "ZeroPageY",
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
+        "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
     };
 
     /// <summary>Valid Flag enum members for BranchIf (CPUGEN006 for anything else).</summary>
