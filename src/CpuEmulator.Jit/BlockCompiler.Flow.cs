@@ -126,7 +126,7 @@ internal sealed partial class BlockCompiler
             default:
                 throw new EmulationException($"alu: no arm for kind '{kind}' (opcode 0x{d.Opcode:X2})");
         }
-        EmitChargeOneCycle(ctx);                 // opcode-fetch cycle
+        // (opcode-fetch cycle charged up-front in EmitInstruction — see GT-F(a) note there)
     }
 
     // ── RMW class (ShiftLeft/Right, RotateLeft/Right, IncrementMem, DecrementMem) ─────────────
@@ -155,7 +155,7 @@ internal sealed partial class BlockCompiler
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldfld, FA);
             EmitSetNZFromStack(ctx);
-            EmitChargeOneCycle(ctx);
+            // (opcode-fetch cycle charged up-front in EmitInstruction)
             return;
         }
 
@@ -181,7 +181,7 @@ internal sealed partial class BlockCompiler
         // P = (P & 0x7D) | (temp==0?2:0) | (temp & 0x80)
         il.Emit(OpCodes.Ldloc, ctx.HiLocal);
         EmitSetNZFromStack(ctx);
-        EmitChargeOneCycle(ctx);
+        // (opcode-fetch cycle charged up-front in EmitInstruction — see GT-F(a) note there)
     }
 
     /// <summary>Compute the RMW result into HiLocal from the value in DataLocal, setting the C
@@ -432,7 +432,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Stfld, FPC);
 
         il.MarkLabel(notTaken);
-        EmitChargeOneCycle(ctx);                      // opcode-fetch cycle (base 2 total w/ operand)
+        // (opcode-fetch cycle charged up-front in EmitInstruction — base 2 total with the operand read)
     }
 
     // ── Jump class (JMP Absolute / Indirect) ─────────────────────────────────────────────────
@@ -506,7 +506,7 @@ internal sealed partial class BlockCompiler
         {
             throw new EmulationException($"jump: no arm for mode {d.Mode} (opcode 0x{d.Opcode:X2})");
         }
-        EmitChargeOneCycle(ctx);   // opcode-fetch cycle
+        // (opcode-fetch cycle charged up-front in EmitInstruction)
     }
 
     // ── JSR (Absolute) ───────────────────────────────────────────────────────────────────────
@@ -545,7 +545,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Or);
         il.Emit(OpCodes.Conv_U2);
         il.Emit(OpCodes.Stfld, FPC);
-        EmitChargeOneCycle(ctx);
+        // (opcode-fetch cycle charged up-front in EmitInstruction)
     }
 
     // ── RTS (Implied) ────────────────────────────────────────────────────────────────────────
@@ -584,6 +584,6 @@ internal sealed partial class BlockCompiler
         LoadByteFromBus(ctx);
         il.Emit(OpCodes.Pop);
         EmitIncrementPC(ctx, 1);
-        EmitChargeOneCycle(ctx);
+        // (opcode-fetch cycle charged up-front in EmitInstruction)
     }
 }

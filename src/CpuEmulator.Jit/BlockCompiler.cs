@@ -103,10 +103,14 @@ internal sealed partial class BlockCompiler
     private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d)
     {
         if (d.NeedsFallback) { EmitFallbackStep(ctx); return; }
-        // Mirror the interpreter Step's opcode fetch: advance PC past the opcode byte BEFORE
-        // operand resolution (the interpreter does ReadBus(PC); PC++ in Step, then Execute reads
-        // operands at the advanced PC). The opcode-fetch CYCLE is charged once by the trailing
-        // EmitChargeOneCycle in each arm — here we only move PC.
+        // Mirror the interpreter Step's opcode fetch EXACTLY: charge the opcode-fetch cycle FIRST
+        // (the interpreter does `ReadBus(PC)` — which does `_cycles++` — then `PC++` in Step,
+        // then `Execute` resolves operands). Charging the fetch cycle up-front (rather than as a
+        // trailing per-arm charge) is load-bearing for Ground truth F(a): a mid-instruction MMIO
+        // store must see a CycleCount that already counts the opcode fetch, so the device's view
+        // is byte-identical to the interpreter's WriteBus ordering. The per-arm operand/access
+        // charges follow, in order, after this.
+        EmitChargeOneCycle(ctx);   // opcode-fetch cycle (was: trailing in each arm — moved up for GT-F(a))
         EmitIncrementPC(ctx, 1);
         switch (d.Class)
         {

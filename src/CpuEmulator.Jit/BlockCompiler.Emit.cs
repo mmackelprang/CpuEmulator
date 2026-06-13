@@ -277,7 +277,7 @@ internal sealed partial class BlockCompiler
         // remaining ops (SetNZ)
         for (int i = 1; i < d.Ops.Length; i++)
             EmitRegisterOp(ctx, d.Ops[i]);
-        EmitChargeOneCycle(ctx);                 // the opcode-fetch cycle (total == BaseCycles)
+        // (opcode-fetch cycle charged up-front in EmitInstruction — see GT-F(a) note there)
     }
 
     // ── Store class ────────────────────────────────────────────────────────────────────────
@@ -289,7 +289,7 @@ internal sealed partial class BlockCompiler
         EmitStoreAddress(ctx, d);                // ea on stack
         EmitLoadRegOrA(ctx, source);             // value on stack
         EmitStoreByte(ctx);                      // charges 1 cycle, writes (fastmem/bus)
-        EmitChargeOneCycle(ctx);                 // opcode-fetch cycle
+        // (opcode-fetch cycle charged up-front in EmitInstruction — see GT-F(a) note there)
     }
 
     private void EmitLoadRegOrA(EmitContext ctx, byte regIndex)
@@ -440,18 +440,18 @@ internal sealed partial class BlockCompiler
         if (firstKind is "Push" or "Pull" or "PushP" or "PullP")
         {
             EmitStackOp(ctx, d.Ops[0]);
-            EmitChargeOneCycle(ctx);             // opcode-fetch cycle
+            // (opcode-fetch cycle charged up-front in EmitInstruction)
             return;
         }
 
-        // Implied: dummy read at PC (no increment), then each op, then the fetch cycle.
+        // Implied: opcode fetch (charged up-front) + dummy read at PC (no increment) + the ops.
         EmitLoadPC(ctx);
         il.Emit(OpCodes.Conv_U4);
         LoadByteFromBus(ctx);
         il.Emit(OpCodes.Pop);
         foreach (var op in d.Ops)
             EmitRegisterOp(ctx, op);
-        EmitChargeOneCycle(ctx);
+        // (opcode-fetch cycle charged up-front in EmitInstruction)
     }
 
     private void EmitRegisterOp(EmitContext ctx, JitOp op)
