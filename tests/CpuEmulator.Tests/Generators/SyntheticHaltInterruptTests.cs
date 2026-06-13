@@ -125,4 +125,53 @@ public class SyntheticHaltInterruptTests
         Assert.Equal(pcAfterHalt, GetPc(cpu));       // PC did not advance (no fetch)
         Assert.True(Halted(cpu));                    // still halted
     }
+
+    // ── Task 7: Machine.Run does not trip the no-progress guard on a halted CPU (CONFIRM) ─────
+
+    /// <summary>Wire the synthetic halt CPU into a Machine via the factory (the CPU is loaded
+    /// dynamically, so construct it by reflection and return it as the ICpuCore it implements).</summary>
+    private static (Machine machine, object cpu) NewMachine()
+    {
+        object? captured = null;
+        var machine = Machine.Create("haltirqtest")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithRam(AddressSpaceKind.Program, 0, 0x10000)
+            .WithCpu(ctx =>
+            {
+                captured = Activator.CreateInstance(s_cpu.Value, ctx.Space(AddressSpaceKind.Program))!;
+                return (ICpuCore)captured;
+            })
+            .Build();
+        return (machine, captured!);
+    }
+
+    [Fact]
+    public void Machine_Run_does_not_trip_the_no_progress_guard_on_a_halted_cpu()
+    {
+        var (machine, cpu) = NewMachine();
+        machine.Space(AddressSpaceKind.Program).Write8(0x0200, 0x76);   // HALT
+        SetPc(cpu, 0x0200);
+
+        // A Machine running a halted CPU for a budget MUST return the consumed budget and NOT throw
+        // EmulationException — the guard is correct AS-IS (Ground truth B.2): a halted Step advances
+        // >=1 cycle (the idle), so it is making the legitimate progress of a halted processor.
+        long executed = machine.Run(50);
+
+        Assert.True(executed >= 50, $"expected >= 50 cycles consumed (idle), got {executed}");
+        Assert.True(Halted(cpu), "the CPU should still be halted (no interrupt asserted)");
+    }
+
+    [Fact]
+    public void A_genuinely_stuck_cpu_still_trips_the_no_progress_guard()
+    {
+        // The guard still does its job for a CPU that makes NO progress (the StuckCpu double): the
+        // halted accommodation is the always-advance invariant, NOT a relaxation of the guard.
+        var machine = Machine.Create("stuck")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithCpu(_ => new CpuEmulator.Tests.TestDoubles.StuckCpu())
+            .Build();
+
+        var ex = Assert.Throws<EmulationException>(() => machine.Run(100));
+        Assert.Contains("no progress", ex.Message);
+    }
 }
