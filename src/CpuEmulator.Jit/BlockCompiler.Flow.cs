@@ -367,11 +367,18 @@ internal sealed partial class BlockCompiler
     }
 
     // ── Branch class (Relative) ──────────────────────────────────────────────────────────────
-    private void EmitBranch(EmitContext ctx, OpcodeDescriptor d)
+    private void EmitBranch(EmitContext ctx, ushort pc, OpcodeDescriptor d)
     {
         ILGenerator il = ctx.Il;
         int bit = d.Ops[0].FlagBit;
         int expectedBit = d.Ops[0].BoolArg ? 1 : 0;
+
+        // The two static successors (both compile-time constants from the offset byte in the code
+        // stream — Ground truth A): the fall-through PC and the taken target. PC after the operand
+        // is pc + d.Length; the taken target adds the signed offset to it.
+        byte offset = _bus.Read8((ushort)(pc + 1));
+        ushort fallThroughPc = (ushort)(pc + d.Length);
+        ushort takenTargetPc = (ushort)(fallThroughPc + (sbyte)offset);
 
         // offset = bus[PC]; PC++   (LoLocal holds offset as int)
         EmitReadAtPC(ctx);
@@ -430,17 +437,25 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldloc, ctx.HiLocal);
         il.Emit(OpCodes.Conv_U2);
         il.Emit(OpCodes.Stfld, FPC);
+        // (opcode-fetch cycle charged up-front; the taken +1 / page-cross +1 charged in the body
+        //  above, unchanged from M2-i). Chain to the TAKEN static target (Ground truth A).
+        EmitChainOrExit(ctx, takenTargetPc);
 
         il.MarkLabel(notTaken);
-        // (opcode-fetch cycle charged up-front in EmitInstruction — base 2 total with the operand read)
+        // The untaken arm: PC is already at the fall-through (the operand read advanced it). Chain
+        // to the fall-through static target.
+        EmitChainOrExit(ctx, fallThroughPc);
     }
 
     // ── Jump class (JMP Absolute / Indirect) ─────────────────────────────────────────────────
-    private void EmitJump(EmitContext ctx, OpcodeDescriptor d)
+    private void EmitJump(EmitContext ctx, ushort pc, OpcodeDescriptor d)
     {
         ILGenerator il = ctx.Il;
         if (d.Mode == JitMode.Absolute)
         {
+            // The static target is the absolute operand (a constant in the code stream) — Ground
+            // truth A: JMP-abs is chainable.
+            ushort target = (ushort)(_bus.Read8((ushort)(pc + 1)) | (_bus.Read8((ushort)(pc + 2)) << 8));
             // lo = bus[PC]; PC++; hi = bus[PC]; PC++; PC = lo | (hi << 8)
             EmitReadAtPC(ctx);
             il.Emit(OpCodes.Stloc, ctx.LoLocal);
@@ -456,6 +471,8 @@ internal sealed partial class BlockCompiler
             il.Emit(OpCodes.Or);
             il.Emit(OpCodes.Conv_U2);
             il.Emit(OpCodes.Stfld, FPC);
+            // (opcode-fetch cycle charged up-front in EmitInstruction)
+            EmitChainOrExit(ctx, target);
         }
         else if (d.Mode == JitMode.Indirect)
         {
@@ -501,18 +518,23 @@ internal sealed partial class BlockCompiler
             il.Emit(OpCodes.Ldloc, ctx.HiLocal);
             il.Emit(OpCodes.Conv_U2);
             il.Emit(OpCodes.Stfld, FPC);
+            // (opcode-fetch cycle charged up-front in EmitInstruction). JMP-(ind) reads its target
+            // from memory at run time — a DYNAMIC successor, NOT chainable (Ground truth A).
+            EmitNormalExit(ctx);
         }
         else
         {
             throw new EmulationException($"jump: no arm for mode {d.Mode} (opcode 0x{d.Opcode:X2})");
         }
-        // (opcode-fetch cycle charged up-front in EmitInstruction)
     }
 
     // ── JSR (Absolute) ───────────────────────────────────────────────────────────────────────
-    private void EmitJsr(EmitContext ctx, OpcodeDescriptor d)
+    private void EmitJsr(EmitContext ctx, ushort pc, OpcodeDescriptor d)
     {
         ILGenerator il = ctx.Il;
+        // The static call target is the absolute operand (a constant in the code stream) — Ground
+        // truth A: JSR's target is known (the return address is dynamic, but the entry is static).
+        ushort target = (ushort)(_bus.Read8((ushort)(pc + 1)) | (_bus.Read8((ushort)(pc + 2)) << 8));
         // lo = bus[PC]; PC++; dummy read at 0x100+S; push PCH; S--; push PCL; S--; hi = bus[PC]; PC = hi:lo
         EmitReadAtPC(ctx);
         il.Emit(OpCodes.Stloc, ctx.LoLocal);
@@ -545,7 +567,8 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Or);
         il.Emit(OpCodes.Conv_U2);
         il.Emit(OpCodes.Stfld, FPC);
-        // (opcode-fetch cycle charged up-front in EmitInstruction)
+        // (opcode-fetch cycle charged up-front in EmitInstruction). Chain to the static call target.
+        EmitChainOrExit(ctx, target);
     }
 
     // ── RTS (Implied) ────────────────────────────────────────────────────────────────────────
@@ -584,6 +607,8 @@ internal sealed partial class BlockCompiler
         LoadByteFromBus(ctx);
         il.Emit(OpCodes.Pop);
         EmitIncrementPC(ctx, 1);
-        // (opcode-fetch cycle charged up-front in EmitInstruction)
+        // (opcode-fetch cycle charged up-front in EmitInstruction). RTS pops its target from the
+        // stack — a DYNAMIC successor, NOT chainable (Ground truth A): exit to the dispatcher.
+        EmitNormalExit(ctx);
     }
 }

@@ -11,14 +11,19 @@ public sealed class DirtyMap(int pageCount)
     public void Clear() { System.Array.Clear(_dirty); Any = false; }
 }
 
-/// <summary>PC-keyed block cache + the per-page dirty map + coarse (whole-cache) invalidation.
-/// M2-i has no chaining, so a cache rebuild is cheap (re-decode on next entry) and the
-/// invalidation response is whole-cache-coarse — see the recorded deviation.</summary>
+/// <summary>PC-keyed block cache + the per-page dirty map + the chain unlink table + coarse
+/// (whole-cache) invalidation. Tasks 1-2 hold the M2-i coarse flush (Task 4 replaces it with the
+/// per-page-precise eviction); the chaining layer is already safe here because every chain edge is
+/// gated on <c>!Dirty.Any</c>, so a coarse flush still runs before any chained successor.</summary>
 internal sealed class BlockCache(int pageCount)
 {
     private readonly System.Collections.Generic.Dictionary<ushort, CompiledBlock> _blocks = new();
     private readonly System.Collections.Generic.HashSet<int> _pagesWithBlocks = [];
     public DirtyMap Dirty { get; } = new(pageCount);
+
+    /// <summary>The chain link/unlink table (M2-ii): successor PC -> the predecessors that chain
+    /// into it, so invalidation can sever every inbound link (Ground truth A).</summary>
+    public ChainTable Chains { get; } = new();
 
     public CompiledBlock GetOrCompile(ushort pc, BlockCompiler compiler)
     {
@@ -29,19 +34,23 @@ internal sealed class BlockCache(int pageCount)
         return block;
     }
 
-    /// <summary>The SMC check, run before each dispatch. If any dirty page owns a cached block,
-    /// discard the WHOLE cache (coarse, M2-i — cheap because there is no chaining to unlink); that
-    /// flush satisfies every outstanding mark, so the map clears. If NO dirty page owns a block,
-    /// the marks describe writes to non-code pages — they are cleared only after confirming no
-    /// cached block depends on them.
-    ///
-    /// RECORDED FIX (Task-5 hand-off note #1): the earlier stub ended with an UNCONDITIONAL
-    /// <c>Dirty.Clear()</c> — it consumed every mark each dispatch even when no flush occurred.
-    /// That is wrong the moment invalidation becomes finer than whole-cache (M2-ii chaining), and
-    /// it obscures the invariant that a mark must outlive a dispatch until the block it threatens
-    /// is actually recompiled. This version makes the rule explicit: marks are cleared by the SAME
-    /// step that flushes the threatened blocks (here, the whole-cache flush), or — for marks on
-    /// pages that own no block — cleared as harmless once that is established, never blindly.</summary>
+    /// <summary>Chain-edge resolver (M2-ii): fetch (compiling on first reach) the block at
+    /// <paramref name="targetPc"/> and record an inbound link from <paramref name="predecessor"/>.
+    /// The emitted chain-resolution call invokes this once it has cleared the chain-break gates
+    /// (budget / Dirty.Any / InterruptPending — Ground truth A steps 2-4). Resolves BY PC through
+    /// the live cache on every edge, so a severed (evicted) successor recompiles here on the next
+    /// reach — no baked delegate, no IL patching.</summary>
+    public CompiledBlock ResolveChain(ushort targetPc, CompiledBlock predecessor, BlockCompiler compiler)
+    {
+        CompiledBlock target = GetOrCompile(targetPc, compiler);
+        Chains.Link(targetPc, predecessor);
+        return target;
+    }
+
+    /// <summary>The SMC check, run before each dispatch (coarse, M2-i — Task 4 makes it per-page).
+    /// If any dirty page owns a cached block, discard the WHOLE cache (cheap because a chain edge
+    /// only proceeds when !Dirty.Any, so the flush runs before any chained successor). A mark on a
+    /// page that owns no block is cleared as harmless.</summary>
     public void InvalidateIfDirty()
     {
         if (!Dirty.Any) return;
@@ -52,17 +61,12 @@ internal sealed class BlockCache(int pageCount)
 
         if (hitCode)
         {
-            // A dirtied page owns ≥1 cached block: the coarse M2-i response discards the whole
-            // cache. With every block gone, every outstanding mark is satisfied → clear the map.
             _blocks.Clear();
             _pagesWithBlocks.Clear();
+            Chains.Clear();
             Dirty.Clear();
             return;
         }
-
-        // No dirtied page owns a block: these marks threaten no cached IL (any block later
-        // compiled on a dirtied page reads the post-write bytes). Clear them as harmless — but
-        // explicitly, as "no block depends on this page," not as an unconditional blanket clear.
         Dirty.Clear();
     }
 }

@@ -5,9 +5,10 @@ namespace CpuEmulator.Jit;
 /// <summary>Per-block emit state: the ILGenerator plus the reusable scratch locals the emit
 /// arms share. Locals are typed to make the IL match the interpreter's C# (which works in
 /// <c>uint</c> for addresses and <c>byte</c>/<c>int</c> for data). The arg indices for the
-/// BlockDelegate signature are fixed:
-///   0 = cpu (Mos6502Cpu), 1 = bus (AddressSpace), 2 = fastmem (byte[]?[]),
-///   3 = dirty (DirtyMap), 4 = ref long budget, 5 = out BlockExit exit.</summary>
+/// BlockDelegate signature are fixed (M2-ii, after inserting ChainDispatch as the 5th param):
+///   0 = cpu (Mos6502Cpu), 1 = bus (AddressSpace), 2 = fastmem (Fastmem),
+///   3 = dirty (DirtyMap), 4 = chain (ChainDispatch), 5 = ref long budget,
+///   6 = out BlockExit exit. See BlockCompiler.ArgChain/ArgBudget/ArgExit.</summary>
 internal sealed class EmitContext
 {
     public ILGenerator Il { get; }

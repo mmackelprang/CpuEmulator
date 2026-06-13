@@ -1,0 +1,43 @@
+namespace CpuEmulator.Jit;
+
+/// <summary>The chain link/unlink table. Maps a successor's entry PC to the set of predecessor
+/// blocks that chain INTO it, so invalidating (evicting) a successor can sever every inbound link.
+/// Chaining resolves successors BY PC through the live cache on every chain edge (Ground truth A,
+/// "resolve-by-PC, not bake-the-delegate"), so severing is just dropping the inbound set + evicting
+/// the successor from the cache — no emitted IL is patched.</summary>
+internal sealed class ChainTable
+{
+    private readonly System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.HashSet<CompiledBlock>> _inbound = new();
+
+    /// <summary>Record that <paramref name="predecessor"/> chains into the block at
+    /// <paramref name="successorPc"/>. Idempotent (a set).</summary>
+    public void Link(ushort successorPc, CompiledBlock predecessor)
+    {
+        if (!_inbound.TryGetValue(successorPc, out var set))
+            _inbound[successorPc] = set = [];
+        set.Add(predecessor);
+    }
+
+    /// <summary>The predecessors that chain into <paramref name="successorPc"/> (empty if none).</summary>
+    public System.Collections.Generic.IReadOnlyCollection<CompiledBlock> InboundTo(ushort successorPc)
+        => _inbound.TryGetValue(successorPc, out var set)
+            ? set
+            : System.Array.Empty<CompiledBlock>();
+
+    /// <summary>Sever all inbound links to <paramref name="successorPc"/> (called when that block is
+    /// evicted). The predecessors are NOT touched — they resolve-by-PC and will recompile the
+    /// successor on their next chain edge.</summary>
+    public void Sever(ushort successorPc) => _inbound.Remove(successorPc);
+
+    /// <summary>Drop a predecessor from every inbound set it appears in (called when the
+    /// PREDECESSOR is evicted — so a later Sever of a successor does not retain a dead block).</summary>
+    public void Forget(CompiledBlock predecessor)
+    {
+        foreach (var set in _inbound.Values)
+            set.Remove(predecessor);
+    }
+
+    /// <summary>Drop every inbound link (called on a whole-cache flush — every block is gone, so
+    /// every link is stale).</summary>
+    public void Clear() => _inbound.Clear();
+}

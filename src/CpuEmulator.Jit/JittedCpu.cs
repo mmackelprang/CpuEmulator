@@ -22,6 +22,8 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
     private readonly Fastmem _fastmem;
     private readonly BlockCache _cache;
     private readonly BlockCompiler _compiler;
+    private readonly JitOptions _opts;
+    private long _chainStepCount;   // test seam: chain edges taken without a dispatcher round-trip
 
     /// <summary>Construct a Tier-1 JIT over an interpreter and its concrete bus.</summary>
     /// <param name="inner">The wrapped interpreter — the oracle, fallback, and state owner.</param>
@@ -44,6 +46,7 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
         _inner = inner;
         _bus = bus;
         var opts = options ?? new JitOptions();
+        _opts = opts;
         // The bus the emitted callouts use: the trace bus when supplied with DisableFastmem
         // (so a TracingAddressSpace sees every access), else the concrete AddressSpace.
         _calloutBus = (opts.DisableFastmem && traceBus is not null) ? traceBus : bus;
@@ -54,6 +57,10 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
 
     /// <summary>Test seam: how many blocks have been compiled (the cache-hit pin reads this).</summary>
     internal int CompileCount => _compiler.CompileCount;
+
+    /// <summary>Test seam: how many chain edges have been taken without a dispatcher round-trip
+    /// (the chaining pins read this; 0 with <see cref="JitOptions.DisableChaining"/> or M2-i).</summary>
+    internal long ChainStepCount => _chainStepCount;
 
     public string Architecture => _inner.Architecture;
     public long CycleCount => _inner.CycleCount;
@@ -80,9 +87,37 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
             }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
             CompiledBlock block = _cache.GetOrCompile((ushort)_inner.PC, _compiler);
-            block.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, ref cycleBudget, out _);
-            // Normal/Budget: loop or fall out (cycleBudget drives the while). Irq cannot occur
-            // mid-block in M2-i (checked only at entry); the enum carries it for M2-ii chaining.
+            RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
+            // Normal/Budget/Recompile all return here for a dispatcher round-trip: the loop tops
+            // back to InvalidateIfDirty (flushing a self-modified block on a Recompile/dirty exit)
+            // + GetOrCompile re-decodes at the (already-set) PC. cycleBudget drives the while.
+        }
+    }
+
+    /// <summary>Run a block and follow its statically-known chain edges WITHOUT a dispatcher
+    /// round-trip, stack-safely (a LOOP, not emitted recursion — Ground truth A step 7). The
+    /// emitted block's chain call stashes the resolved successor in 'next' and returns; the emitted
+    /// block 'ret's; this loop runs the successor in the SAME frame, so host stack depth across an
+    /// arbitrarily long chain is bounded. Returns when the chain breaks (no link / a dynamic exit /
+    /// a chain-break gate) or must round-trip (Budget / Recompile).</summary>
+    private void RunChain(CompiledBlock block, ref long budget)
+    {
+        CompiledBlock current = block;
+        while (true)
+        {
+            CompiledBlock predecessor = current;   // captured for the inbound-link record
+            CompiledBlock? next = null;
+            ChainDispatch chain = (ushort targetPc, ref long b, out BlockExit e) =>
+            {
+                e = BlockExit.Normal;
+                if (_opts.DisableChaining) return;             // flag -> no chaining; round-trip
+                next = _cache.ResolveChain(targetPc, predecessor, _compiler); // link + resolve
+            };
+            current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit);
+            if (exit is BlockExit.Budget or BlockExit.Recompile) return; // round-trip required
+            if (next is null) return;               // chain broke (gates/flag) or a dynamic exit
+            current = next;                         // continue the chain in THIS frame
+            _chainStepCount++;                      // test seam (ChainStepCount pin)
         }
     }
 

@@ -19,6 +19,14 @@ internal sealed partial class BlockCompiler
     private readonly JitOptions _opts;
     internal int CompileCount { get; private set; }   // test seam (Block_cache_hits pin)
 
+    // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter):
+    //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
+    //   5 = ref long budget, 6 = out BlockExit exit.
+    // Named so the next signature change is one edit, not a scattered Ldarg_S hunt.
+    private const byte ArgChain = 4;
+    private const byte ArgBudget = 5;
+    private const byte ArgExit = 6;
+
     // Baked field/method handles — resolved once, reused across every block.
     private static readonly FieldInfo FA = typeof(Mos6502Cpu).GetField("A")!;
     private static readonly FieldInfo FX = typeof(Mos6502Cpu).GetField("X")!;
@@ -46,6 +54,11 @@ internal sealed partial class BlockCompiler
     private static readonly MethodInfo MPageOffset = typeof(Fastmem).GetProperty("PageOffset")!.GetGetMethod()!;
     private static readonly MethodInfo MPageWritable = typeof(Fastmem).GetProperty("PageWritable")!.GetGetMethod()!;
     private static readonly MethodInfo MDirtyMark = typeof(DirtyMap).GetMethod("Mark")!;
+
+    // Chaining (M2-ii): the Dirty.Any backstop getter + the ChainDispatch.Invoke the emitted chain
+    // edge calls (Ground truth A/B). Resolved once, reused across every chainable exit.
+    private static readonly MethodInfo MDirtyAny = typeof(DirtyMap).GetProperty("Any")!.GetGetMethod()!;
+    private static readonly MethodInfo MChainInvoke = typeof(ChainDispatch).GetMethod("Invoke")!;
 
     public BlockCompiler(Mos6502Cpu cpu, AddressSpace bus, Fastmem fastmem, JitOptions opts)
         => (_cpu, _bus, _fastmem, _opts) = (cpu, bus, fastmem, opts);
@@ -75,18 +88,27 @@ internal sealed partial class BlockCompiler
         var dm = new DynamicMethod(
             $"block_{entryPc:X4}", typeof(void),
             [typeof(Mos6502Cpu), typeof(IAddressSpace), typeof(Fastmem),
-             typeof(DirtyMap), typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType()],
+             typeof(DirtyMap), typeof(ChainDispatch),
+             typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType()],
             typeof(BlockCompiler).Module, skipVisibility: true);   // reach the AdvanceCycles seam
         ILGenerator il = dm.GetILGenerator();
         var ctx = new EmitContext(il, spannedPages);
 
+        var (lastPc, lastD) = run[^1];
         foreach (var (pc, d) in run)
         {
             EmitInstruction(ctx, pc, d);
             if (!d.EndsBlock)
                 EmitBudgetCheck(ctx, (ushort)(pc + d.Length));   // the cc_interrupt-style budget exit
         }
-        EmitNormalExit(ctx);
+        // Terminal exit. A block-ending opcode's arm self-terminates (it sets PC, then emits its own
+        // chain-or-normal exit + ret — see the EndsBlock flow arms). The ONLY path that falls through
+        // to here is a straight-line run capped at BlockLengthCap (no EndsBlock opcode): its successor
+        // PC is the (compile-time-constant) continuation, so it is a chainable fall-through edge.
+        if (!lastD.EndsBlock)
+            EmitChainOrExit(ctx, (ushort)(lastPc + lastD.Length));
+        else
+            EmitNormalExit(ctx);   // safety net (unreachable for self-terminating ending arms)
         var del = (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
         return new CompiledBlock(entryPc, del, spannedPages);
     }
@@ -130,9 +152,9 @@ internal sealed partial class BlockCompiler
             case JitOpClass.Register: EmitRegister(ctx, d); break;
             case JitOpClass.Alu: EmitAlu(ctx, d); break;
             case JitOpClass.Rmw: EmitRmw(ctx, d); break;
-            case JitOpClass.Branch: EmitBranch(ctx, d); break;
-            case JitOpClass.Jump: EmitJump(ctx, d); break;
-            case JitOpClass.Jsr: EmitJsr(ctx, d); break;
+            case JitOpClass.Branch: EmitBranch(ctx, pc, d); break;
+            case JitOpClass.Jump: EmitJump(ctx, pc, d); break;
+            case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;
             default:
                 throw new EmulationException(
@@ -182,7 +204,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Conv_I8);
         il.Emit(OpCodes.Call, MAdvance);
         // budget -= 1
-        il.Emit(OpCodes.Ldarg_S, (byte)4);
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldind_I8);
         il.Emit(OpCodes.Ldc_I4_1);
@@ -415,10 +437,53 @@ internal sealed partial class BlockCompiler
     private static void EmitNormalExit(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
-        il.Emit(OpCodes.Ldarg_S, (byte)5);                 // out BlockExit exit
+        il.Emit(OpCodes.Ldarg_S, ArgExit);                 // out BlockExit exit
         il.Emit(OpCodes.Ldc_I4, (int)BlockExit.Normal);
         il.Emit(OpCodes.Stind_I4);
         il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>Emit a statically-known chainable exit (the chaining link/unlink core — Ground
+    /// truth A). The block-ending instruction's own emit has ALREADY set cpu.PC to the successor
+    /// (JMP set it; a taken branch set it; the cap fall-through left PC at the continuation), so
+    /// chaining and the dispatcher fall-back agree on PC. Here we clear the chain-break gates
+    /// (Ground truth A/B) and, if clear, call the ChainDispatch with the compile-time-constant
+    /// target; on return, ret with the propagated exit. Any gate not clear -> EmitNormalExit (the
+    /// dispatcher resumes at PC). A Recompile exit never reaches here — the SMC guard returns from
+    /// the MIDDLE of the block (a chainable exit is only at a block-ending opcode), so a
+    /// self-modifying block always routes to the dispatcher (Ground truth B).</summary>
+    private static void EmitChainOrExit(EmitContext ctx, ushort staticTargetPc)
+    {
+        ILGenerator il = ctx.Il;
+        Label toDispatcher = il.DefineLabel();
+
+        // (2) budget <= 0 -> dispatcher (PC already at the target; the next slice resumes there)
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
+        il.Emit(OpCodes.Ldind_I8);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Conv_I8);
+        il.Emit(OpCodes.Ble, toDispatcher);
+
+        // (3) dirty.Any -> dispatcher (the SMC coarse backstop — Ground truth B)
+        il.Emit(OpCodes.Ldarg_3);                       // DirtyMap dirty
+        il.Emit(OpCodes.Callvirt, MDirtyAny);           // dirty.Any (bool)
+        il.Emit(OpCodes.Brtrue, toDispatcher);
+
+        // (4) cpu.InterruptPending -> dispatcher (sample the irq at the chain edge)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Callvirt, MInterruptPending);
+        il.Emit(OpCodes.Brtrue, toDispatcher);
+
+        // (5)-(7) chain.Invoke(targetPc, ref budget, out exit); ret
+        il.Emit(OpCodes.Ldarg_S, ArgChain);             // ChainDispatch chain
+        il.Emit(OpCodes.Ldc_I4, (int)staticTargetPc);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);            // ref long budget
+        il.Emit(OpCodes.Ldarg_S, ArgExit);              // out BlockExit exit
+        il.Emit(OpCodes.Callvirt, MChainInvoke);
+        il.Emit(OpCodes.Ret);
+
+        il.MarkLabel(toDispatcher);
+        EmitNormalExit(ctx);
     }
 
     /// <summary>After an instruction, if budget &lt;= 0 set PC = nextPc and exit Budget; else
@@ -427,7 +492,7 @@ internal sealed partial class BlockCompiler
     {
         ILGenerator il = ctx.Il;
         Label keepGoing = il.DefineLabel();
-        il.Emit(OpCodes.Ldarg_S, (byte)4);
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
         il.Emit(OpCodes.Ldind_I8);
         il.Emit(OpCodes.Ldc_I4_0);
         il.Emit(OpCodes.Conv_I8);
@@ -437,7 +502,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldc_I4, (int)nextPc);
         il.Emit(OpCodes.Conv_U2);
         il.Emit(OpCodes.Stfld, FPC);
-        il.Emit(OpCodes.Ldarg_S, (byte)5);
+        il.Emit(OpCodes.Ldarg_S, ArgExit);
         il.Emit(OpCodes.Ldc_I4, (int)BlockExit.Budget);
         il.Emit(OpCodes.Stind_I4);
         il.Emit(OpCodes.Ret);
@@ -459,7 +524,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Callvirt, MStep);
         // budget -= (cpu.CycleCount - before);
-        il.Emit(OpCodes.Ldarg_S, (byte)4);
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldind_I8);
         il.Emit(OpCodes.Ldarg_0);

@@ -27,6 +27,12 @@ public class InvalidationTests
             space.Write8((uint)(at + i), bytes[i]);
     }
 
+    /// <summary>A no-op chain callback for direct single-block Run() unit tests (these inspect the
+    /// dirty map after one block, not chaining). The block's emitted chain edge calls this when it
+    /// reaches a chainable exit; setting exit = Normal mirrors the dispatcher routing to itself.</summary>
+    private static readonly ChainDispatch NoChain =
+        (ushort _, ref long _, out BlockExit e) => e = BlockExit.Normal;
+
     /// <summary>Run the same program through a fresh interpreter and a JIT-wrapped interpreter
     /// (cache ON), then assert identical final registers, cycle count, and full RAM image.</summary>
     private static (Mos6502Cpu refCpu, Mos6502Cpu jitInner) AssertJitMatchesInterpreter(
@@ -199,7 +205,7 @@ public class InvalidationTests
         var compiler = new BlockCompiler(inner, space, fastmem, opts);
         var block = compiler.Compile(0x0200);
         long budget = 4;
-        block.Run(inner, space, fastmem, dirty, ref budget, out _);
+        block.Run(inner, space, fastmem, dirty, NoChain, ref budget, out _);
 
         Assert.True(dirty[0x40]);   // page $40 (address $4000) is marked
         Assert.False(dirty[0x02]);  // the code page $02 was only read, not written
@@ -228,7 +234,7 @@ public class InvalidationTests
         var compiler = new BlockCompiler(inner, space, fastmem, opts);
         var block = compiler.Compile(0x0200);
         long budget = 4;
-        block.Run(inner, space, fastmem, dirty, ref budget, out _);
+        block.Run(inner, space, fastmem, dirty, NoChain, ref budget, out _);
 
         Assert.False(dirty[0xD0]);  // the MMIO write did not mark a dirty page
     }
