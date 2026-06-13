@@ -67,6 +67,32 @@ internal static class GeneratorTestHost
             updated.GetDiagnostics());
     }
 
+    /// <summary>Run the generator over <paramref name="source"/>, compile the original source +
+    /// the generated trees into an in-memory assembly, load it, and return the named type. Lets a
+    /// test DRIVE the generated walk at runtime (invoke Decode/DescriptorFor via reflection) rather
+    /// than only asserting generated text — the load-bearing proof for the synthetic decode CPU.</summary>
+    public static Type CompileAndLoadType(string source, string fullTypeName)
+    {
+        var compilation = CSharpCompilation.Create(
+            "SyntheticDecodeCpu_" + Guid.NewGuid().ToString("N"),
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
+            s_references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new CpuSpecGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out _);
+
+        var errors = updated.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+        Assert.True(errors.Count == 0, "compilation errors: " + string.Join("\n", errors));
+
+        using var ms = new MemoryStream();
+        var emit = updated.Emit(ms);
+        Assert.True(emit.Success, "emit failed: " + string.Join("\n", emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+        ms.Position = 0;
+        var asm = System.Reflection.Assembly.Load(ms.ToArray());
+        return asm.GetType(fullTypeName) ?? throw new InvalidOperationException($"type '{fullTypeName}' not found in generated assembly");
+    }
+
     /// <summary>
     /// Runs the generator with step tracking, then runs it AGAIN on the same compilation
     /// with the source replaced by a REPARSED (reference-distinct, textually identical)

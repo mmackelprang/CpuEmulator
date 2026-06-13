@@ -9,8 +9,20 @@ namespace CpuEmulator.Core.Specification;
 /// Flag arguments remain Flag enum members (out of M3.1a's register-only scope).</summary>
 public static class Spec
 {
+    // EXISTING (6502 — unchanged): single-byte opcode; key == opcode (KeyShape.OpcodeByte).
     public static InstructionDef Insn(byte opcode, string mnemonic, AddrMode mode, Op[] ops) =>
         new(opcode, mnemonic, mode, ops);
+
+    // NEW (M3.1b, default-off): a PREFIXED row — key = (prefix, opcode). The generator packs
+    // key = (prefix << 8) | opcode (KeyShape.PrefixedOpcode). The 6502 never uses this overload.
+    public static InstructionDef Insn(byte prefix, byte opcode, string mnemonic, AddrMode mode, Op[] ops) =>
+        new(opcode, mnemonic, mode, ops, Prefix: prefix, KeyShape: DecodeKeyShape.PrefixedOpcode);
+
+    // NEW (M3.1b, default-off): an OPCODE-GROUP row — key = (opcode, sub-field of a non-first byte).
+    // The generator packs key = (opcode << 3) | subfield (KeyShape.OpcodeGroup). Named arg `subfield`
+    // distinguishes this from the prefixed overload above. The 6502 never uses this overload.
+    public static InstructionDef Insn(byte opcode, int subfield, string mnemonic, AddrMode mode, Op[] ops) =>
+        new(opcode, mnemonic, mode, ops, SubField: subfield, KeyShape: DecodeKeyShape.OpcodeGroup);
 
     public static Op Load(string target) => new LoadRegOp(target);
     public static Op Store(string source) => new StoreRegOp(source);

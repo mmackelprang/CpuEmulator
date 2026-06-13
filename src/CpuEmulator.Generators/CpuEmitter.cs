@@ -100,9 +100,24 @@ internal static class CpuEmitter
         sb.AppendLine("    {");
         sb.AppendLine("        if (TryServiceInterrupt())");
         sb.AppendLine("            return;");
-        sb.AppendLine($"        byte opcode = ReadBus({pc});");
-        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-        sb.AppendLine("        Execute(opcode);");
+        if (model.Decode is null)
+        {
+            // Degenerate (6502): the byte-fetch Step is UNCHANGED (Ground truth E). The per-op bodies
+            // do their own ReadBus(PC); PC++; for the 6502 key == opcode so Execute(opcode) dispatches
+            // on the resolved key — they are equal.
+            sb.AppendLine($"        byte opcode = ReadBus({pc});");
+            sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+            sb.AppendLine("        Execute(opcode);");
+        }
+        else
+        {
+            // Structured CPU: dispatch on the resolved operation-key from the walk (the prefix/group/
+            // ModR/M decode the per-op bodies cannot infer from a single byte). The synthetic fixture
+            // exercises the DECODE walk; this keeps Step compiling key-based for a multi-byte CPU.
+            sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}));");
+            sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + __r.Length));");
+            sb.AppendLine("        Execute(__r.OperationKey);");
+        }
         sb.AppendLine("    }");
 
         sb.AppendLine();
@@ -124,20 +139,29 @@ internal static class CpuEmitter
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
+        // Dispatch parameter: the 6502 (degenerate) dispatches on the fetched opcode BYTE (key ==
+        // opcode — byte-identical to before). A structured CPU dispatches on the opaque uint key the
+        // walk resolved (the per-op methods are named by OperationKey to disambiguate prefixed/bare/
+        // group rows that share an opcode byte). The case-label key is OperationKey in both — for the
+        // 6502 OperationKey == opcode (≤ 0xFF) so the emitted arms are textually identical.
+        string execParam = model.Decode is null ? "byte opcode" : "uint opcode";
         sb.AppendLine();
-        sb.AppendLine("    private void Execute(byte opcode)");
+        sb.AppendLine($"    private void Execute({execParam})");
         sb.AppendLine("    {");
         sb.AppendLine("        switch (opcode)");
         sb.AppendLine("        {");
         foreach (var instruction in model.Instructions)
-            sb.AppendLine($"            case 0x{instruction.Opcode:X2}: Op{instruction.Opcode:X2}(); break;");
+            sb.AppendLine($"            case 0x{instruction.OperationKey:X2}: Op{instruction.OperationKey:X2}(); break;");
         sb.AppendLine("            default:");
-        sb.AppendLine("                HandleUndefinedOpcode(opcode);");
+        sb.AppendLine(model.Decode is null
+            ? "                HandleUndefinedOpcode(opcode);"
+            : "                HandleUndefinedOpcode(unchecked((byte)opcode));");
         sb.AppendLine("                break;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 
-        // Emit all per-opcode methods
+        // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
+        // etc. are byte-identical method names).
         foreach (var instruction in model.Instructions)
             EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg);
     }
@@ -162,9 +186,11 @@ internal static class CpuEmitter
             : (opClass == InstructionClass.Flow) ? ComputeFlowCycleStr(instruction.Ops)
             : $"{cycleCount} cycles";
 
+        // Method name keyed by OperationKey: for the 6502 key == opcode (≤ 0xFF) so OpA9 etc. are
+        // byte-identical; a structured CPU's prefixed/group rows get distinct names (Op CB10, Op 7B0).
         sb.AppendLine();
         sb.AppendLine($"    /// <summary>0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode} — {cycleStr}.</summary>");
-        sb.AppendLine($"    private void Op{instruction.Opcode:X2}()");
+        sb.AppendLine($"    private void Op{instruction.OperationKey:X2}()");
         sb.AppendLine("    {");
 
         switch (opClass)
@@ -1243,9 +1269,15 @@ internal static class CpuEmitter
     /// </summary>
     private static void EmitDisassembler(StringBuilder sb, SpecModel model)
     {
+        // The disassembler switches on the operation-key. For the 6502 (degenerate) the key IS the
+        // opcode byte (≤ 0xFF), so the parameter stays `byte opcode` and the arms are textually
+        // identical (Ground truth E: "MINIMAL (body)"). A structured CPU's key is a uint, so the
+        // parameter widens to express keys > 0xFF; the IMonitorSupport.Disassemble(byte,...) contract
+        // stays stable (its explicit impl widens the byte to the key).
+        string opParam = model.Decode is null ? "byte opcode" : "uint opcode";
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Disassemble one instruction. Returns a human-readable string.</summary>");
-        sb.AppendLine("    public static string Disassemble(byte opcode, byte operandLo, byte operandHi)");
+        sb.AppendLine($"    public static string Disassemble({opParam}, byte operandLo, byte operandHi)");
         sb.AppendLine("    {");
         sb.AppendLine("        return opcode switch");
         sb.AppendLine("        {");
@@ -1255,31 +1287,31 @@ internal static class CpuEmitter
             string arm = instruction.Mode switch
             {
                 "Implied" =>
-                    $"            0x{instruction.Opcode:X2} => \"{m}\",",
+                    $"            0x{instruction.OperationKey:X2} => \"{m}\",",
                 "Accumulator" =>
-                    $"            0x{instruction.Opcode:X2} => \"{m} A\",",
+                    $"            0x{instruction.OperationKey:X2} => \"{m} A\",",
                 "Immediate" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} #${{operandLo:X2}}\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} #${{operandLo:X2}}\",",
                 "ZeroPage" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}}\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandLo:X2}}\",",
                 "ZeroPageX" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}},X\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandLo:X2}},X\",",
                 "ZeroPageY" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandLo:X2}},Y\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandLo:X2}},Y\",",
                 "Absolute" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}}\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}}\",",
                 "AbsoluteX" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}},X\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}},X\",",
                 "AbsoluteY" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}},Y\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandHi:X2}}{{operandLo:X2}},Y\",",
                 "IndirectX" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} (${{operandLo:X2}},X)\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} (${{operandLo:X2}},X)\",",
                 "IndirectY" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} (${{operandLo:X2}}),Y\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} (${{operandLo:X2}}),Y\",",
                 "Indirect" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} (${{operandHi:X2}}{{operandLo:X2}})\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} (${{operandHi:X2}}{{operandLo:X2}})\",",
                 "Relative" =>
-                    $"            0x{instruction.Opcode:X2} => $\"{m} *{{(sbyte)operandLo:+0;-0}}\",",
+                    $"            0x{instruction.OperationKey:X2} => $\"{m} *{{(sbyte)operandLo:+0;-0}}\",",
                 _ => throw new System.InvalidOperationException(
                     $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
             };
@@ -1300,7 +1332,13 @@ internal static class CpuEmitter
     /// Reflection.Emit here; the JIT assembly is the only place that emits IL.</summary>
     private static void EmitJitDescriptors(StringBuilder sb, SpecModel model)
     {
-        // Build a 256-slot lookup so absent opcodes get the Undefined sentinel.
+        if (model.Decode is not null)
+        {
+            EmitKeyedDescriptorTable(sb, model);
+            return;
+        }
+
+        // Degenerate (6502): a 256-slot lookup so absent opcodes get the Undefined sentinel.
         var byOpcode = model.Instructions.ToDictionary(i => i.Opcode);
 
         sb.AppendLine();
@@ -1320,6 +1358,28 @@ internal static class CpuEmitter
         sb.AppendLine("    ];");
     }
 
+    /// <summary>Emit the key→descriptor dictionary for a CPU that declared a DecodeStructure
+    /// (the multi-byte key path — Ground truth C/E). A dense [256] array cannot hold prefixed/bare/
+    /// opcode-group rows that share an opcode byte, so the structured CPU keys its descriptors on the
+    /// opaque OperationKey instead. ModR/M rows carry LengthRule.ModRmDetermined; every other row is
+    /// LengthRule.Fixed. The 6502 (no DecodeStructure) keeps the dense array path above.</summary>
+    private static void EmitKeyedDescriptorTable(StringBuilder sb, SpecModel model)
+    {
+        var modRm = model.Decode!.ModRmOpcodes.Values;
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Key→descriptor table for a declared DecodeStructure (Ground truth C). Keyed on");
+        sb.AppendLine("    /// the opaque OperationKey the walk computes; DescriptorFor consults this, never a raw");
+        sb.AppendLine("    /// byte index, so the key packing is fully encapsulated.</summary>");
+        sb.AppendLine("    public static readonly System.Collections.Generic.Dictionary<uint, CpuEmulator.Core.Jit.OpcodeDescriptor> JitDescriptorsByKey = new()");
+        sb.AppendLine("    {");
+        foreach (var insn in model.Instructions)
+        {
+            bool isModRm = modRm.Contains(insn.Opcode) && insn.KeyShape == KeyShape.OpcodeByte;
+            sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm)},");
+        }
+        sb.AppendLine("    };");
+    }
+
     /// <summary>One descriptor row as a C# object-creation expression. Reuses ModeLength,
     /// ComputeCycles, and the isPageCross predicate — the SAME functions the interpreter
     /// body emission uses, so the table cannot drift from the interpreter.</summary>
@@ -1337,6 +1397,37 @@ internal static class CpuEmitter
              + $"CpuEmulator.Core.Jit.JitOpClass.{jitClass}, "
              + $"CpuEmulator.Core.Jit.LengthRule.Fixed, {length}, {baseCycles}, "
              + $"{(pageCross ? "true" : "false")}, "
+             + $"{(fallback ? "true" : "false")}, {(endsBlock ? "true" : "false")}, "
+             + $"[{ops}])";
+    }
+
+    /// <summary>One descriptor row for a CPU that declared a DecodeStructure (the synthetic CPU). The
+    /// FixedLength is the count of bytes the walk consumes BEFORE any operand bytes the mode adds:
+    /// OpcodeByte → 1; PrefixedOpcode → 2 (prefix + opcode); OpcodeGroup → 2 (opcode + the sub-field
+    /// byte); ModRm → 2 base (opcode + the length-determining byte) with LengthRule.ModRmDetermined,
+    /// the walk reading the variable tail. (The synthetic ops are Implied with no operand bytes —
+    /// the proof is the DECODE SHAPE, not operand carriage; Ground truth F scope honesty.)</summary>
+    private static string KeyedDescriptorLiteral(InstructionModel insn, bool isModRm)
+    {
+        InstructionClass cls = insn.Class;
+        int baseCycles = JitBaseCycles(insn, cls);
+        (string jitClass, bool endsBlock, bool fallback) = ClassifyForJit(insn, cls);
+        string ops = string.Join(", ", insn.Ops.Select(JitOpLiteral));
+
+        int fixedLength = insn.KeyShape switch
+        {
+            KeyShape.PrefixedOpcode => 2,   // prefix + opcode
+            KeyShape.OpcodeGroup => 2,       // opcode + the sub-field byte
+            _ => isModRm ? 2 : 1,            // ModRm base (opcode + modrm) | plain single byte
+        };
+        string rule = isModRm
+            ? "CpuEmulator.Core.Jit.LengthRule.ModRmDetermined"
+            : "CpuEmulator.Core.Jit.LengthRule.Fixed";
+
+        return $"new(0x{insn.Opcode:X2}, \"{insn.Mnemonic}\", "
+             + $"CpuEmulator.Core.Jit.JitMode.{insn.Mode}, "
+             + $"CpuEmulator.Core.Jit.JitOpClass.{jitClass}, "
+             + $"{rule}, {fixedLength}, {baseCycles}, false, "
              + $"{(fallback ? "true" : "false")}, {(endsBlock ? "true" : "false")}, "
              + $"[{ops}])";
     }
@@ -1482,6 +1573,12 @@ internal static class CpuEmitter
     /// output, never a field read (Ground truth B).</summary>
     private static void EmitDecodeWalk(StringBuilder sb, SpecModel model)
     {
+        if (model.Decode is not null)
+        {
+            EmitStructuredDecodeWalk(sb, model);
+            return;
+        }
+
         // Degenerate (6502) walk: single byte opcode, key == opcode, fixed length per mode.
         sb.AppendLine();
         sb.AppendLine("    /// <summary>The generated decode walk (Ground truth A): consume the opcode unit, look up");
@@ -1513,5 +1610,77 @@ internal static class CpuEmitter
         sb.AppendLine("    /// fully encapsulated.</summary>");
         sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
         sb.AppendLine("        => JitDescriptors[(byte)operationKey];");
+    }
+
+    /// <summary>Emit the NON-degenerate decode walk for a declared DecodeStructure (Ground truths
+    /// C/E — the synthetic CPU's proof that the model generalizes to Z80 prefixes AND 8086 ModR/M).
+    /// The walk: read the first unit; if it is a PREFIX byte, read the opcode and pack
+    /// key = (prefix &lt;&lt; 8) | opcode; if it is a SUB-FIELD opcode, read the next byte and pack
+    /// key = (opcode &lt;&lt; 3) | ((next &gt;&gt; 3) &amp; 7); if it is a MODR/M opcode, read the
+    /// length-determining byte and consume (byte &amp; 3) tail bytes — a COMPUTED length; otherwise the
+    /// degenerate key == opcode. DescriptorFor resolves through the keyed dictionary. Length ==
+    /// stream.UnitsConsumed × stream.UnitBytes throughout — never a field read.</summary>
+    private static void EmitStructuredDecodeWalk(StringBuilder sb, SpecModel model)
+    {
+        var decode = model.Decode!;
+        string prefixSet = string.Join(", ", decode.Prefixes.Values.Select(p => $"0x{p:X2}"));
+        string modRmSet = string.Join(", ", decode.ModRmOpcodes.Values.Select(p => $"0x{p:X2}"));
+        string subFieldSet = string.Join(", ", decode.SubFieldOpcodes.Values.Select(p => $"0x{p:X2}"));
+
+        sb.AppendLine();
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_prefixBytes = new() {{ {prefixSet} }};");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_modRmOpcodes = new() {{ {modRmSet} }};");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_subFieldOpcodes = new() {{ {subFieldSet} }};");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated decode walk for a declared DecodeStructure (Ground truth A/C):");
+        sb.AppendLine("    /// prefix / mid-stream-length (ModR/M) / sub-field-key, with Length COMPUTED by consumption");
+        sb.AppendLine("    /// (UnitsConsumed × UnitBytes), never a field read. The synthetic CPU's three-property proof.</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        uint first = stream.NextUnit();                        // consume the first unit");
+        sb.AppendLine("        uint key;");
+        sb.AppendLine("        byte lo = 0, hi = 0, count = 0;");
+        sb.AppendLine("        if (s_prefixBytes.Contains(first))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            uint op = stream.NextUnit();                       // prefix → consume the real opcode");
+        sb.AppendLine("            key = (first << 8) | op;                           // KeyShape.PrefixedOpcode");
+        sb.AppendLine("        }");
+        sb.AppendLine("        else if (s_subFieldOpcodes.Contains(first))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            uint next = stream.NextUnit();                     // opcode group → read the sub-field byte");
+        sb.AppendLine("            key = (first << 3) | ((next >> 3) & 7);            // KeyShape.OpcodeGroup — bits 5-3");
+        sb.AppendLine("        }");
+        sb.AppendLine("        else if (s_modRmOpcodes.Contains(first))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            key = first;                                       // LengthRule.ModRmDetermined");
+        sb.AppendLine("            byte modrm = (byte)stream.NextUnit();              // the length-determining mid-stream byte");
+        sb.AppendLine("            lo = modrm; count = 1;");
+        sb.AppendLine("            int tail = modrm & 0x03;                           // its low 2 bits set how many MORE bytes follow");
+        sb.AppendLine("            for (int i = 0; i < tail; i++) stream.NextUnit();  // COMPUTED tail");
+        sb.AppendLine("        }");
+        sb.AppendLine("        else");
+        sb.AppendLine("        {");
+        sb.AppendLine("            key = first;                                       // KeyShape.OpcodeByte — the degenerate case");
+        sb.AppendLine("            CpuEmulator.Core.Jit.OpcodeDescriptor d = DescriptorFor(key);");
+        sb.AppendLine("            for (int i = 1; i < d.FixedLength; i++)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                byte b = (byte)stream.NextUnit();");
+        sb.AppendLine("                if (count == 0) { lo = b; count = 1; }");
+        sb.AppendLine("                else { hi = b; count = 2; }");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine("        int length = stream.UnitsConsumed * stream.UnitBytes;  // COMPUTED — not a field read");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(lo, hi, count));");
+        sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Resolve an operation-key to its descriptor (Ground truth C). A declared");
+        sb.AppendLine("    /// DecodeStructure keys descriptors on the opaque OperationKey via a dictionary — a dense");
+        sb.AppendLine("    /// [256] array cannot hold prefixed/bare/group rows that share an opcode byte. An unknown");
+        sb.AppendLine("    /// key gets the Undefined sentinel.</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
+        sb.AppendLine("        => JitDescriptorsByKey.TryGetValue(operationKey, out var d)");
+        sb.AppendLine("            ? d : CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined((byte)operationKey);");
     }
 }

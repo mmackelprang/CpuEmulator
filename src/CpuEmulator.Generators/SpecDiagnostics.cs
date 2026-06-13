@@ -52,6 +52,10 @@ internal static class SpecDiagnostics
         "CPUGEN011", "Invalid micro-op argument",
         "Argument {0} of '{1}' must be a {2}");
 
+    public static readonly DiagnosticDescriptor InvalidDecodeStructure = Make(
+        "CPUGEN012", "Invalid decode structure",
+        "Decode structure is not analyzable: {0}");
+
     public static DiagnosticDescriptor ById(string id) => id switch
     {
         "CPUGEN001" => MissingRegisters,
@@ -65,6 +69,7 @@ internal static class SpecDiagnostics
         "CPUGEN009" => InvalidSpecMetadata,
         "CPUGEN010" => UnsupportedModeOpCombination,
         "CPUGEN011" => InvalidMicroOpArgument,
+        "CPUGEN012" => InvalidDecodeStructure,
         _ => throw new System.ArgumentException($"Unknown diagnostic id '{id}'."),
     };
 }

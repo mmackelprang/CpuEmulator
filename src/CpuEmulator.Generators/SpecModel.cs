@@ -15,18 +15,42 @@ internal enum InstructionClass
     Flow,   // Task 7: JSR/RTS
 }
 
+/// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502
+/// degenerate case (key == opcode). PrefixedOpcode packs (prefix &lt;&lt; 8) | opcode. OpcodeGroup
+/// packs (opcode &lt;&lt; 3) | subfield (a non-first-byte sub-field). The generated Decode realizes
+/// the packing; the consumers treat the key as opaque.</summary>
+internal enum KeyShape { OpcodeByte, PrefixedOpcode, OpcodeGroup }
+
+/// <summary>The fetch unit the decode walk reads through (Ground truth D). Byte is the default
+/// (6502/Z80/8086). Word is the 68000 (M4) — wired but no shipped M3 spec sets it.</summary>
+internal enum FetchUnit { Byte, Word }
+
 internal sealed record SpecModel(
     string Namespace,
     string CpuName,
     string Architecture,
     LocationInfo IdentifierLocation,
     EquatableArray<RegisterModel> Registers,
-    EquatableArray<InstructionModel> Instructions);
+    EquatableArray<InstructionModel> Instructions,
+    DecodeStructureModel? Decode = null,          // ABSENT (the 6502) ⇒ the degenerate walk
+    FetchUnit FetchUnit = FetchUnit.Byte);
 
 internal sealed record RegisterModel(string Name, int Bits, string Role);
 
+/// <summary>The parsed decode structure (Ground truth G). ABSENT on the model means the 6502
+/// degenerate walk. Carries the prefix bytes, the ModR/M (length-determining) opcodes, and the
+/// opcode-group (sub-field-key) opcodes the synthetic spec declares.</summary>
+internal sealed record DecodeStructureModel(
+    EquatableArray<byte> Prefixes,
+    EquatableArray<byte> ModRmOpcodes,
+    EquatableArray<byte> SubFieldOpcodes);
+
 internal sealed record InstructionModel(
-    byte Opcode, string Mnemonic, string Mode, InstructionClass Class, EquatableArray<OpModel> Ops);
+    byte Opcode, string Mnemonic, string Mode, InstructionClass Class, EquatableArray<OpModel> Ops,
+    uint OperationKey = 0,                         // the opaque key the walk computes (0 ⇒ defaulted to opcode)
+    KeyShape KeyShape = KeyShape.OpcodeByte,
+    int Prefix = -1,                               // the prefix byte (PrefixedOpcode rows); -1 if none
+    int SubField = -1);                            // the sub-field (OpcodeGroup rows); -1 if none
 
 internal sealed record OpModel(string Kind, EquatableArray<string> Args);
 
