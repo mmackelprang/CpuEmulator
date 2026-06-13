@@ -161,11 +161,17 @@ var machine = Machine.Create("jit-board")
 ```
 
 The `JittedCpu` is the machine's `Cpu`, so `Machine.Run`, the monitor, and the REPL drive it
-unchanged. The trade-off: JIT parity is **state + cycle-count equivalence, not per-cycle bus-trace
-equivalence** while its fastmem fast path is on (RAM/ROM access bypasses the bus for speed).
-Construct with `new JitOptions { DisableFastmem = true }` to route every data access through the bus
-when you need a bus trace. See [The JIT Tier](jit.md) for the full accuracy contract, the
-interpreter-fallback caveat, and troubleshooting.
+unchanged. **Block chaining is automatic** — once both ends of a statically-known control transfer
+(an unconditional `JMP`, a branch's taken/untaken targets, a `JSR`, a past-the-block-cap
+fall-through) are compiled, the JIT links them so control passes block→block without a dispatcher
+round-trip; no API change, no configuration. Self-modifying code stays correct (a dirtied code page
+severs the inbound chain links and recompiles). The trade-off: JIT parity is **state + cycle-count
+equivalence, not per-cycle bus-trace equivalence** while its fastmem fast path is on (RAM/ROM access
+bypasses the bus for speed). Construct with `new JitOptions { DisableFastmem = true }` to route every
+data access through the bus when you need a bus trace, or `new JitOptions { DisableChaining = true }`
+to fall back to the M2-i one-block-per-dispatch path (for isolating a suspected chaining bug). See
+[The JIT Tier](jit.md) for the full accuracy contract and troubleshooting, and
+[Benchmarks](benchmarks.md) for the measured JIT-vs-interpreter speedup.
 
 ---
 

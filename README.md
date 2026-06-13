@@ -72,21 +72,30 @@ reads are side-effect-free over honest devices (`TryPeek`), and `--terminal` ope
 per-keystroke terminal onto the guest — all pinned by interrupt-driven UAT sessions
 (a WAI-free echo and a timer-IRQ counter, both monitor-assembled).
 
-**M2-i — the IL-JIT tier — is in progress (PR #12, this branch).** Tier 1 (`CpuEmulator.Jit`,
-the only `Reflection.Emit` assembly, deliberately not AOT-compatible) stands up as a
-*provably-equivalent* execution path: a generated per-opcode descriptor table drives a CPU-agnostic
-block compiler that walks descriptors into one `DynamicMethod` per block, with a PC-keyed block
-cache, the RAM/ROM-direct **fastmem split** (MMIO falls back to a bus callout), a per-block cycle
-budget + exit, block-entry interrupt checks, and dirty-page invalidation for self-modifying code.
-`JittedCpu` wraps the interpreter, which remains the oracle, the fallback (ADC/SBC/BRK/RTI run
-through it in M2-i), and the state owner. The tier is gated at construction on
-`RuntimeFeature.IsDynamicCodeSupported`, keeping Core/Cpus/Peripherals/Monitor/Host AOT-clean by
-construction (pinned by a reference-graph build check). Validated sampled: **TomHarte parity through
-the JIT** (151 opcodes), the **Klaus functional test run to the success trap ($3469) under the JIT
-at the interpreter's exact cycle count**, the 8 UAT sessions re-run JIT-wrapped, and
-trace-equivalence spot tests under `DisableFastmem`. The full parity battery, block chaining, and
-the comparative benchmarks are M2-ii. See [The JIT Tier](docs/user-guide/jit.md) for the accuracy
-contract.
+**M2 — the IL-JIT tier — is complete (PR #12 stood it up; PR #13 finished it, this branch).** Tier 1
+(`CpuEmulator.Jit`, the only `Reflection.Emit` assembly, deliberately not AOT-compatible) is a
+*provably-equivalent* dual-tier execution path: a generated per-opcode descriptor table drives a
+CPU-agnostic block compiler that walks descriptors into one `DynamicMethod` per block, with a PC-keyed
+block cache, the RAM/ROM-direct **fastmem split** (MMIO falls back to a bus callout), a per-block cycle
+budget + exit, block-entry interrupt checks, **block chaining** (direct block→block transitions at
+statically-known exits, with an unlink table + per-page-precise SMC invalidation), and **emitted
+decimal-arm ADC/SBC** (both binary and BCD arms behind the D-bit test). `JittedCpu` wraps the
+interpreter, which remains the oracle, the fallback (only BRK/RTI/undefined run through it now), and
+the state owner. The tier is gated at construction on `RuntimeFeature.IsDynamicCodeSupported`, keeping
+Core/Cpus/Peripherals/Monitor/Host AOT-clean by construction (pinned by a reference-graph build check;
+a real NativeAOT publish of the Host succeeds with `PublishAot` scoped to the runtime graph).
+**Validated to full parity:** the `CPUEMULATOR_UAT=full` **1,510,000-case TomHarte sweep through the
+JIT** (0 failures, including the 80,093 decimal-mode cases via the emitted decimal arm), a **committed
+seeded SMC-biased differential fuzzer** (JIT vs interpreter, chaining on+off; CI N=64,
+`CPUEMULATOR_FUZZ=full` N=4096), the **Klaus functional test to the success trap ($3469) under the JIT
+at the interpreter's exact cycle count (96,241,367)**, the 8 UAT sessions JIT-wrapped, and
+trace-equivalence spot tests. A **comparative cross-language benchmark suite** (`bench/`) measures
+emulated cycles/host-second across both tiers and third-party 6502 emulators (C# Asm6502, C fake6502,
+Python py65, JS sfotty) — see [Benchmarks](docs/user-guide/benchmarks.md). The measured headline is
+honest: the JIT delivers correctness parity, and on a tight non-SMC kernel it is within ~0.65x of the
+interpreter, while on the SMC-heavy Klaus workload the interpreter is faster (the JIT's per-dispatch
+invalidation thrashes on self-modifying code — the recorded next optimization). See
+[The JIT Tier](docs/user-guide/jit.md) for the accuracy contract and chaining.
 
 For full detail see the [User Guide](docs/user-guide/README.md).
 
@@ -102,7 +111,7 @@ For full detail see the [User Guide](docs/user-guide/README.md).
 
 ## Architecture
 
-The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler, and — as of M2-i — a per-opcode JIT descriptor table the IL-JIT consumes); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point; `CpuEmulator.Jit` (M2-i) is the IL-JIT tier. All library projects are AOT-compatible except `CpuEmulator.Jit`, which is the only project that uses `Reflection.Emit` and is therefore the only non-AOT member of the build graph (the others never reference it — a packaging law pinned by a build-time reference-graph check).
+The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler, and — as of M2-i — a per-opcode JIT descriptor table the IL-JIT consumes); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point; `CpuEmulator.Jit` (M2) is the IL-JIT tier (block chaining + emitted decimal arms). All library projects are AOT-compatible except `CpuEmulator.Jit`, which is the only project that uses `Reflection.Emit` and is therefore the only non-AOT member of the build graph (the others never reference it — a packaging law pinned by a build-time reference-graph check; a NativeAOT publish of the Host succeeds with `PublishAot` scoped to its csproj). The comparative benchmark suite lives in `bench/` (a `CpuEmulator.Benchmarks` core library + a BenchmarkDotNet runner) — a dev tool, never in any shipped graph.
 
 Full design: [`docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`](docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md)
 
@@ -112,7 +121,7 @@ Build and test:
 
 ```
 dotnet build    # 0 warnings required
-dotnet test     # 994 tests
+dotnet test     # full suite (routine: fuzzer at N=64); CPUEMULATOR_UAT=full + CPUEMULATOR_FUZZ=full pre-merge
 ```
 
 All work happens on short-lived feature branches; changes merge to `main` via pull request. See [Testing](docs/user-guide/testing.md) for the full pre-merge gate (TomHarte full sweep, Klaus, UAT sessions).

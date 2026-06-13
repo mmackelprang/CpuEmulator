@@ -2,14 +2,29 @@
 
   <!--
     Not IsAotCompatible: this is an Exe (app), not a library.
-    All project references are AOT-clean (Core, Cpus.Mos6502, Peripherals, Monitor),
-    so PublishAot remains possible if needed — deliberately not set here.
+    All project references are AOT-clean (Core, Cpus.Mos6502, Peripherals, Monitor) — none pulls in
+    the Jit (Reflection.Emit) assembly, so the Host's runtime graph is NativeAOT-publishable.
+
+    PublishAot CI scoping (M2-ii Task 10, the M2-i finding): PublishAot is set HERE, on the
+    publishable Host project, rather than passed as a global `-p:PublishAot=true` on the command
+    line. A global property propagates to EVERY project in the build graph — including the
+    netstandard2.0 Roslyn analyzer CpuEmulator.Generators (referenced transitively through
+    Cpus.Mos6502 as an Analyzer with ReferenceOutputAssembly="false"). Analyzers inherently cannot
+    AOT-publish, so a global PublishAot makes `dotnet publish` fail with NETSDK1207 on Generators
+    even though the analyzer is build-time-only and NOT in the runtime graph. Scoping the property
+    to this csproj keeps it off the analyzer's build, so the publish targets only the runtime graph.
+
+    Recorded CI command (succeeds with this scoping):
+        dotnet publish src/CpuEmulator.Host -c Release -r <rid>
+    (PublishAot is read from this file; do NOT add -p:PublishAot=true on the command line — that
+    reintroduces the NETSDK1207-on-Generators failure.)
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>

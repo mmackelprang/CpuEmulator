@@ -10,7 +10,8 @@ Welcome to the CpuEmulator user guide. Use these pages to get the emulator runni
 | [Monitor Reference](monitor-reference.md) | Every REPL command with syntax, examples, and output formats |
 | [Breadboard6502](breadboard6502.md) | Memory map, UART register reference, demo ROM listing |
 | [Building Machines](building-machines.md) | Composing your own machine with MachineBuilder |
-| [The JIT Tier](jit.md) | Tier 1 (IL-JIT): enabling it, the accuracy contract, troubleshooting |
+| [The JIT Tier](jit.md) | Tier 1 (IL-JIT): enabling it, chaining, the accuracy contract, troubleshooting |
+| [Benchmarks](benchmarks.md) | The comparative cross-language benchmark suite — running it, reading the report, adding a subject |
 | [Adding a CPU](adding-a-cpu.md) | The spec-table workflow, importer, generated artifacts |
 | [Extraction Runbook](extraction-runbook.md) | LLM-assisted opcode extraction from CPU datasheets, cross-source diff, review report |
 | [Testing](testing.md) | Running the suite, TomHarte vectors, Klaus, UAT sessions |
