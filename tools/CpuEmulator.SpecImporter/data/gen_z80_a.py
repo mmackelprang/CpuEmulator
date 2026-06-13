@@ -136,8 +136,8 @@ hi = {
     0xD6: ("SUB", "Immediate", 2, 7), 0xDE: ("SBC", "Immediate", 2, 7),
     0xE6: ("AND", "Immediate", 2, 7), 0xEE: ("XOR", "Immediate", 2, 7),
     0xF6: ("OR", "Immediate", 2, 7),  0xFE: ("CP", "Immediate", 2, 7),
-    0xD3: ("OUT", "IoPort", 2, 11),   # OUT (n),A
-    0xDB: ("IN", "IoPort", 2, 11),    # IN A,(n)
+    0xD3: ("OUT", "IoPortImmediate", 2, 11),   # OUT (n),A — immediate port operand
+    0xDB: ("IN", "IoPortImmediate", 2, 11),    # IN A,(n)  — immediate port operand
     0xD9: ("EXX", "Implied", 1, 4),
     0xE3: ("EX", "RegisterIndirect", 1, 19),   # EX (SP),HL
     0xE9: ("JP", "RegisterIndirect", 1, 4),    # JP (HL)

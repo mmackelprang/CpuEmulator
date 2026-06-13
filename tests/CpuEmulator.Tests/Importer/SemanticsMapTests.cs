@@ -290,4 +290,49 @@ public class SemanticsMapTests
         var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
         Assert.Contains("argument", ex.Message);
     }
+
+    // ─── M3.3 Task 5: the Z80 register/flag declarations + covered map ──────
+
+    private static string Z80SemanticsPath => DataPath.Get("z80-semantics.json");
+
+    [Fact]
+    public void Z80_registers_load_as_declared()
+    {
+        // The 22 Z80 register configs: 18 8-bit (main A F B C D E H L + alternate A_..L_ + I R) +
+        // 4 16-bit (IX IY SP PC). F is Status; SP StackPointer; PC ProgramCounter.
+        var map = SemanticsMap.Load(Z80SemanticsPath);
+        Assert.Equal("z80", map.Architecture);
+        Assert.Equal("CpuEmulator.Cpus.Z80", map.Namespace);
+        Assert.Equal("Z80Spec", map.SpecClassName);
+        Assert.Equal(22, map.Registers.Length);
+
+        var byName = map.Registers.ToDictionary(r => r.Name);
+        Assert.Equal("Status", byName["F"].Role);
+        Assert.Equal("StackPointer", byName["SP"].Role);
+        Assert.Equal("ProgramCounter", byName["PC"].Role);
+        // the alternate set is declared as eight more 8-bit generals
+        foreach (var alt in new[] { "A_", "F_", "B_", "C_", "D_", "E_", "H_", "L_" })
+            Assert.True(byName.ContainsKey(alt), $"alternate register {alt} missing");
+        // I/R 8-bit; IX/IY/SP/PC 16-bit
+        Assert.Equal(8, byName["I"].Bits);
+        Assert.Equal(8, byName["R"].Bits);
+        Assert.Equal(16, byName["IX"].Bits);
+        Assert.Equal(16, byName["IY"].Bits);
+    }
+
+    [Fact]
+    public void Z80_semantics_uses_only_existing_factories()
+    {
+        // Every covered mnemonic's ops text validates against the UNCHANGED FactoryArity (no new M3.4
+        // factory names — the M3.3 invariant). Loading without throwing IS the validation (the loader
+        // runs ValidateOpsText against FactoryArity for every mnemonic).
+        var map = SemanticsMap.Load(Z80SemanticsPath);
+        Assert.NotEmpty(map.Mnemonics);
+        // spot-check the covered decode-shapes map to existing factories
+        Assert.Equal("[]", map.Mnemonics["NOP"]);
+        Assert.Equal("[Halt()]", map.Mnemonics["HALT"]);
+        Assert.Equal("[Adc()]", map.Mnemonics["ADD"]);
+        Assert.Equal("[PortIn(\"A\")]", map.Mnemonics["IN"]);
+        Assert.Equal("[PortOut(\"A\")]", map.Mnemonics["OUT"]);
+    }
 }

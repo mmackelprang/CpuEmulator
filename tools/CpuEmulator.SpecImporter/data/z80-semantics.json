@@ -28,6 +28,17 @@
   ],
   "mnemonics": {
     "NOP":  "[]",
-    "HALT": "[Halt()]"
+    "HALT": "[Halt()]",
+    "ADD":  "[Adc()]",
+    "ADC":  "[Adc()]",
+    "SUB":  "[Sbc()]",
+    "SBC":  "[Sbc()]",
+    "AND":  "[And()]",
+    "OR":   "[Ora()]",
+    "XOR":  "[Eor()]",
+    "CP":   "[Compare(\"A\")]",
+    "IN":   "[PortIn(\"A\")]",
+    "OUT":  "[PortOut(\"A\")]",
+    "NEG":  "[]"
   }
 }

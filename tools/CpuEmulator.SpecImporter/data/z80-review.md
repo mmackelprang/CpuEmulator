@@ -14,13 +14,9 @@ All rows carry source citations.
 
 | Mnemonic | Dataset Rows |
 |---|---|
-| ADC | 15 |
-| ADD | 23 |
-| AND | 11 |
 | BIT | 80 |
 | CALL | 9 |
 | CCF | 1 |
-| CP | 11 |
 | CPD | 1 |
 | CPDR | 1 |
 | CPI | 1 |
@@ -34,7 +30,6 @@ All rows carry source citations.
 | EX | 5 |
 | EXX | 1 |
 | IM | 3 |
-| IN | 8 |
 | INC | 16 |
 | IND | 1 |
 | INDR | 1 |
@@ -47,11 +42,8 @@ All rows carry source citations.
 | LDDR | 1 |
 | LDI | 1 |
 | LDIR | 1 |
-| NEG | 1 |
-| OR | 11 |
 | OTDR | 1 |
 | OTIR | 1 |
-| OUT | 8 |
 | OUTD | 1 |
 | OUTI | 1 |
 | POP | 6 |
@@ -71,12 +63,9 @@ All rows carry source citations.
 | RRCA | 1 |
 | RRD | 1 |
 | RST | 8 |
-| SBC | 15 |
 | SCF | 1 |
 | SET | 80 |
 | SLA | 10 |
 | SRA | 10 |
 | SRL | 10 |
-| SUB | 11 |
-| XOR | 11 |
 

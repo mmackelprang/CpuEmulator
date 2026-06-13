@@ -1901,7 +1901,7 @@
   {
     "opcode": "0xD3",
     "mnemonic": "OUT",
-    "mode": "IoPort",
+    "mode": "IoPortImmediate",
     "bytes": 2,
     "cycles": 11,
     "pageCrossPenalty": false,
@@ -1910,7 +1910,7 @@
   {
     "opcode": "0xDB",
     "mnemonic": "IN",
-    "mode": "IoPort",
+    "mode": "IoPortImmediate",
     "bytes": 2,
     "cycles": 11,
     "pageCrossPenalty": false,

@@ -91,7 +91,7 @@ hi = {
     0xD6: ("SUB", "Immediate", 2, 7), 0xDE: ("SBC", "Immediate", 2, 7),
     0xE6: ("AND", "Immediate", 2, 7), 0xEE: ("XOR", "Immediate", 2, 7),
     0xF6: ("OR", "Immediate", 2, 7), 0xFE: ("CP", "Immediate", 2, 7),
-    0xD3: ("OUT", "IoPort", 2, 11), 0xDB: ("IN", "IoPort", 2, 11),
+    0xD3: ("OUT", "IoPortImmediate", 2, 11), 0xDB: ("IN", "IoPortImmediate", 2, 11),
     0xD9: ("EXX", "Implied", 1, 4),
     0xE3: ("EX", "RegisterIndirect", 1, 19), 0xE9: ("JP", "RegisterIndirect", 1, 4),
     0xEB: ("EX", "Register", 1, 4),

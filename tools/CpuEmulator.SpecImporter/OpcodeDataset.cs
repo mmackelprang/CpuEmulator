@@ -74,7 +74,11 @@ public static class OpcodeDataset
     private static readonly HashSet<string> Z80FixedLengthModes =
     [
         "Register", "RegisterIndirect", "ImmediateExtended",
-        "ExtendedAddress", "IoPort", "RelativeJump", "Bit",
+        "ExtendedAddress", "RelativeJump", "Bit",
+        // The Z80 I/O-port modes. "IoPort" is the generic dataset spelling; "IoPortImmediate"/
+        // "IoPortIndirect" are the AddrMode-backed names (M3.2) used for the base-plane IN A,(n)/
+        // OUT (n),A so the emitter can emit a real port Insn. All carry the op + port-byte base = 2.
+        "IoPort", "IoPortImmediate", "IoPortIndirect",
     ];
 
     // The Z80 indexed mode (IX+d)/(IY+d) is length-determined by its prefix (DD/FD op d = 3 bytes;
@@ -244,7 +248,8 @@ public static class OpcodeDataset
         //    (the prefix is added by PrefixByteLength). So a CB-plane Bit op is base 1 (op) + 1 (CB) = 2;
         //    an unprefixed JR is base 2 + 0; an ED-prefixed ExtendedAddress is base 3 + 1 = 4. ──
         "Register" or "RegisterIndirect" or "Bit" => 1,  // OR r ; (HL) ; CB-plane BIT/SET/RES op byte
-        "RelativeJump" or "IoPort" => 2,                  // JR/DJNZ PC+d ; IN A,(n)/OUT (n),A
+        "RelativeJump" or "IoPort"
+            or "IoPortImmediate" or "IoPortIndirect" => 2,  // JR/DJNZ PC+d ; IN A,(n)/OUT (n),A
         "ImmediateExtended" or "ExtendedAddress" => 3,    // LD HL,nn ; LD (nn),A — 16-bit operand
         _ => throw new InvalidOperationException($"Unhandled mode: {mode}") // unreachable after vocabulary check
     };
