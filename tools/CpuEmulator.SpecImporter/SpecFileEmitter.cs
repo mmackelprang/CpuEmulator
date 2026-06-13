@@ -62,7 +62,11 @@ public static class SpecFileEmitter
         OpcodeEntry[]  dataset,
         SemanticsMap   map,
         string         datasetPath   = "mos6502-opcodes.json",
-        string         semanticsPath = "mos6502-semantics.json")
+        string         semanticsPath = "mos6502-semantics.json",
+        // The header's regenerate-command --out path. Defaults to the 6502 spec path so the committed
+        // Mos6502Spec.cs header is byte-identical (the RegeneratedSpecTests anchor). The Z80 run passes
+        // its own path so the committed Z80Spec.cs header carries the correct regenerate command.
+        string         outputPath    = "src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs")
     {
         var sb = new StringBuilder();
         int emitted       = 0;
@@ -87,7 +91,7 @@ public static class SpecFileEmitter
         sb.AppendLine("//     dotnet run --project tools/CpuEmulator.SpecImporter -- \\");
         sb.AppendLine($"//       --dataset {datasetPath} \\");
         sb.AppendLine($"//       --semantics {semanticsPath} \\");
-        sb.AppendLine($"//       --out src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs");
+        sb.AppendLine($"//       --out {outputPath}");
         sb.AppendLine("// </auto-generated>");
         sb.AppendLine();
 

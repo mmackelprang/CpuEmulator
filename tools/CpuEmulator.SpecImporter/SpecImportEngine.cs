@@ -20,9 +20,10 @@ public static class SpecImportEngine
         OpcodeEntry[] dataset,
         SemanticsMap  map,
         string        datasetPath   = "mos6502-opcodes.json",
-        string        semanticsPath = "mos6502-semantics.json")
+        string        semanticsPath = "mos6502-semantics.json",
+        string        outputPath    = "src/CpuEmulator.Cpus.Mos6502/Mos6502Spec.cs")
     {
-        return SpecFileEmitter.Emit(dataset, map, datasetPath, semanticsPath);
+        return SpecFileEmitter.Emit(dataset, map, datasetPath, semanticsPath, outputPath);
     }
 
     /// <summary>
@@ -37,7 +38,7 @@ public static class SpecImportEngine
         var dataset = OpcodeDataset.Load(datasetPath);
         var map     = SemanticsMap.Load(semanticsPath);
 
-        var (source, report) = SpecFileEmitter.Emit(dataset, map, datasetPath, semanticsPath);
+        var (source, report) = SpecFileEmitter.Emit(dataset, map, datasetPath, semanticsPath, outputPath);
 
         File.WriteAllText(outputPath, source);
         return report;
