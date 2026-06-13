@@ -156,6 +156,26 @@ internal static class CpuEmitter
         }
         sb.AppendLine("    }");
 
+        // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
+        // The interrupt seam is ALREADY generic (Ground truth C): servicing is the hand-written
+        // partial's TryServiceInterrupt; InterruptPending is the partial's own predicate; both tiers
+        // boundary-sample the predicate policy-blind; the line is wired-OR. M3.2 adds ZERO interrupt
+        // machinery. A CPU's TryServiceInterrupt MAY therefore implement ANY boundary-sampled
+        // interrupt policy WITHOUT a framework change:
+        //   • a fixed vector (6502: $FFFA/$FFFE);
+        //   • a mode-selected vector (Z80 IM 0/1/2 — device-supplied opcode / fixed RST 38h /
+        //     I-register high byte + a device-supplied table-index low byte; the interrupt-acknowledge
+        //     byte is read via ReadIo, the Io-bus reachability item (1) delivers — the ONE enabling
+        //     change, M3.2);
+        //   • an NMI with its own vector;
+        //   • a vector table (8086 IVT) — "exactly as the 6502 does, no Core change".
+        // It performs the full service bus sequence itself (charging cycles via ReadBus/WriteBus),
+        // clears any halted latch (the HALT/STOP wake), and returns true. The generated side is
+        // policy-blind: it only calls the hook and, if it returns false, proceeds to the
+        // (halt-or-)fetch path. This note is a SOURCE comment (for the M3.4 author), NOT emitted into
+        // the generated output — so the 6502's generated .g.cs is byte-identical (Ground truth E).
+        // The synthetic SyntheticHaltInterruptTests proves a NON-6502 (table-vectored) shape against
+        // this UNCHANGED seam — the positive genericity finding: nothing here needs a Core change.
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Interrupt-service hook, called at every instruction boundary before the");
         sb.AppendLine("    /// opcode fetch. The hand-written partial implements the CPU's interrupt policy and");

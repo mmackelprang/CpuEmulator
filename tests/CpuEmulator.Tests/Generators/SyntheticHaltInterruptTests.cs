@@ -261,4 +261,41 @@ public class SyntheticHaltInterruptTests
 
         Assert.Equal(0x42, inner.A);    // the LDA ran through a compiled block
     }
+
+    // ── Task 9: the non-6502 interrupt-shape proof (CONFIRM — the seam is already generic) ────
+
+    [Fact]
+    public void Interrupt_service_vectors_through_a_table_not_a_fixed_address()
+    {
+        // The synthetic partial's TryServiceInterrupt vectors through a TABLE indexed by VectorBase
+        // (0xFF00 + VectorBase), NOT the 6502's fixed $FFFE — the proof that the interrupt seam
+        // expresses a non-6502 shape with NO Core/generator change. VectorBase = 4 -> the handler
+        // address lives at 0xFF04, distinct from any fixed 6502 vector.
+        var (cpu, program) = NewCpu();
+        SetVectorBase(cpu, 4);
+        program.Write8(0xFF04, 0x34);   // handler lo
+        program.Write8(0xFF05, 0x12);   // handler hi -> 0x1234
+        SetPc(cpu, 0x0200);
+
+        SetIrq(cpu, true);
+        Step(cpu);                      // services via the TABLE vector
+
+        Assert.Equal(0x1234, GetPc(cpu));   // PC == the table entry at 0xFF04 (NOT a $FFFE vector)
+    }
+
+    [Fact]
+    public void A_different_VectorBase_selects_a_different_table_entry()
+    {
+        // Genuinely table-INDEXED (not two hardcoded cases): VectorBase 6 -> the handler at 0xFF06.
+        var (cpu, program) = NewCpu();
+        SetVectorBase(cpu, 6);
+        program.Write8(0xFF06, 0x78);
+        program.Write8(0xFF07, 0x56);   // -> 0x5678
+        SetPc(cpu, 0x0200);
+
+        SetIrq(cpu, true);
+        Step(cpu);
+
+        Assert.Equal(0x5678, GetPc(cpu));
+    }
 }
