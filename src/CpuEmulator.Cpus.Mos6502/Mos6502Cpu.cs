@@ -99,6 +99,15 @@ public sealed partial class Mos6502Cpu
         return true;
     }
 
+    /// <summary>The IL-JIT cycle seam (internal — CpuEmulator.Jit only). The emitted fastmem
+    /// fast path bypasses the bus (and thus ReadBus/WriteBus, which own _cycles for the
+    /// interpreter), so it calls this to advance the cycle counter by the same amount the
+    /// interpreter would have charged. Chosen over baking a FieldInfo for the private _cycles
+    /// so the generator stays untouched and the interpreter's cycle invariant lives in one
+    /// place. Reached via InternalsVisibleTo("CpuEmulator.Jit") + DynamicMethod(skipVisibility:
+    /// true). Not part of the interpreter's own execution path.</summary>
+    internal void AdvanceCycles(long n) => _cycles += n;
+
     private byte ReadBus(uint address)
     {
         _cycles++;

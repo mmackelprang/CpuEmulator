@@ -123,6 +123,30 @@ public sealed class AddressSpace : IAddressSpace
         // unmapped write silently ignored
     }
 
+    /// <summary>JIT fastmem view (internal — CpuEmulator.Jit only). For a page-aligned address,
+    /// reports the backing array + the index of this page's first byte + writability when the page
+    /// is RAM/ROM (the fastmem fast path). Returns false for peripheral and unmapped pages (the
+    /// MMIO/open-bus slow path — the JIT emits a bus callout for those). A peek-equivalent view:
+    /// it never reads or writes, never throws, has no strict-mode behavior — it describes the page.</summary>
+    internal bool TryGetDirectAccess(uint pageStart, out byte[] backing, out int pageOffset, out bool writable)
+    {
+        ref readonly PageEntry page = ref _pages[(pageStart & AddressMask) >> PageShift];
+        if (page.Backing is not null)
+        {
+            backing = page.Backing;
+            pageOffset = page.BackingOffset;   // index of this page's first byte within Backing
+            writable = page.Writable;
+            return true;
+        }
+        backing = System.Array.Empty<byte>();
+        pageOffset = 0;
+        writable = false;
+        return false;                          // peripheral or unmapped -> MMIO slow path
+    }
+
+    /// <summary>Page count (= 1 &lt;&lt; (AddressBits - 8)); the JIT sizes its fastmem + dirty arrays.</summary>
+    internal int PageCount => _pages.Length;
+
     private void ValidateRange(uint start, uint length)
     {
         if (length == 0 || (length & PageMask) != 0)

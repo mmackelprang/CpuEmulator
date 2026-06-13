@@ -68,6 +68,7 @@ internal static class CpuEmitter
         EmitExecution(sb, model);
         EmitDisassembler(sb, model);
         EmitMonitorSupport(sb, model);
+        EmitJitDescriptors(sb, model);
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model)
@@ -1291,4 +1292,179 @@ internal static class CpuEmitter
         sb.AppendLine("        };");
         sb.AppendLine("    }");
     }
+
+    // ---- JIT descriptor table (generated artifact ③, data form) ----
+
+    /// <summary>Emit <c>public static readonly OpcodeDescriptor[] JitDescriptors</c> — a
+    /// 256-slot, opcode-indexed table the CpuEmulator.Jit block compiler walks. Absent opcodes
+    /// get the Undefined sentinel. Length/BaseCycles/page-cross reuse the SAME ModeLength,
+    /// ComputeCycles, and isPageCross logic the interpreter body emission uses, so the table
+    /// can never drift from the interpreter on length or cycle template. Pure data — no
+    /// Reflection.Emit here; the JIT assembly is the only place that emits IL.</summary>
+    private static void EmitJitDescriptors(StringBuilder sb, SpecModel model)
+    {
+        // Build a 256-slot lookup so absent opcodes get the Undefined sentinel.
+        var byOpcode = model.Instructions.ToDictionary(i => i.Opcode);
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Per-opcode JIT descriptor table (generated artifact ③, data form).");
+        sb.AppendLine("    /// Indexed by opcode; absent opcodes are the Undefined sentinel. Consumed by");
+        sb.AppendLine("    /// CpuEmulator.Jit's CPU-agnostic block compiler. AOT-clean data — no Reflection.Emit");
+        sb.AppendLine("    /// here; the JIT assembly is the only place that emits IL.</summary>");
+        sb.AppendLine("    public static readonly CpuEmulator.Core.Jit.OpcodeDescriptor[] JitDescriptors =");
+        sb.AppendLine("    [");
+        for (int op = 0; op <= 0xFF; op++)
+        {
+            if (byOpcode.TryGetValue((byte)op, out var insn))
+                sb.AppendLine($"        {DescriptorLiteral(insn)},");
+            else
+                sb.AppendLine($"        CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined(0x{op:X2}),");
+        }
+        sb.AppendLine("    ];");
+    }
+
+    /// <summary>One descriptor row as a C# object-creation expression. Reuses ModeLength,
+    /// ComputeCycles, and the isPageCross predicate — the SAME functions the interpreter
+    /// body emission uses, so the table cannot drift from the interpreter.</summary>
+    private static string DescriptorLiteral(InstructionModel insn)
+    {
+        InstructionClass cls = insn.Class;
+        int length = ModeLength(insn.Mode);
+        int baseCycles = JitBaseCycles(insn, cls);
+        bool pageCross = insn.Mode is "AbsoluteX" or "AbsoluteY" or "IndirectY"
+            && cls is InstructionClass.Load or InstructionClass.Alu;
+        (string jitClass, bool endsBlock, bool fallback) = ClassifyForJit(insn, cls);
+        string ops = string.Join(", ", insn.Ops.Select(JitOpLiteral));
+        return $"new(0x{insn.Opcode:X2}, \"{insn.Mnemonic}\", "
+             + $"CpuEmulator.Core.Jit.JitMode.{insn.Mode}, "
+             + $"CpuEmulator.Core.Jit.JitOpClass.{jitClass}, "
+             + $"{length}, {baseCycles}, {(pageCross ? "true" : "false")}, "
+             + $"{(fallback ? "true" : "false")}, {(endsBlock ? "true" : "false")}, "
+             + $"[{ops}])";
+    }
+
+    /// <summary>The descriptor's BaseCycles — the fixed cycle template the block compiler
+    /// charges. For the per-op-kind variable classes (Branch, Stack, Flow) the raw
+    /// <see cref="ComputeCycles"/> base is not the real count, so this mirrors the SAME per-op
+    /// cycle logic the interpreter's <see cref="ComputeStackCycleStr"/>/<see cref="ComputeFlowCycleStr"/>
+    /// doc strings encode (and the emitted bodies realize byte-for-byte): Branch → 2 (the +1/+1
+    /// for taken/page-cross are emitted at run time); Push → 3, Pull → 4; JSR/RTS/RTI → 6,
+    /// BRK → 7. Every other (mode, class) uses ComputeCycles directly. Keeps the descriptor's
+    /// BaseCycles equal to the interpreter's notion so the JIT charges identical cycles.</summary>
+    private static int JitBaseCycles(InstructionModel insn, InstructionClass cls)
+    {
+        if (cls == InstructionClass.Branch)
+            return 2;
+
+        string firstKind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
+        if (cls == InstructionClass.Stack)
+            return firstKind switch
+            {
+                "Push" or "PushP" => 3,   // opcode + dummy read + write
+                "Pull" or "PullP" => 4,   // opcode + dummy read + dummy stack read + real read
+                _ => 2,
+            };
+        if (cls == InstructionClass.Flow)
+            return firstKind switch
+            {
+                "Jsr" => 6,
+                "Rts" => 6,
+                "Brk" => 7,
+                "Rti" => 6,
+                _ => ComputeCycles(insn.Mode, cls),
+            };
+
+        return ComputeCycles(insn.Mode, cls);
+    }
+
+    /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
+    /// <c>JitOpClass</c>, returning the (class, endsBlock, needsFallback) triple. The
+    /// interpreter's coarse <c>Flow</c> class is split by op-kind: JSR → Jsr, RTS → Rts,
+    /// BRK/RTI → Flow (+fallback). The interpreter's <c>Jump</c> stays Jump. ADC/SBC carry
+    /// NeedsFallback (the ambition decision). EndsBlock = a control-flow JIT class OR fallback.
+    /// The interpreter's <c>Stack</c> class (PHA/PLA/PHP/PLP) maps to the JIT <c>Register</c>
+    /// class: both are Implied, straight-line, block-continuing — the block compiler dispatches
+    /// the stack ops by op-kind within the Register arm (the JIT enum has no Stack member; the
+    /// schema-only <c>Transfer</c> value is reserved for CPU-agnostic future use).</summary>
+    private static (string JitClass, bool EndsBlock, bool Fallback) ClassifyForJit(
+        InstructionModel insn, InstructionClass cls)
+    {
+        string firstKind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
+        bool fallback = firstKind is "Adc" or "Sbc" or "Brk" or "Rti";
+
+        string jitClass = cls switch
+        {
+            InstructionClass.Load => "Load",
+            InstructionClass.Store => "Store",
+            InstructionClass.Register => "Register",
+            InstructionClass.Stack => "Register",
+            InstructionClass.Alu => "Alu",
+            InstructionClass.Rmw => "Rmw",
+            InstructionClass.Branch => "Branch",
+            InstructionClass.Jump => "Jump",
+            InstructionClass.Flow => firstKind switch
+            {
+                "Jsr" => "Jsr",
+                "Rts" => "Rts",
+                _ => "Flow",          // Brk/Rti
+            },
+            _ => throw new System.InvalidOperationException(
+                $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
+        };
+
+        bool endsBlock = jitClass is "Branch" or "Jump" or "Jsr" or "Rts" or "Flow" || fallback;
+        return (jitClass, endsBlock, fallback);
+    }
+
+    /// <summary>Render one <see cref="OpModel"/> as a <c>JitOp</c> object-creation expression:
+    /// <c>new JitOp("Kind", regA, regB, flagBit, boolArg)</c>. Register args map to their byte
+    /// index (A=0,X=1,Y=2,S=3); flag args map to their hardware bit via <see cref="FlagBit"/>;
+    /// a trailing bool literal becomes BoolArg. Unused slots are 0/false.</summary>
+    private static string JitOpLiteral(OpModel op)
+    {
+        byte regA = 0, regB = 0, flagBit = 0;
+        bool boolArg = false;
+
+        switch (op.Kind)
+        {
+            case "Transfer":   // (Reg source, Reg target)
+                regA = RegIndex(op.Args[0]);
+                regB = RegIndex(op.Args[1]);
+                break;
+            case "Load":       // (Reg target)
+            case "Store":      // (Reg source)
+            case "Increment":  // (Reg target)
+            case "Decrement":  // (Reg target)
+            case "SetNZ":      // (Reg source)
+            case "Compare":    // (Reg source)
+            case "Push":       // (Reg source)
+            case "Pull":       // (Reg target)
+                regA = RegIndex(op.Args[0]);
+                break;
+            case "BranchIf":   // (Flag, bool when)
+            case "SetFlag":    // (Flag, bool value)
+                flagBit = (byte)FlagBit(op.Args[0]);
+                boolArg = op.Args[1] == "true";
+                break;
+            // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
+            // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,
+            // Brk, Rti) carry no register/flag operands — all slots stay 0/false.
+            default:
+                break;
+        }
+
+        return $"new CpuEmulator.Core.Jit.JitOp(\"{op.Kind}\", {regA}, {regB}, {flagBit}, "
+             + $"{(boolArg ? "true" : "false")})";
+    }
+
+    /// <summary>Register member name → its byte index (A=0, X=1, Y=2, S=3), mirroring the
+    /// Core.Specification.Reg enum order. MIRROR TABLE: stays in sync with the Reg enum.</summary>
+    private static byte RegIndex(string reg) => reg switch
+    {
+        "A" => 0,
+        "X" => 1,
+        "Y" => 2,
+        "S" => 3,
+        _ => throw new System.ArgumentException($"Unknown register '{reg}'"),
+    };
 }
