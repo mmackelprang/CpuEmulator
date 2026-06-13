@@ -348,4 +348,121 @@ public class OpcodeDatasetTests
             Assert.Equal(entry.Opcode, entry.Key);
         }
     }
+
+    // ─── M3.3 Task 2: prefix-key uniqueness + Z80 mode/byte vocabulary ──────
+
+    [Fact]
+    public void ED_B0_and_base_B0_coexist()
+    {
+        // The headline non-collision: ED B0 (LDIR) and base B0 (OR B) are DISTINCT plane-qualified
+        // keys — both load without a duplicate error.
+        var json = """
+            [
+              { "prefix": "0xED", "opcode": "0xB0", "mnemonic": "LDIR", "mode": "Implied", "bytes": 2, "cycles": 21, "pageCrossPenalty": false },
+              { "opcode": "0xB0", "mnemonic": "OR", "mode": "Register", "bytes": 1, "cycles": 4, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        Assert.Equal(2, entries.Length);
+        Assert.Contains(entries, e => e.Key == "0xED:0xB0");
+        Assert.Contains(entries, e => e.Key == "0xB0");
+    }
+
+    [Fact]
+    public void Duplicate_plane_qualified_key_still_throws()
+    {
+        // Uniqueness is on the Key, not the bare Opcode: two ED B0 rows collide.
+        var json = """
+            [
+              { "prefix": "0xED", "opcode": "0xB0", "mnemonic": "LDIR", "mode": "Implied", "bytes": 2, "cycles": 21, "pageCrossPenalty": false },
+              { "prefix": "0xED", "opcode": "0xB0", "mnemonic": "LDDR", "mode": "Implied", "bytes": 2, "cycles": 21, "pageCrossPenalty": false }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("Duplicate opcode 0xED:0xB0", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("Register")]
+    [InlineData("RegisterIndirect")]
+    [InlineData("Indexed")]
+    [InlineData("ImmediateExtended")]
+    [InlineData("ExtendedAddress")]
+    [InlineData("IoPort")]
+    [InlineData("RelativeJump")]
+    [InlineData("Bit")]
+    public void Z80_modes_are_accepted(string mode)
+    {
+        // Each Z80 mode loads without an "unknown mode" error. Bytes chosen to satisfy the mode rule.
+        int bytes = mode switch
+        {
+            "Register" or "RegisterIndirect" => 1,
+            "RelativeJump" or "IoPort" or "Bit" => 2,
+            "ImmediateExtended" or "ExtendedAddress" => 3,
+            "Indexed" => 3,   // computed-length seam — any declared count accepted
+            _ => 1,
+        };
+        // The Bit mode reaches base=1; it is normally CB-prefixed (+1) — give it the CB prefix to make 2.
+        string prefixField = mode == "Bit" ? "\"prefix\": \"0xCB\", " : "";
+        var json = $$"""
+            [
+              { {{prefixField}}"opcode": "0x40", "mnemonic": "XX", "mode": "{{mode}}", "bytes": {{bytes}}, "cycles": 4, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        Assert.Single(entries);
+        Assert.Equal(mode, entries[0].Mode);
+    }
+
+    [Fact]
+    public void Z80_mode_byte_rules_enforced()
+    {
+        // ImmediateExtended (base 3) on a 2-byte row throws.
+        var bad = """
+            [
+              { "opcode": "0x21", "mnemonic": "LD", "mode": "ImmediateExtended", "bytes": 2, "cycles": 10, "pageCrossPenalty": false }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(bad));
+        Assert.Contains("Byte count mismatch", ex.Message);
+
+        // Register (base 1) on a correct 1-byte row loads fine.
+        var good = """
+            [
+              { "opcode": "0xB0", "mnemonic": "OR", "mode": "Register", "bytes": 1, "cycles": 4, "pageCrossPenalty": false }
+            ]
+            """;
+        Assert.Single(OpcodeDataset.Parse(good));
+    }
+
+    [Fact]
+    public void DDCB_row_uses_computed_length_marker()
+    {
+        // A DDCB compound row (4 bytes: DD CB dd op) is ACCEPTED via the Indexed computed-length seam —
+        // the byte-count equality is skipped; the declared bytes carries the truth.
+        var json = """
+            [
+              { "prefix": "0xDDCB", "opcode": "0x06", "mnemonic": "RLC", "mode": "Indexed", "bytes": 4, "cycles": 23, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        var row = Assert.Single(entries);
+        Assert.Equal(4, row.Bytes);
+        Assert.Equal("0xDDCB:0x06", row.Key);
+    }
+
+    [Fact]
+    public void PageCrossPenalty_true_is_accepted_not_forced_false_for_Z80()
+    {
+        // Ground truth B judgement call: the loader ACCEPTS pageCrossPenalty rather than asserting it
+        // false for Z80 rows (the field is 6502-shaped; forcing-false is a Z80-policy assertion the
+        // loader does not bake). The Z80 dataset itself sets it false everywhere; the loader does not enforce.
+        var json = """
+            [
+              { "prefix": "0xED", "opcode": "0xB0", "mnemonic": "LDIR", "mode": "Implied", "bytes": 2, "cycles": 21, "pageCrossPenalty": true }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        Assert.True(entries[0].PageCrossPenalty);
+    }
 }
