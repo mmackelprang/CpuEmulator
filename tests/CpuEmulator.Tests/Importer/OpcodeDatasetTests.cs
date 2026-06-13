@@ -272,4 +272,80 @@ public class OpcodeDatasetTests
         Assert.Single(entries);
         Assert.Null(entries[0].Source);
     }
+
+    // ─── M3.3 Task 1: the Z80 prefix-keyed schema (prefix/subfield/Key) ──────
+
+    [Fact]
+    public void Base_plane_row_has_null_prefix_and_Key_equals_Opcode()
+    {
+        // A base-plane row (no prefix — the 6502/base shape) loads with Prefix == null,
+        // SubField == null, Key == Opcode (byte-identical to a 6502 row).
+        var json = """
+            [
+              { "opcode": "0xB0", "mnemonic": "OR", "mode": "Register", "bytes": 1, "cycles": 4, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        var row = Assert.Single(entries);
+        Assert.Null(row.Prefix);
+        Assert.Null(row.SubField);
+        Assert.Equal("0xB0", row.Key);
+    }
+
+    [Fact]
+    public void Prefixed_row_carries_prefix_and_plane_qualified_Key()
+    {
+        // An ED-plane row (LDIR) loads with Prefix == "0xED" and Key == "0xED:0xB0".
+        var json = """
+            [
+              { "prefix": "0xED", "opcode": "0xB0", "mnemonic": "LDIR", "mode": "Implied", "bytes": 2, "cycles": 21, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        var row = Assert.Single(entries);
+        Assert.Equal("0xED", row.Prefix);
+        Assert.Equal("0xED:0xB0", row.Key);
+    }
+
+    [Fact]
+    public void Compound_prefix_token_is_accepted()
+    {
+        // The DDCB compound form (DD CB dd op) — prefix token "0xDDCB", Key "0xDDCB:0x06".
+        var json = """
+            [
+              { "prefix": "0xDDCB", "opcode": "0x06", "mnemonic": "RLC", "mode": "Indexed", "bytes": 4, "cycles": 23, "pageCrossPenalty": false }
+            ]
+            """;
+        var entries = OpcodeDataset.Parse(json);
+        var row = Assert.Single(entries);
+        Assert.Equal("0xDDCB", row.Prefix);
+        Assert.Equal("0xDDCB:0x06", row.Key);
+    }
+
+    [Fact]
+    public void Prefix_must_be_a_recognized_token()
+    {
+        // The prefix vocabulary gate: only 0xCB/0xED/0xDD/0xFD/0xDDCB/0xFDCB are accepted.
+        var json = """
+            [
+              { "prefix": "0xZZ", "opcode": "0x06", "mnemonic": "RLC", "mode": "Indexed", "bytes": 2, "cycles": 8, "pageCrossPenalty": false }
+            ]
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => OpcodeDataset.Parse(json));
+        Assert.Contains("prefix", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void All_6502_rows_have_null_prefix()
+    {
+        // The regression guard: the real 6502 dataset loads unchanged, every row Prefix == null.
+        var entries = OpcodeDataset.Load(DatasetPath);
+        Assert.Equal(151, entries.Length);
+        foreach (var entry in entries)
+        {
+            Assert.Null(entry.Prefix);
+            Assert.Null(entry.SubField);
+            Assert.Equal(entry.Opcode, entry.Key);
+        }
+    }
 }
