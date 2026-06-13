@@ -9,9 +9,11 @@ namespace CpuEmulator.SpecImporter;
 /// Configuration entry for a single register in the semantics map.
 /// </summary>
 public sealed record RegisterConfig(
-    string Name,
-    int    Bits,
-    string Role = "");
+    string  Name,
+    int     Bits,
+    string  Role = "",
+    string? HighHalf = null,   // M3.4a: for a 16-bit pair VIEW, the 8-bit high-half register name
+    string? LowHalf  = null);  // M3.4a: the 8-bit low-half register name
 
 /// <summary>
 /// The fully loaded semantics map: config (architecture, namespace, class, registers)
@@ -127,9 +129,11 @@ public sealed class SemanticsMap
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     private sealed class RegisterConfigDto
     {
-        public string Name { get; set; } = "";
-        public int    Bits { get; set; }
-        public string Role { get; set; } = "";
+        public string  Name { get; set; } = "";
+        public int     Bits { get; set; }
+        public string  Role { get; set; } = "";
+        public string? HighHalf { get; set; }   // M3.4a: pair-view high half (optional)
+        public string? LowHalf  { get; set; }   // M3.4a: pair-view low half (optional)
     }
 
     // ─── public API ──────────────────────────────────────────────────────
@@ -180,7 +184,7 @@ public sealed class SemanticsMap
             Architecture  = dto.Architecture,
             Namespace     = dto.Namespace,
             SpecClassName = dto.SpecClassName,
-            Registers     = dto.Registers.Select(r => new RegisterConfig(r.Name, r.Bits, r.Role)).ToArray(),
+            Registers     = dto.Registers.Select(r => new RegisterConfig(r.Name, r.Bits, r.Role, r.HighHalf, r.LowHalf)).ToArray(),
             Mnemonics     = dto.Mnemonics,
         };
     }

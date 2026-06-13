@@ -298,13 +298,14 @@ public class SemanticsMapTests
     [Fact]
     public void Z80_registers_load_as_declared()
     {
-        // The 22 Z80 register configs: 18 8-bit (main A F B C D E H L + alternate A_..L_ + I R) +
-        // 4 16-bit (IX IY SP PC). F is Status; SP StackPointer; PC ProgramCounter.
+        // The 30 Z80 register configs: 18 8-bit STORAGE (main A F B C D E H L + alternate A_..L_ +
+        // I R) + 4 16-bit storage (IX IY SP PC) + 8 16-bit pair VIEWS (AF/BC/DE/HL + the alt pairs,
+        // M3.4a). F is Status; SP StackPointer; PC ProgramCounter.
         var map = SemanticsMap.Load(Z80SemanticsPath);
         Assert.Equal("z80", map.Architecture);
         Assert.Equal("CpuEmulator.Cpus.Z80", map.Namespace);
         Assert.Equal("Z80Spec", map.SpecClassName);
-        Assert.Equal(22, map.Registers.Length);
+        Assert.Equal(30, map.Registers.Length);
 
         var byName = map.Registers.ToDictionary(r => r.Name);
         Assert.Equal("Status", byName["F"].Role);
@@ -318,6 +319,13 @@ public class SemanticsMapTests
         Assert.Equal(8, byName["R"].Bits);
         Assert.Equal(16, byName["IX"].Bits);
         Assert.Equal(16, byName["IY"].Bits);
+        // M3.4a: the 8 pair VIEWS carry HighHalf/LowHalf over the 8-bit halves (bidirectional aliasing).
+        Assert.Equal("B", byName["BC"].HighHalf);
+        Assert.Equal("C", byName["BC"].LowHalf);
+        Assert.Equal("A", byName["AF"].HighHalf);
+        Assert.Equal("F", byName["AF"].LowHalf);
+        Assert.Equal("B_", byName["BC_"].HighHalf);
+        Assert.Equal("L_", byName["HL_"].LowHalf);
     }
 
     [Fact]

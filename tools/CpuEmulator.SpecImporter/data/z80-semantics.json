@@ -24,7 +24,15 @@
     { "name": "IX", "bits": 16 },
     { "name": "IY", "bits": 16 },
     { "name": "SP", "bits": 16, "role": "StackPointer" },
-    { "name": "PC", "bits": 16, "role": "ProgramCounter" }
+    { "name": "PC", "bits": 16, "role": "ProgramCounter" },
+    { "name": "AF",  "bits": 16, "highHalf": "A",  "lowHalf": "F"  },
+    { "name": "BC",  "bits": 16, "highHalf": "B",  "lowHalf": "C"  },
+    { "name": "DE",  "bits": 16, "highHalf": "D",  "lowHalf": "E"  },
+    { "name": "HL",  "bits": 16, "highHalf": "H",  "lowHalf": "L"  },
+    { "name": "AF_", "bits": 16, "highHalf": "A_", "lowHalf": "F_" },
+    { "name": "BC_", "bits": 16, "highHalf": "B_", "lowHalf": "C_" },
+    { "name": "DE_", "bits": 16, "highHalf": "D_", "lowHalf": "E_" },
+    { "name": "HL_", "bits": 16, "highHalf": "H_", "lowHalf": "L_" }
   ],
   "mnemonics": {
     "NOP":  "[]",

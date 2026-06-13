@@ -268,14 +268,44 @@ internal static class SpecParser
         foreach (var element in collection.Elements)
         {
             if (element is not ExpressionElementSyntax expr ||
-                GetCreationArguments(expr.Expression) is not { } args ||
-                args.Count is < 2 or > 3 ||
-                LiteralString(args[0]) is not { } name ||
-                LiteralInt(args[1]) is not { } bits)
+                GetCreationArgumentSyntaxes(expr.Expression) is not { } cargs ||
+                cargs.Count < 2 ||
+                LiteralString(cargs[0].Expression) is not { } name ||
+                LiteralInt(cargs[1].Expression) is not { } bits)
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), element.ToString(),
-                    "expected new(\"NAME\", bits[, RegisterRole.X]) with literal arguments"));
+                    "expected new(\"NAME\", bits[, RegisterRole.X][, HighHalf: \"H\", LowHalf: \"L\"]) with literal arguments"));
+                continue;
+            }
+
+            // Parse the optional 3rd positional RegisterRole + the optional named HighHalf/LowHalf
+            // (M3.4a pair view). A 3rd POSITIONAL arg (no NameColon) is the RegisterRole; named
+            // args set the pair-view halves.
+            string role = "General";
+            string? highHalf = null, lowHalf = null;
+            bool argError = false;
+            for (int i = 2; i < cargs.Count; i++)
+            {
+                var a = cargs[i];
+                string? argName = a.NameColon?.Name.Identifier.Text;
+                if (argName is null)
+                {
+                    if (EnumMemberName(a.Expression, "RegisterRole") is { } parsedRole)
+                        role = parsedRole;
+                    else { argError = true; break; }
+                }
+                else if (argName == "HighHalf")
+                    highHalf = LiteralString(a.Expression) ?? Sentinel(ref argError);
+                else if (argName == "LowHalf")
+                    lowHalf = LiteralString(a.Expression) ?? Sentinel(ref argError);
+                else { argError = true; break; }
+            }
+            if (argError)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name,
+                    "extra arguments must be a RegisterRole member and/or HighHalf:/LowHalf: string literals"));
                 continue;
             }
 
@@ -309,19 +339,35 @@ internal static class SpecParser
                 continue;
             }
 
-            string role = "General";
-            if (args.Count == 3)
-            {
-                if (EnumMemberName(args[2], "RegisterRole") is not { } parsedRole)
-                {
-                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
-                        element.GetLocation(), name, "third argument must be a RegisterRole member"));
-                    continue;
-                }
-                role = parsedRole;
-            }
+            registers.Add(new RegisterModel(name, bits, role, highHalf, lowHalf));
+        }
 
-            registers.Add(new RegisterModel(name, bits, role));
+        // M3.4a (Ground truth A.3): validate every pair-view RegisterDef. A view (HighHalf/LowHalf
+        // set) must be 16-bit and name two DECLARED 8-bit registers (CPUGEN014). Validated after the
+        // full table is read so a half declared later in the table still resolves.
+        var byName = new Dictionary<string, RegisterModel>(System.StringComparer.Ordinal);
+        foreach (var r in registers)
+            byName[r.Name] = r;
+        foreach (var r in registers)
+        {
+            if (r.HighHalf is null && r.LowHalf is null)
+                continue;
+            if (r.HighHalf is null || r.LowHalf is null)
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidPairView,
+                    classDecl.Identifier.GetLocation(), r.Name,
+                    "a pair view must declare BOTH HighHalf and LowHalf"));
+            else if (r.Bits != 16)
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidPairView,
+                    classDecl.Identifier.GetLocation(), r.Name,
+                    "a pair view must be 16-bit"));
+            else
+            {
+                foreach (string half in new[] { r.HighHalf, r.LowHalf })
+                    if (!byName.TryGetValue(half, out var hr) || hr.Bits != 8)
+                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidPairView,
+                            classDecl.Identifier.GetLocation(), r.Name,
+                            $"half '{half}' must name a declared 8-bit register"));
+            }
         }
 
         int pcCount = registers.Count(r => r.Role == "ProgramCounter");
@@ -1054,6 +1100,20 @@ internal static class SpecParser
             InvocationExpressionSyntax i => i.ArgumentList.Arguments.Select(a => a.Expression).ToList(),
             _ => null,
         };
+
+    /// <summary>Argument SYNTAXES (carrying NameColon) of a creation — needed to distinguish a
+    /// positional RegisterRole arg from the named HighHalf:/LowHalf: pair-view args (M3.4a).</summary>
+    private static IReadOnlyList<ArgumentSyntax>? GetCreationArgumentSyntaxes(ExpressionSyntax expression) =>
+        expression switch
+        {
+            ImplicitObjectCreationExpressionSyntax c => c.ArgumentList.Arguments,
+            ObjectCreationExpressionSyntax { ArgumentList: { } al } => al.Arguments,
+            InvocationExpressionSyntax i => i.ArgumentList.Arguments,
+            _ => null,
+        };
+
+    /// <summary>Set the error flag and return null (for an inline "non-literal half" reject).</summary>
+    private static string? Sentinel(ref bool error) { error = true; return null; }
 
     private static string? LiteralString(ExpressionSyntax expression) =>
         expression is LiteralExpressionSyntax { Token.Value: string s } ? s : null;

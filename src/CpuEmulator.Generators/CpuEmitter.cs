@@ -59,7 +59,17 @@ internal static class CpuEmitter
     {
         sb.AppendLine();
         foreach (var register in model.Registers)
-            sb.AppendLine($"    public {(register.Bits == 8 ? "byte" : "ushort")} {register.Name};");
+        {
+            if (register.HighHalf is { } high && register.LowHalf is { } low)
+                // M3.4a (Ground truth A.3): a pair VIEW — NO backing field, a computed property over
+                // the two 8-bit halves. Bidirectional: write a half then read the pair reflects it,
+                // and vice versa, because the halves are the only storage.
+                sb.AppendLine(
+                    $"    public ushort {register.Name} {{ get => (ushort)(({high} << 8) | {low}); " +
+                    $"set {{ {high} = (byte)(value >> 8); {low} = (byte)value; }} }}");
+            else
+                sb.AppendLine($"    public {(register.Bits == 8 ? "byte" : "ushort")} {register.Name};");
+        }
 
         string nameList = string.Join(", ", model.Registers.Select(r => $"\"{r.Name}\""));
         sb.AppendLine();

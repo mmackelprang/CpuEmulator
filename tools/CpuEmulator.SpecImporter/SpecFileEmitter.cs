@@ -119,7 +119,11 @@ public static class SpecFileEmitter
                 "ProgramCounter" => ", RegisterRole.ProgramCounter",
                 _                => ""
             };
-            sb.AppendLine($"        new(\"{reg.Name}\", {reg.Bits}{rolePart}),");
+            // M3.4a: a pair VIEW carries HighHalf/LowHalf (the Z80 BC/DE/HL/AF over the 8-bit halves).
+            var pairPart = reg.HighHalf is not null && reg.LowHalf is not null
+                ? $", HighHalf: \"{reg.HighHalf}\", LowHalf: \"{reg.LowHalf}\""
+                : "";
+            sb.AppendLine($"        new(\"{reg.Name}\", {reg.Bits}{rolePart}{pairPart}),");
         }
         sb.AppendLine("    ];");
         sb.AppendLine();

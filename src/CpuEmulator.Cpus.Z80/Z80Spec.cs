@@ -42,6 +42,14 @@ public static class Z80Spec
         new("IY", 16),
         new("SP", 16, RegisterRole.StackPointer),
         new("PC", 16, RegisterRole.ProgramCounter),
+        new("AF", 16, HighHalf: "A", LowHalf: "F"),
+        new("BC", 16, HighHalf: "B", LowHalf: "C"),
+        new("DE", 16, HighHalf: "D", LowHalf: "E"),
+        new("HL", 16, HighHalf: "H", LowHalf: "L"),
+        new("AF_", 16, HighHalf: "A_", LowHalf: "F_"),
+        new("BC_", 16, HighHalf: "B_", LowHalf: "C_"),
+        new("DE_", 16, HighHalf: "D_", LowHalf: "E_"),
+        new("HL_", 16, HighHalf: "H_", LowHalf: "L_"),
     ];
 
     public static readonly DecodeStructure Decode = new(
