@@ -231,7 +231,17 @@ Each numbered item ≈ one PR-sized chunk on a branch.
      the `Breadboard6502` live host, PR #8.
 - **M2 — the JIT**
   8. Block compiler + cache + fastmem split.
-  9. Parity harness + benchmarks.
+  9. Parity harness + benchmarks — including **comparative performance data vs other
+     available emulators** (decision 2026-06-12): a `bench/` harness measuring emulated
+     cycles per host-second on a canonical, portable workload (the Klaus functional test's
+     deterministic 96.2M-cycle run, plus a tight arithmetic kernel), run identically against
+     (a) our Tier-0 interpreter, (b) our Tier-1 JIT, and (c) a small set of third-party 6502
+     emulators across languages (candidates: fake6502 in C, py65 in Python, Asm6502 in C#,
+     one JS implementation) behind thin adapter shims. Deliverables: a methodology document
+     (same workload, same machine, warmup/measurement windows, environment metadata — honest
+     cross-language comparison rules) and a regenerable results report committed with the
+     numbers and the hardware/runtime captured. Our two recorded M2 revisit gates
+     (switch-vs-`delegate*` dispatch; fields-vs-state-struct) are decided from this same data.
 - **M3 — the pluggability proof**
   10. Z80 by spec only — and **by extraction**: M3 doubles as the acceptance test of the
       datasheet-extraction approach (run the runbook against the Z80 manual, hand-build the
