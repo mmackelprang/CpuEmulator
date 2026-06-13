@@ -190,8 +190,26 @@ internal sealed partial class BlockCompiler
         }
         il.Emit(OpCodes.Br, noSmc);
         il.MarkLabel(endBlock);
-        EmitNormalExit(ctx);            // exit = Normal; ret (PC already at the next instruction)
+        // CHANGED (M2-ii, Task 3): exit = Recompile (was Normal). PC is already at the next
+        // instruction. A Recompile exit is NEVER chained past — the guard returns from the MIDDLE
+        // of the block (a chainable exit is only at a block-ending opcode), so control never reaches
+        // the block's chain edge. The dispatcher's InvalidateIfDirty flushes + the per-page eviction
+        // (Task 4) drops the stale block; the next dispatch re-decodes the self-modified bytes. This
+        // closes the M2-i carry-forward #2 hazard (the PRECISE signal; the chain edge's !Dirty.Any
+        // gate is the COARSE cross-block backstop — Ground truth B).
+        EmitRecompileExit(ctx);
         il.MarkLabel(noSmc);
+    }
+
+    /// <summary>exit = Recompile; ret. The intra-block SMC guard's exit (M2-ii): the block
+    /// self-modified one of its own pages, so the dispatcher MUST InvalidateIfDirty + re-decode.</summary>
+    private static void EmitRecompileExit(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_S, ArgExit);                 // out BlockExit exit
+        il.Emit(OpCodes.Ldc_I4, (int)BlockExit.Recompile);
+        il.Emit(OpCodes.Stind_I4);
+        il.Emit(OpCodes.Ret);
     }
 
     // ── Cycle bookkeeping (both counters move together: budget-=1 AND cpu._cycles+=1) ──────
