@@ -25,13 +25,15 @@ internal sealed partial class BlockCompiler
     /// emits 1 (BRK/RTI/undefined stay fallbacks).</summary>
     internal int FallbackEmitCount { get; private set; }
 
-    // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter):
+    // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
+    // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
-    //   5 = ref long budget, 6 = out BlockExit exit.
+    //   5 = ref long budget, 6 = out BlockExit exit, 7 = ioBus (IAddressSpace — the Port callout).
     // Named so the next signature change is one edit, not a scattered Ldarg_S hunt.
     private const byte ArgChain = 4;
     private const byte ArgBudget = 5;
     private const byte ArgExit = 6;
+    private const byte ArgIoBus = 7;   // M3.2: the second IAddressSpace the Port arm calls (never fastmem)
 
     // J2 (M3.1a): the register file is DATA. The OPERAND registers (A/X/Y/S — the ones a micro-op
     // descriptor's RegA/RegB name) resolve through a per-compile name→FieldInfo map built from the
@@ -122,7 +124,8 @@ internal sealed partial class BlockCompiler
             $"block_{entryPc:X4}", typeof(void),
             [typeof(Mos6502Cpu), typeof(IAddressSpace), typeof(Fastmem),
              typeof(DirtyMap), typeof(ChainDispatch),
-             typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType()],
+             typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType(),
+             typeof(IAddressSpace)],   // M3.2: ioBus (arg 7) — the Port callout target (never fastmem)
             typeof(BlockCompiler).Module, skipVisibility: true);   // reach the AdvanceCycles seam
         ILGenerator il = dm.GetILGenerator();
         var ctx = new EmitContext(il, spannedPages);
@@ -144,6 +147,31 @@ internal sealed partial class BlockCompiler
             EmitNormalExit(ctx);   // safety net (unreachable for self-terminating ending arms)
         var del = (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
         return new CompiledBlock(entryPc, del, spannedPages);
+    }
+
+    /// <summary>Test seam (M3.2 Ground truth F.1 — the JIT-side never-fastmem proof). Compiles a
+    /// ONE-instruction block over the real EmitPort arm into a BlockDelegate, so a test can invoke
+    /// the genuine emitted IL with a stub Io IAddressSpace and assert the callout lands on the Io
+    /// bus (arg 7), NEVER LoadByteFromBus/the fastmem'd memory bus. This drives the production
+    /// EmitPort directly (the M3.1b synthetic-direct-emit precedent; the live second-CPU JIT run is
+    /// M3.5/J1). EntryPc 0 + a single emittable Port row; the arm mirrors EmitInstruction's up-front
+    /// opcode-fetch charge + PC increment so the cycle bookkeeping matches a real block.</summary>
+    internal BlockDelegate CompilePortProbe(OpcodeDescriptor d)
+    {
+        var dm = new DynamicMethod(
+            "port_probe", typeof(void),
+            [typeof(Mos6502Cpu), typeof(IAddressSpace), typeof(Fastmem),
+             typeof(DirtyMap), typeof(ChainDispatch),
+             typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType(),
+             typeof(IAddressSpace)],
+            typeof(BlockCompiler).Module, skipVisibility: true);
+        ILGenerator il = dm.GetILGenerator();
+        var ctx = new EmitContext(il, new System.Collections.Generic.HashSet<int>());
+        EmitChargeOneCycle(ctx);    // opcode-fetch cycle (as EmitInstruction does up-front)
+        EmitIncrementPC(ctx, 1);
+        EmitPort(ctx, d);           // THE arm under test — an Io-bus callout, no fastmem branch
+        EmitNormalExit(ctx);
+        return (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
     }
 
     private static System.Collections.Generic.HashSet<int> PagesSpanned(
@@ -191,6 +219,7 @@ internal sealed partial class BlockCompiler
             case JitOpClass.Jump: EmitJump(ctx, pc, d); break;
             case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;
+            case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:
                 throw new EmulationException(
                     $"BlockCompiler has no emit arm for class '{d.Class}' (opcode 0x{d.Opcode:X2}); "

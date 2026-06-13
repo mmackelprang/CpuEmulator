@@ -49,7 +49,11 @@ public enum BlockExit
 public delegate void BlockDelegate(
     Mos6502Cpu cpu, IAddressSpace bus, Fastmem fastmem, DirtyMap dirty,
     ChainDispatch chain,         // 5th param (M2-ii): the chain-edge callback (stack-safe successor run)
-    ref long budget, out BlockExit exit);
+    ref long budget, out BlockExit exit,
+    IAddressSpace ioBus);        // 8th param (M3.2): the Io-bus IAddressSpace the Port emit arm calls
+                                 // (Ground truth D — a SECOND, never-fastmem callout). APPENDED so no
+                                 // existing arg index shifts; the 6502's emitted IL never references it
+                                 // (no 6502 block contains a port op), so 6502 blocks are byte-identical.
 
 /// <summary>The chain-edge callback the emitted block calls at a statically-known exit (M2-ii). Given
 /// the (compile-time-constant) target PC, it arranges for the successor chain to run WITHOUT a
@@ -65,8 +69,12 @@ internal sealed class CompiledBlock(ushort entryPc, BlockDelegate del, IReadOnly
     public ushort EntryPc { get; } = entryPc;
     public IReadOnlyCollection<int> SpannedPages { get; } = spannedPages;
 
+    /// <summary>Run the block. <paramref name="ioBus"/> (M3.2) is the Io-bus IAddressSpace the Port
+    /// emit arm calls; it defaults to null because a CPU with no port op (the 6502) never references
+    /// arg 7, so existing callers need not supply it (the byte-identical-6502 invariant: existing
+    /// JIT tests are unchanged). A port-using CPU's dispatcher passes its real Io bus.</summary>
     public void Run(
         Mos6502Cpu cpu, IAddressSpace bus, Fastmem fastmem, DirtyMap dirty,
-        ChainDispatch chain, ref long budget, out BlockExit exit)
-        => del(cpu, bus, fastmem, dirty, chain, ref budget, out exit);
+        ChainDispatch chain, ref long budget, out BlockExit exit, IAddressSpace? ioBus = null)
+        => del(cpu, bus, fastmem, dirty, chain, ref budget, out exit, ioBus!);
 }

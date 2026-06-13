@@ -119,7 +119,11 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
         {
             _chainPredecessor = current;            // the inbound-link record (read by ChainEdge)
             _chainNext = null;
-            current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit);
+            // The 6502 has no Io space, so its blocks never contain a Port op and never reference the
+            // ioBus arg (M3.2) — pass _calloutBus as a harmless placeholder. The live second-bus Io
+            // wiring for a port-using CPU is M3.5 (J1); M3.2 proves the EmitPort arm directly (F.1).
+            current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit,
+                _calloutBus);
             if (exit is BlockExit.Budget or BlockExit.Recompile) return; // round-trip required
             if (_chainNext is null) return;         // chain broke (gates/flag) or a dynamic exit
             current = _chainNext;                   // continue the chain in THIS frame

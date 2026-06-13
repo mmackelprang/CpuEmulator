@@ -1,5 +1,8 @@
 using System.Reflection;
 using CpuEmulator.Core;
+using CpuEmulator.Core.Jit;
+using CpuEmulator.Cpus.Mos6502;
+using CpuEmulator.Jit;
 
 namespace CpuEmulator.Tests.Generators;
 
@@ -141,5 +144,111 @@ public class SyntheticPortIoTests
 
         // opcode fetch (ReadBus) + (n) operand fetch (ReadBus) + the Io read (ReadIo) = 3 cycles.
         Assert.Equal(3, Cycles(cpu) - before);
+    }
+
+    // ── Task 5: the JIT never fastmems the Io space (Ground truth D) ──────────────────────────
+
+    [Fact]
+    public void Fastmem_never_serves_the_Io_space()
+    {
+        // Fastmem is built from ONE AddressSpace — the memory (Program) bus. The Io space is a
+        // DIFFERENT object the Fastmem ctor never sees, so no Io page can ever be in PageBacking by
+        // construction. Pin it: a Fastmem over a Program bus reflects the PROGRAM backing only.
+        var program = new AddressSpace(AddressSpaceKind.Program, 16);
+        var programRam = new byte[0x10000];
+        program.MapMemory(0, programRam, writable: true);
+
+        var io = new AddressSpace(AddressSpaceKind.Io, 16);
+        var ioRam = new byte[0x10000];
+        io.MapMemory(0, ioRam, writable: true);
+
+        var fastmem = new Fastmem(program, new JitOptions());
+
+        // Every backing page Fastmem holds is the Program RAM array, NEVER the Io RAM array — the
+        // Io AddressSpace is not even an input to the Fastmem ctor, so its backing cannot leak in.
+        foreach (var backing in fastmem.PageBacking)
+            Assert.NotSame(ioRam, backing);
+        // And the Program backing IS present (sanity: fastmem did bind the bus it was given).
+        Assert.Contains(fastmem.PageBacking, b => ReferenceEquals(b, programRam));
+    }
+
+    /// <summary>The IN A,(n) descriptor for the direct EmitPort probe — Port class, IoPortImmediate,
+    /// PortIn("A") (the 6502 has a register named A, so RegField resolves under the J1-deferred,
+    /// Mos6502Cpu-typed BlockCompiler).</summary>
+    private static OpcodeDescriptor PortInADescriptor() => new(
+        0xDB, "IN", JitMode.IoPortImmediate, JitOpClass.Port,
+        LengthRule.Fixed, FixedLength: 2, BaseCycles: 3, PageCrossPenalty: false,
+        NeedsFallback: false, EndsBlock: false,
+        Ops: [new JitOp("PortIn", "A", "", 0, false)]);
+
+    private static OpcodeDescriptor PortOutADescriptor() => new(
+        0xD3, "OUT", JitMode.IoPortImmediate, JitOpClass.Port,
+        LengthRule.Fixed, FixedLength: 2, BaseCycles: 3, PageCrossPenalty: false,
+        NeedsFallback: false, EndsBlock: false,
+        Ops: [new JitOp("PortOut", "A", "", 0, false)]);
+
+    [Fact]
+    public void EmitPort_arm_hits_the_Io_bus_for_PortIn()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // JIT-only proof; skip where dynamic code is disabled (AOT)
+
+        // Program bus (the fastmem-bound one, arg 1): IN A,(0x10) — PC points at the (n) operand.
+        var program = new AddressSpace(AddressSpaceKind.Program, 16);
+        program.MapMemory(0, new byte[0x10000], writable: true);
+        // The probe charges the opcode fetch + EmitIncrementPC(1) (as a real block does), so PC must
+        // start at the OPCODE position 0x0200; after the increment it lands on the (n) operand 0x0201.
+        program.Write8(0x0201, 0x10);   // the (n) port operand byte
+        program.Write8(0x0010, 0x99);   // program[0x10] = 0x99 — the WRONG value (a fastmem read)
+        var inner = new Mos6502Cpu(program);
+        inner.PC = 0x0200;
+        inner.A = 0x00;
+
+        // Io bus (arg 7): a SEPARATE AddressSpace holding the RIGHT value at the port.
+        var io = new AddressSpace(AddressSpaceKind.Io, 16);
+        io.MapMemory(0, new byte[0x10000], writable: true);
+        io.Write8(0x0010, 0x42);        // Io[0x10] = 0x42 — what a correct Io callout reads
+
+        var fastmem = new Fastmem(program, new JitOptions());
+        var compiler = new BlockCompiler(inner, program, fastmem, new JitOptions());
+        BlockDelegate probe = compiler.CompilePortProbe(PortInADescriptor());
+
+        long budget = 100;
+        probe(inner, program, fastmem, new DirtyMap(program.PageCount),
+            (ushort _, ref long _, out BlockExit e) => e = BlockExit.Normal,
+            ref budget, out _, io);
+
+        // A holds the Io byte (0x42) — the emitted arm called ioBus.Read8, NOT a fastmem/LoadByteFromBus
+        // read of program[0x10] (which would have given 0x99).
+        Assert.Equal(0x42, inner.A);
+    }
+
+    [Fact]
+    public void EmitPort_arm_hits_the_Io_bus_for_PortOut()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;
+
+        var program = new AddressSpace(AddressSpaceKind.Program, 16);
+        program.MapMemory(0, new byte[0x10000], writable: true);
+        program.Write8(0x0201, 0x10);   // the (n) port operand (PC starts at the opcode 0x0200)
+        var inner = new Mos6502Cpu(program);
+        inner.PC = 0x0200;
+        inner.A = 0x42;
+
+        var io = new AddressSpace(AddressSpaceKind.Io, 16);
+        io.MapMemory(0, new byte[0x10000], writable: true);
+
+        var fastmem = new Fastmem(program, new JitOptions());
+        var compiler = new BlockCompiler(inner, program, fastmem, new JitOptions());
+        BlockDelegate probe = compiler.CompilePortProbe(PortOutADescriptor());
+
+        long budget = 100;
+        probe(inner, program, fastmem, new DirtyMap(program.PageCount),
+            (ushort _, ref long _, out BlockExit e) => e = BlockExit.Normal,
+            ref budget, out _, io);
+
+        Assert.Equal(0x42, io.Read8(0x0010));        // the Io bus received the write
+        Assert.Equal(0x00, program.Read8(0x0010));   // the program/fastmem space is untouched
     }
 }

@@ -652,4 +652,61 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Conv_U1);
         il.Emit(OpCodes.Stfld, fs);
     }
+
+    // ── Port class (M3.2) — the Io-bus callout (Ground truth D: NEVER fastmem) ────────────────
+    /// <summary>Emit a PortIn/PortOut as an UNCONDITIONAL callout to the SECOND IAddressSpace
+    /// (the Io bus — ArgIoBus), never the fastmem'd memory bus. There is NO fastmem branch here by
+    /// construction: a port read/write is always an observable device side effect (the load-bearing
+    /// never-fastmem rule, proven in emitted IL). Mirrors the interpreter EmitPortBody: the (n)
+    /// operand fetch (IoPortImmediate) charges one cycle off the program bus via EmitReadAtPC, then
+    /// the Io access charges one more (the interpreter's ReadIo/WriteIo each do _cycles++; the JIT
+    /// charges it explicitly since it does not call them). The opcode-fetch cycle is charged up-front
+    /// in EmitInstruction.</summary>
+    private void EmitPort(EmitContext ctx, OpcodeDescriptor d)
+    {
+        ILGenerator il = ctx.Il;
+        string reg = d.Ops[0].RegA;            // PortIn target / PortOut source — register NAME (J2)
+
+        // Resolve the port number into AddrLocal (uint).
+        switch (d.Mode)
+        {
+            case JitMode.IoPortImmediate:
+                EmitReadAtPC(ctx);             // port = bus[PC]; charges 1 (the (n) operand fetch)
+                il.Emit(OpCodes.Conv_U4);
+                il.Emit(OpCodes.Stloc, ctx.AddrLocal);
+                EmitIncrementPC(ctx, 1);
+                break;
+            case JitMode.IoPortIndirect:
+                il.Emit(OpCodes.Ldarg_0);      // port = reg (the (C) form; no operand byte)
+                il.Emit(OpCodes.Ldfld, RegField(reg));
+                il.Emit(OpCodes.Conv_U4);
+                il.Emit(OpCodes.Stloc, ctx.AddrLocal);
+                break;
+            default:
+                throw new EmulationException($"port: no arm for mode {d.Mode} (opcode 0x{d.Opcode:X2})");
+        }
+
+        EmitChargeOneCycle(ctx);               // the Io access cycle (the interpreter's ReadIo/WriteIo)
+
+        if (d.Ops[0].Kind == "PortIn")
+        {
+            // reg = (byte)ioBus.Read8(port)   — the SECOND IAddressSpace, NEVER LoadByteFromBus.
+            il.Emit(OpCodes.Ldarg_0);          // cpu (for the Stfld)
+            il.Emit(OpCodes.Ldarg_S, ArgIoBus);
+            il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+            il.Emit(OpCodes.Callvirt, MRead);  // ioBus.Read8(port) -> byte (int)
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Stfld, RegField(reg));
+        }
+        else // PortOut
+        {
+            // ioBus.Write8(port, reg)         — the SECOND IAddressSpace, NEVER EmitStoreByte.
+            il.Emit(OpCodes.Ldarg_S, ArgIoBus);
+            il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, RegField(reg));
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Callvirt, MWrite); // ioBus.Write8(port, value)
+        }
+    }
 }
