@@ -36,8 +36,4 @@ internal sealed class ChainTable
         foreach (var set in _inbound.Values)
             set.Remove(predecessor);
     }
-
-    /// <summary>Drop every inbound link (called on a whole-cache flush — every block is gone, so
-    /// every link is stale).</summary>
-    public void Clear() => _inbound.Clear();
 }
