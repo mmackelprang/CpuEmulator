@@ -8,7 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="data\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The JSON data files the tool consumes are content-copied to output (and transitively to the
+         test project). The generator scripts (*.py) + the review report (*.md) are provenance
+         artifacts, not runtime inputs — excluded from the copy. -->
+    <Content Include="data\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

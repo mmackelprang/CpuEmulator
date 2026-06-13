@@ -261,4 +261,68 @@ public class DatasetDiffTests
         var entries = OpcodeDataset.Load(SeededPath);
         Assert.Equal(151, entries.Length);
     }
+
+    // ─── M3.3 Task 2: the diff keys on the plane-qualified Key ──────────────
+
+    [Fact]
+    public void Diff_keys_on_plane_qualified_Key()
+    {
+        // The headline diff-correctness fix: two datasets each carrying ED B0 = LDIR AND base B0 = OR.
+        // Keyed on the plane-qualified Key, the diff reports ZERO disagreements (each plane matches its
+        // peer). The OLD bare-Opcode keying would collide ED B0 with base B0 and report a spurious
+        // OR-vs-LDIR mnemonic disagreement.
+        var left = new[]
+        {
+            new OpcodeEntry("0xB0", "LDIR", "Implied", 2, 21, false, null, "0xED"),
+            new OpcodeEntry("0xB0", "OR",   "Register", 1, 4, false),
+        };
+        var right = new[]
+        {
+            new OpcodeEntry("0xB0", "OR",   "Register", 1, 4, false),
+            new OpcodeEntry("0xB0", "LDIR", "Implied", 2, 21, false, null, "0xED"),
+        };
+        var result = DatasetDiff.Compare(left, right);
+        Assert.Empty(result.Disagreements);
+        Assert.Empty(result.MissingInOther);
+        Assert.Empty(result.ExtraInOther);
+        Assert.False(result.HasDifferences);
+    }
+
+    [Fact]
+    public void Diff_reports_field_disagreement_with_plane_qualified_key()
+    {
+        // A genuine disagreement WITHIN a plane is reported with the plane-qualified key (0xED:0xB0).
+        var left  = new[] { new OpcodeEntry("0xB0", "LDIR", "Implied", 2, 21, false, null, "0xED") };
+        var right = new[] { new OpcodeEntry("0xB0", "LDIR", "Implied", 2, 16, false, null, "0xED") };
+        var result = DatasetDiff.Compare(left, right);
+        var d = Assert.Single(result.Disagreements);
+        Assert.Equal("0xED:0xB0", d.Opcode);
+        Assert.Equal("cycles", d.Field);
+    }
+
+    [Fact]
+    public void Diff_distinguishes_missing_prefixed_from_present_base()
+    {
+        // ED B0 present in left only (a coverage gap surfaced per-plane, not masked by base B0).
+        var left = new[]
+        {
+            new OpcodeEntry("0xB0", "LDIR", "Implied", 2, 21, false, null, "0xED"),
+            new OpcodeEntry("0xB0", "OR",   "Register", 1, 4, false),
+        };
+        var right = new[] { new OpcodeEntry("0xB0", "OR", "Register", 1, 4, false) };
+        var result = DatasetDiff.Compare(left, right);
+        Assert.Contains("0xED:0xB0", result.MissingInOther);
+        Assert.DoesNotContain("0xB0", result.MissingInOther); // base B0 is present in both
+    }
+
+    [Fact]
+    public void Diff_over_two_6502_datasets_is_unchanged()
+    {
+        // The regression guard: a 6502 row's Key is its bare Opcode (null prefix), so the existing
+        // 6502 diff behavior is byte-identical. The seeded fixture still reports exactly 5 cells.
+        var result = DatasetDiff.Compare(RealDataset, SeededDataset);
+        Assert.Equal(5, result.Disagreements.Count);
+        // And the disagreement keys are the bare opcodes (no plane qualifier — null prefix).
+        Assert.All(result.Disagreements, d => Assert.DoesNotContain(":", d.Opcode));
+    }
 }

@@ -211,6 +211,131 @@ public class SpecFileEmitterTests
         Assert.Contains("CpuEmulator.Cpus.Mos6502", source);
     }
 
+    // ─── M3.3 Task 5: Z80 prefixed-Insn + DecodeStructure emission ───────────
+
+    private static string Z80DatasetPath   => DataPath.Get("z80-opcodes.json");
+    private static string Z80SemanticsPath => DataPath.Get("z80-semantics.json");
+
+    // The Z80's EMITTABLE modes = the AddrMode-backed subset (Implied/Immediate shared + the M3.2
+    // IoPort* members). The Z80 register-shape modes are NOT AddrMode members (the enumerated M3.4
+    // finding) so their rows are TODO(mode). This mirrors the emitter's SupportedModes.
+    private static readonly HashSet<string> Z80EmittableModes =
+    [
+        "Implied", "Accumulator", "Immediate",
+        "ZeroPage", "ZeroPageX", "ZeroPageY",
+        "Absolute", "AbsoluteX", "AbsoluteY",
+        "IndirectX", "IndirectY", "Indirect", "Relative",
+        "IoPortImmediate", "IoPortIndirect",
+    ];
+
+    private static bool IsSingleBytePrefix(string? prefix) =>
+        prefix is null ||
+        (prefix.Length == 4 && prefix.StartsWith("0x", StringComparison.OrdinalIgnoreCase));
+
+    private (string source, ImportReport report) RunZ80Engine()
+    {
+        var dataset = OpcodeDataset.Load(Z80DatasetPath);
+        var map     = SemanticsMap.Load(Z80SemanticsPath);
+        return SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
+    }
+
+    [Fact]
+    public void Base_row_emits_single_byte_Insn()
+    {
+        // A covered base-plane row (NOP, 0x00, Implied) emits the EXISTING single-byte Insn form —
+        // byte-identical to the 6502 emission shape (the 6502 guard).
+        var (source, _) = RunZ80Engine();
+        var norm = NormalizeWhitespace(source);
+        Assert.Contains("Insn(0x00, \"NOP\", AddrMode.Implied, []),", norm);
+    }
+
+    [Fact]
+    public void Prefixed_row_emits_prefixed_Insn()
+    {
+        // A covered ED-plane row (NEG, ED 0x44, Implied) emits the M3.1b prefixed Insn(prefix,opcode,…).
+        var (source, _) = RunZ80Engine();
+        var norm = NormalizeWhitespace(source);
+        Assert.Contains("Insn(0xED, 0x44, \"NEG\", AddrMode.Implied, []),", norm);
+    }
+
+    [Fact]
+    public void TODO_row_carries_plane_qualified_key()
+    {
+        // A TODO(semantics) prefixed row carries the plane-qualified Key (e.g. ED B0 = LDIR).
+        var (source, _) = RunZ80Engine();
+        Assert.Contains("// TODO(semantics): 0xED:0xB0 LDIR", source);
+        // And a base-plane TODO carries the bare opcode (null prefix).
+        Assert.Contains("// TODO(mode): 0xB0 OR", source);
+    }
+
+    [Fact]
+    public void DecodeStructure_is_emitted_with_backing_prefix()
+    {
+        // The skeleton declares a DecodeStructure with the prefix bytes that back EMITTED prefixed
+        // rows. ED is backed (NEG); the CB/DD/FD/compound planes have no emittable rows (the M3.4
+        // finding), so they are not declared (the CPUGEN012 cross-check would reject an orphan prefix).
+        var (source, _) = RunZ80Engine();
+        Assert.Contains("DecodeStructure Decode = new(", source);
+        Assert.Contains("new PrefixByte(0xED)", source);
+        Assert.Contains("ModRmOpcodes: []", source);
+        Assert.Contains("SubFieldOpcodes: []", source);
+    }
+
+    [Fact]
+    public void DDCB_compound_rows_emit_as_TODO_not_prefixed_Insn()
+    {
+        // The enumerated M3.4 finding: a DDCB/FDCB compound-prefix row is NEVER emitted as a prefixed
+        // Insn (its Indexed mode is not emittable AND the compound prefix is not a single PrefixByte).
+        // It appears only as a TODO comment with its compound plane-qualified Key.
+        var (source, _) = RunZ80Engine();
+        Assert.Contains("0xDDCB:0x06", source);   // RLC (IX+d) — present as a TODO key
+        // No Insn row should ever carry a compound prefix literal (there is no 0xDDCB Insn overload arg).
+        Assert.DoesNotContain("Insn(0xDDCB", source);
+        Assert.DoesNotContain("Insn(0xDDCB,", source);
+    }
+
+    [Fact]
+    public void Z80_covered_vs_TODO_counts()
+    {
+        // Pin the honest covered/TODO split by deriving the expectation IN THE TEST (the 3a
+        // derivation-pin pattern) and asserting it equals the engine's report.
+        var dataset = OpcodeDataset.Load(Z80DatasetPath);
+        var map     = SemanticsMap.Load(Z80SemanticsPath);
+
+        int derivedEmitted = dataset.Count(e =>
+            map.Mnemonics.ContainsKey(e.Mnemonic)
+            && Z80EmittableModes.Contains(e.Mode)
+            && IsSingleBytePrefix(e.Prefix));
+        int derivedTodoMode = dataset.Count(e =>
+            map.Mnemonics.ContainsKey(e.Mnemonic)
+            && !(Z80EmittableModes.Contains(e.Mode) && IsSingleBytePrefix(e.Prefix)));
+        int derivedTodoSemantics = dataset.Count(e => !map.Mnemonics.ContainsKey(e.Mnemonic));
+
+        var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
+
+        Assert.Equal(698, report.Total);
+        Assert.Equal(derivedEmitted, report.Emitted);
+        Assert.Equal(derivedTodoMode, report.TodoMode);
+        Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
+        Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
+        // The honest framing: a small covered EMITTED minority, a large TODO majority (3a state).
+        Assert.True(report.Emitted < report.TodoSemantics + report.TodoMode,
+            "Z80 skeleton must be a TODO-majority skeleton (the honest 3a starting state)");
+    }
+
+    [Fact]
+    public void Existing_6502_emission_unchanged()
+    {
+        // The 6502 emission is byte-identical: no DecodeStructure (6502 emits no prefixed rows), and
+        // the emitted count is still 151 (adding IoPort* to SupportedModes adds nothing — the 6502
+        // dataset has no IoPort* rows).
+        var (source, report) = RunEngine();
+        Assert.DoesNotContain("DecodeStructure", source);
+        Assert.Equal(151, report.Emitted);
+        Assert.Equal(0, report.TodoSemantics);
+        Assert.Equal(0, report.TodoMode);
+    }
+
     // ─── helper ──────────────────────────────────────────────────────────────
 
     /// <summary>Collapses all whitespace runs (spaces, tabs) to single spaces on each line.</summary>

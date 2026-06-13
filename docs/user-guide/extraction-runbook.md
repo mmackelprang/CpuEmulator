@@ -188,6 +188,53 @@ Produce two JSON outputs:
 
 **Vocabulary scope (important for non-6502 families):** the 13 mode names, the byte-count rules, the `"0xNN"` opcode format, and the 30-factory list in this template are the **current 6502-family loader vocabulary** — they are hardcoded in `OpcodeDataset` and `SemanticsMap` today. A new CPU family (e.g. the Z80, with its CB/DD/ED/FD-prefixed opcodes, separate I/O space, and different mode set) **extends the loaders first**: new mode names and byte rules in `OpcodeDataset`, new factories in `SemanticsMap.FactoryArity` (and the generator's mirror tables — see the SYNC HAZARD comments in both files), then updates this template to match. Per spec §9 item 10, the framework changes a new family forces are measured and treated as findings, not failures — expect this template to grow per family.
 
+### 1.2.1 Z80 prompt-vocabulary substitution (the M3.3 worked family)
+
+The Z80 extraction (M3.3) is the first non-6502 use. Substitute the following Z80 vocabulary into
+the Stage-1 template slots above. Extract **one prefix plane per pass** (base, then CB, ED, DD, FD,
+DDCB, FDCB — paste one manual section at a time).
+
+**Opcode dataset schema — Z80 overrides:**
+- Add an optional `"prefix"` field (string): one of `"0xCB"`, `"0xED"`, `"0xDD"`, `"0xFD"`, `"0xDDCB"`,
+  `"0xFDCB"`. Omit it (null) for a base-plane row — a null-prefix Z80 row is shaped exactly like a
+  6502 row. The `"opcode"` field is always the **final** opcode byte (the op within its plane); the
+  prefix is carried separately. The plane-qualified key is `prefix:opcode` (e.g. `0xED:0xB0` for
+  LDIR), so `ED B0` (LDIR) never collides with base `0xB0` (OR B).
+- `"mode"` — the Z80 mode vocabulary (added to `OpcodeDataset.ValidModes`):
+  `Implied`, `Immediate` (shared with the 6502), plus
+  `Register` (LD r,r' / OR r), `RegisterIndirect` ((HL)/(BC)/(DE)), `Indexed` ((IX+d)/(IY+d) — a
+  computed-length mode, like the 6502 `ModRm` seam), `ImmediateExtended` (16-bit immediate, LD HL,nn),
+  `ExtendedAddress` ((nn) 16-bit absolute), `RelativeJump` (JR/DJNZ PC+d), `Bit` (the CB-plane bit
+  ops), and the M3.2 I/O modes `IoPortImmediate` (IN A,(n) / OUT (n),A) and `IoPortIndirect` (IN r,(C)).
+- `"bytes"` — the **total** instruction length INCLUDING the prefix byte(s). A single-byte prefix
+  (CB/ED/DD/FD) adds 1; a compound DDCB/FDCB adds 2. Base byte rules per mode: Register/RegisterIndirect
+  = 1; Bit = 1 (+ the CB prefix = 2); RelativeJump/IoPort* = 2; ImmediateExtended/ExtendedAddress = 3.
+  `Indexed` is computed-length (declare the real total; the byte-equality is skipped).
+- `"cycles"` = **T-states** (total clock periods), the unambiguous scalar Zilog tabulates. The Z80 has
+  no 6502-style page-cross penalty, so `"pageCrossPenalty"` is **always `false`**. Conditional rows
+  (JR cc / CALL cc / RET cc / DJNZ / block-op repeat) record the **not-taken / single-iteration base**
+  count, with a `"source"` note (e.g. `"… JR cc taken=12 not-taken=7; dataset records not-taken base"`).
+- **Documented set only.** Exclude the wholly-undocumented `SLL`/`SL1`, the `IXH`/`IXL` half-registers,
+  `IN F,(C)`, and the Z180/eZ80 superset ops (IN0/OUT0/TST/MLT/TSTIO/SLP/OTIM/OTDM/…) — those are a
+  recorded gap (a TODO inventory), not part of the M3.3 documented extraction.
+
+**Semantics map — Z80 overrides:**
+- `registers`: the eight main 8-bit `A F B C D E H L`, the eight alternate `A_ F_ B_ C_ D_ E_ H_ L_`
+  (the `EX`/`EXX` shadow set — declared as eight more 8-bit generals; the swap is M3.4), the two
+  special 8-bit `I R`, and the four 16-bit `IX IY SP PC`. `F` carries `"role": "Status"`; `SP`
+  `StackPointer`; `PC` `ProgramCounter`. The pairs `BC`/`DE`/`HL`/`AF` are NOT separate declarations —
+  they are a generated 16-bit VIEW the M3.4 work synthesizes from the halves.
+- `mnemonics`: author ONLY the covered decode-shapes that map to the EXISTING factory vocabulary —
+  do NOT invent new Z80 factories (those are M3.4). The covered set is the loads/transfers that name a
+  fixed register, the 8-bit-ALU-immediate-on-A (`ADD/ADC → Adc()`, `SUB/SBC → Sbc()`, `AND → And()`,
+  `OR → Ora()`, `XOR → Eor()`, `CP → Compare("A")`), `IN/OUT` immediate (`PortIn("A")`/`PortOut("A")`),
+  `NOP → []`, `HALT → Halt()`, `NEG → []` (decode-shape; flags TODO). Everything else (16-bit ALU,
+  bit group, rotate/shift family, block ops, EX/EXX, indexed EA, conditional flow, DAA/CPL/IM/…, the
+  flag-model micro-ops) is **TODO(vocab)** — absent from the map, emitted as `// TODO(semantics):`.
+
+The Z80 flag bit layout (declared in `F`, the bit-model micro-ops are M3.4):
+`S(7) Z(6) Y(5) H(4) X(3) P/V(2) N(1) C(0)`.
+
 ### 1.3 The Verification Ladder
 
 Each rung gates the next. A clean rung is required before proceeding.
@@ -216,6 +263,17 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
 ```
 
 Exit 0 = identical. Exit 3 = disagreements found (table printed to stdout). Zero disagreements required before Rung 3.
+
+**What GENUINE source-independence requires (the standard for M4/M5 — read this before relying on the diff as an anti-hallucination gate).** The diff catches errors **only if the two error distributions are independent**. That demands all of:
+
+1. **Two separately-fetched documents.** A and B come from two distinct real references (e.g. the vendor manual + a community opcode table, or a second-source datasheet). Citing the same page of the same manual twice does not count.
+2. **Transcribed WITHOUT cross-referencing.** B is extracted from scratch against its own document, *never* by editing, diffing-against, or "reconciling-to" A first. The moment B is authored with A in view, the error sets correlate and the diff goes blind.
+3. **Ideally separate sessions/agents.** Run the two extractions in different sessions (or by different agents) so neither inherits the other's mistakes or priors. A single agent doing both passes back-to-back risks repeating the same systematic error in both.
+4. **Reconcile only AFTER the first diff.** The adjudication (Zilog/primary authoritative → third source on genuine conflict → "uncertain — pending TomHarte") happens *on the diff output*. B must reach the `--diff` un-reconciled, so the diff sees the real disagreements.
+
+A run that violates these is a **simulation** of the protocol: it validates the diff/reconciliation *machinery* (and is useful for that), but it does NOT deliver the independent-error-distribution guarantee — its dataset's correctness then rests on single-pass extraction quality + the behavioral gate (Rung 5 / TomHarte), not on the cross-diff.
+
+> **M3.3 (Z80) note — this was simulated, not blind.** The first real non-6502 extraction reconstructed A (Zilog UM0080) and B (clrhome.org/table) as two generator scripts in one session, with B self-reconciled to A; it reproduced the 25-cell diff exactly and proved the machinery, but it was NOT a genuine blind dual pass (the two error sets were not independent). The Z80 dataset's correctness rests on its single-pass spot-check + the M3.4 TomHarte gate. **M4/M5 should perform a genuine dual-session blind extraction** per the four requirements above — that is when the cross-source diff earns its anti-hallucination claim.
 
 **Rung 3 — CPUGEN diagnostics**
 
@@ -455,3 +513,76 @@ provenance: 0/151 rows carry source citations
 ```
 
 Exit 0. The 6502 dataset has 0/151 source citations today — this is the expected and documented state (the dataset predates the `source` field addition). Adding citations to the 6502 dataset is a recorded improvement item.
+
+---
+
+## Worked Z80 Example — lessons from the first big extraction (M3.3)
+
+The Z80 dataset (M3.3) was the runbook's first real non-6502 use and the realization of ADR 0001
+Decision 6 (extraction-as-acceptance-test). It exercised the full ladder at scale — **698 documented
+rows across seven prefix planes** (252 base, 248 CB, 58 ED, 39 DD, 39 FD, 31 DDCB, 31 FDCB) — and is
+the concrete worked example the §1.2.1 vocabulary substitution above was written for.
+
+### The two sources (genuinely independent)
+
+- **Source A** — the **Zilog Z80 CPU User Manual (UM0080)**: a prose manual with per-instruction
+  descriptions (opcode bit-patterns + M-cycle/T-state tables). The primary authoritative reference.
+- **Source B** — the **clrhome.org Z80 opcode table**: a distinct community document, a flat
+  hex→mnemonic/bytes/cycles table, extracted WITHOUT reference to A. Different author, different
+  format, independent error surface — which is the whole point: only then does the cross-source diff
+  catch errors rather than echoing correlated ones.
+
+### Rung 2 — the diff did the heavy lifting (exit 3 → reconciled exit 0)
+
+The raw `--diff A vs B` surfaced **25 review-queue entries**: 1 field disagreement + 24 extra-in-B.
+A representative reconciliation of each bucket (the C.3 adjudication protocol, Zilog authoritative):
+
+```
+diff: 1 disagreement(s), 0 missing opcode(s), 24 extra opcode(s)
+opcode    field             left                  right
+0x38      cycles            7                     12
+extra in other: 0xCB:0x30 … 0xCB:0x37, 0xDDCB:0x36, 0xFDCB:0x36,
+                0xED:0x00, 0xED:0x01, 0xED:0x04, 0xED:0x4C … (Z180/eZ80 extras)
+```
+
+1. **Field cell — base `0x38` (JR C,d) cycles: A=7 vs B=12.** clrhome tabulated the *taken* count;
+   UM0080 + the dataset's not-taken-base convention is 7. **Adjudicated 7** (Zilog authoritative). This
+   is the canonical conditional-instruction lesson: pick the not-taken/single-iteration base and note
+   it; the variable extra is interpreter logic (M3.4).
+2. **24 extra-in-B — coverage, not value.** Ten were the undocumented `SLL` (CB `0x30-0x37`, DDCB/FDCB
+   `0x36`); fourteen were Z180/eZ80 superset ops (`IN0`/`OUT0`/`TST`/`MLT`/`TSTIO`/`SLP`/`OTIM`/…). Both
+   are **out of the documented-Z80 scope** (UM0080) — adjudicated OUT as recorded gaps. The plane-keyed
+   diff made these legible: `0xCB:0x30` is unambiguously the CB-plane `0x30`, never confused with base.
+
+After reconciling B to agree with A, the re-diff was **exit 0** (0/0/0); the review report's
+Disagreements section is empty and provenance is **698/698 (100%)**.
+
+### Lessons (the framework changes the Z80 forced — §9 item-10 findings, not failures)
+
+- **The prefix-key was load-bearing.** `OpcodeDataset` needed a `prefix` field + a plane-qualified
+  `Key` (`prefix:opcode`), and `DatasetDiff` had to key on the `Key`, not the bare opcode — otherwise
+  base `0xB0` (OR B) and `ED 0xB0` (LDIR) collide and the diff reports a spurious OR-vs-LDIR
+  disagreement. This was the headline correctness fix; it is byte-identical for the 6502 (null prefix ⇒
+  `Key == Opcode`).
+- **Plane-by-plane extraction is the right granularity.** One prefix plane per pass keeps the LLM
+  focused and the diff legible. The CB/DDCB/FDCB planes are pure cross-products (op × bit × target) —
+  enumerating them from the reference's stated pattern is faithful transcription, and the diff confirms
+  the two sources enumerate them identically.
+- **The TODO majority is expected, not a failure.** Only **13 of 698 rows** emit as real `Insn` rows
+  in the skeleton (NOP/HALT/NEG + 8-bit-ALU-immediate + IN/OUT-immediate); **685 are TODO** (114
+  TODO(mode), 571 TODO(semantics)). This is the 3a starting state (the 6502 began at 33/151). The Z80
+  micro-op vocabulary (16-bit ALU, bit group, rotate/shift, block ops, EX/EXX, conditional flow, the
+  flag model) is M3.4, inventoried in the dataset README, NOT implemented here.
+- **Two enumerated decoder-vocabulary findings fed to M3.4** (surfaced, not worked around):
+  (1) the shipped `DecodeStructure`/`PrefixByte`/`Insn` model expresses only a **single-byte prefix**,
+  so the two-deep `DD CB dd op` compound (`0xDDCB`/`0xFDCB`) is not expressible — the dataset carries
+  the rows, the skeleton emits them as TODO; (2) the Z80 register-shape addressing modes
+  (`Register`/`RegisterIndirect`/`Indexed`/`ImmediateExtended`/`ExtendedAddress`/`RelativeJump`/`Bit`)
+  are not `AddrMode` enum members, so their rows are TODO(mode). Consequence: only the ED plane has an
+  emittable representative (`NEG`) in the skeleton's `DecodeStructure`; the full seven-plane Insn
+  emission awaits M3.4's AddrMode + decoder extension.
+- **`unverified-pending-TomHarte` is the honest close-state.** M3.3 reached Rung 4 (the skeleton
+  compiles through the generator — the structural end of the ladder). The dataset is
+  structurally-validated + cross-corroborated, but NOT behaviorally verified. The cycle counts, flag
+  effects, and block-op semantics are committed as the best cross-corroborated estimate; the real
+  oracle is M3.4's TomHarte per-cycle vectors + ZEXALL/ZEXDOC (Rung 5).
