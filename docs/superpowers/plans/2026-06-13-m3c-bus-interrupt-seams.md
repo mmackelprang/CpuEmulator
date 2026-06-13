@@ -1171,3 +1171,46 @@ state; C interrupt seam generic-already vs newly-generalized + IM-expressibility
 E byte-identical 6502; F synthetic CPUs; G M4 deferred; H rolled into G); authorized-test-changes table;
 TDD tasks with checkboxes + per-task test counts; literal code; self-review. Matches the M3.1b template,
 sized to the honest (lighter) scope.
+
+---
+
+## Closeout (Task 10 — actuals)
+
+**Status: COMPLETE.** All 10 tasks landed (one commit each). The headline genericity result holds:
+the generated 6502 `Mos6502Cpu.g.cs` is **BYTE-IDENTICAL** — the content hash is unchanged from the
+Task-0 baseline through every task (`438e82f8a89a9648259364fd9fa50dfa369c3fea22eaabbb00ea7d0ec6fd9ea6`),
+**no re-snap**. Every new emission path (Port body, Halt guard, the `ReadIo`/`WriteIo`/`Halted`/
+`IdleCycle` contract doc-comment) is conditional on a Port/Halt row the 6502 lacks; the new
+`JitMode.IoPort*`, `JitOpClass.Port`, and `InstructionClass.Port` members never appear in a
+6502-emitted literal; the IM-expressibility note is a SOURCE comment in `CpuEmitter.cs`, not emitted.
+
+**What landed:** `AddrMode`/`JitMode` `IoPort*` modes (+ the `s_addrModes` mirror); `PortInOp`/
+`PortOutOp`/`HaltOp` + `Spec.PortIn`/`PortOut`/`Halt` + `s_microOpSignatures`; `InstructionClass.Port`
++ `JitOpClass.Port` + the class/mode matrix gate; the interpreter `EmitPortBody` (ReadIo/WriteIo, never
+ReadBus); the JIT `EmitPort` arm (a second-`IAddressSpace` callout — `ArgIoBus`, appended to
+`BlockDelegate` so no existing arg index shifted; never fastmem); the `Halt()` body + `Halted` hook +
+the conditional `Step` halted guard; the `JittedCpu.Run` halted fast path (+ `Mos6502Cpu.Halted =>
+false`). The interrupt seam is UNCHANGED (confirmed generic). Two synthetic CPUs prove the seams:
+`SyntheticPortIoTests` (Io-bus targeting, both tiers, fastmem-never-serves-Io) and
+`SyntheticHaltInterruptTests` (halt idle/wake, no-progress-guard confirm, table-vectored interrupt).
+
+**Authorized-test-changes: ZERO existing-test changes** — exactly as predicted. The two existing
+`InvalidationTests` `block.Run(...)` call sites stayed source-unchanged because `CompiledBlock.Run`'s
+new `ioBus` parameter is OPTIONAL (`= null`); no existing test was edited. (Recorded design choice to
+preserve the zero-change goal — see Self-review trap notes.)
+
+## M4 deferred inputs (Ground truth G — recorded, NOT built)
+
+1. **Wide-bus transaction surface stays ADDITIVE.** `IAddressSpace` is byte-only (`Read8`/`Write8`);
+   M3.2 added NO `Read16/32`/`Write16/32` and NO endianness property. The 68000 (M4) is the first true
+   wide + big-endian consumer; option A (add `Read16/32`+endianness to `IAddressSpace`) vs. option B
+   (compose from `Read8` with a per-CPU endianness policy) is the load-bearing M4 decision needing owner
+   sign-off (68000 M4 open-q 1). The Z80's 16-bit memory ops decompose into two `Read8`s (M3.4).
+2. **The 3-bit IPL interrupt-line LEVEL = M4 interrupt-seam nudge.** `IInterruptLine` is boolean today;
+   the 68000 needs a 3-bit `IPL0-2` level gated against the `SR` mask. The Z80's `INT`/NMI are boolean,
+   so M3.2 built no level. A level-carrying `IInterruptLine` (or a parallel level input) is the one
+   likely interrupt-seam contract growth M4 forces — a planned finding, not a surprise.
+3. **The 8086 IVT is a third interrupt shape — expressible TODAY, built at M5.** The IVT model is
+   implementable in a partial's `TryServiceInterrupt` "exactly as the 6502 does — no Core change"; M3.2's
+   interrupt-seam confirmation (Ground truth C) already covers it. The 8086 also SHARES the `Io` space
+   (its `IN`/`OUT` reuse the `Io` micro-ops this milestone added — "pre-paid").
