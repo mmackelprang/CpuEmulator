@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Emit;
 using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
@@ -76,12 +77,17 @@ internal sealed partial class BlockCompiler
         }
     }
 
+    // The indexed-addressing-mode → index-register convention (ZeroPageX uses X, AbsoluteY uses Y)
+    // is the 6502 DECODE dimension (M3.1b owns generalizing RequiredIndexRegister). It stays
+    // 6502-shaped here, but the FieldInfo is now resolved BY NAME from the per-compile map (J2) —
+    // no baked FX/FY statics. Recorded: the seam between the register dimension (done) and the
+    // decode dimension (deferred).
     private enum FieldInfoIndex { X, Y }
 
     private void EmitLoadRegByte(EmitContext ctx, FieldInfoIndex idx)
     {
         ctx.Il.Emit(OpCodes.Ldarg_0);
-        ctx.Il.Emit(OpCodes.Ldfld, idx == FieldInfoIndex.X ? FX : FY);
+        ctx.Il.Emit(OpCodes.Ldfld, RegField(idx == FieldInfoIndex.X ? "X" : "Y"));
     }
 
     /// <summary>lo = bus[PC]; PC++; hi = bus[PC]; PC++; push ea = lo | (hi &lt;&lt; 8).</summary>
@@ -266,7 +272,7 @@ internal sealed partial class BlockCompiler
     {
         ILGenerator il = ctx.Il;
         // Ops: Load(target) [+ SetNZ(target)]
-        byte target = d.Ops[0].RegA;
+        string target = d.Ops[0].RegA;
         EmitOperandRead(ctx, d);                 // data (int) on stack
         il.Emit(OpCodes.Stloc, ctx.DataLocal);
         // target = data
@@ -285,17 +291,17 @@ internal sealed partial class BlockCompiler
     {
         // Ops: Store(source). Resolve the effective address (with store dummy reads), push the
         // source register byte, then store.
-        byte source = d.Ops[0].RegA;
+        string source = d.Ops[0].RegA;
         EmitStoreAddress(ctx, d);                // ea on stack
         EmitLoadRegOrA(ctx, source);             // value on stack
         EmitStoreByte(ctx);                      // charges 1 cycle, writes (fastmem/bus)
         // (opcode-fetch cycle charged up-front in EmitInstruction — see GT-F(a) note there)
     }
 
-    private void EmitLoadRegOrA(EmitContext ctx, byte regIndex)
+    private void EmitLoadRegOrA(EmitContext ctx, string regName)
     {
         ctx.Il.Emit(OpCodes.Ldarg_0);
-        ctx.Il.Emit(OpCodes.Ldfld, RegField(regIndex));
+        ctx.Il.Emit(OpCodes.Ldfld, RegField(regName));
     }
 
     /// <summary>Resolve a Store/Rmw effective address onto the stack, mirroring the interpreter's
@@ -608,13 +614,15 @@ internal sealed partial class BlockCompiler
         }
     }
 
-    /// <summary>Push the stack address 0x100 + S (uint).</summary>
+    /// <summary>Push the stack address 0x100 + S (uint). S is the StackPointer-role register,
+    /// resolved by name from the J2 map (the stack templates are 6502-baked on the 'S' name —
+    /// generalizing which register is the stack pointer is the decode dimension, M3.1b).</summary>
     private void EmitStackAddress(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Ldc_I4, 0x100);
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FS);
+        il.Emit(OpCodes.Ldfld, RegField("S"));
         il.Emit(OpCodes.Add);
         il.Emit(OpCodes.Conv_U4);
     }
@@ -622,24 +630,26 @@ internal sealed partial class BlockCompiler
     private void EmitDecrementS(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
+        FieldInfo fs = RegField("S");
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FS);
+        il.Emit(OpCodes.Ldfld, fs);
         il.Emit(OpCodes.Ldc_I4_1);
         il.Emit(OpCodes.Sub);
         il.Emit(OpCodes.Conv_U1);
-        il.Emit(OpCodes.Stfld, FS);
+        il.Emit(OpCodes.Stfld, fs);
     }
 
     private void EmitIncrementS(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
+        FieldInfo fs = RegField("S");
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FS);
+        il.Emit(OpCodes.Ldfld, fs);
         il.Emit(OpCodes.Ldc_I4_1);
         il.Emit(OpCodes.Add);
         il.Emit(OpCodes.Conv_U1);
-        il.Emit(OpCodes.Stfld, FS);
+        il.Emit(OpCodes.Stfld, fs);
     }
 }

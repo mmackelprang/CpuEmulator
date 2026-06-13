@@ -1422,29 +1422,32 @@ internal static class CpuEmitter
     }
 
     /// <summary>Render one <see cref="OpModel"/> as a <c>JitOp</c> object-creation expression:
-    /// <c>new JitOp("Kind", regA, regB, flagBit, boolArg)</c>. Register args map to their byte
-    /// index (A=0,X=1,Y=2,S=3); flag args map to their hardware bit via <see cref="FlagBit"/>;
-    /// a trailing bool literal becomes BoolArg. Unused slots are 0/false.</summary>
+    /// <c>new JitOp("Kind", "regA", "regB", flagBit, boolArg)</c>. Register args carry their
+    /// declared NAME (J2 — the register file is data, not a fixed A=0/X=1/… index); flag args map
+    /// to their hardware bit via <see cref="FlagBit"/>; a trailing bool literal becomes BoolArg.
+    /// Unused register slots are the empty string "" (the unambiguous "no register operand"
+    /// marker — no register is ever named "").</summary>
     private static string JitOpLiteral(OpModel op)
     {
-        byte regA = 0, regB = 0, flagBit = 0;
+        string regA = "\"\"", regB = "\"\"";
+        byte flagBit = 0;
         bool boolArg = false;
 
         switch (op.Kind)
         {
-            case "Transfer":   // (Reg source, Reg target)
-                regA = RegIndex(op.Args[0]);
-                regB = RegIndex(op.Args[1]);
+            case "Transfer":   // (reg source, reg target)
+                regA = Quote(op.Args[0]);
+                regB = Quote(op.Args[1]);
                 break;
-            case "Load":       // (Reg target)
-            case "Store":      // (Reg source)
-            case "Increment":  // (Reg target)
-            case "Decrement":  // (Reg target)
-            case "SetNZ":      // (Reg source)
-            case "Compare":    // (Reg source)
-            case "Push":       // (Reg source)
-            case "Pull":       // (Reg target)
-                regA = RegIndex(op.Args[0]);
+            case "Load":       // (reg target)
+            case "Store":      // (reg source)
+            case "Increment":  // (reg target)
+            case "Decrement":  // (reg target)
+            case "SetNZ":      // (reg source)
+            case "Compare":    // (reg source)
+            case "Push":       // (reg source)
+            case "Pull":       // (reg target)
+                regA = Quote(op.Args[0]);
                 break;
             case "BranchIf":   // (Flag, bool when)
             case "SetFlag":    // (Flag, bool value)
@@ -1453,7 +1456,7 @@ internal static class CpuEmitter
                 break;
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,
-            // Brk, Rti) carry no register/flag operands — all slots stay 0/false.
+            // Brk, Rti) carry no register/flag operands — register slots stay "".
             default:
                 break;
         }
@@ -1462,14 +1465,9 @@ internal static class CpuEmitter
              + $"{(boolArg ? "true" : "false")})";
     }
 
-    /// <summary>Register member name → its byte index (A=0, X=1, Y=2, S=3), mirroring the
-    /// Core.Specification.Reg enum order. MIRROR TABLE: stays in sync with the Reg enum.</summary>
-    private static byte RegIndex(string reg) => reg switch
-    {
-        "A" => 0,
-        "X" => 1,
-        "Y" => 2,
-        "S" => 3,
-        _ => throw new System.ArgumentException($"Unknown register '{reg}'"),
-    };
+    /// <summary>Quote a register name for direct interpolation into a JitOp literal. Register
+    /// names passed the identifier + reserved-name guards at declaration (SpecParser CPUGEN002/
+    /// the identifier-validity check), so direct interpolation is injection-safe — same posture as
+    /// the mnemonic whitelist used elsewhere in this emitter.</summary>
+    private static string Quote(string s) => $"\"{s}\"";
 }

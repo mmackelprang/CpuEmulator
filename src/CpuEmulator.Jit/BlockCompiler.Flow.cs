@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Emit;
 using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
@@ -44,10 +45,10 @@ internal sealed partial class BlockCompiler
             {
                 // temp = reg - data; P = (P & 0x7C) | (reg >= data ? 1 : 0)
                 //   | ((temp & 0xFF) == 0 ? 2 : 0) | (temp & 0x80)
-                byte reg = d.Ops[0].RegA;
+                FieldInfo reg = RegField(d.Ops[0].RegA);
                 // temp -> LoLocal
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, RegField(reg));
+                il.Emit(OpCodes.Ldfld, reg);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal);
                 il.Emit(OpCodes.Sub);
                 il.Emit(OpCodes.Stloc, ctx.LoLocal);      // temp (int)
@@ -61,7 +62,7 @@ internal sealed partial class BlockCompiler
                 // | (reg >= data ? 1 : 0)
                 Label ge = il.DefineLabel(), gedone = il.DefineLabel();
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, RegField(reg));
+                il.Emit(OpCodes.Ldfld, reg);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal);
                 il.Emit(OpCodes.Bge, ge);
                 il.Emit(OpCodes.Ldc_I4_0);

@@ -33,11 +33,21 @@ internal sealed partial class BlockCompiler
     private const byte ArgBudget = 5;
     private const byte ArgExit = 6;
 
-    // Baked field/method handles — resolved once, reused across every block.
+    // J2 (M3.1a): the register file is DATA. The OPERAND registers (A/X/Y/S — the ones a micro-op
+    // descriptor's RegA/RegB name) resolve through a per-compile name→FieldInfo map built from the
+    // CPU's declared RegisterNames — no baked A=0/X=1/… index switch. The CPU TYPE is still
+    // Mos6502Cpu (J1 deferred to M3.5); the map is built BY NAME against that concrete type, which
+    // is exactly the J2 shape.
+    private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regFields;
+
+    // P (Status), PC (ProgramCounter), and A (the accumulator) are NOT operand-driven — the
+    // flow/flag/PC arms and the ALU/RMW/decimal A-convention arms (some of which are static
+    // helpers) reference them directly, by the 6502 convention baked into those templates (NOT
+    // from a descriptor's RegA/RegB). They are resolved by NAME from the concrete CPU type once at
+    // static init and kept as named handles for the hot arms. The OPERAND registers — the ones a
+    // descriptor's RegA/RegB actually name (Load/Store/Transfer/Compare/Increment/Decrement/SetNZ/
+    // Push/Pull, plus the indexed-mode X/Y and stack S) — go through _regFields (the J2 win).
     private static readonly FieldInfo FA = typeof(Mos6502Cpu).GetField("A")!;
-    private static readonly FieldInfo FX = typeof(Mos6502Cpu).GetField("X")!;
-    private static readonly FieldInfo FY = typeof(Mos6502Cpu).GetField("Y")!;
-    private static readonly FieldInfo FS = typeof(Mos6502Cpu).GetField("S")!;
     private static readonly FieldInfo FP = typeof(Mos6502Cpu).GetField("P")!;
     private static readonly FieldInfo FPC = typeof(Mos6502Cpu).GetField("PC")!;
 
@@ -67,7 +77,17 @@ internal sealed partial class BlockCompiler
     private static readonly MethodInfo MChainInvoke = typeof(ChainDispatch).GetMethod("Invoke")!;
 
     public BlockCompiler(Mos6502Cpu cpu, AddressSpace bus, Fastmem fastmem, JitOptions opts)
-        => (_cpu, _bus, _fastmem, _opts) = (cpu, bus, fastmem, opts);
+    {
+        (_cpu, _bus, _fastmem, _opts) = (cpu, bus, fastmem, opts);
+
+        // Build the register-name → FieldInfo map from the CPU's declared register names (the
+        // introspection the generator already emits — ICpuCore.RegisterNames). J2: the names come
+        // from data, not a baked enum; each must name a public field on the concrete CPU type.
+        _regFields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
+        foreach (string name in _cpu.RegisterNames)
+            _regFields[name] = typeof(Mos6502Cpu).GetField(name)
+                ?? throw new EmulationException($"register '{name}' has no field on the CPU type");
+    }
 
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap. Reads opcode
     /// bytes through the bus (a debugger-view decode; never executes). The discovered run is a
@@ -451,11 +471,13 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Stfld, FP);
     }
 
-    private static FieldInfo RegField(byte regIndex) => regIndex switch
-    {
-        0 => FA, 1 => FX, 2 => FY, 3 => FS,
-        _ => throw new EmulationException($"unknown register index {regIndex}"),
-    };
+    /// <summary>Resolve an operand register's <see cref="FieldInfo"/> by its declared NAME (J2).
+    /// Throws a clear compile-time error if a descriptor ever names a register the CPU type does
+    /// not declare — the data-driven replacement for the old "unknown register index" guard.</summary>
+    private FieldInfo RegField(string name) => _regFields.TryGetValue(name, out var f)
+        ? f
+        : throw new EmulationException(
+            $"compiled descriptor names register '{name}' which the CPU type does not declare");
 
     // (Emit arms continue in BlockCompiler.Emit.cs)
 

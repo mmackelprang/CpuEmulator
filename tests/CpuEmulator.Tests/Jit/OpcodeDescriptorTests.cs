@@ -182,14 +182,40 @@ public class OpcodeDescriptorTests
     [Fact]
     public void JitDescriptor_LDA_carries_load_and_setnz_ops()
     {
-        // LDA Immediate (0xA9): Load(A) + SetNZ(A). RegA index for A is 0.
+        // LDA Immediate (0xA9): Load("A") + SetNZ("A"). RegA carries the register NAME (J2).
         OpcodeDescriptor d = Mos6502Cpu.JitDescriptors[0xA9];
         Assert.Equal(JitOpClass.Load, d.Class);
         Assert.Equal(2, d.Ops.Length);
         Assert.Equal("Load", d.Ops[0].Kind);
-        Assert.Equal(0, d.Ops[0].RegA);    // A
+        Assert.Equal("A", d.Ops[0].RegA);
+        Assert.Equal("", d.Ops[0].RegB);       // no second register operand
         Assert.Equal("SetNZ", d.Ops[1].Kind);
-        Assert.Equal(0, d.Ops[1].RegA);    // A
+        Assert.Equal("A", d.Ops[1].RegA);
+    }
+
+    [Fact]
+    public void JitOp_register_slots_carry_names_not_indices()
+    {
+        // TAX Implied (0xAA): Transfer("A","X") + SetNZ("X"). The descriptor row carries register
+        // NAMES, not byte indices (the retired RegIndex would have emitted 0/1) — the J2 win.
+        OpcodeDescriptor d = Mos6502Cpu.JitDescriptors[0xAA];
+        Assert.Equal(JitOpClass.Register, d.Class);
+        Assert.Equal("Transfer", d.Ops[0].Kind);
+        Assert.Equal("A", d.Ops[0].RegA);
+        Assert.Equal("X", d.Ops[0].RegB);
+        Assert.Equal("SetNZ", d.Ops[1].Kind);
+        Assert.Equal("X", d.Ops[1].RegA);
+    }
+
+    [Fact]
+    public void JitOp_zero_arg_op_carries_empty_register_slots()
+    {
+        // JMP Absolute (0x4C): Jump() carries no register operands — both slots are "".
+        OpcodeDescriptor d = Mos6502Cpu.JitDescriptors[0x4C];
+        JitOp op = Assert.Single(d.Ops);
+        Assert.Equal("Jump", op.Kind);
+        Assert.Equal("", op.RegA);
+        Assert.Equal("", op.RegB);
     }
 
     [Fact]
