@@ -1425,22 +1425,23 @@ non-degenerate `Decode`/`DescriptorFor` emission for a declared `DecodeStructure
 
 | Commit | Content | Suite |
 |---|---|---|
-| _(Task 1)_ | `DecodeResult`/`IFetchStream`/`IDecoder`/`BufferFetchStream` — the walk contract | _green_ |
-| _(Tasks 2+3)_ | `OpcodeDescriptor.Length` → `LengthRule`+`FixedLength`; one generated `Decode`/`DescriptorFor` walk; `Discover` advances by computed length | _green_ |
-| _(Task 4)_ | `Discover`/`PagesSpanned` computed-length JIT-reachable pins | _green_ |
-| _(Task 5)_ | re-snap the generated decode regions; walk-vs-body length cross-check | _green_ |
-| _(Task 6)_ | importer: computed-length not forbidden; 6502 dataset rules unchanged | _green_ |
-| _(Task 7)_ | `DecodeStructure` DSL (default-off) + the three-property synthetic decode CPU | _green_ |
+| `37224c7` (Task 1) | `DecodeResult`/`IFetchStream`/`IDecoder`/`BufferFetchStream` — the walk contract | green |
+| `9c9a706` (Tasks 2+3) | `OpcodeDescriptor.Length` → `LengthRule`+`FixedLength`; one generated `Decode`/`DescriptorFor` walk; `Discover` advances by computed length | green |
+| `dbd2aec` (Task 4) | `Discover`/`PagesSpanned` computed-length JIT-reachable pins | green |
+| `24700a3` (Task 5) | re-snap the generated decode regions; walk-vs-body length cross-check | green |
+| `ce212cf` (Task 6) | importer: computed-length not forbidden; 6502 dataset rules unchanged | green |
+| `83f360c` (Task 7) | `DecodeStructure` DSL (default-off) + the three-property synthetic decode CPU | green |
 
-**Test count after Task 7:** _(record actual)_ — baseline _(record Task 0 actual)_ + ~30.
+**Test count after Task 7:** 1467 — baseline 1436 (Task 0 confirmed) + 31. (Routine non-Klaus
+suite; +6 with Klaus present, +TomHarte/Klaus UAT sweeps under `CPUEMULATOR_UAT=full`.)
 
 ### UAT gate (run verbatim; outputs recorded at closeout)
 
 | Gate command | Expected | Actual |
 |---|---|---|
-| `dotnet build --no-incremental -warnaserror` | 0 warnings, 0 errors | _(record)_ |
-| `dotnet test` (routine suite excl. Klaus) | all passing, 0 unexpected skips; count ≈ baseline + ~30 | _(record)_ |
-| `CPUEMULATOR_UAT=full` TomHarte (interpreter AND through the JIT, BOTH tiers) | 151/151 opcodes, 1,510,000 cases per tier, ZERO parity failures — UNCHANGED (pure refactor) | _(record)_ |
-| Klaus → `$3469` (interpreter AND under the JIT, BOTH tiers) | 96,241,367 cycles EXACTLY — UNCHANGED | _(record)_ |
-| Byte-identical-6502 generated output | `Mos6502Cpu.g.cs` changes ONLY the Ground-truth-E regions; `Mos6502Spec.cs` byte-identical (`RegeneratedSpecTests`) | _(record)_ |
-| `git grep -n 'd\.Length'` over `src/`+`tools/` | NO static descriptor `Length` reads remain; the walk's computed length is the only length source | _(record)_ |
+| `dotnet build --no-incremental -warnaserror` | 0 warnings, 0 errors | PASS — 0 warnings, 0 errors |
+| `dotnet test` (routine suite excl. Klaus) | all passing, 0 unexpected skips; count ≈ baseline + ~30 | PASS — 1467 passed, 0 failed, 0 skipped (1436 + 31) |
+| `CPUEMULATOR_UAT=full` TomHarte (interpreter AND through the JIT, BOTH tiers) | 151/151 opcodes, 1,510,000 cases per tier, ZERO parity failures — UNCHANGED (pure refactor) | PASS — 317 TomHarte tests, 0 failures; full sweep (5m20s), ZERO parity failures both tiers |
+| Klaus → `$3469` (interpreter AND under the JIT, BOTH tiers) | 96,241,367 cycles EXACTLY — UNCHANGED | PASS — 7 Klaus tests, 0 failures; anchor asserted EXACTLY 96,241,367 (interp + JIT) |
+| Byte-identical-6502 generated output | `Mos6502Cpu.g.cs` changes ONLY the Ground-truth-E regions; `Mos6502Spec.cs` byte-identical (`RegeneratedSpecTests`) | PASS — only NEW `Decode`/`DescriptorFor` + `JitDescriptors` `LengthRule.Fixed,N` rows + `InstructionLength` body; `Op{XX}`/`Execute`/`Disassemble`/`GetRegister`/`TryAssemble` byte-identical; `RegeneratedSpecTests` green |
+| `git grep -n 'd\.Length'` over `src/`+`tools/` | NO static descriptor `Length` reads remain; the walk's computed length is the only length source | PASS — only `trimmed.Length` (string) in MonitorRepl; zero `OpcodeDescriptor` `Length`/`FixedLength` field reads in src/+tools/ |
