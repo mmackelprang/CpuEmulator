@@ -1,0 +1,6730 @@
+[
+  {
+    "opcode": "0x00",
+    "mnemonic": "NOP",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x07",
+    "mnemonic": "RLCA",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x08",
+    "mnemonic": "EX",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x0F",
+    "mnemonic": "RRCA",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x10",
+    "mnemonic": "DJNZ",
+    "mode": "RelativeJump",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; DJNZ d taken=13 not-taken=8; dataset records not-taken base"
+  },
+  {
+    "opcode": "0x17",
+    "mnemonic": "RLA",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x18",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x1F",
+    "mnemonic": "RRA",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x27",
+    "mnemonic": "DAA",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x2F",
+    "mnemonic": "CPL",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x37",
+    "mnemonic": "SCF",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x3F",
+    "mnemonic": "CCF",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x01",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x11",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x21",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x31",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x09",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x19",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x29",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x39",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x03",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x0B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x13",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x1B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x23",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x2B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x33",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x3B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x04",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x0C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x14",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x1C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x24",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x2C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x34",
+    "mnemonic": "INC",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x3C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x05",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x0D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x15",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x1D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x25",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x2D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x35",
+    "mnemonic": "DEC",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x3D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x06",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x0E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x16",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x1E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x26",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x2E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x36",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x3E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x02",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x12",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x22",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x32",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 13,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x0A",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x1A",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x2A",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x3A",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 13,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x20",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JR cc taken=12 not-taken=7; dataset records not-taken base"
+  },
+  {
+    "opcode": "0x28",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JR cc taken=12 not-taken=7; dataset records not-taken base"
+  },
+  {
+    "opcode": "0x30",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JR cc taken=12 not-taken=7; dataset records not-taken base"
+  },
+  {
+    "opcode": "0x38",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JR cc taken=12 not-taken=7; dataset records not-taken base"
+  },
+  {
+    "opcode": "0x40",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x41",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x42",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x43",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x44",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x45",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x46",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x47",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x48",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x49",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x4A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x4B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x4C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x4D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x4E",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x4F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x50",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x51",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x52",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x53",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x54",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x55",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x56",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x57",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x58",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x59",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x5A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x5B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x5C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x5D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x5E",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x5F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x60",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x61",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x62",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x63",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x64",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x65",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x66",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x67",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x68",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x69",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x6A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x6B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x6C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x6D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x6E",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x6F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x70",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x71",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x72",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x73",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x74",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x75",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x76",
+    "mnemonic": "HALT",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0x77",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x78",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x79",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x7A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x7B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x7C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x7D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x7E",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,(HL)/LD (HL),r"
+  },
+  {
+    "opcode": "0x7F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), LD r,r'"
+  },
+  {
+    "opcode": "0x80",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x81",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x82",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x83",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x84",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x85",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x86",
+    "mnemonic": "ADD",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0x87",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x88",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x89",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x8A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x8B",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x8C",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x8D",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x8E",
+    "mnemonic": "ADC",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0x8F",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x90",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x91",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x92",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x93",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x94",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x95",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x96",
+    "mnemonic": "SUB",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0x97",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x98",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x99",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x9A",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x9B",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x9C",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x9D",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0x9E",
+    "mnemonic": "SBC",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0x9F",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA0",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA1",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA2",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA3",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA4",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA5",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA6",
+    "mnemonic": "AND",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0xA7",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA8",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xA9",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xAA",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xAB",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xAC",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xAD",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xAE",
+    "mnemonic": "XOR",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0xAF",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB0",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB1",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB2",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB3",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB4",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB5",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB6",
+    "mnemonic": "OR",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0xB7",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB8",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xB9",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xBA",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xBB",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xBC",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xBD",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xBE",
+    "mnemonic": "CP",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,(HL)"
+  },
+  {
+    "opcode": "0xBF",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), 8-bit ALU A,r"
+  },
+  {
+    "opcode": "0xC1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xD1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xE1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xF1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xC5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xD5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xE5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xF5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xC3",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xC9",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xCD",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 17,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xC6",
+    "mnemonic": "ADD",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xCE",
+    "mnemonic": "ADC",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xD6",
+    "mnemonic": "SUB",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xDE",
+    "mnemonic": "SBC",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xE6",
+    "mnemonic": "AND",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xEE",
+    "mnemonic": "XOR",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xF6",
+    "mnemonic": "OR",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xFE",
+    "mnemonic": "CP",
+    "mode": "Immediate",
+    "bytes": 2,
+    "cycles": 7,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xD3",
+    "mnemonic": "OUT",
+    "mode": "IoPort",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xDB",
+    "mnemonic": "IN",
+    "mode": "IoPort",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xD9",
+    "mnemonic": "EXX",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xE3",
+    "mnemonic": "EX",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xE9",
+    "mnemonic": "JP",
+    "mode": "RegisterIndirect",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xEB",
+    "mnemonic": "EX",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xF3",
+    "mnemonic": "DI",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xFB",
+    "mnemonic": "EI",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 4,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xF9",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 1,
+    "cycles": 6,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xC0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xC8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xD0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xD8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xE0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xE8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xF0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xF8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 5,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; RET cc taken=11 not-taken=5; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xC2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xCA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xD2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xDA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xE2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xEA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xF2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xFA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; JP cc nn = 10 (taken or not)"
+  },
+  {
+    "opcode": "0xC4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xCC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xD4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xDC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xE4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xEC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xF4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xFC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 3,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane; CALL cc nn taken=17 not-taken=10; dataset records not-taken base"
+  },
+  {
+    "opcode": "0xC7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xCF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xD7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xDF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xE7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xEF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xF7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "opcode": "0xFF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 1,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), base plane"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x00",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x01",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x02",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x03",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x04",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x05",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x06",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x07",
+    "mnemonic": "RLC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x08",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x09",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x0A",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x0B",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x0C",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x0D",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x0E",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x0F",
+    "mnemonic": "RRC",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x10",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x11",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x12",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x13",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x14",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x15",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x16",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x17",
+    "mnemonic": "RL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x18",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x19",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x1A",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x1B",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x1C",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x1D",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x1E",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x1F",
+    "mnemonic": "RR",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x20",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x21",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x22",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x23",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x24",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x25",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x26",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x27",
+    "mnemonic": "SLA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x28",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x29",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x2A",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x2B",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x2C",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x2D",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x2E",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x2F",
+    "mnemonic": "SRA",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x38",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x39",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x3A",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x3B",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x3C",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x3D",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x3E",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x3F",
+    "mnemonic": "SRL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB rotate/shift r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x40",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x41",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x42",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x43",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x44",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x45",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x46",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x47",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x48",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x49",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x4A",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x4B",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x4C",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x4D",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x4E",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x4F",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x50",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x51",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x52",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x53",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x54",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x55",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x56",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x57",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x58",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x59",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x5A",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x5B",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x5C",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x5D",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x5E",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x5F",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x60",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x61",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x62",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x63",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x64",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x65",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x66",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x67",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x68",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x69",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x6A",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x6B",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x6C",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x6D",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x6E",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x6F",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x70",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x71",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x72",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x73",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x74",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x75",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x76",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x77",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x78",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x79",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x7A",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x7B",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x7C",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x7D",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x7E",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x7F",
+    "mnemonic": "BIT",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB BIT b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x80",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x81",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x82",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x83",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x84",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x85",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x86",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x87",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x88",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x89",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x8A",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x8B",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x8C",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x8D",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x8E",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x8F",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x90",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x91",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x92",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x93",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x94",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x95",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x96",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x97",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x98",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x99",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x9A",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x9B",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x9C",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x9D",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x9E",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x9F",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA0",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA1",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA2",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA3",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA4",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA5",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA6",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA7",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA8",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xA9",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xAA",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xAB",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xAC",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xAD",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xAE",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xAF",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB0",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB1",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB2",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB3",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB4",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB5",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB6",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB7",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB8",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xB9",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xBA",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xBB",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xBC",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xBD",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xBE",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xBF",
+    "mnemonic": "RES",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB RES b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC0",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC1",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC2",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC3",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC4",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC5",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC6",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC7",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC8",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xC9",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xCA",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xCB",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xCC",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xCD",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xCE",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xCF",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD0",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD1",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD2",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD3",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD4",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD5",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD6",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD7",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD8",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xD9",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xDA",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xDB",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xDC",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xDD",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xDE",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xDF",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE0",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE1",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE2",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE3",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE4",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE5",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE6",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE7",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE8",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xE9",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xEA",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xEB",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xEC",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xED",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xEE",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xEF",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF0",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF1",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF2",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF3",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF4",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF5",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF6",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF7",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF8",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xF9",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xFA",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xFB",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xFC",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xFD",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xFE",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0xFF",
+    "mnemonic": "SET",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), CB SET b,r"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x40",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x48",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x50",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x58",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x60",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x68",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x78",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x41",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x49",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x51",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x59",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x61",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x69",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x79",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x42",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x52",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x62",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x72",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x4A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x5A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x6A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x7A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x43",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x53",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x63",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x73",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x4B",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x5B",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x6B",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x7B",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x44",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x45",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x4D",
+    "mnemonic": "RETI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x46",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x56",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x5E",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x47",
+    "mnemonic": "LD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x4F",
+    "mnemonic": "LD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x57",
+    "mnemonic": "LD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x5F",
+    "mnemonic": "LD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x67",
+    "mnemonic": "RRD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 18,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x6F",
+    "mnemonic": "RLD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 18,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xA0",
+    "mnemonic": "LDI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xA1",
+    "mnemonic": "CPI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xA2",
+    "mnemonic": "INI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xA3",
+    "mnemonic": "OUTI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xA8",
+    "mnemonic": "LDD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xA9",
+    "mnemonic": "CPD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xAA",
+    "mnemonic": "IND",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xAB",
+    "mnemonic": "OUTD",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xB0",
+    "mnemonic": "LDIR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; LDIR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xB1",
+    "mnemonic": "CPIR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; CPIR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xB2",
+    "mnemonic": "INIR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; INIR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xB3",
+    "mnemonic": "OTIR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; OTIR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xB8",
+    "mnemonic": "LDDR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; LDDR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xB9",
+    "mnemonic": "CPDR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; CPDR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xBA",
+    "mnemonic": "INDR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; INDR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0xBB",
+    "mnemonic": "OTDR",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED block op; OTDR repeat=21 final=16; dataset records single-iteration base"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x09",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x19",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x29",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x39",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x21",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x22",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x23",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x2A",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x2B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x34",
+    "mnemonic": "INC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x35",
+    "mnemonic": "DEC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x36",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE3",
+    "mnemonic": "EX",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE9",
+    "mnemonic": "JP",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF9",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x46",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x4E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x56",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x5E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x66",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x6E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x7E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x70",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x71",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x72",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x73",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x74",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x75",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x77",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x86",
+    "mnemonic": "ADD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x8E",
+    "mnemonic": "ADC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x96",
+    "mnemonic": "SUB",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x9E",
+    "mnemonic": "SBC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA6",
+    "mnemonic": "AND",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xAE",
+    "mnemonic": "XOR",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB6",
+    "mnemonic": "OR",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xBE",
+    "mnemonic": "CP",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x09",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x19",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x29",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x39",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x21",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x22",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x23",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x2A",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x2B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x34",
+    "mnemonic": "INC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x35",
+    "mnemonic": "DEC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x36",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE3",
+    "mnemonic": "EX",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE9",
+    "mnemonic": "JP",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF9",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x46",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x4E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x56",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x5E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x66",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x6E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x7E",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x70",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x71",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x72",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x73",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x74",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x75",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x77",
+    "mnemonic": "LD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x86",
+    "mnemonic": "ADD",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x8E",
+    "mnemonic": "ADC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x96",
+    "mnemonic": "SUB",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x9E",
+    "mnemonic": "SBC",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA6",
+    "mnemonic": "AND",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xAE",
+    "mnemonic": "XOR",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB6",
+    "mnemonic": "OR",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xBE",
+    "mnemonic": "CP",
+    "mode": "Indexed",
+    "bytes": 3,
+    "cycles": 19,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY index plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x06",
+    "mnemonic": "RLC",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x0E",
+    "mnemonic": "RRC",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x16",
+    "mnemonic": "RL",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x1E",
+    "mnemonic": "RR",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x26",
+    "mnemonic": "SLA",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x2E",
+    "mnemonic": "SRA",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x3E",
+    "mnemonic": "SRL",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x46",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x4E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x56",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x5E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x66",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x6E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x76",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x7E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x86",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x8E",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x96",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0x9E",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xA6",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xAE",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xB6",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xBE",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xC6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xCE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xD6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xDE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xE6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xEE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xF6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xDDCB",
+    "opcode": "0xFE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IX bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x06",
+    "mnemonic": "RLC",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x0E",
+    "mnemonic": "RRC",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x16",
+    "mnemonic": "RL",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x1E",
+    "mnemonic": "RR",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x26",
+    "mnemonic": "SLA",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x2E",
+    "mnemonic": "SRA",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x3E",
+    "mnemonic": "SRL",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x46",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x4E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x56",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x5E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x66",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x6E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x76",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x7E",
+    "mnemonic": "BIT",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 20,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x86",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x8E",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x96",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0x9E",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xA6",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xAE",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xB6",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xBE",
+    "mnemonic": "RES",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xC6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xCE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xD6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xDE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xE6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xEE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xF6",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xFDCB",
+    "opcode": "0xFE",
+    "mnemonic": "SET",
+    "mode": "Indexed",
+    "bytes": 4,
+    "cycles": 23,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  }
+]
