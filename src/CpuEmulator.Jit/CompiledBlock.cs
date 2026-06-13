@@ -22,8 +22,17 @@ public enum BlockExit { Normal, Budget, Irq }
 /// store/dirty arm), neither of which a bare backing array can carry. Passing the Fastmem object
 /// (which exposes all three arrays) is the minimal faithful fix — directly analogous to the
 /// plan's own choice to pass the <see cref="DirtyMap"/> class rather than a bare <c>bool[]</c>.</summary>
+/// RECORDED DEVIATION (Task 6): the 'bus' parameter is typed <see cref="IAddressSpace"/>, not the
+/// concrete <c>AddressSpace</c> Ground truth D names. The fastmem fast path never touches it (it
+/// goes direct to the backing array); only the slow path (MMIO + every access under
+/// <c>DisableFastmem</c>) calls <c>bus.Read8/Write8</c>, and both are <see cref="IAddressSpace"/>
+/// members. Typing it as the interface lets the trace-equivalence mode route every callout through
+/// a <c>TracingAddressSpace</c> (which implements <see cref="IAddressSpace"/> but does NOT derive
+/// from <c>AddressSpace</c>) while fastmem classification still binds to the concrete
+/// <c>AddressSpace</c> at construction. Production (fastmem-on) passes the concrete bus, which IS
+/// an <see cref="IAddressSpace"/>.
 public delegate void BlockDelegate(
-    Mos6502Cpu cpu, AddressSpace bus, Fastmem fastmem, DirtyMap dirty,
+    Mos6502Cpu cpu, IAddressSpace bus, Fastmem fastmem, DirtyMap dirty,
     ref long budget, out BlockExit exit);
 
 /// <summary>A compiled block: the emitted delegate, the PC it is keyed on, and the set of
@@ -34,7 +43,7 @@ internal sealed class CompiledBlock(ushort entryPc, BlockDelegate del, IReadOnly
     public IReadOnlyCollection<int> SpannedPages { get; } = spannedPages;
 
     public void Run(
-        Mos6502Cpu cpu, AddressSpace bus, Fastmem fastmem, DirtyMap dirty,
+        Mos6502Cpu cpu, IAddressSpace bus, Fastmem fastmem, DirtyMap dirty,
         ref long budget, out BlockExit exit)
         => del(cpu, bus, fastmem, dirty, ref budget, out exit);
 }

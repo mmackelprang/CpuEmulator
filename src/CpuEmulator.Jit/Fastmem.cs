@@ -30,15 +30,19 @@ public sealed class Fastmem
         for (int p = 0; p < pages; p++)
         {
             uint pageStart = (uint)p << 8;
-            if (!options.DisableFastmem
-                && bus.TryGetDirectAccess(pageStart, out byte[] backing, out int offset, out bool writable))
+            if (bus.TryGetDirectAccess(pageStart, out byte[] backing, out int offset, out bool writable))
             {
-                PageBacking[p] = backing;
+                // PageOffset + PageWritable are ALWAYS recorded (even under DisableFastmem) so the
+                // emitted bus arm can still dirty.Mark a writable RAM page — SMC must keep working
+                // in trace mode (Ground truth G, last row). Only PageBacking is suppressed under
+                // DisableFastmem, which is what forces every access onto the bus arm.
                 PageOffset[p] = offset;
                 PageWritable[p] = writable;
+                if (!options.DisableFastmem)
+                    PageBacking[p] = backing;
             }
-            // DisableFastmem (or an MMIO/unmapped page) leaves PageBacking[p] null, so every
-            // access to that page takes the bus arm.
+            // An MMIO/unmapped page leaves PageBacking[p] null AND PageWritable[p] false, so its
+            // accesses take the bus arm and never mark dirty (MMIO cannot hold code).
         }
     }
 }

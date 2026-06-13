@@ -27,8 +27,10 @@ internal sealed partial class BlockCompiler
     private static readonly FieldInfo FP = typeof(Mos6502Cpu).GetField("P")!;
     private static readonly FieldInfo FPC = typeof(Mos6502Cpu).GetField("PC")!;
 
-    private static readonly MethodInfo MRead = typeof(AddressSpace).GetMethod("Read8")!;
-    private static readonly MethodInfo MWrite = typeof(AddressSpace).GetMethod("Write8")!;
+    // Resolved from IAddressSpace so the bus arm works against either the concrete AddressSpace
+    // (fastmem mode) or a TracingAddressSpace (trace mode) — see the BlockDelegate deviation note.
+    private static readonly MethodInfo MRead = typeof(IAddressSpace).GetMethod("Read8")!;
+    private static readonly MethodInfo MWrite = typeof(IAddressSpace).GetMethod("Write8")!;
     private static readonly MethodInfo MAdvance =
         typeof(Mos6502Cpu).GetMethod("AdvanceCycles", BindingFlags.NonPublic | BindingFlags.Instance)!;
     private static readonly MethodInfo MStep = typeof(Mos6502Cpu).GetMethod("Step")!;
@@ -72,7 +74,7 @@ internal sealed partial class BlockCompiler
         var spannedPages = PagesSpanned(run);
         var dm = new DynamicMethod(
             $"block_{entryPc:X4}", typeof(void),
-            [typeof(Mos6502Cpu), typeof(AddressSpace), typeof(Fastmem),
+            [typeof(Mos6502Cpu), typeof(IAddressSpace), typeof(Fastmem),
              typeof(DirtyMap), typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType()],
             typeof(BlockCompiler).Module, skipVisibility: true);   // reach the AdvanceCycles seam
         ILGenerator il = dm.GetILGenerator();
@@ -341,6 +343,31 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldloc, ctx.DataLocal);
         il.Emit(OpCodes.Conv_U1);
         il.Emit(OpCodes.Callvirt, MWrite);       // bus.Write8(ea, value)
+        // The bus arm runs for true MMIO pages AND for every writable RAM page under
+        // DisableFastmem (PageBacking is suppressed but PageWritable is preserved). A writable
+        // page still owns code, so dirty.Mark + record the SMC page so invalidation works in trace
+        // mode (Ground truth G, last row). A true MMIO page has PageWritable[page] == false, so
+        // this is skipped — MMIO never marks dirty (it cannot hold code).
+        Label noMark = il.DefineLabel();
+        il.Emit(OpCodes.Ldarg_2);
+        il.Emit(OpCodes.Callvirt, MPageWritable);
+        il.Emit(OpCodes.Ldloc, ctx.EaLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Ldelem_U1);
+        il.Emit(OpCodes.Brfalse, noMark);        // not writable (MMIO) -> no dirty mark
+        // dirty.Mark(page)
+        il.Emit(OpCodes.Ldarg_3);
+        il.Emit(OpCodes.Ldloc, ctx.EaLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Callvirt, MDirtyMark);
+        // SmcPageLocal = page
+        il.Emit(OpCodes.Ldloc, ctx.EaLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
+        il.MarkLabel(noMark);
         il.MarkLabel(done);
     }
 

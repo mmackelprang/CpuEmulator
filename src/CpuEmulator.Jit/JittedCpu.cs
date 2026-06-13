@@ -18,11 +18,24 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
 
     private readonly Mos6502Cpu _inner;
     private readonly AddressSpace _bus;
+    private readonly IAddressSpace _calloutBus;
     private readonly Fastmem _fastmem;
     private readonly BlockCache _cache;
     private readonly BlockCompiler _compiler;
 
-    public JittedCpu(Mos6502Cpu inner, AddressSpace bus, JitOptions? options = null)
+    /// <summary>Construct a Tier-1 JIT over an interpreter and its concrete bus.</summary>
+    /// <param name="inner">The wrapped interpreter — the oracle, fallback, and state owner.</param>
+    /// <param name="bus">The concrete <see cref="AddressSpace"/> fastmem binds to (page table +
+    /// backing arrays + writability). Also the bus MMIO callouts route through by default.</param>
+    /// <param name="options">Construction options (DisableFastmem, BlockLengthCap).</param>
+    /// <param name="traceBus">Optional: when <c>DisableFastmem</c> is set, route every emitted bus
+    /// callout through this <see cref="IAddressSpace"/> instead of <paramref name="bus"/> — the
+    /// trace-equivalence seam (Ground truth E / Task 6 Step 3). A <c>TracingAddressSpace</c> wrapping
+    /// <paramref name="bus"/> then records an identical access trace to the interpreter's. Ignored
+    /// when fastmem is on (RAM/ROM go direct to the backing array, bypassing any bus). Production
+    /// code never sets this; it is the trace spot tests' wiring.</param>
+    public JittedCpu(Mos6502Cpu inner, AddressSpace bus, JitOptions? options = null,
+        IAddressSpace? traceBus = null)
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
             throw new System.PlatformNotSupportedException(DynamicCodeRequiredMessage);
@@ -31,6 +44,9 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
         _inner = inner;
         _bus = bus;
         var opts = options ?? new JitOptions();
+        // The bus the emitted callouts use: the trace bus when supplied with DisableFastmem
+        // (so a TracingAddressSpace sees every access), else the concrete AddressSpace.
+        _calloutBus = (opts.DisableFastmem && traceBus is not null) ? traceBus : bus;
         _fastmem = new Fastmem(bus, opts);
         _cache = new BlockCache(bus.PageCount);
         _compiler = new BlockCompiler(_inner, _bus, _fastmem, opts);
@@ -64,7 +80,7 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
             }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
             CompiledBlock block = _cache.GetOrCompile((ushort)_inner.PC, _compiler);
-            block.Run(_inner, _bus, _fastmem, _cache.Dirty, ref cycleBudget, out _);
+            block.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, ref cycleBudget, out _);
             // Normal/Budget: loop or fall out (cycleBudget drives the while). Irq cannot occur
             // mid-block in M2-i (checked only at entry); the enum carries it for M2-ii chaining.
         }
