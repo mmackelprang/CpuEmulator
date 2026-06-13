@@ -108,6 +108,20 @@ public class PortHaltVocabularyTests
                || d.GetMessage().Contains("Halt")));
     }
 
+    /// <summary>Tasks 3/4/6 closure: the full port + halt CPU generates with NO diagnostics and NO
+    /// compile errors — the end-to-end clean-generation proof for the whole additive vocabulary.</summary>
+    [Fact]
+    public void Spec_with_PortIn_PortOut_Halt_generates_clean()
+    {
+        var result = GeneratorTestHost.Run(PortHaltSpec);
+
+        Assert.True(result.GeneratorDiagnostics.IsEmpty,
+            "generator diagnostics: " + string.Join("\n",
+                result.GeneratorDiagnostics.Select(d => d.Id + ": " + d.GetMessage())));
+        Assert.Empty(result.AllErrors);
+        Assert.Contains("partial class VocabTestCpu", result.GeneratedText);
+    }
+
     // ── Task 3: the Port class — mode-legality gate (CPUGEN010) ───────────────────────────────
 
     /// <summary>A spec whose ops + modes are EDITABLE per-test, so the Port-class mode-legality

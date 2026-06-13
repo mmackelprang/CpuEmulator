@@ -122,6 +122,20 @@ internal static class CpuEmitter
         sb.AppendLine("    {");
         sb.AppendLine("        if (TryServiceInterrupt())");
         sb.AppendLine("            return;");
+        // M3.2 (Ground truth B.1): the halted guard is emitted ONLY when the model has a HaltOp.
+        // TryServiceInterrupt ran first (it clears the latch on a serviced interrupt — the wake), so
+        // when still halted, idle exactly one cycle (advancing CycleCount, NOT fetching). A CPU with
+        // no HaltOp (the 6502) gets NEITHER line, so its Step is byte-identical (Ground truth E).
+        bool hasHaltOp = model.Instructions.Any(
+            i => i.Ops.Length > 0 && i.Ops[0].Kind == "Halt");
+        if (hasHaltOp)
+        {
+            sb.AppendLine("        if (Halted)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            IdleCycle();   // halted: idle one cycle — do NOT fetch (Ground truth B.1)");
+            sb.AppendLine("            return;");
+            sb.AppendLine("        }");
+        }
         if (model.Decode is null)
         {
             // Degenerate (6502): the byte-fetch Step is UNCHANGED (Ground truth E). The per-op bodies
@@ -149,6 +163,16 @@ internal static class CpuEmitter
         sb.AppendLine("    /// the full bus sequence itself (charging cycles via ReadBus/WriteBus) and returns true;");
         sb.AppendLine("    /// Step then ends without fetching an opcode.</summary>");
         sb.AppendLine("    private partial bool TryServiceInterrupt();");
+
+        if (hasHaltOp)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>True while the halted latch is set (M3.2 Ground truth B). The hand-written");
+            sb.AppendLine("    /// partial owns the latch (set by the Halt() micro-op's DoHalt(), cleared in");
+            sb.AppendLine("    /// TryServiceInterrupt — the wake). Step consults this to idle a cycle instead of");
+            sb.AppendLine("    /// fetching. Emitted ONLY for a CPU that uses Halt() — the 6502 Step is byte-identical.</summary>");
+            sb.AppendLine("    public partial bool Halted { get; }");
+        }
 
         sb.AppendLine();
         sb.AppendLine("    public void Run(ref long cycleBudget)");
@@ -385,6 +409,12 @@ internal static class CpuEmitter
                     sb.AppendLine($"        {p} = unchecked((byte)({p} & ~0x{mask:X2}));");
                 break;
             }
+            case "Halt":
+                // M3.2 (Ground truth B): set the halted latch via the partial's DoHalt(). The
+                // generated Step's halted guard then idles a cycle per Step until an interrupt
+                // services + clears the latch (the wake). The partial owns the latch + DoHalt.
+                sb.AppendLine("        DoHalt();");
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no template for register op kind '{op.Kind}'");
