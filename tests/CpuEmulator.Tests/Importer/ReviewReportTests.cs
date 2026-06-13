@@ -151,7 +151,7 @@ public class ReviewReportTests
         var map = SemanticsMap.Parse("""
             { "architecture": "test", "namespace": "T", "specClassName": "TSpec",
               "registers": [],
-              "mnemonics": { "LDA": "[Load(Reg.A), SetNZ(Reg.A)]" } }
+              "mnemonics": { "LDA": "[Load(\"A\"), SetNZ(\"A\")]" } }
             """);
         var (_, rpt) = SpecImportEngine.Run(dataset, map);
         var content = ReviewReportGenerator.Generate("test", dataset, rpt);

@@ -69,7 +69,7 @@ public class SemanticsMapTests
     {
         var map = SemanticsMap.Load(SemanticsPath);
         var ops = map.Mnemonics["TXS"];
-        // Must contain Transfer(Reg.X, Reg.S) …
+        // Must contain Transfer("X", "S") …
         Assert.Contains("Transfer", ops);
         // … and must NOT contain SetNZ (the 6502 quirk: TXS sets no flags).
         Assert.DoesNotContain("SetNZ", ops);
@@ -98,6 +98,64 @@ public class SemanticsMapTests
     // ─── ops-text vocabulary validation ─────────────────────────────────
 
     [Fact]
+    public void Ops_text_accepts_a_quoted_register_name()
+    {
+        // M3.1a: the register-arg form is a double-quoted register-name string.
+        var json = """
+            {
+              "architecture": "mos6502",
+              "namespace": "CpuEmulator.Cpus.Mos6502",
+              "specClassName": "Mos6502Spec",
+              "registers": [],
+              "mnemonics": {
+                "LDA": "[Load(\"A\"), SetNZ(\"A\")]"
+              }
+            }
+            """;
+        var map = SemanticsMap.Parse(json);   // no throw
+        Assert.Equal("[Load(\"A\"), SetNZ(\"A\")]", map.Mnemonics["LDA"]);
+    }
+
+    [Fact]
+    public void Ops_text_rejects_a_bare_unquoted_register_token()
+    {
+        // A bare unquoted register token (the OLD-ish form without quotes) is no longer a valid
+        // register argument — it must be a quoted string (mirrors the parser's CPUGEN011).
+        var json = """
+            {
+              "architecture": "mos6502",
+              "namespace": "CpuEmulator.Cpus.Mos6502",
+              "specClassName": "Mos6502Spec",
+              "registers": [],
+              "mnemonics": {
+                "LDA": "[Load(A)]"
+              }
+            }
+            """;
+        var ex = Assert.Throws<InvalidDataException>(() => SemanticsMap.Parse(json));
+        Assert.Contains("invalid argument", ex.Message);
+    }
+
+    [Fact]
+    public void Ops_text_still_accepts_Flag_and_bool()
+    {
+        // Flag args + bool literals are out of M3.1a's register-only scope — unchanged.
+        var json = """
+            {
+              "architecture": "mos6502",
+              "namespace": "CpuEmulator.Cpus.Mos6502",
+              "specClassName": "Mos6502Spec",
+              "registers": [],
+              "mnemonics": {
+                "BNE": "[BranchIf(Flag.Z, false)]"
+              }
+            }
+            """;
+        var map = SemanticsMap.Parse(json);   // no throw
+        Assert.Equal("[BranchIf(Flag.Z, false)]", map.Mnemonics["BNE"]);
+    }
+
+    [Fact]
     public void Rejects_Unknown_Factory_Name()
     {
         // "Explode" is not a known DSL factory
@@ -108,7 +166,7 @@ public class SemanticsMapTests
               "specClassName": "Mos6502Spec",
               "registers": [],
               "mnemonics": {
-                "LDA": "[Explode(Reg.A)]"
+                "LDA": "[Explode(\"A\")]"
               }
             }
             """;
@@ -119,7 +177,7 @@ public class SemanticsMapTests
     [Fact]
     public void Rejects_Non_Reg_Flag_Bool_Argument()
     {
-        // "SomeRandom.X" is not Reg.X, Flag.X, or a bool literal
+        // "SomeRandom.A" is not a quoted register name, Flag.X, or a bool literal
         var json = """
             {
               "architecture": "mos6502",
@@ -146,7 +204,7 @@ public class SemanticsMapTests
               "specClassName": "Mos6502Spec",
               "registers": [],
               "mnemonics": {
-                "LDA": "Load(Reg.A), SetNZ(Reg.A)"
+                "LDA": "Load(\"A\"), SetNZ(\"A\")"
               }
             }
             """;
@@ -186,7 +244,7 @@ public class SemanticsMapTests
               "specClassName": "Mos6502Spec",
               "registers": [],
               "mnemonic": {
-                "LDA": "[Load(Reg.A)]"
+                "LDA": "[Load(\"A\")]"
               }
             }
             """;
@@ -204,7 +262,7 @@ public class SemanticsMapTests
               "specClassName": "Mos6502Spec",
               "registers": [],
               "mnemonics": {
-                "LDA": "[Load(Reg.A) SetNZ(Reg.A)]"
+                "LDA": "[Load(\"A\") SetNZ(\"A\")]"
               }
             }
             """;
@@ -213,7 +271,7 @@ public class SemanticsMapTests
     }
 
     [Theory]
-    [InlineData("[Jump(Reg.A)]")]       // Jump takes 0 args
+    [InlineData("[Jump(true)]")]        // Jump takes 0 args (bool arg keeps the JSON well-formed)
     [InlineData("[BranchIf(Flag.Z)]")]  // BranchIf takes 2 args
     [InlineData("[Load()]")]            // Load takes 1 arg
     public void Rejects_Wrong_Arity(string opsText)
