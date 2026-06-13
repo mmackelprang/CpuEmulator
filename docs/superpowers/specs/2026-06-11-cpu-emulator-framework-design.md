@@ -111,7 +111,11 @@ public static partial class Mos6502Spec
   1. the CPU state struct;
   2. the Tier-0 interpreter — per-opcode methods behind a `delegate*[256]` dispatch table,
      stepping micro-ops in true cycle order;
-  3. per-opcode IL-emission methods that the M2 block compiler composes;
+  3. a generated per-opcode descriptor table (`Mos6502Cpu.JitDescriptors`) consumed by a
+     CPU-agnostic block compiler in `CpuEmulator.Jit` (M2-ii closeout: the realization is a
+     descriptor table the compiler walks, not per-opcode emission methods on the generated type —
+     the compiler emits the IL, keyed by each opcode's descriptor: length, cycles, kind,
+     ends-block, needs-fallback);
   4. a disassembler table — nearly free from mnemonic + mode data, and it turns harness failures
      from "opcode 0xBD mismatch" into "`LDA $1234,X` at $C010 mismatch."
   5. a single-instruction assembler — the inverse of ④, from the same table (mnemonic + operand
@@ -230,7 +234,11 @@ Each numbered item ≈ one PR-sized chunk on a branch.
      recorded deviation, PR #8) + Host (with monitor REPL) + Klaus demo running. DELIVERED:
      the `Breadboard6502` live host, PR #8.
 - **M2 — the JIT**
-  8. Block compiler + cache + fastmem split.
+  8. Block compiler + cache + fastmem split. **DELIVERED PR #12 (M2-i, stood up) + PR #13 (M2-ii):
+     block chaining/linking with an unlink table + per-page invalidation, decimal-arm ADC/SBC IL
+     emission, and full parity proven — the `CPUEMULATOR_UAT=full` 1.51M-case TomHarte sweep through
+     the JIT (0 failures), the committed seeded SMC-biased differential fuzzer (N=4096, chaining
+     on+off, 0 divergences), and Klaus-under-JIT cycle-exact at 96,241,367 and faster.**
   9. Parity harness + benchmarks — including **comparative performance data vs other
      available emulators** (decision 2026-06-12): a `bench/` harness measuring emulated
      cycles per host-second on a canonical, portable workload (the Klaus functional test's
@@ -242,6 +250,13 @@ Each numbered item ≈ one PR-sized chunk on a branch.
      cross-language comparison rules) and a regenerable results report committed with the
      numbers and the hardware/runtime captured. Our two recorded M2 revisit gates
      (switch-vs-`delegate*` dispatch; fields-vs-state-struct) are decided from this same data.
+     **DELIVERED PR #13 (M2-ii):** the `bench/` suite (a `CpuEmulator.Benchmarks` core library +
+     a BenchmarkDotNet runner) with the methodology doc (`bench/README.md`), the four adapter shims
+     (Asm6502/C#, fake6502/C, py65/Python, sfotty/JS) behind a graceful-degradation Probe/skip-with-
+     note seam, and a regenerable `bench/results/REPORT.md` committed with only measured data. Both
+     revisit gates were measured (`--gates`) and recorded with their numbers; the decision on each
+     is "measured, kept current" (the Tier-1 JIT — chaining + emitted decimal arms — is where the
+     speed now lives; a Tier-0 dispatch/layout micro-opt is not material to the overall picture).
 - **M3 — the pluggability proof**
   10. Z80 by spec only — and **by extraction**: M3 doubles as the acceptance test of the
       datasheet-extraction approach (run the runbook against the Z80 manual, hand-build the

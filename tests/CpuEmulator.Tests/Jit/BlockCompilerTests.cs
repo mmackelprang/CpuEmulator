@@ -92,12 +92,30 @@ public class BlockCompilerTests
     [Fact]
     public void Discover_stops_at_a_fallback_opcode()
     {
+        // BRK (0x00) is still a fallback (M2-ii recorded decision: BRK/RTI stay interpreter
+        // fallbacks). A fallback opcode ends the block — the original intent of this pin, now
+        // expressed with BRK since ADC is no longer a fallback (Task 5 emits it; see the sibling).
         var space = NewRamSpace();
-        Poke(space, 0x0200, 0xA9, 0x01, 0x69, 0x01, 0xA9, 0x02); // LDA #1 / ADC #1 / LDA #2
+        Poke(space, 0x0200, 0xA9, 0x01, 0x00, 0xA9, 0x02); // LDA #1 / BRK / LDA #2
         var run = NewCompiler(space).Discover(0x0200);
-        Assert.Equal(2, run.Count);             // ends AFTER the ADC (fallback)
+        Assert.Equal(2, run.Count);             // ends AFTER the BRK (fallback)
         Assert.True(run[^1].D.NeedsFallback);
         Assert.True(run[^1].D.EndsBlock);
+    }
+
+    [Fact]
+    public void Discover_does_not_stop_at_an_ADC_now_that_it_emits()
+    {
+        // Task 5: ADC is emitted (both binary + decimal arms), so it is straight-line Alu-class and
+        // no longer ends a block. LDA #1 / ADC #1 / LDA #2 / JMP-self now discovers a 4-instruction
+        // block (M2-i discovered 2, ending after the ADC). The discovery pin flips.
+        var space = NewRamSpace();
+        Poke(space, 0x0200, 0xA9, 0x01, 0x69, 0x01, 0xA9, 0x02, 0x4C, 0x06, 0x02);
+        var run = NewCompiler(space).Discover(0x0200);
+        Assert.Equal(4, run.Count);             // LDA, ADC, LDA, JMP — the ADC does NOT end the block
+        Assert.False(run[1].D.NeedsFallback);   // the ADC
+        Assert.False(run[1].D.EndsBlock);
+        Assert.Equal(JitOpClass.Jump, run[^1].D.Class);  // the block ends at the JMP
     }
 
     [Fact]

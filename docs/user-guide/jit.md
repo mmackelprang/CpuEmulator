@@ -10,8 +10,9 @@ The emulator has two execution tiers that share one source of truth (the generat
   interpreter; the interpreter remains the oracle, the fallback, and the owner of all
   architectural state.
 
-This page covers what the JIT is, how to run a machine on it, the accuracy contract that defines
-what "parity" means for Tier 1, the M2-i fallback caveat, and troubleshooting.
+This page covers what the JIT is, how to run a machine on it, **block chaining** (the M2-ii
+speedup), the accuracy contract that defines what "parity" means for Tier 1, the fallback caveat
+(now ADC/SBC are emitted; only BRK/RTI/undefined fall back), benchmarks, and troubleshooting.
 
 Source: `src/CpuEmulator.Jit/`
 
@@ -77,6 +78,45 @@ non-`AddressSpace` bus is a construction error.
 
 ---
 
+## Block chaining (M2-ii — the speedup)
+
+A compiled block whose exit target PC is **statically known at compile time** does not return to the
+dispatcher; it transfers control directly to its successor block. The statically-known exits:
+
+| Block-ending opcode | Successor PC | Chains? |
+|---|---|---|
+| `JMP abs` | the absolute operand (constant) | yes |
+| `Bxx` taken | `PC_after_operand + offset` (constant) | yes (both arms) |
+| `Bxx` untaken | `PC_after_operand` (constant) | yes (both arms) |
+| fall-through past the 64-instruction block cap | `lastPc + lastLen` (constant) | yes |
+| `JSR abs` | the absolute operand (constant) | yes |
+| `RTS`, `JMP (ind)`, a `BRK`/`RTI`/undefined fallback | dynamic (run-time) | no — returns to the dispatcher |
+
+This removes most dispatcher round-trips on the hot path — a tight branch-dominated loop runs
+block→block with no return to the dispatch loop. Chaining is **automatic and transparent**: no API
+change, and it changes only the transfer of control, never the cycle charge (a chained run and a
+`DisableChaining` run reach identical cycle counts).
+
+**Stack safety.** The chain transfer is realized as a loop in `JittedCpu`, not emitted recursion —
+the emitted block's chain edge records the resolved successor and returns; a `JittedCpu`-side loop
+runs the successor in the same call frame. So an arbitrarily long chain (e.g. Klaus's 96M-cycle run)
+runs at bounded host-stack depth.
+
+**SMC safety (the chaining-vs-self-modifying-code rule).** A chain transition proceeds ONLY from a
+clean block end with no outstanding dirty marks. Two mechanisms guard it: (1) the intra-block SMC
+guard exits with a distinct `BlockExit.Recompile` (the precise signal that this block patched one of
+its own pages) — never chainable; and (2) every chain edge is gated on `!Dirty.Any` (the coarse
+backstop for a store to a *different* block's code page). Any SMC activity forces a dispatcher
+round-trip, where the per-page block index evicts only the dirtied pages' blocks and severs their
+inbound chain links, then re-decodes the modified bytes. The committed differential fuzzer runs
+chaining-on AND chaining-off and asserts both match the interpreter, so chaining cannot silently
+defeat the SMC guard.
+
+To disable chaining (for isolating a suspected chaining bug, or the M2-i one-block-per-dispatch
+behavior), construct with `new JitOptions { DisableChaining = true }`.
+
+---
+
 ## The accuracy contract vs the interpreter
 
 The JIT is **block-accurate**: it promises the interpreter's final state and total cycle count, not
@@ -115,30 +155,65 @@ of "every access routes through the bus": every *data/operand* access does. The 
 exactly this (the interpreter trace minus its opcode fetches equals the JIT trace).
 
 **Interrupt latency is block-boundary.** The JIT checks for a pending interrupt at each block entry
-(serviced by the inner interpreter's authentic 7-cycle sequence). Under tight cycle budgets — the
-monitor's single-instruction stepping, or `Machine.Run` chunked to the next scheduled event —
-block-boundary collapses to instruction-boundary, so device-driven IRQ timing is unaffected in
-practice.
+(serviced by the inner interpreter's authentic 7-cycle sequence), and **chaining samples
+`InterruptPending` at each chain edge** — so a pending interrupt breaks the chain back to the
+dispatcher, and latency is bounded by the chained-block length, the same per-block bound as M2-i.
+Under tight cycle budgets — the monitor's single-instruction stepping, or `Machine.Run` chunked to
+the next scheduled event — block-boundary collapses to instruction-boundary, so device-driven IRQ
+timing is unaffected in practice.
 
 ---
 
-## The decimal-mode / interpreter-fallback caveat (M2-i)
+## The interpreter-fallback caveat (M2-ii)
 
-In M2-i the block compiler does **not** emit IL for a few opcodes; it emits an interpreter-`Step`
-fallback for them instead, and ends the block there:
+The block compiler emits IL for nearly all opcodes, including **`ADC` / `SBC` in both the binary and
+decimal arms** (M2-ii emits the NMOS BCD nibble-correction logic behind an emitted `if ((P & 0x08)
+!= 0)`, byte-for-byte matching the interpreter — see the decimal flag quirks: ADC's Z comes from the
+binary sum, N/V from the pre-correction sum; SBC's flags are all the binary-path flags, only the
+result byte is BCD-corrected). The 80,093 decimal-mode TomHarte cases pass through the JIT by EMIT,
+not fallback. ADC/SBC no longer end a block, so blocks are longer and chaining has more straight-line
+runs to link.
 
-- **`ADC` / `SBC`** (every addressing mode) — the only opcodes whose semantics fork on a runtime
-  flag (the decimal `D` bit), with densely-branchy NMOS nibble-correction logic. Emitting them is
-  the M2-ii ambition, once the full parity battery and the differential fuzzer exist to vet the
-  emitted decimal arms.
-- **`BRK` / `RTI`** — they touch the interrupt/vector machinery the interpreter owns.
-- **Undefined opcodes** — not in the dispatch table; the interpreter owns the undefined-opcode policy.
+Only three classes still emit an interpreter-`Step` fallback (and end the block there):
+
+- **`BRK` / `RTI`** — they touch the interrupt/vector machinery (the 7-cycle push sequence, vector
+  fetch) the interpreter owns in one place; interrupt-rare, so emitting them buys ~0 throughput and
+  risks the highest-cost parity hole. Recorded decision: they stay fallbacks.
+- **Undefined opcodes** — the interpreter owns the per-machine undefined-opcode policy.
 
 A fallback runs one authentic interpreter `Step` (advancing PC and cycles exactly), so correctness
-is identical whether an instruction is emitted or fallen-back. The **performance** consequence is
-that ADC/SBC-heavy code (notably the Klaus functional test, which is decimal-inclusive) runs as many
-short blocks separated by interpreter steps — provably correct, but not yet fully JIT-accelerated.
-M2-ii emits the decimal arms and quantifies the speed-up with benchmarks.
+is identical whether an instruction is emitted or fallen-back. A fallback exit is a **dynamic** PC,
+so it is never a chainable target — it always returns to the dispatcher.
+
+---
+
+## Benchmarks
+
+The comparative cross-language benchmark suite (`bench/`) measures emulated cycles per host-second
+across the two tiers and, opt-in, third-party 6502 emulators. The Klaus functional test under the
+JIT (chaining on, decimal arms emitted) reaches its `$3469` success trap at the exact interpreter
+cycle count (96,241,367) and is **dramatically faster than the M2-i fallback + dispatcher-round-trip
+path** (M2-i: ~40.9 min; M2-ii: well under two minutes — a large multiple over the prior JIT).
+
+**The honest measured headline, though, is that the Tier-1 JIT is currently SLOWER than the Tier-0
+interpreter on both benchmark workloads** — on the SMC-heavy Klaus run the JIT's per-dispatch
+`InvalidateIfDirty` thrashes (it evicts + recompiles blocks on Klaus's frequent code-page writes
+rather than executing them), and on the tight non-SMC arithmetic kernel the interpreter's
+well-predicted `switch` dispatch is hard for a block JIT to beat. The JIT's delivered value in M2 is
+**correctness parity** (the full TomHarte sweep through the JIT, the committed differential fuzzer,
+Klaus cycle-exact) — not raw throughput. Reducing the SMC-invalidation cost is the recorded next
+optimization. See the report for the numbers, the cross-language spread, and the full analysis.
+
+For the full methodology, the JIT-vs-interpreter table, and the cross-language numbers, see
+[`bench/README.md`](../../bench/README.md) and the regenerated
+[`bench/results/REPORT.md`](../../bench/results/REPORT.md), or the
+[Benchmarks user-guide page](benchmarks.md).
+
+Regenerate the report:
+
+```sh
+dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all
+```
 
 ---
 
@@ -150,13 +225,19 @@ M2-ii emits the decimal arms and quantifies the speed-up with benchmarks.
   directly. NativeAOT consumers never reference `CpuEmulator.Jit`; the interpreter is the AOT path.
 - **A parity divergence (state or cycle count differs from the interpreter).** This is a **JIT bug**
   by definition — the interpreter is the oracle. File it with the program bytes + the diverging
-  register/cycle. To capture a per-cycle bus trace for the report, re-run with
-  `JitOptions { DisableFastmem = true }` and a `TracingAddressSpace` to get the full ordered access
-  list (which the default fastmem path does not produce for RAM/ROM).
-- **SMC (self-modifying code) seems stale.** The JIT discards cached blocks when a RAM store dirties
-  a page that owns a cached block, and ends the current block when a store patches an opcode ahead of
-  PC within that same block. Both modes (fastmem on/off) track writable-RAM stores for invalidation.
-  A genuine staleness would be a parity divergence — see above.
+  register/cycle. **To localize a suspected chaining bug, re-run with `JitOptions { DisableChaining =
+  true }`:** a divergence that disappears with chaining off is in the chaining layer; one that
+  persists is in the base emit. The committed differential fuzzer reproduces any divergence from the
+  seed integer alone (`CPUEMULATOR_FUZZ=full` raises the seed count to the pre-merge gate of 4096);
+  it runs chaining-on AND chaining-off for exactly this localization. To capture a per-cycle bus
+  trace for the report, re-run with `JitOptions { DisableFastmem = true }` and a `TracingAddressSpace`
+  to get the full ordered access list (which the default fastmem path does not produce for RAM/ROM).
+- **SMC (self-modifying code) seems stale.** The JIT evicts only the dirtied pages' cached blocks
+  (the per-page block index) and severs their inbound chain links when a RAM store dirties a code
+  page, and ends the current block (exiting `BlockExit.Recompile`) when a store patches an opcode
+  within that same block. A chain edge also breaks on any outstanding dirty mark. Both modes (fastmem
+  on/off) track writable-RAM stores for invalidation. A genuine staleness would be a parity
+  divergence — see above.
 
 ---
 
@@ -167,4 +248,24 @@ and throws `PlatformNotSupportedException` when it is false. This is the constru
 keeps the AOT story enforced by construction: `CpuEmulator.Jit` is the only assembly that uses
 `Reflection.Emit`, and it is the only non-AOT member of the build graph. The AOT-clean assemblies
 (`Core`, `Cpus.Mos6502`, `Peripherals`, `Monitor`, `Host`) never reference it — a build-time check
-(`AotCleanlinessTests`) pins that reference-graph law.
+(`AotCleanlinessTests`) pins that reference-graph law (it also asserts none of them reference the
+dev-only `CpuEmulator.Benchmarks` bench tool, which references `Jit`).
+
+### NativeAOT publishing the Host (the PublishAot CI scoping)
+
+A NativeAOT publish of the Host **succeeds** because its runtime graph excludes `Jit`:
+
+```sh
+dotnet publish src/CpuEmulator.Host -c Release -r <rid>      # e.g. win-x64, linux-x64
+```
+
+`PublishAot` is set **in `CpuEmulator.Host.csproj`**, NOT passed as a global `-p:PublishAot=true` on
+the command line. This is load-bearing: a global property propagates to *every* project in the build
+graph — including the netstandard2.0 Roslyn analyzer `CpuEmulator.Generators` (referenced
+transitively as an `Analyzer` with `ReferenceOutputAssembly="false"`). Analyzers inherently cannot
+AOT-publish, so a global `PublishAot` fails with `NETSDK1207` on `Generators` even though the
+analyzer is build-time-only and not in the runtime graph. Scoping the property to the Host csproj
+keeps it off the analyzer's build. (On Windows the native-link step needs the MSVC linker on PATH —
+run from a Developer prompt or with the VS Installer dir on PATH so the toolchain's `vswhere.exe`/
+`link.exe` resolve.) The `AotCleanlinessTests` reference-graph check is the enforced-by-construction
+backstop regardless of whether the full publish runs in a given environment.

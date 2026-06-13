@@ -1380,8 +1380,9 @@ internal static class CpuEmitter
     /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
     /// <c>JitOpClass</c>, returning the (class, endsBlock, needsFallback) triple. The
     /// interpreter's coarse <c>Flow</c> class is split by op-kind: JSR → Jsr, RTS → Rts,
-    /// BRK/RTI → Flow (+fallback). The interpreter's <c>Jump</c> stays Jump. ADC/SBC carry
-    /// NeedsFallback (the ambition decision). EndsBlock = a control-flow JIT class OR fallback.
+    /// BRK/RTI → Flow (+fallback). The interpreter's <c>Jump</c> stays Jump. ADC/SBC are EMITTED
+    /// (M2-ii Task 5) — straight-line Alu-class, no fallback. EndsBlock = a control-flow JIT class
+    /// OR fallback.
     /// The interpreter's <c>Stack</c> class (PHA/PLA/PHP/PLP) maps to the JIT <c>Register</c>
     /// class: both are Implied, straight-line, block-continuing — the block compiler dispatches
     /// the stack ops by op-kind within the Register arm (the JIT enum has no Stack member; the
@@ -1390,7 +1391,11 @@ internal static class CpuEmitter
         InstructionModel insn, InstructionClass cls)
     {
         string firstKind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
-        bool fallback = firstKind is "Adc" or "Sbc" or "Brk" or "Rti";
+        // M2-ii Task 5 (the ambition decision's planned flip): ADC/SBC are now EMITTED in both the
+        // binary and decimal arms (Ground truth E), so they leave the fallback set — they become
+        // straight-line Alu-class (NeedsFallback false, EndsBlock false). BRK/RTI stay fallbacks
+        // (recorded decision: they touch the interrupt/vector machinery the interpreter owns).
+        bool fallback = firstKind is "Brk" or "Rti";
 
         string jitClass = cls switch
         {

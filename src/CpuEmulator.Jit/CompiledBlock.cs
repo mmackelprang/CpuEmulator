@@ -4,7 +4,22 @@ using CpuEmulator.Cpus.Mos6502;
 namespace CpuEmulator.Jit;
 
 /// <summary>How a compiled block returned control.</summary>
-public enum BlockExit { Normal, Budget, Irq }
+public enum BlockExit
+{
+    /// <summary>Clean block end; cpu.PC holds the successor (static or dynamic).</summary>
+    Normal,
+
+    /// <summary>Budget &lt;= 0 at an instruction boundary; cpu.PC at the next instruction.</summary>
+    Budget,
+
+    /// <summary>(Reserved) interrupt sampled; the dispatcher services via inner.Step.</summary>
+    Irq,
+
+    /// <summary>NEW (M2-ii): the intra-block SMC guard tripped — the block self-modified one of its
+    /// own pages; cpu.PC at the next instruction. The dispatcher MUST InvalidateIfDirty +
+    /// re-decode before continuing. NEVER a chainable exit (Ground truth B).</summary>
+    Recompile,
+}
 
 /// <summary>The emitted delegate shape. The DynamicMethod is created with this exact
 /// signature; the dispatcher in JittedCpu.Run invokes it. 'cpu' is the wrapped interpreter
@@ -33,7 +48,15 @@ public enum BlockExit { Normal, Budget, Irq }
 /// an <see cref="IAddressSpace"/>.
 public delegate void BlockDelegate(
     Mos6502Cpu cpu, IAddressSpace bus, Fastmem fastmem, DirtyMap dirty,
+    ChainDispatch chain,         // 5th param (M2-ii): the chain-edge callback (stack-safe successor run)
     ref long budget, out BlockExit exit);
+
+/// <summary>The chain-edge callback the emitted block calls at a statically-known exit (M2-ii). Given
+/// the (compile-time-constant) target PC, it arranges for the successor chain to run WITHOUT a
+/// dispatcher round-trip, threading budget + exit. Implemented stack-safely as a LOOP in
+/// <see cref="JittedCpu"/> (not emitted recursion — see the stack-safety note in
+/// <c>BlockCompiler.EmitChainOrExit</c>), so a 96M-cycle Klaus chain does not blow the host stack.</summary>
+public delegate void ChainDispatch(ushort targetPc, ref long budget, out BlockExit exit);
 
 /// <summary>A compiled block: the emitted delegate, the PC it is keyed on, and the set of
 /// 256-byte pages its instruction bytes span (for dirty-page invalidation).</summary>
@@ -44,6 +67,6 @@ internal sealed class CompiledBlock(ushort entryPc, BlockDelegate del, IReadOnly
 
     public void Run(
         Mos6502Cpu cpu, IAddressSpace bus, Fastmem fastmem, DirtyMap dirty,
-        ref long budget, out BlockExit exit)
-        => del(cpu, bus, fastmem, dirty, ref budget, out exit);
+        ChainDispatch chain, ref long budget, out BlockExit exit)
+        => del(cpu, bus, fastmem, dirty, chain, ref budget, out exit);
 }

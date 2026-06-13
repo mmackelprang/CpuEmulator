@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The comparative-benchmark CORE library (spec §9 item 9, the M2-ii Task 8 deliverable). A dev
+    tool, never shipped: it references the non-AOT Jit assembly (Reflection.Emit). It is NOT in any
+    runtime graph; the AOT-cleanliness test (Task 10) asserts no runtime-graph assembly references
+    it.
+
+    Wiring choice (b), recorded in the plan: the measurement logic — the two-tier Tier0/Tier1
+    measurement core, the IEmulatorAdapter shim interface, the Workloads, the adapter shims, and the
+    report writer — lives in THIS library, referenced by both the console runner
+    (CpuEmulator.Benchmarks.Runner, which owns the BenchmarkDotNet [Benchmark] harness) and the test
+    project's smoke test. BenchmarkDotNet itself is referenced ONLY by the runner, so it never
+    enters the test graph.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CpuEmulator.Core\CpuEmulator.Core.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Jit\CpuEmulator.Jit.csproj" />
+  </ItemGroup>
+
+  <!--
+    Asm6502 (C#) is the in-process third-party subject — a NuGet PackageReference that restores from
+    nuget.org. Guarded by HAS_ASM6502 so the bench (and the test project that references it for the
+    smoke test) still BUILDS when the package cannot be restored offline: a builder with no network +
+    no NuGet cache can disable it with `-p:UseAsm6502=false`, and the Asm6502 adapter then compiles
+    out + skips-with-note. Default on (the package is small + restores whenever nuget.org is up).
+  -->
+  <PropertyGroup>
+    <UseAsm6502 Condition="'$(UseAsm6502)' == ''">true</UseAsm6502>
+    <DefineConstants Condition="'$(UseAsm6502)' == 'true'">$(DefineConstants);HAS_ASM6502</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseAsm6502)' == 'true'">
+    <PackageReference Include="Asm6502" Version="4.0.2" />
+  </ItemGroup>
+
+</Project>

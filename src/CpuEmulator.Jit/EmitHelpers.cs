@@ -5,9 +5,10 @@ namespace CpuEmulator.Jit;
 /// <summary>Per-block emit state: the ILGenerator plus the reusable scratch locals the emit
 /// arms share. Locals are typed to make the IL match the interpreter's C# (which works in
 /// <c>uint</c> for addresses and <c>byte</c>/<c>int</c> for data). The arg indices for the
-/// BlockDelegate signature are fixed:
-///   0 = cpu (Mos6502Cpu), 1 = bus (AddressSpace), 2 = fastmem (byte[]?[]),
-///   3 = dirty (DirtyMap), 4 = ref long budget, 5 = out BlockExit exit.</summary>
+/// BlockDelegate signature are fixed (M2-ii, after inserting ChainDispatch as the 5th param):
+///   0 = cpu (Mos6502Cpu), 1 = bus (AddressSpace), 2 = fastmem (Fastmem),
+///   3 = dirty (DirtyMap), 4 = chain (ChainDispatch), 5 = ref long budget,
+///   6 = out BlockExit exit. See BlockCompiler.ArgChain/ArgBudget/ArgExit.</summary>
 internal sealed class EmitContext
 {
     public ILGenerator Il { get; }
@@ -32,6 +33,21 @@ internal sealed class EmitContext
 
     /// <summary>long — scratch for the fallback's cycle-delta math.</summary>
     public LocalBuilder TmpLong { get; }
+
+    /// <summary>int — the binary sum the ADC/SBC arms compute first (the interpreter's <c>temp</c>):
+    /// for ADC it carries the Z-from-binary quirk; for SBC it carries ALL the decimal-mode flags
+    /// (Ground truth E). Held as a signed int so the SBC subtraction composes (the interpreter's
+    /// <c>temp</c> is an int). No bus access occurs between writing and reading it.</summary>
+    public LocalBuilder TmpInt { get; }
+
+    /// <summary>int — the ADC/SBC decimal low-nibble intermediate (the interpreter's <c>before</c>),
+    /// signed (SBC's <c>before</c> can go negative). Decimal arm only.</summary>
+    public LocalBuilder NibLocal { get; }
+
+    /// <summary>int — the ADC/SBC decimal BCD sum (the interpreter's <c>sum</c>), signed (SBC's
+    /// <c>sum</c> can go negative; N/V/C derive from it before the +/-0x60 correction). Decimal arm
+    /// only. A dedicated int local (NOT EaLocal, which is uint and clobbered by bus accesses).</summary>
+    public LocalBuilder SumLocal { get; }
 
     /// <summary>The set of 256-byte pages this block's instruction bytes occupy. The intra-block
     /// SMC guard (Ground truth B / Task-5 hand-off note #2) uses this: a writable-RAM store whose
@@ -58,5 +74,8 @@ internal sealed class EmitContext
         HiLocal = il.DeclareLocal(typeof(uint));
         TmpLong = il.DeclareLocal(typeof(long));
         SmcPageLocal = il.DeclareLocal(typeof(int));
+        TmpInt = il.DeclareLocal(typeof(int));
+        NibLocal = il.DeclareLocal(typeof(int));
+        SumLocal = il.DeclareLocal(typeof(int));
     }
 }

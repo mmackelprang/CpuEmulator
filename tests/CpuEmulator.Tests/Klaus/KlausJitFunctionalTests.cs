@@ -45,8 +45,15 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
         Assert.Equal(InterpreterAnchorCycles, anchorCycles); // the interpreter still hits its anchor
         long checkpoint = anchorCycles - TailWindow;
 
-        // ── The JIT run (ONCE): large block-cached slices to the checkpoint, then budget-1 to trap ──
+        // ── The JIT run (ONCE): chaining ON (the default — confirm the test does NOT disable it).
+        // Large block-cached slices to the checkpoint, then budget-1 to the trap. M2-ii's chaining +
+        // emitted decimal ADC/SBC make this a large multiple faster than the M2-i 40.9-min fallback +
+        // dispatcher-round-trip run; the wall-clock is REPORTED (not asserted — machine-dependent and
+        // a flaky pin). The cycle anchor (96,241,367) IS asserted EXACTLY: chaining changes control
+        // transfer, not cycle charging, and the emitted decimal arms charge the same cycles as binary.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var (inner, jit) = NewKlausJit(image);
+        Assert.False(new JitOptions().DisableChaining, "the Klaus JIT pin must run with chaining ON");
         while (inner.CycleCount < checkpoint)
         {
             long budget = Math.Min(BulkSlice, checkpoint - inner.CycleCount);
@@ -61,7 +68,10 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
             {
                 if (inner.PC == SuccessTrap)
                 {
-                    output.WriteLine($"JIT success trap reached after {inner.CycleCount} cycles");
+                    sw.Stop();
+                    output.WriteLine($"JIT success trap reached after {inner.CycleCount} cycles " +
+                                     $"in {sw.Elapsed.TotalSeconds:F1}s wall-clock (chaining ON; " +
+                                     $"M2-i was 40.9 min)");
                     Assert.Equal(InterpreterAnchorCycles, inner.CycleCount);
                     return;
                 }
@@ -70,6 +80,37 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
         }
         Assert.Fail($"JIT budget exhausted without parking — PC=0x{inner.PC:X4} " +
                     $"after {inner.CycleCount} cycles");
+    }
+
+    /// <summary>A bounded-slice Klaus run with <see cref="JitOptions.DisableChaining"/> reaches the
+    /// SAME cycle count as the chaining-on run at the same checkpoint — proving chaining is
+    /// transparent to cycle accounting on the heaviest real workload (it changes control transfer,
+    /// not the cycle charge). A bounded checkpoint (not the full 96M run) keeps this cheaper than the
+    /// headline pin while still exercising millions of chained/unchained cycles.</summary>
+    [KlausFact]
+    public void Chaining_on_and_off_reach_the_same_Klaus_cycle_count_at_a_checkpoint()
+    {
+        byte[] image = File.ReadAllBytes(KlausVectors.TryGetBinaryPath()!);
+        const long Checkpoint = 20_000_000;   // ~20M cycles into the run — well past warmup
+
+        long RunToCheckpoint(JitOptions opts)
+        {
+            var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+            space.MapMemory(0x0000, (byte[])image.Clone(), writable: true);
+            var inner = new Mos6502Cpu(space) { PC = StartAddress, S = 0xFD, P = 0x34 };
+            var jit = new JittedCpu(inner, space, opts);
+            while (inner.CycleCount < Checkpoint)
+            {
+                long budget = Math.Min(BulkSlice, Checkpoint - inner.CycleCount);
+                jit.Run(ref budget);
+            }
+            return inner.CycleCount;
+        }
+
+        long on  = RunToCheckpoint(new JitOptions());                            // chaining ON
+        long off = RunToCheckpoint(new JitOptions { DisableChaining = true });   // chaining OFF
+        output.WriteLine($"chaining on={on} off={off} cycles at the checkpoint");
+        Assert.Equal(off, on);   // identical cycle accounting regardless of chaining
     }
 
     private static long RunInterpreterToTrap(byte[] image)

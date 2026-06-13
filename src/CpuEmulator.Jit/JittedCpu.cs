@@ -22,6 +22,17 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
     private readonly Fastmem _fastmem;
     private readonly BlockCache _cache;
     private readonly BlockCompiler _compiler;
+    private readonly JitOptions _opts;
+    private long _chainStepCount;   // test seam: chain edges taken without a dispatcher round-trip
+
+    // The chain-edge callback + its mutable scratch, allocated ONCE per JittedCpu (not per chain
+    // step). RunChain writes _chainPredecessor before each emitted block runs; the emitted chain
+    // edge calls _chainDispatch, which stashes the resolved successor in _chainNext. Hoisting these
+    // out of the RunChain loop avoids a per-chain-step delegate + display-class allocation (millions
+    // of short-lived GC objects on a tight Klaus/loop run would partially undercut the speedup).
+    private CompiledBlock? _chainPredecessor;
+    private CompiledBlock? _chainNext;
+    private ChainDispatch? _chainDispatch;
 
     /// <summary>Construct a Tier-1 JIT over an interpreter and its concrete bus.</summary>
     /// <param name="inner">The wrapped interpreter — the oracle, fallback, and state owner.</param>
@@ -44,6 +55,7 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
         _inner = inner;
         _bus = bus;
         var opts = options ?? new JitOptions();
+        _opts = opts;
         // The bus the emitted callouts use: the trace bus when supplied with DisableFastmem
         // (so a TracingAddressSpace sees every access), else the concrete AddressSpace.
         _calloutBus = (opts.DisableFastmem && traceBus is not null) ? traceBus : bus;
@@ -54,6 +66,10 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
 
     /// <summary>Test seam: how many blocks have been compiled (the cache-hit pin reads this).</summary>
     internal int CompileCount => _compiler.CompileCount;
+
+    /// <summary>Test seam: how many chain edges have been taken without a dispatcher round-trip
+    /// (the chaining pins read this; 0 with <see cref="JitOptions.DisableChaining"/> or M2-i).</summary>
+    internal long ChainStepCount => _chainStepCount;
 
     public string Architecture => _inner.Architecture;
     public long CycleCount => _inner.CycleCount;
@@ -80,10 +96,47 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
             }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
             CompiledBlock block = _cache.GetOrCompile((ushort)_inner.PC, _compiler);
-            block.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, ref cycleBudget, out _);
-            // Normal/Budget: loop or fall out (cycleBudget drives the while). Irq cannot occur
-            // mid-block in M2-i (checked only at entry); the enum carries it for M2-ii chaining.
+            RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
+            // Normal/Budget/Recompile all return here for a dispatcher round-trip: the loop tops
+            // back to InvalidateIfDirty (flushing a self-modified block on a Recompile/dirty exit)
+            // + GetOrCompile re-decodes at the (already-set) PC. cycleBudget drives the while.
         }
+    }
+
+    /// <summary>Run a block and follow its statically-known chain edges WITHOUT a dispatcher
+    /// round-trip, stack-safely (a LOOP, not emitted recursion — Ground truth A step 7). The
+    /// emitted block's chain call stashes the resolved successor in 'next' and returns; the emitted
+    /// block 'ret's; this loop runs the successor in the SAME frame, so host stack depth across an
+    /// arbitrarily long chain is bounded. Returns when the chain breaks (no link / a dynamic exit /
+    /// a chain-break gate) or must round-trip (Budget / Recompile).</summary>
+    private void RunChain(CompiledBlock block, ref long budget)
+    {
+        // The chain callback is allocated once (lazily) and reused; it reads _chainPredecessor and
+        // writes _chainNext, so no per-step allocation happens in this hot loop.
+        ChainDispatch chain = _chainDispatch ??= ChainEdge;
+        CompiledBlock current = block;
+        while (true)
+        {
+            _chainPredecessor = current;            // the inbound-link record (read by ChainEdge)
+            _chainNext = null;
+            current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit);
+            if (exit is BlockExit.Budget or BlockExit.Recompile) return; // round-trip required
+            if (_chainNext is null) return;         // chain broke (gates/flag) or a dynamic exit
+            current = _chainNext;                   // continue the chain in THIS frame
+            _chainStepCount++;                      // test seam (ChainStepCount pin)
+        }
+    }
+
+    /// <summary>The single chain-edge callback (bound once, reused every step — see RunChain). The
+    /// emitted block calls this at a statically-known exit after clearing the chain-break gates;
+    /// it links the predecessor and resolves the successor BY PC (compiling on first reach), unless
+    /// chaining is disabled, in which case it leaves _chainNext null so RunChain rounds back to the
+    /// dispatcher. exit = Normal: a chain edge is a clean block end (the gates already passed).</summary>
+    private void ChainEdge(ushort targetPc, ref long budget, out BlockExit exit)
+    {
+        exit = BlockExit.Normal;
+        if (_opts.DisableChaining) return;          // flag -> no chaining; round-trip
+        _chainNext = _cache.ResolveChain(targetPc, _chainPredecessor!, _compiler); // link + resolve
     }
 
     // ICpuCore introspection + IMonitorSupport: ALL delegate to the inner interpreter, so the
