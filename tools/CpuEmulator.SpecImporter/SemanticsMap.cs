@@ -87,6 +87,11 @@ public sealed class SemanticsMap
         ["PortIn"]        = 1,  // PortIn("reg")
         ["PortOut"]       = 1,  // PortOut("reg")
         ["Halt"]          = 0,  // Halt()
+        // Composable flag micro-ops (M3.4a — general, 8086-reusable).
+        ["SetSZ"]         = 1,  // SetSZ("reg")
+        ["SetParity"]     = 1,  // SetParity("reg")
+        ["SetXY"]         = 1,  // SetXY("reg")
+        ["SetAddSub"]     = 1,  // SetAddSub(true|false)
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────

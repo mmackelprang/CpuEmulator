@@ -68,4 +68,10 @@ public static class Spec
     public static Op PortIn(string target) => new PortInOp(target);   // Z80: IN A,(n) / IN r,(C)
     public static Op PortOut(string source) => new PortOutOp(source); // Z80: OUT (n),A / OUT (C),r
     public static Op Halt() => new HaltOp();                          // Z80 HALT / 68000 STOP
+
+    // ── Composable flag micro-ops (M3.4a — general, 8086-reusable). Register-NAME string args. ──
+    public static Op SetSZ(string source) => new SetSZOp(source);
+    public static Op SetParity(string source) => new SetParityOp(source);
+    public static Op SetXY(string source) => new SetXYOp(source);
+    public static Op SetAddSub(bool subtract) => new SetAddSubOp(subtract);
 }
