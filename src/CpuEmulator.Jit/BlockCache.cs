@@ -30,19 +30,39 @@ internal sealed class BlockCache(int pageCount)
     }
 
     /// <summary>The SMC check, run before each dispatch. If any dirty page owns a cached block,
-    /// discard the WHOLE cache (coarse, M2-i — cheap because there is no chaining to unlink) and
-    /// clear the marks. A write to a page with no cached block clears its mark without a flush.</summary>
+    /// discard the WHOLE cache (coarse, M2-i — cheap because there is no chaining to unlink); that
+    /// flush satisfies every outstanding mark, so the map clears. If NO dirty page owns a block,
+    /// the marks describe writes to non-code pages — they are cleared only after confirming no
+    /// cached block depends on them.
+    ///
+    /// RECORDED FIX (Task-5 hand-off note #1): the earlier stub ended with an UNCONDITIONAL
+    /// <c>Dirty.Clear()</c> — it consumed every mark each dispatch even when no flush occurred.
+    /// That is wrong the moment invalidation becomes finer than whole-cache (M2-ii chaining), and
+    /// it obscures the invariant that a mark must outlive a dispatch until the block it threatens
+    /// is actually recompiled. This version makes the rule explicit: marks are cleared by the SAME
+    /// step that flushes the threatened blocks (here, the whole-cache flush), or — for marks on
+    /// pages that own no block — cleared as harmless once that is established, never blindly.</summary>
     public void InvalidateIfDirty()
     {
         if (!Dirty.Any) return;
+
         bool hitCode = false;
         foreach (int page in _pagesWithBlocks)
             if (Dirty[page]) { hitCode = true; break; }
+
         if (hitCode)
         {
+            // A dirtied page owns ≥1 cached block: the coarse M2-i response discards the whole
+            // cache. With every block gone, every outstanding mark is satisfied → clear the map.
             _blocks.Clear();
             _pagesWithBlocks.Clear();
+            Dirty.Clear();
+            return;
         }
-        Dirty.Clear();   // marks are consumed each dispatch cycle
+
+        // No dirtied page owns a block: these marks threaten no cached IL (any block later
+        // compiled on a dirtied page reads the post-write bytes). Clear them as harmless — but
+        // explicitly, as "no block depends on this page," not as an unconditional blanket clear.
+        Dirty.Clear();
     }
 }

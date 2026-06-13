@@ -33,14 +33,30 @@ internal sealed class EmitContext
     /// <summary>long — scratch for the fallback's cycle-delta math.</summary>
     public LocalBuilder TmpLong { get; }
 
-    public EmitContext(ILGenerator il)
+    /// <summary>The set of 256-byte pages this block's instruction bytes occupy. The intra-block
+    /// SMC guard (Ground truth B / Task-5 hand-off note #2) uses this: a writable-RAM store whose
+    /// target page is one of these MUST end the block, so the next dispatch re-decodes the
+    /// (possibly modified) bytes — the JIT cannot keep running stale compiled IL for an opcode the
+    /// guest just rewrote ahead of PC within the same block.</summary>
+    public IReadOnlyCollection<int> SpannedPages { get; }
+
+    /// <summary>int — the page index a writable-RAM store last wrote, or -1 when no such store has
+    /// happened since the local was reset. The intra-block SMC guard reads this AFTER a store/RMW
+    /// instruction completes: if the written page is one of the block's own SpannedPages, the block
+    /// ends so the next dispatch re-decodes the (possibly self-modified) bytes. Reset to -1 before
+    /// each store/RMW instruction so a no-store instruction never trips the guard.</summary>
+    public LocalBuilder SmcPageLocal { get; }
+
+    public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
+        SpannedPages = spannedPages;
         AddrLocal = il.DeclareLocal(typeof(uint));
         DataLocal = il.DeclareLocal(typeof(int));
         EaLocal = il.DeclareLocal(typeof(uint));
         LoLocal = il.DeclareLocal(typeof(uint));
         HiLocal = il.DeclareLocal(typeof(uint));
         TmpLong = il.DeclareLocal(typeof(long));
+        SmcPageLocal = il.DeclareLocal(typeof(int));
     }
 }

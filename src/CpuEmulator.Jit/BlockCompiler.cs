@@ -69,13 +69,14 @@ internal sealed partial class BlockCompiler
     {
         CompileCount++;
         var run = Discover(entryPc);
+        var spannedPages = PagesSpanned(run);
         var dm = new DynamicMethod(
             $"block_{entryPc:X4}", typeof(void),
             [typeof(Mos6502Cpu), typeof(AddressSpace), typeof(Fastmem),
              typeof(DirtyMap), typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType()],
             typeof(BlockCompiler).Module, skipVisibility: true);   // reach the AdvanceCycles seam
         ILGenerator il = dm.GetILGenerator();
-        var ctx = new EmitContext(il);
+        var ctx = new EmitContext(il, spannedPages);
 
         foreach (var (pc, d) in run)
         {
@@ -85,7 +86,7 @@ internal sealed partial class BlockCompiler
         }
         EmitNormalExit(ctx);
         var del = (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
-        return new CompiledBlock(entryPc, del, PagesSpanned(run));
+        return new CompiledBlock(entryPc, del, spannedPages);
     }
 
     private static System.Collections.Generic.HashSet<int> PagesSpanned(
@@ -112,6 +113,14 @@ internal sealed partial class BlockCompiler
         // charges follow, in order, after this.
         EmitChargeOneCycle(ctx);   // opcode-fetch cycle (was: trailing in each arm — moved up for GT-F(a))
         EmitIncrementPC(ctx, 1);
+        // Reset the SMC "wrote page" marker before any instruction that might write RAM, so the
+        // intra-block guard only trips on this instruction's own writable-RAM store.
+        bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw;
+        if (mayWriteRam)
+        {
+            ctx.Il.Emit(OpCodes.Ldc_I4_M1);
+            ctx.Il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
+        }
         switch (d.Class)
         {
             case JitOpClass.Load: EmitLoad(ctx, d); break;
@@ -128,6 +137,37 @@ internal sealed partial class BlockCompiler
                     $"BlockCompiler has no emit arm for class '{d.Class}' (opcode 0x{d.Opcode:X2}); "
                   + "a JIT bug — the descriptor said it was emittable but no arm exists.");
         }
+        // Intra-block SMC guard (Task-5 hand-off note #2 + controller directive #2): if this
+        // store/RMW wrote a byte on one of THIS block's own pages, the compiled IL ahead of PC may
+        // now be stale — end the block (exit Normal, PC already at the next instruction) so the
+        // dispatcher's InvalidateIfDirty flushes the cache and the next GetOrCompile re-decodes the
+        // modified bytes. Conservative + runtime-precise: only fires when the actual written page
+        // is one the block occupies.
+        if (mayWriteRam)
+            EmitSmcGuard(ctx);
+    }
+
+    /// <summary>Emit the intra-block self-modifying-code guard: if <c>ctx.SmcPageLocal</c> (the page
+    /// a writable-RAM store just wrote, or -1) is one of the block's own SpannedPages, set
+    /// exit=Normal and return — ending the block so the next dispatch re-decodes the modified bytes.
+    /// PC is already at the next instruction (operand reads advanced it), so no PC fix-up is needed.
+    /// Pages are baked as constants from the block's static page span.</summary>
+    private static void EmitSmcGuard(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        Label noSmc = il.DefineLabel();
+        Label endBlock = il.DefineLabel();
+        // if (SmcPageLocal == P) goto endBlock; for each spanned page P.
+        foreach (int page in ctx.SpannedPages)
+        {
+            il.Emit(OpCodes.Ldloc, ctx.SmcPageLocal);
+            il.Emit(OpCodes.Ldc_I4, page);
+            il.Emit(OpCodes.Beq, endBlock);
+        }
+        il.Emit(OpCodes.Br, noSmc);
+        il.MarkLabel(endBlock);
+        EmitNormalExit(ctx);            // exit = Normal; ret (PC already at the next instruction)
+        il.MarkLabel(noSmc);
     }
 
     // ── Cycle bookkeeping (both counters move together: budget-=1 AND cpu._cycles+=1) ──────
@@ -283,6 +323,11 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldc_I4_8);
         il.Emit(OpCodes.Shr_Un);
         il.Emit(OpCodes.Callvirt, MDirtyMark);
+        // record the written page for the intra-block SMC guard (EmitSmcGuard, after the instr).
+        il.Emit(OpCodes.Ldloc, ctx.EaLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
         il.Emit(OpCodes.Br, done);
 
         il.MarkLabel(drop);
