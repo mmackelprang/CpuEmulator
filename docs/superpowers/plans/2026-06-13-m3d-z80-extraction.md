@@ -317,13 +317,15 @@ assertion the dataset loader should not bake — recorded as a Task-2 judgement 
 ## Ground truth C — the cross-source-diff reconciliation protocol (the headline anti-hallucination gate)
 
 **This is the load-bearing section.** The dataset is LLM-extracted at ~1100 rows; the diff is where
-hallucinations, wrong cycle counts, and mis-assigned prefixes surface. The committed dataset is the
-**reconciled result of two independent extractions**, not a single pass.
+hallucinations, wrong cycle counts, and mis-assigned prefixes surface. The protocol BELOW is the design
+the runbook prescribes (two genuinely independent blind extractions); the **honest record of what M3.3
+actually did** is in the callout after C.1 — a *simulation* of that protocol, not a true blind dual
+pass. Read both: the design is the M4/M5 standard; the M3.3 reality is narrower and stated plainly.
 
-### C.1 How the two tables are produced
+### C.1 How the two tables are produced (the prescribed protocol)
 
 Two **independent** extractions of the Z80 opcode set, per the runbook's Rung 2
-(`extraction-runbook.md:208-218`):
+(`extraction-runbook.md` "Rung 2 — Cross-source diff"):
 
 - **Source A — the Zilog Z80 CPU User Manual (UM0080)**, the primary reference. The Stage-1 LLM prompt
   (`extraction-runbook.md:78-180`, with the Z80 vocabulary substituted per Task 6's runbook addendum)
@@ -338,7 +340,25 @@ Two **independent** extractions of the Z80 opcode set, per the runbook's Rung 2
 > correlate and the diff catches nothing. The protocol REQUIRES B to be a from-scratch extraction of a
 > different source document. Two independent error distributions over the same ground truth: their
 > AGREEMENT is strong evidence; their DISAGREEMENT is the review queue. This is the anti-hallucination
-> mechanism (`extraction-runbook.md:208-211`).
+> mechanism the runbook's Rung 2 describes.
+
+> **What M3.3 ACTUALLY did (honest, narrower than the protocol above).** M3.3 exercised the two-source
+> cross-diff protocol via **two reconstructed generator scripts** (`gen_z80_a.py`, `gen_z80_b.py`) each
+> encoding **two distinct real references** (Zilog UM0080 for A; clrhome.org/table for B), committed in
+> one session. `gen_z80_b.py` carries a RECONCILIATION block that **self-reconciles B to agree with A**
+> (adjudicating the 25-cell diff in-script; `RAW=1` reproduces the un-reconciled raw extraction). This
+> faithfully **validates the diff/reconciliation MACHINERY** — it reproduces the exact 25-cell diff (1
+> field cell + 24 coverage) and the clean exit-0 reconciliation — and the two encoded references ARE two
+> distinct real documents. But it is a **SIMULATION of dual-session independence, NOT a true blind second
+> pass**: the two error distributions are not genuinely independent because B was authored with knowledge
+> of A and reconciled to it before the committed diff. **Therefore the M3.3 dataset's correctness does
+> NOT rest on the independent-error-distribution guarantee Ground-truth-C's protocol claims.** It rests
+> on (a) single-pass extraction quality, independently spot-checked at **0 errors across a 39-row sample
+> spanning all seven planes**, and (b) the **M3.4 TomHarte per-cycle behavioral gate**, the real oracle.
+> A genuine dual-session blind extraction (two separately-fetched documents, transcribed without
+> cross-referencing, ideally separate sessions/agents, B never reconciled-to-A before the diff) is the
+> **standard for M4/M5** (see the runbook's Rung 2). For the Z80 specifically, a re-pass is low-value
+> because M3.4 TomHarte supersedes it.
 
 ### C.2 The diff, the keying fix, and what "disagreement" means
 
@@ -1150,8 +1170,9 @@ worked-example / lessons addendum is Task 8 — after the diff's actual findings
 | Z80 dataset row count | **698 documented** (252 base, 248 CB, 58 ED, 39 DD, 39 FD, 31 DDCB, 31 FDCB) — the DD/FD documented-subset policy; ~1100 was the upper estimate for full DD/FD re-enumeration |
 | Covered emitted rows / TODO rows | **13 emitted / 685 TODO** (114 TODO(mode) + 571 TODO(semantics)) — the honest 3a covered minority |
 | Covered mnemonics / TODO(vocab) mnemonics | **13 / 54** (of 67 distinct documented mnemonics) |
-| Cross-source disagreements adjudicated | **25** (1 field cell: JR C,d cycles; 24 coverage: 10 undocumented SLL + 14 Z180/eZ80 ED extras) → reconciled to exit 0 |
+| Cross-source disagreements adjudicated | **25** (1 field cell: JR C,d cycles; 24 coverage: 10 undocumented SLL + 14 Z180/eZ80 ED extras) → reconciled to exit 0. **NOTE (honesty):** produced by a SIMULATED dual-source pass — two reconstructed generators encoding two distinct real references (Zilog UM0080 + clrhome.org), with `gen_z80_b.py` self-reconciling B to A. This validates the diff/reconciliation MACHINERY and reproduces the 25-cell diff, but is NOT a true blind dual-session extraction with independent error distributions (Ground-truth-C callout). Correctness rests on single-pass spot-check (0/39 errors) + M3.4 TomHarte, NOT the cross-diff anti-hallucination guarantee. |
 | Provenance coverage fraction | **698/698 = 100%** |
+| Source-independence standard for M4/M5 | **Genuine dual-session blind extraction** is the standard: two separately-fetched documents, transcribed WITHOUT cross-referencing (ideally separate sessions/agents so error sets are truly independent), B never reconciled-to-A before the diff. M3.3 SIMULATED this; M4/M5 should do it for real. A genuine Z80 re-pass is optional/low-value (M3.4 TomHarte supersedes it). |
 | DDCB compound-prefix path taken | **enumerated-finding-deferred** — the shipped single-byte PrefixByte/Insn cannot express the two-deep DD CB; dataset carries the rows, skeleton emits them TODO, M3.4 extends the decoder |
 | Any 6502 file changed? | **NONE** (`git diff main -- src/CpuEmulator.Cpus.Mos6502 …/mos6502-*.json` empty; RegeneratedSpecTests green) |
 | Rung reached | **Rung 4** (structural end-to-end generator gate). Rung 5 (TomHarte) = M3.4. |

@@ -264,6 +264,17 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
 
 Exit 0 = identical. Exit 3 = disagreements found (table printed to stdout). Zero disagreements required before Rung 3.
 
+**What GENUINE source-independence requires (the standard for M4/M5 — read this before relying on the diff as an anti-hallucination gate).** The diff catches errors **only if the two error distributions are independent**. That demands all of:
+
+1. **Two separately-fetched documents.** A and B come from two distinct real references (e.g. the vendor manual + a community opcode table, or a second-source datasheet). Citing the same page of the same manual twice does not count.
+2. **Transcribed WITHOUT cross-referencing.** B is extracted from scratch against its own document, *never* by editing, diffing-against, or "reconciling-to" A first. The moment B is authored with A in view, the error sets correlate and the diff goes blind.
+3. **Ideally separate sessions/agents.** Run the two extractions in different sessions (or by different agents) so neither inherits the other's mistakes or priors. A single agent doing both passes back-to-back risks repeating the same systematic error in both.
+4. **Reconcile only AFTER the first diff.** The adjudication (Zilog/primary authoritative → third source on genuine conflict → "uncertain — pending TomHarte") happens *on the diff output*. B must reach the `--diff` un-reconciled, so the diff sees the real disagreements.
+
+A run that violates these is a **simulation** of the protocol: it validates the diff/reconciliation *machinery* (and is useful for that), but it does NOT deliver the independent-error-distribution guarantee — its dataset's correctness then rests on single-pass extraction quality + the behavioral gate (Rung 5 / TomHarte), not on the cross-diff.
+
+> **M3.3 (Z80) note — this was simulated, not blind.** The first real non-6502 extraction reconstructed A (Zilog UM0080) and B (clrhome.org/table) as two generator scripts in one session, with B self-reconciled to A; it reproduced the 25-cell diff exactly and proved the machinery, but it was NOT a genuine blind dual pass (the two error sets were not independent). The Z80 dataset's correctness rests on its single-pass spot-check + the M3.4 TomHarte gate. **M4/M5 should perform a genuine dual-session blind extraction** per the four requirements above — that is when the cross-source diff earns its anti-hallucination claim.
+
 **Rung 3 — CPUGEN diagnostics**
 
 Generate the spec file and build. The Roslyn generator emits structured errors (CPUGEN001–011) for DSL mistakes the loader does not catch (e.g. an `Insn` referencing a register not in `Registers`, an unsupported mode/op combination).
