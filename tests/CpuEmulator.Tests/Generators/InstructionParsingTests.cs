@@ -8,7 +8,7 @@ public class InstructionParsingTests
             """
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A), SetNZ(Reg.A)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A"), SetNZ("A")]),
                     Insn(0xEA, "NOP", AddrMode.Implied, []),
                 ];
             """,
@@ -48,8 +48,8 @@ public class InstructionParsingTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A)]),
-                    Insn(0xA9, "LDA", AddrMode.ZeroPage, [Load(Reg.A)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A")]),
+                    Insn(0xA9, "LDA", AddrMode.ZeroPage, [Load("A")]),
                 ];
             """));
 
@@ -64,7 +64,7 @@ public class InstructionParsingTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Frobnicate(Reg.A)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Frobnicate("A")]),
                 ];
             """));
 
@@ -78,7 +78,7 @@ public class InstructionParsingTests
                 private static byte Op() => 0xA9;
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(Op(), "LDA", AddrMode.Immediate, [Load(Reg.A)]),
+                    Insn(Op(), "LDA", AddrMode.Immediate, [Load("A")]),
                 ];
             """));
 
@@ -91,7 +91,7 @@ public class InstructionParsingTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", (AddrMode)99, [Load(Reg.A)]),
+                    Insn(0xA9, "LDA", (AddrMode)99, [Load("A")]),
                 ];
             """));
 
@@ -104,7 +104,7 @@ public class InstructionParsingTests
         string source = WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA0, "LDY", AddrMode.Immediate, [Load(Reg.Y), SetNZ(Reg.Y)]),
+                    Insn(0xA0, "LDY", AddrMode.Immediate, [Load("Y"), SetNZ("Y")]),
                 ];
             """);
         var result = GeneratorTestHost.Run(source);
@@ -118,7 +118,7 @@ public class InstructionParsingTests
         string locationText = source.Substring(
             diagnostic.Location.SourceSpan.Start,
             diagnostic.Location.SourceSpan.Length);
-        Assert.Contains("Reg.Y", locationText);
+        Assert.Contains("\"Y\"", locationText);
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class InstructionParsingTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0x100, "LDA", AddrMode.Immediate, [Load(Reg.A)]),
+                    Insn(0x100, "LDA", AddrMode.Immediate, [Load("A")]),
                 ];
             """));
 
@@ -144,7 +144,7 @@ public class InstructionParsingTests
         var result = GeneratorTestHost.Run(WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A, Reg.X)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A", "X")]),
                 ];
             """));
 
@@ -158,8 +158,8 @@ public class InstructionParsingTests
         string source = WithInstructions("""
                 public static readonly InstructionDef[] Instructions =
                 [
-                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load(Reg.A)]),
-                    Insn(0xA9, "LDA", AddrMode.ZeroPage, [Load(Reg.A)]),
+                    Insn(0xA9, "LDA", AddrMode.Immediate, [Load("A")]),
+                    Insn(0xA9, "LDA", AddrMode.ZeroPage, [Load("A")]),
                 ];
             """);
         var result = GeneratorTestHost.Run(source);
