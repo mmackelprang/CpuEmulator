@@ -1134,25 +1134,25 @@ worked-example / lessons addendum is Task 8 — after the diff's actual findings
 
 | Commit | Content | Suite |
 |---|---|---|
-| _(Task 1)_ | Z80 prefix-keyed dataset schema (prefix/subfield/Key); 6502 byte-identical | _pending_ |
-| _(Task 2)_ | prefix-key uniqueness + Z80 modes + Key-based diff | _pending_ |
-| _(Task 3)_ | Z80 dataset extraction — Source A, Rung-1 clean | _pending_ |
-| _(Task 4)_ | reconciled via cross-source diff (A x B), exit 0 | _pending_ |
-| _(Task 5)_ | Z80 register/flag declarations + prefixed-Insn + DecodeStructure emission | _pending_ |
-| _(Task 6)_ | runbook Z80 prompt vocabulary + dataset README | _pending_ |
-| _(Task 7)_ | structural-generation check — skeleton compiles (Rungs 3-4) | _pending_ |
-| _(Task 8)_ | worked Z80 addendum + closeout | _pending_ |
+| `a785380` (Task 1) | Z80 prefix-keyed dataset schema (prefix/subfield/Key); 6502 byte-identical | 1496 |
+| `c36f0c1` (Task 2) | prefix-key uniqueness + Z80 modes + Key-based diff | 1513 |
+| `e7771bb` (Task 3) | Z80 dataset extraction — Source A (Zilog UM0080), Rung-1 clean | 1513 |
+| `6d885cb` (Task 4) | reconciled via cross-source diff (A x B), exit 0 | 1513 |
+| `2d1eb72` (Task 5) | Z80 register/flag declarations + prefixed-Insn + DecodeStructure emission | 1522 |
+| `2fe412d` (Task 6) | runbook Z80 prompt vocabulary + dataset README | 1522 |
+| `3202661` (Task 7) | structural-generation check — skeleton compiles (Rungs 3-4) | 1526 |
+| _(Task 8)_ | worked Z80 addendum + closeout | 1526 |
 
 | Closeout metric | Value (filled at completion) |
 |---|---|
-| Baseline test count (Task 0) | _pending_ (brief: ~1491) |
-| Final test count | _pending_ (est. ~1519) |
-| Z80 dataset row count | _pending_ (est. ~1100 documented) |
-| Covered emitted rows / TODO rows | _pending_ (est. covered minority; large TODO majority) |
-| Covered mnemonics / TODO(vocab) mnemonics | _pending_ (est. ~15-25 / ~40-50) |
-| Cross-source disagreements adjudicated | _pending_ |
-| Provenance coverage fraction | _pending_ |
-| DDCB compound-prefix path taken | _pending_ (expressible / synthetic-token / enumerated-finding-deferred) |
-| Any 6502 file changed? | _pending_ (expected: NONE) |
-| Rung reached | _pending_ (target: Rung 4; Rung 5 = M3.4) |
+| Baseline test count (Task 0) | **1491** (confirmed; matches the brief) |
+| Final test count | **1526** (+35: Task1 +5, Task2 +17, Task5 +9, Task7 +4) |
+| Z80 dataset row count | **698 documented** (252 base, 248 CB, 58 ED, 39 DD, 39 FD, 31 DDCB, 31 FDCB) — the DD/FD documented-subset policy; ~1100 was the upper estimate for full DD/FD re-enumeration |
+| Covered emitted rows / TODO rows | **13 emitted / 685 TODO** (114 TODO(mode) + 571 TODO(semantics)) — the honest 3a covered minority |
+| Covered mnemonics / TODO(vocab) mnemonics | **13 / 54** (of 67 distinct documented mnemonics) |
+| Cross-source disagreements adjudicated | **25** (1 field cell: JR C,d cycles; 24 coverage: 10 undocumented SLL + 14 Z180/eZ80 ED extras) → reconciled to exit 0 |
+| Provenance coverage fraction | **698/698 = 100%** |
+| DDCB compound-prefix path taken | **enumerated-finding-deferred** — the shipped single-byte PrefixByte/Insn cannot express the two-deep DD CB; dataset carries the rows, skeleton emits them TODO, M3.4 extends the decoder |
+| Any 6502 file changed? | **NONE** (`git diff main -- src/CpuEmulator.Cpus.Mos6502 …/mos6502-*.json` empty; RegeneratedSpecTests green) |
+| Rung reached | **Rung 4** (structural end-to-end generator gate). Rung 5 (TomHarte) = M3.4. |
 

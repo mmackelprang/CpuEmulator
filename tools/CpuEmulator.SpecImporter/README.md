@@ -4,6 +4,12 @@ Console tool that generates CPU spec tables (DSL source files) from a vendored,
 curated machine-readable opcode dataset crossed with a hand-authored mnemonic
 semantics map.
 
+**Status:** two families vendored — the **6502** (151 rows, fully emitted, TomHarte/Klaus-verified) and
+the **Z80** (698 documented rows across seven prefix planes; M3.3). The Z80 dataset is
+**structurally validated + cross-corroborated** (two independent sources reconciled to a clean diff)
+but its behavioral correctness is **UNVERIFIED-PENDING-M3.4-TomHarte** — it is a decode dataset +
+compiling skeleton, not a flag-correct emulator. See the Z80 data-file section below.
+
 ## Usage
 
 **Generation** (the canonical regeneration command — it also appears in the generated
