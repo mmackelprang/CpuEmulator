@@ -12,4 +12,10 @@ public enum AddrMode
     IndirectX, IndirectY, Indirect, Relative,
     IoPortImmediate,   // (n)  — an 8-bit port-number operand byte (Z80 IN A,(n) / OUT (n),A)
     IoPortIndirect,    // (C)  — the port number comes from a register (Z80 IN r,(C) / OUT (C),r)
+    // M3.4a (Z80 register-shape modes, additive — the 6502 names none of these):
+    Register,          // register-to-register / A-op (LD r,r' ; OR r ; ADD A,r ; ADD HL,rr ; INC B)
+    RegisterIndirect,  // (HL)/(BC)/(DE) — the EA is a 16-bit pair view (LD r,(HL) ; ADD A,(HL) ; JP (HL))
+    ImmediateExtended, // 16-bit immediate (LD rr,nn)
+    ExtendedAddress,   // (nn) 16-bit absolute, byte AND word (LD (nn),A ; LD HL,(nn) ; JP nn ; CALL nn)
+    RelativeJump,      // PC + signed displacement (JR d ; JR cc,d ; DJNZ d)
 }

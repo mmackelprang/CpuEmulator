@@ -53,6 +53,9 @@ public static class SpecFileEmitter
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
+        // M3.4a (additive): the Z80 register-shape modes the base plane needs. Indexed (IX+d, M3.4c)
+        // and Bit (CB plane, M3.4b) stay OUT — their rows keep emitting // TODO(mode).
+        "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
     ];
 
     /// <summary>
@@ -128,6 +131,16 @@ public static class SpecFileEmitter
         sb.AppendLine("    ];");
         sb.AppendLine();
 
+        // ── FlagLayout (M3.4a) ─────────────────────────────────────────────────
+        // Emitted ONLY when the semantics map declares a flag layout (the Z80's S=7..C=0). The 6502
+        // declares none, so this block is absent and Mos6502Spec.cs stays byte-identical (the guard).
+        if (map.Flags.Length > 0)
+        {
+            string bits = string.Join(", ", map.Flags.Select(b => $"new(\"{b.Name}\", {b.Bit})"));
+            sb.AppendLine($"    public static readonly FlagLayout Flags = new([{bits}]);");
+            sb.AppendLine();
+        }
+
         // ── Instructions collection ───────────────────────────────────────────
         // Emitted into a separate buffer first: the DecodeStructure declaration (which must precede
         // Instructions in source order for readability) needs the set of EMITTED prefix bytes, known
@@ -136,9 +149,24 @@ public static class SpecFileEmitter
         insnSb.AppendLine("    public static readonly InstructionDef[] Instructions =");
         insnSb.AppendLine("    [");
 
+        // M3.4a: for the Z80 BASE plane (no prefix), the per-opcode ops are computed algorithmically
+        // from the opcode byte (the regular octal encoding) — the dataset carries no operand field and
+        // the same mnemonic (LD/ADD/INC/DEC) maps to many distinct ops by the register/pair the opcode
+        // selects. The per-mnemonic map can't express that; Z80BaseSemantics resolves it (recorded
+        // deviation, see that file). Other architectures (the 6502) keep the per-mnemonic map untouched.
+        bool isZ80 = string.Equals(map.Architecture, "z80", StringComparison.OrdinalIgnoreCase);
+
         foreach (var entry in dataset)
         {
-            bool hasSemantics = map.Mnemonics.TryGetValue(entry.Mnemonic, out var opsText);
+            // The Z80 base-plane algorithmic ops (null ⇒ defer: rotate-accumulator / unowned).
+            string? z80Ops = isZ80 && entry.Prefix is null
+                ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16), entry.Mnemonic, entry.Mode)
+                : null;
+
+            string? opsText;
+            bool hasSemantics = z80Ops is not null
+                ? (opsText = z80Ops) is not null
+                : map.Mnemonics.TryGetValue(entry.Mnemonic, out opsText);
             bool modeSupported = SupportedModes.Contains(entry.Mode);
             // A single-byte prefix is emittable as the M3.1b Insn(prefix, opcode, …) overload; the
             // compound DDCB/FDCB tokens are NOT (the enumerated M3.4 finding) — never reached here

@@ -52,6 +52,8 @@ public static class Z80Spec
         new("HL_", 16, HighHalf: "H_", LowHalf: "L_"),
     ];
 
+    public static readonly FlagLayout Flags = new([new("S", 7), new("Z", 6), new("Y", 5), new("H", 4), new("X", 3), new("P", 2), new("N", 1), new("C", 0)]);
+
     public static readonly DecodeStructure Decode = new(
         Prefixes: [new PrefixByte(0xED)],
         ModRmOpcodes: [],
@@ -61,256 +63,256 @@ public static class Z80Spec
     [
         Insn(0x00, "NOP", AddrMode.Implied, []),
         // TODO(semantics): 0x07 RLCA Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x08 EX Implied — awaiting micro-op vocabulary
+        Insn(0x08, "EX", AddrMode.Implied, [ExAfAf()]),
         // TODO(semantics): 0x0F RRCA Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x10 DJNZ RelativeJump — awaiting micro-op vocabulary
+        Insn(0x10, "DJNZ", AddrMode.RelativeJump, [Djnz("B")]),
         // TODO(semantics): 0x17 RLA Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x18 JR RelativeJump — awaiting micro-op vocabulary
+        Insn(0x18, "JR", AddrMode.RelativeJump, [RelJump()]),
         // TODO(semantics): 0x1F RRA Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x27 DAA Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x2F CPL Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x37 SCF Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x3F CCF Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0x01 LD ImmediateExtended — awaiting micro-op vocabulary
-        // TODO(semantics): 0x11 LD ImmediateExtended — awaiting micro-op vocabulary
-        // TODO(semantics): 0x21 LD ImmediateExtended — awaiting micro-op vocabulary
-        // TODO(semantics): 0x31 LD ImmediateExtended — awaiting micro-op vocabulary
-        // TODO(mode): 0x09 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x19 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x29 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x39 ADD Register — awaiting AddrMode support
-        // TODO(semantics): 0x03 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x0B DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x13 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x1B DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x23 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x2B DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x33 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x3B DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x04 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x0C INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x14 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x1C INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x24 INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x2C INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x34 INC RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x3C INC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x05 DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x0D DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x15 DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x1D DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x25 DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x2D DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x35 DEC RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x3D DEC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x06 LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x0E LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x16 LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x1E LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x26 LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x2E LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x36 LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x3E LD Immediate — awaiting micro-op vocabulary
-        // TODO(semantics): 0x02 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x12 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x22 LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0x32 LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0x0A LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x1A LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x2A LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0x3A LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0x20 JR RelativeJump — awaiting micro-op vocabulary
-        // TODO(semantics): 0x28 JR RelativeJump — awaiting micro-op vocabulary
-        // TODO(semantics): 0x30 JR RelativeJump — awaiting micro-op vocabulary
-        // TODO(semantics): 0x38 JR RelativeJump — awaiting micro-op vocabulary
-        // TODO(semantics): 0x40 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x41 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x42 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x43 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x44 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x45 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x46 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x47 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x48 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x49 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x4A LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x4B LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x4C LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x4D LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x4E LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x4F LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x50 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x51 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x52 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x53 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x54 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x55 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x56 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x57 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x58 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x59 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x5A LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x5B LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x5C LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x5D LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x5E LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x5F LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x60 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x61 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x62 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x63 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x64 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x65 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x66 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x67 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x68 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x69 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x6A LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x6B LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x6C LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x6D LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x6E LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x6F LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x70 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x71 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x72 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x73 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x74 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x75 LD RegisterIndirect — awaiting micro-op vocabulary
+        Insn(0x27, "DAA", AddrMode.Implied, [Daa()]),
+        Insn(0x2F, "CPL", AddrMode.Implied, [Cpl()]),
+        Insn(0x37, "SCF", AddrMode.Implied, [Scf()]),
+        Insn(0x3F, "CCF", AddrMode.Implied, [Ccf()]),
+        Insn(0x01, "LD", AddrMode.ImmediateExtended, [Load16("BC")]),
+        Insn(0x11, "LD", AddrMode.ImmediateExtended, [Load16("DE")]),
+        Insn(0x21, "LD", AddrMode.ImmediateExtended, [Load16("HL")]),
+        Insn(0x31, "LD", AddrMode.ImmediateExtended, [Load16("SP")]),
+        Insn(0x09, "ADD", AddrMode.Register, [Add16("HL","BC")]),
+        Insn(0x19, "ADD", AddrMode.Register, [Add16("HL","DE")]),
+        Insn(0x29, "ADD", AddrMode.Register, [Add16("HL","HL")]),
+        Insn(0x39, "ADD", AddrMode.Register, [Add16("HL","SP")]),
+        Insn(0x03, "INC", AddrMode.Register, [Inc16("BC")]),
+        Insn(0x0B, "DEC", AddrMode.Register, [Dec16("BC")]),
+        Insn(0x13, "INC", AddrMode.Register, [Inc16("DE")]),
+        Insn(0x1B, "DEC", AddrMode.Register, [Dec16("DE")]),
+        Insn(0x23, "INC", AddrMode.Register, [Inc16("HL")]),
+        Insn(0x2B, "DEC", AddrMode.Register, [Dec16("HL")]),
+        Insn(0x33, "INC", AddrMode.Register, [Inc16("SP")]),
+        Insn(0x3B, "DEC", AddrMode.Register, [Dec16("SP")]),
+        Insn(0x04, "INC", AddrMode.Register, [IncReg("B")]),
+        Insn(0x0C, "INC", AddrMode.Register, [IncReg("C")]),
+        Insn(0x14, "INC", AddrMode.Register, [IncReg("D")]),
+        Insn(0x1C, "INC", AddrMode.Register, [IncReg("E")]),
+        Insn(0x24, "INC", AddrMode.Register, [IncReg("H")]),
+        Insn(0x2C, "INC", AddrMode.Register, [IncReg("L")]),
+        Insn(0x34, "INC", AddrMode.RegisterIndirect, [IncMem8()]),
+        Insn(0x3C, "INC", AddrMode.Register, [IncReg("A")]),
+        Insn(0x05, "DEC", AddrMode.Register, [DecReg("B")]),
+        Insn(0x0D, "DEC", AddrMode.Register, [DecReg("C")]),
+        Insn(0x15, "DEC", AddrMode.Register, [DecReg("D")]),
+        Insn(0x1D, "DEC", AddrMode.Register, [DecReg("E")]),
+        Insn(0x25, "DEC", AddrMode.Register, [DecReg("H")]),
+        Insn(0x2D, "DEC", AddrMode.Register, [DecReg("L")]),
+        Insn(0x35, "DEC", AddrMode.RegisterIndirect, [DecMem8()]),
+        Insn(0x3D, "DEC", AddrMode.Register, [DecReg("A")]),
+        Insn(0x06, "LD", AddrMode.Immediate, [Load("B")]),
+        Insn(0x0E, "LD", AddrMode.Immediate, [Load("C")]),
+        Insn(0x16, "LD", AddrMode.Immediate, [Load("D")]),
+        Insn(0x1E, "LD", AddrMode.Immediate, [Load("E")]),
+        Insn(0x26, "LD", AddrMode.Immediate, [Load("H")]),
+        Insn(0x2E, "LD", AddrMode.Immediate, [Load("L")]),
+        Insn(0x36, "LD", AddrMode.Immediate, [StoreImm8()]),
+        Insn(0x3E, "LD", AddrMode.Immediate, [Load("A")]),
+        Insn(0x02, "LD", AddrMode.RegisterIndirect, [Store("A")]),
+        Insn(0x12, "LD", AddrMode.RegisterIndirect, [Store("A")]),
+        Insn(0x22, "LD", AddrMode.ExtendedAddress, [Store16("HL")]),
+        Insn(0x32, "LD", AddrMode.ExtendedAddress, [Store("A")]),
+        Insn(0x0A, "LD", AddrMode.RegisterIndirect, [Load("A")]),
+        Insn(0x1A, "LD", AddrMode.RegisterIndirect, [Load("A")]),
+        Insn(0x2A, "LD", AddrMode.ExtendedAddress, [LoadMem16("HL")]),
+        Insn(0x3A, "LD", AddrMode.ExtendedAddress, [Load("A")]),
+        Insn(0x20, "JR", AddrMode.RelativeJump, [RelJumpIf(Flag.Z, false)]),
+        Insn(0x28, "JR", AddrMode.RelativeJump, [RelJumpIf(Flag.Z, true)]),
+        Insn(0x30, "JR", AddrMode.RelativeJump, [RelJumpIf(Flag.C, false)]),
+        Insn(0x38, "JR", AddrMode.RelativeJump, [RelJumpIf(Flag.C, true)]),
+        Insn(0x40, "LD", AddrMode.Register, [Transfer("B","B")]),
+        Insn(0x41, "LD", AddrMode.Register, [Transfer("C","B")]),
+        Insn(0x42, "LD", AddrMode.Register, [Transfer("D","B")]),
+        Insn(0x43, "LD", AddrMode.Register, [Transfer("E","B")]),
+        Insn(0x44, "LD", AddrMode.Register, [Transfer("H","B")]),
+        Insn(0x45, "LD", AddrMode.Register, [Transfer("L","B")]),
+        Insn(0x46, "LD", AddrMode.RegisterIndirect, [Load("B")]),
+        Insn(0x47, "LD", AddrMode.Register, [Transfer("A","B")]),
+        Insn(0x48, "LD", AddrMode.Register, [Transfer("B","C")]),
+        Insn(0x49, "LD", AddrMode.Register, [Transfer("C","C")]),
+        Insn(0x4A, "LD", AddrMode.Register, [Transfer("D","C")]),
+        Insn(0x4B, "LD", AddrMode.Register, [Transfer("E","C")]),
+        Insn(0x4C, "LD", AddrMode.Register, [Transfer("H","C")]),
+        Insn(0x4D, "LD", AddrMode.Register, [Transfer("L","C")]),
+        Insn(0x4E, "LD", AddrMode.RegisterIndirect, [Load("C")]),
+        Insn(0x4F, "LD", AddrMode.Register, [Transfer("A","C")]),
+        Insn(0x50, "LD", AddrMode.Register, [Transfer("B","D")]),
+        Insn(0x51, "LD", AddrMode.Register, [Transfer("C","D")]),
+        Insn(0x52, "LD", AddrMode.Register, [Transfer("D","D")]),
+        Insn(0x53, "LD", AddrMode.Register, [Transfer("E","D")]),
+        Insn(0x54, "LD", AddrMode.Register, [Transfer("H","D")]),
+        Insn(0x55, "LD", AddrMode.Register, [Transfer("L","D")]),
+        Insn(0x56, "LD", AddrMode.RegisterIndirect, [Load("D")]),
+        Insn(0x57, "LD", AddrMode.Register, [Transfer("A","D")]),
+        Insn(0x58, "LD", AddrMode.Register, [Transfer("B","E")]),
+        Insn(0x59, "LD", AddrMode.Register, [Transfer("C","E")]),
+        Insn(0x5A, "LD", AddrMode.Register, [Transfer("D","E")]),
+        Insn(0x5B, "LD", AddrMode.Register, [Transfer("E","E")]),
+        Insn(0x5C, "LD", AddrMode.Register, [Transfer("H","E")]),
+        Insn(0x5D, "LD", AddrMode.Register, [Transfer("L","E")]),
+        Insn(0x5E, "LD", AddrMode.RegisterIndirect, [Load("E")]),
+        Insn(0x5F, "LD", AddrMode.Register, [Transfer("A","E")]),
+        Insn(0x60, "LD", AddrMode.Register, [Transfer("B","H")]),
+        Insn(0x61, "LD", AddrMode.Register, [Transfer("C","H")]),
+        Insn(0x62, "LD", AddrMode.Register, [Transfer("D","H")]),
+        Insn(0x63, "LD", AddrMode.Register, [Transfer("E","H")]),
+        Insn(0x64, "LD", AddrMode.Register, [Transfer("H","H")]),
+        Insn(0x65, "LD", AddrMode.Register, [Transfer("L","H")]),
+        Insn(0x66, "LD", AddrMode.RegisterIndirect, [Load("H")]),
+        Insn(0x67, "LD", AddrMode.Register, [Transfer("A","H")]),
+        Insn(0x68, "LD", AddrMode.Register, [Transfer("B","L")]),
+        Insn(0x69, "LD", AddrMode.Register, [Transfer("C","L")]),
+        Insn(0x6A, "LD", AddrMode.Register, [Transfer("D","L")]),
+        Insn(0x6B, "LD", AddrMode.Register, [Transfer("E","L")]),
+        Insn(0x6C, "LD", AddrMode.Register, [Transfer("H","L")]),
+        Insn(0x6D, "LD", AddrMode.Register, [Transfer("L","L")]),
+        Insn(0x6E, "LD", AddrMode.RegisterIndirect, [Load("L")]),
+        Insn(0x6F, "LD", AddrMode.Register, [Transfer("A","L")]),
+        Insn(0x70, "LD", AddrMode.RegisterIndirect, [Store("B")]),
+        Insn(0x71, "LD", AddrMode.RegisterIndirect, [Store("C")]),
+        Insn(0x72, "LD", AddrMode.RegisterIndirect, [Store("D")]),
+        Insn(0x73, "LD", AddrMode.RegisterIndirect, [Store("E")]),
+        Insn(0x74, "LD", AddrMode.RegisterIndirect, [Store("H")]),
+        Insn(0x75, "LD", AddrMode.RegisterIndirect, [Store("L")]),
         Insn(0x76, "HALT", AddrMode.Implied, [Halt()]),
-        // TODO(semantics): 0x77 LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x78 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x79 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x7A LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x7B LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x7C LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x7D LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0x7E LD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0x7F LD Register — awaiting micro-op vocabulary
-        // TODO(mode): 0x80 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x81 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x82 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x83 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x84 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x85 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x86 ADD RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0x87 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0x88 ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x89 ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x8A ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x8B ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x8C ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x8D ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x8E ADC RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0x8F ADC Register — awaiting AddrMode support
-        // TODO(mode): 0x90 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x91 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x92 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x93 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x94 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x95 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x96 SUB RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0x97 SUB Register — awaiting AddrMode support
-        // TODO(mode): 0x98 SBC Register — awaiting AddrMode support
-        // TODO(mode): 0x99 SBC Register — awaiting AddrMode support
-        // TODO(mode): 0x9A SBC Register — awaiting AddrMode support
-        // TODO(mode): 0x9B SBC Register — awaiting AddrMode support
-        // TODO(mode): 0x9C SBC Register — awaiting AddrMode support
-        // TODO(mode): 0x9D SBC Register — awaiting AddrMode support
-        // TODO(mode): 0x9E SBC RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0x9F SBC Register — awaiting AddrMode support
-        // TODO(mode): 0xA0 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA1 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA2 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA3 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA4 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA5 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA6 AND RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0xA7 AND Register — awaiting AddrMode support
-        // TODO(mode): 0xA8 XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xA9 XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xAA XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xAB XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xAC XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xAD XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xAE XOR RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0xAF XOR Register — awaiting AddrMode support
-        // TODO(mode): 0xB0 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB1 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB2 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB3 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB4 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB5 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB6 OR RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0xB7 OR Register — awaiting AddrMode support
-        // TODO(mode): 0xB8 CP Register — awaiting AddrMode support
-        // TODO(mode): 0xB9 CP Register — awaiting AddrMode support
-        // TODO(mode): 0xBA CP Register — awaiting AddrMode support
-        // TODO(mode): 0xBB CP Register — awaiting AddrMode support
-        // TODO(mode): 0xBC CP Register — awaiting AddrMode support
-        // TODO(mode): 0xBD CP Register — awaiting AddrMode support
-        // TODO(mode): 0xBE CP RegisterIndirect — awaiting AddrMode support
-        // TODO(mode): 0xBF CP Register — awaiting AddrMode support
-        // TODO(semantics): 0xC1 POP Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD1 POP Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE1 POP Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF1 POP Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC5 PUSH Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD5 PUSH Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE5 PUSH Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF5 PUSH Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC3 JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC9 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCD CALL ExtendedAddress — awaiting micro-op vocabulary
-        Insn(0xC6, "ADD", AddrMode.Immediate, [Adc()]),
-        Insn(0xCE, "ADC", AddrMode.Immediate, [Adc()]),
-        Insn(0xD6, "SUB", AddrMode.Immediate, [Sbc()]),
-        Insn(0xDE, "SBC", AddrMode.Immediate, [Sbc()]),
-        Insn(0xE6, "AND", AddrMode.Immediate, [And()]),
-        Insn(0xEE, "XOR", AddrMode.Immediate, [Eor()]),
-        Insn(0xF6, "OR", AddrMode.Immediate, [Ora()]),
-        Insn(0xFE, "CP", AddrMode.Immediate, [Compare("A")]),
+        Insn(0x77, "LD", AddrMode.RegisterIndirect, [Store("A")]),
+        Insn(0x78, "LD", AddrMode.Register, [Transfer("B","A")]),
+        Insn(0x79, "LD", AddrMode.Register, [Transfer("C","A")]),
+        Insn(0x7A, "LD", AddrMode.Register, [Transfer("D","A")]),
+        Insn(0x7B, "LD", AddrMode.Register, [Transfer("E","A")]),
+        Insn(0x7C, "LD", AddrMode.Register, [Transfer("H","A")]),
+        Insn(0x7D, "LD", AddrMode.Register, [Transfer("L","A")]),
+        Insn(0x7E, "LD", AddrMode.RegisterIndirect, [Load("A")]),
+        Insn(0x7F, "LD", AddrMode.Register, [Transfer("A","A")]),
+        Insn(0x80, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x81, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x82, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x83, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x84, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x85, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x86, "ADD", AddrMode.RegisterIndirect, [Add8()]),
+        Insn(0x87, "ADD", AddrMode.Register, [Add8()]),
+        Insn(0x88, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x89, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x8A, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x8B, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x8C, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x8D, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x8E, "ADC", AddrMode.RegisterIndirect, [Adc8()]),
+        Insn(0x8F, "ADC", AddrMode.Register, [Adc8()]),
+        Insn(0x90, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x91, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x92, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x93, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x94, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x95, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x96, "SUB", AddrMode.RegisterIndirect, [Sub8()]),
+        Insn(0x97, "SUB", AddrMode.Register, [Sub8()]),
+        Insn(0x98, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0x99, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0x9A, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0x9B, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0x9C, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0x9D, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0x9E, "SBC", AddrMode.RegisterIndirect, [Sbc8()]),
+        Insn(0x9F, "SBC", AddrMode.Register, [Sbc8()]),
+        Insn(0xA0, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA1, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA2, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA3, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA4, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA5, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA6, "AND", AddrMode.RegisterIndirect, [And8()]),
+        Insn(0xA7, "AND", AddrMode.Register, [And8()]),
+        Insn(0xA8, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xA9, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xAA, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xAB, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xAC, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xAD, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xAE, "XOR", AddrMode.RegisterIndirect, [Xor8()]),
+        Insn(0xAF, "XOR", AddrMode.Register, [Xor8()]),
+        Insn(0xB0, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB1, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB2, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB3, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB4, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB5, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB6, "OR", AddrMode.RegisterIndirect, [Or8()]),
+        Insn(0xB7, "OR", AddrMode.Register, [Or8()]),
+        Insn(0xB8, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xB9, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xBA, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xBB, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xBC, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xBD, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xBE, "CP", AddrMode.RegisterIndirect, [Cp8()]),
+        Insn(0xBF, "CP", AddrMode.Register, [Cp8()]),
+        Insn(0xC1, "POP", AddrMode.Register, [Pop16("BC")]),
+        Insn(0xD1, "POP", AddrMode.Register, [Pop16("DE")]),
+        Insn(0xE1, "POP", AddrMode.Register, [Pop16("HL")]),
+        Insn(0xF1, "POP", AddrMode.Register, [Pop16("AF")]),
+        Insn(0xC5, "PUSH", AddrMode.Register, [Push16("BC")]),
+        Insn(0xD5, "PUSH", AddrMode.Register, [Push16("DE")]),
+        Insn(0xE5, "PUSH", AddrMode.Register, [Push16("HL")]),
+        Insn(0xF5, "PUSH", AddrMode.Register, [Push16("AF")]),
+        Insn(0xC3, "JP", AddrMode.ExtendedAddress, [JumpAbs()]),
+        Insn(0xC9, "RET", AddrMode.Implied, [Ret()]),
+        Insn(0xCD, "CALL", AddrMode.ExtendedAddress, [CallAbs()]),
+        Insn(0xC6, "ADD", AddrMode.Immediate, [Add8()]),
+        Insn(0xCE, "ADC", AddrMode.Immediate, [Adc8()]),
+        Insn(0xD6, "SUB", AddrMode.Immediate, [Sub8()]),
+        Insn(0xDE, "SBC", AddrMode.Immediate, [Sbc8()]),
+        Insn(0xE6, "AND", AddrMode.Immediate, [And8()]),
+        Insn(0xEE, "XOR", AddrMode.Immediate, [Xor8()]),
+        Insn(0xF6, "OR", AddrMode.Immediate, [Or8()]),
+        Insn(0xFE, "CP", AddrMode.Immediate, [Cp8()]),
         Insn(0xD3, "OUT", AddrMode.IoPortImmediate, [PortOut("A")]),
         Insn(0xDB, "IN", AddrMode.IoPortImmediate, [PortIn("A")]),
-        // TODO(semantics): 0xD9 EXX Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE3 EX RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE9 JP RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0xEB EX Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF3 DI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xFB EI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF9 LD Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC0 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC8 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD0 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD8 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE0 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE8 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF0 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF8 RET Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC2 JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCA JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD2 JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xDA JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE2 JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xEA JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF2 JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xFA JP ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC4 CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCC CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD4 CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xDC CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE4 CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xEC CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF4 CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xFC CALL ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xC7 RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCF RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xD7 RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xDF RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xE7 RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xEF RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xF7 RST Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xFF RST Implied — awaiting micro-op vocabulary
+        Insn(0xD9, "EXX", AddrMode.Implied, [Exx()]),
+        Insn(0xE3, "EX", AddrMode.RegisterIndirect, [ExSpHl()]),
+        Insn(0xE9, "JP", AddrMode.RegisterIndirect, [JumpIndirect()]),
+        Insn(0xEB, "EX", AddrMode.Register, [ExDeHl()]),
+        Insn(0xF3, "DI", AddrMode.Implied, [Di()]),
+        Insn(0xFB, "EI", AddrMode.Implied, [Ei()]),
+        Insn(0xF9, "LD", AddrMode.Register, [Transfer("HL","SP")]),
+        Insn(0xC0, "RET", AddrMode.Implied, [RetCc(Flag.Z, false)]),
+        Insn(0xC8, "RET", AddrMode.Implied, [RetCc(Flag.Z, true)]),
+        Insn(0xD0, "RET", AddrMode.Implied, [RetCc(Flag.C, false)]),
+        Insn(0xD8, "RET", AddrMode.Implied, [RetCc(Flag.C, true)]),
+        Insn(0xE0, "RET", AddrMode.Implied, [RetCc(Flag.P, false)]),
+        Insn(0xE8, "RET", AddrMode.Implied, [RetCc(Flag.P, true)]),
+        Insn(0xF0, "RET", AddrMode.Implied, [RetCc(Flag.S, false)]),
+        Insn(0xF8, "RET", AddrMode.Implied, [RetCc(Flag.S, true)]),
+        Insn(0xC2, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.Z, false)]),
+        Insn(0xCA, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.Z, true)]),
+        Insn(0xD2, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.C, false)]),
+        Insn(0xDA, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.C, true)]),
+        Insn(0xE2, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.P, false)]),
+        Insn(0xEA, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.P, true)]),
+        Insn(0xF2, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.S, false)]),
+        Insn(0xFA, "JP", AddrMode.ExtendedAddress, [JumpIf(Flag.S, true)]),
+        Insn(0xC4, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.Z, false)]),
+        Insn(0xCC, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.Z, true)]),
+        Insn(0xD4, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.C, false)]),
+        Insn(0xDC, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.C, true)]),
+        Insn(0xE4, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.P, false)]),
+        Insn(0xEC, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.P, true)]),
+        Insn(0xF4, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.S, false)]),
+        Insn(0xFC, "CALL", AddrMode.ExtendedAddress, [CallIf(Flag.S, true)]),
+        Insn(0xC7, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xCF, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xD7, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xDF, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xE7, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xEF, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xF7, "RST", AddrMode.Implied, [Rst()]),
+        Insn(0xFF, "RST", AddrMode.Implied, [Rst()]),
         // TODO(semantics): 0xCB:0x00 RLC Bit — awaiting micro-op vocabulary
         // TODO(semantics): 0xCB:0x01 RLC Bit — awaiting micro-op vocabulary
         // TODO(semantics): 0xCB:0x02 RLC Bit — awaiting micro-op vocabulary
@@ -559,28 +561,28 @@ public static class Z80Spec
         // TODO(semantics): 0xCB:0xFD SET Bit — awaiting micro-op vocabulary
         // TODO(semantics): 0xCB:0xFE SET Bit — awaiting micro-op vocabulary
         // TODO(semantics): 0xCB:0xFF SET Bit — awaiting micro-op vocabulary
-        // TODO(mode): 0xED:0x40 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x48 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x50 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x58 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x60 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x68 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x78 IN Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x41 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x49 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x51 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x59 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x61 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x69 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x79 OUT Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x42 SBC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x52 SBC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x62 SBC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x72 SBC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x4A ADC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x5A ADC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x6A ADC Register — awaiting AddrMode support
-        // TODO(mode): 0xED:0x7A ADC Register — awaiting AddrMode support
+        // TODO(semantics): 0xED:0x40 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x48 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x50 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x58 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x60 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x68 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x78 IN Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x41 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x49 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x51 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x59 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x61 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x69 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x79 OUT Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x42 SBC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x52 SBC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x62 SBC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x72 SBC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x4A ADC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x5A ADC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x6A ADC Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xED:0x7A ADC Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0x43 LD ExtendedAddress — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0x53 LD ExtendedAddress — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0x63 LD ExtendedAddress — awaiting micro-op vocabulary
@@ -617,10 +619,10 @@ public static class Z80Spec
         // TODO(semantics): 0xED:0xB9 CPDR Implied — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0xBA INDR Implied — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0xBB OTDR Implied — awaiting micro-op vocabulary
-        // TODO(mode): 0xDD:0x09 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0xDD:0x19 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0xDD:0x29 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0xDD:0x39 ADD Register — awaiting AddrMode support
+        // TODO(semantics): 0xDD:0x09 ADD Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0x19 ADD Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0x29 ADD Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0x39 ADD Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x21 LD ImmediateExtended — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x22 LD ExtendedAddress — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x23 INC Register — awaiting micro-op vocabulary
@@ -648,18 +650,18 @@ public static class Z80Spec
         // TODO(semantics): 0xDD:0x74 LD Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x75 LD Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x77 LD Indexed — awaiting micro-op vocabulary
-        // TODO(mode): 0xDD:0x86 ADD Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0x8E ADC Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0x96 SUB Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0x9E SBC Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0xA6 AND Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0xAE XOR Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0xB6 OR Indexed — awaiting AddrMode support
-        // TODO(mode): 0xDD:0xBE CP Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x09 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x19 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x29 ADD Register — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x39 ADD Register — awaiting AddrMode support
+        // TODO(semantics): 0xDD:0x86 ADD Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0x8E ADC Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0x96 SUB Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0x9E SBC Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0xA6 AND Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0xAE XOR Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0xB6 OR Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xDD:0xBE CP Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x09 ADD Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x19 ADD Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x29 ADD Register — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x39 ADD Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xFD:0x21 LD ImmediateExtended — awaiting micro-op vocabulary
         // TODO(semantics): 0xFD:0x22 LD ExtendedAddress — awaiting micro-op vocabulary
         // TODO(semantics): 0xFD:0x23 INC Register — awaiting micro-op vocabulary
@@ -687,14 +689,14 @@ public static class Z80Spec
         // TODO(semantics): 0xFD:0x74 LD Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xFD:0x75 LD Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xFD:0x77 LD Indexed — awaiting micro-op vocabulary
-        // TODO(mode): 0xFD:0x86 ADD Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x8E ADC Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x96 SUB Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0x9E SBC Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0xA6 AND Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0xAE XOR Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0xB6 OR Indexed — awaiting AddrMode support
-        // TODO(mode): 0xFD:0xBE CP Indexed — awaiting AddrMode support
+        // TODO(semantics): 0xFD:0x86 ADD Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x8E ADC Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x96 SUB Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0x9E SBC Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0xA6 AND Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0xAE XOR Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0xB6 OR Indexed — awaiting micro-op vocabulary
+        // TODO(semantics): 0xFD:0xBE CP Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xDDCB:0x06 RLC Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xDDCB:0x0E RRC Indexed — awaiting micro-op vocabulary
         // TODO(semantics): 0xDDCB:0x16 RL Indexed — awaiting micro-op vocabulary

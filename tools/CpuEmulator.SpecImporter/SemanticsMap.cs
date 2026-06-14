@@ -15,6 +15,9 @@ public sealed record RegisterConfig(
     string? HighHalf = null,   // M3.4a: for a 16-bit pair VIEW, the 8-bit high-half register name
     string? LowHalf  = null);  // M3.4a: the 8-bit low-half register name
 
+/// <summary>M3.4a: one flag name → hardware bit position in the status-flag layout.</summary>
+public sealed record FlagBitConfig(string Name, int Bit);
+
 /// <summary>
 /// The fully loaded semantics map: config (architecture, namespace, class, registers)
 /// plus the mnemonic → ops-text dictionary.
@@ -25,6 +28,9 @@ public sealed class SemanticsMap
     public string Namespace     { get; init; } = "";
     public string SpecClassName { get; init; } = "";
     public RegisterConfig[]            Registers { get; init; } = [];
+    /// <summary>M3.4a: the optional status-flag bit layout (the Z80's S=7..C=0). Empty ⇒ the
+    /// FlagBit enum-fallback (the 6502 — no FlagLayout emitted).</summary>
+    public FlagBitConfig[]             Flags { get; init; } = [];
     public IReadOnlyDictionary<string, string> Mnemonics { get; init; } =
         new Dictionary<string, string>();
 
@@ -123,7 +129,15 @@ public sealed class SemanticsMap
         public string Namespace     { get; set; } = "";
         public string SpecClassName { get; set; } = "";
         public RegisterConfigDto[] Registers { get; set; } = [];
+        public FlagBitConfigDto[]  Flags { get; set; } = [];   // M3.4a (optional)
         public Dictionary<string, string> Mnemonics { get; set; } = [];
+    }
+
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    private sealed class FlagBitConfigDto
+    {
+        public string Name { get; set; } = "";
+        public int    Bit  { get; set; }
     }
 
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -185,6 +199,7 @@ public sealed class SemanticsMap
             Namespace     = dto.Namespace,
             SpecClassName = dto.SpecClassName,
             Registers     = dto.Registers.Select(r => new RegisterConfig(r.Name, r.Bits, r.Role, r.HighHalf, r.LowHalf)).ToArray(),
+            Flags         = dto.Flags.Select(b => new FlagBitConfig(b.Name, b.Bit)).ToArray(),
             Mnemonics     = dto.Mnemonics,
         };
     }

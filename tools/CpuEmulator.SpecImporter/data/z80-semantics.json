@@ -34,19 +34,19 @@
     { "name": "DE_", "bits": 16, "highHalf": "D_", "lowHalf": "E_" },
     { "name": "HL_", "bits": 16, "highHalf": "H_", "lowHalf": "L_" }
   ],
+  "flags": [
+    { "name": "S", "bit": 7 },
+    { "name": "Z", "bit": 6 },
+    { "name": "Y", "bit": 5 },
+    { "name": "H", "bit": 4 },
+    { "name": "X", "bit": 3 },
+    { "name": "P", "bit": 2 },
+    { "name": "N", "bit": 1 },
+    { "name": "C", "bit": 0 }
+  ],
   "mnemonics": {
     "NOP":  "[]",
     "HALT": "[Halt()]",
-    "ADD":  "[Adc()]",
-    "ADC":  "[Adc()]",
-    "SUB":  "[Sbc()]",
-    "SBC":  "[Sbc()]",
-    "AND":  "[And()]",
-    "OR":   "[Ora()]",
-    "XOR":  "[Eor()]",
-    "CP":   "[Compare(\"A\")]",
-    "IN":   "[PortIn(\"A\")]",
-    "OUT":  "[PortOut(\"A\")]",
     "NEG":  "[]"
   }
 }

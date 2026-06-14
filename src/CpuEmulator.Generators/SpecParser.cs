@@ -82,6 +82,58 @@ internal static class SpecParser
         ["SetParity"] = new[] { ArgKind.Reg },
         ["SetXY"] = new[] { ArgKind.Reg },
         ["SetAddSub"] = new[] { ArgKind.Bool },
+        // ── M3.4a Z80 base-plane micro-ops ──
+        // 8-bit flag-correct ALU — A is implicit; the SOURCE is resolved by the mode (a register in
+        // Register mode, (HL) in RegisterIndirect, n in Immediate). Arity 0.
+        ["Add8"] = System.Array.Empty<ArgKind>(),
+        ["Adc8"] = System.Array.Empty<ArgKind>(),
+        ["Sub8"] = System.Array.Empty<ArgKind>(),
+        ["Sbc8"] = System.Array.Empty<ArgKind>(),
+        ["And8"] = System.Array.Empty<ArgKind>(),
+        ["Or8"] = System.Array.Empty<ArgKind>(),
+        ["Xor8"] = System.Array.Empty<ArgKind>(),
+        ["Cp8"] = System.Array.Empty<ArgKind>(),
+        // 8-bit INC/DEC — the target register (Register), or (HL) implied by RegisterIndirect (no arg).
+        ["IncReg"] = new[] { ArgKind.Reg },
+        ["DecReg"] = new[] { ArgKind.Reg },
+        ["IncMem8"] = System.Array.Empty<ArgKind>(),   // INC (HL) — target is the pair-EA byte
+        ["DecMem8"] = System.Array.Empty<ArgKind>(),   // DEC (HL)
+        // 16-bit ALU.
+        ["Add16"] = new[] { ArgKind.Reg, ArgKind.Reg },  // Add16("HL","BC")
+        ["Inc16"] = new[] { ArgKind.Reg },
+        ["Dec16"] = new[] { ArgKind.Reg },
+        // 16-bit LD (Load16 reg ← operand; Store16 reg → memory; LoadMem16 reg ← (nn)).
+        ["Load16"] = new[] { ArgKind.Reg },      // LD rr,nn (ImmediateExtended)
+        ["Store16"] = new[] { ArgKind.Reg },     // LD (nn),rr (ExtendedAddress)
+        ["LoadMem16"] = new[] { ArgKind.Reg },   // LD rr,(nn) (ExtendedAddress)
+        ["StoreImm8"] = System.Array.Empty<ArgKind>(),   // LD (HL),n
+        // 16-bit pair stack.
+        ["Push16"] = new[] { ArgKind.Reg },
+        ["Pop16"] = new[] { ArgKind.Reg },
+        // Exchange.
+        ["ExDeHl"] = System.Array.Empty<ArgKind>(),
+        ["ExAfAf"] = System.Array.Empty<ArgKind>(),
+        ["Exx"] = System.Array.Empty<ArgKind>(),
+        ["ExSpHl"] = System.Array.Empty<ArgKind>(),
+        // Conditional + relative flow. cc is a Flag + bool sense pair (like BranchIf).
+        ["JumpIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["CallIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["RetCc"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["RelJump"] = System.Array.Empty<ArgKind>(),
+        ["RelJumpIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["Djnz"] = new[] { ArgKind.Reg },         // Djnz("B")
+        ["Rst"] = System.Array.Empty<ArgKind>(),  // vector derived from the opcode (opcode & 0x38)
+        ["JumpIndirect"] = System.Array.Empty<ArgKind>(),  // JP (HL) — PC = HL
+        ["JumpAbs"] = System.Array.Empty<ArgKind>(),       // JP nn — Z80 16-bit absolute jump
+        ["CallAbs"] = System.Array.Empty<ArgKind>(),       // CALL nn — Z80 unconditional call
+        ["Ret"] = System.Array.Empty<ArgKind>(),           // RET — Z80 unconditional return
+        // Misc.
+        ["Daa"] = System.Array.Empty<ArgKind>(),
+        ["Cpl"] = System.Array.Empty<ArgKind>(),
+        ["Scf"] = System.Array.Empty<ArgKind>(),
+        ["Ccf"] = System.Array.Empty<ArgKind>(),
+        ["Di"] = System.Array.Empty<ArgKind>(),
+        ["Ei"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -91,6 +143,8 @@ internal static class SpecParser
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
+        // M3.4a (additive): the Z80 register-shape modes.
+        "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
     };
 
     /// <summary>Valid Flag enum members for BranchIf/SetFlag/cc args (CPUGEN006 for anything else).
@@ -152,6 +206,58 @@ internal static class SpecParser
     private static readonly HashSet<string> s_flowOpKinds = new(System.StringComparer.Ordinal)
     {
         "Jsr", "Rts", "Brk", "Rti",
+    };
+
+    // ── M3.4a Z80 op-kind class sets (additive; the 6502 names none) ──
+    private static readonly HashSet<string> s_z80AluOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Add8", "Adc8", "Sub8", "Sbc8", "And8", "Or8", "Xor8", "Cp8",
+        "IncReg", "DecReg", "IncMem8", "DecMem8",
+        "Add16", "Inc16", "Dec16",
+    };
+
+    private static readonly HashSet<string> s_z80LdOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Load16", "Store16", "LoadMem16", "StoreImm8",
+    };
+
+    private static readonly HashSet<string> s_z80StackOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Push16", "Pop16",
+    };
+
+    private static readonly HashSet<string> s_z80ExchangeOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "ExDeHl", "ExAfAf", "Exx", "ExSpHl",
+    };
+
+    private static readonly HashSet<string> s_z80FlowOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "JumpIf", "CallIf", "RetCc", "RelJump", "RelJumpIf", "Djnz", "Rst", "JumpIndirect",
+        "JumpAbs", "CallAbs", "Ret",
+    };
+
+    private static readonly HashSet<string> s_z80MiscOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Daa", "Cpl", "Scf", "Ccf", "Di", "Ei",
+    };
+
+    // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
+    // 16-bit ALU is Register only. INC/DEC (HL) is RegisterIndirect.
+    private static readonly HashSet<string> s_z80AluModes = new(System.StringComparer.Ordinal)
+    {
+        "Register", "RegisterIndirect", "Immediate",
+    };
+
+    private static readonly HashSet<string> s_z80LdModes = new(System.StringComparer.Ordinal)
+    {
+        "ImmediateExtended", "ExtendedAddress", "RegisterIndirect",
+        "Immediate",   // LD (HL),n — StoreImm8 reads the immediate, writes to (HL)
+    };
+
+    private static readonly HashSet<string> s_z80FlowModes = new(System.StringComparer.Ordinal)
+    {
+        "ExtendedAddress", "RelativeJump", "Implied", "RegisterIndirect",
     };
 
     // Per-class allowed modes: load/alu share the same 9 modes; rmw has its own 5.
@@ -753,11 +859,14 @@ internal static class SpecParser
 
         // Stack-touching classes need a StackPointer-role register — the emitter writes its
         // NAME into the templates; without it the generated code would not compile (CS0103).
-        if (instructionClass is InstructionClass.Stack or InstructionClass.Flow && !hasStackPointer)
+        // M3.4a: the Z80 stack/flow/exchange classes also push/pop or exchange via SP.
+        bool touchesStack = instructionClass is InstructionClass.Stack or InstructionClass.Flow
+            or InstructionClass.Z80Stack or InstructionClass.Z80Flow or InstructionClass.Z80Exchange;
+        if (touchesStack && !hasStackPointer)
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
                 location, mnemonic,
-                $"{(instructionClass == InstructionClass.Stack ? "stack" : "flow")} class requires a StackPointer-role register"));
+                $"{instructionClass.ToString().ToLowerInvariant()} class requires a StackPointer-role register"));
             return false;
         }
 
@@ -765,9 +874,11 @@ internal static class SpecParser
         // PushP/PullP move P itself). BRK/RTI also touch P: BRK stacks P|0x30 and sets I,
         // RTI restores P from the stack — the emitter writes the Status NAME into both
         // templates, so a Status-role register is mandatory (CS0103 otherwise).
+        // M3.4a: the Z80 ALU + misc (DAA/SCF/CCF/CPL) classes write the Status register too.
         bool flowTouchesStatus = instructionClass == InstructionClass.Flow
             && firstOpKind is "Brk" or "Rti";
         if ((instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
+                or InstructionClass.Z80Alu or InstructionClass.Z80Misc
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -889,6 +1000,40 @@ internal static class SpecParser
             return InstructionClass.Port;
         }
 
+        // ── M3.4a Z80 classes (additive — the 6502 names none of these op kinds) ──
+        // Each Z80 class is a single bespoke op (the flag/EA logic is in the emitter body). No
+        // trailing register ops (the flag-setting is inline in the ALU/INC arm, not composed here).
+        if (s_z80AluOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 ALU class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Alu;
+        }
+        if (s_z80LdOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 16-bit LD class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Ld;
+        }
+        if (s_z80StackOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 stack class must contain exactly one op (Push16/Pop16)"; return null; }
+            return InstructionClass.Z80Stack;
+        }
+        if (s_z80ExchangeOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 exchange class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Exchange;
+        }
+        if (s_z80FlowOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 flow class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Flow;
+        }
+        if (s_z80MiscOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 misc class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Misc;
+        }
+
         // All must be register ops
         foreach (var op in ops)
         {
@@ -913,35 +1058,40 @@ internal static class SpecParser
     {
         return opClass switch
         {
-            // register class: Implied only
+            // register class: Implied (6502) OR the Z80 register-shape modes (LD r,r' is Register;
+            // LD SP,HL is Register). Additive — the 6502 register-class rows stay Implied.
             InstructionClass.Register =>
-                mode == "Implied" ? null
-                : "register-class ops (Transfer/Increment/SetNZ/Decrement/SetFlag or empty) require Implied mode",
+                mode is "Implied" or "Register" ? null
+                : "register-class ops require Implied (6502) or Register (Z80 LD r,r') mode",
 
-            // load class: Immediate + all 8 memory modes (9 total)
+            // load class: Immediate + all 8 6502 memory modes (9 total), PLUS the Z80 register-shape
+            // load modes (RegisterIndirect for LD r,(HL); ExtendedAddress for LD A,(nn); Register for
+            // LD r,r' authored as Load — though Z80 LD r,r' uses Transfer/Register class). Additive.
             InstructionClass.Load =>
-                s_loadAluModes.Contains(mode) ? null
-                : "Load requires a memory or immediate addressing mode",
+                s_loadAluModes.Contains(mode) || mode is "RegisterIndirect" or "ExtendedAddress" or "Register" ? null
+                : "Load requires a memory/immediate or Z80 register-shape addressing mode",
 
-            // alu class: same 9 modes as load
+            // alu class: same 9 modes as load (6502 — UNCHANGED).
             InstructionClass.Alu =>
                 s_loadAluModes.Contains(mode) ? null
                 : "Alu requires a memory or immediate addressing mode",
 
-            // store class: 8 memory modes (no Immediate)
+            // store class: 8 6502 memory modes (no Immediate), PLUS the Z80 RegisterIndirect (LD (HL),r;
+            // LD (BC),A) and ExtendedAddress (LD (nn),A). Additive — the 6502 store rows unchanged.
             InstructionClass.Store =>
-                s_storeModes.Contains(mode) ? null
-                : "Store requires a memory addressing mode (ZeroPage/Absolute/Indirect families)",
+                s_storeModes.Contains(mode) || mode is "RegisterIndirect" or "ExtendedAddress" ? null
+                : "Store requires a 6502 memory mode or a Z80 register-shape store mode",
 
             // rmw class: ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator
             InstructionClass.Rmw =>
                 s_rmwModes.Contains(mode) ? null
                 : "Rmw requires ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator mode",
 
-            // jump class: Absolute and Indirect
+            // jump class: Absolute/Indirect (6502) OR the Z80 ExtendedAddress (JP nn) /
+            // RegisterIndirect (JP (HL)). Additive — the 6502 jump rows stay Absolute/Indirect.
             InstructionClass.Jump =>
-                (mode == "Absolute" || mode == "Indirect") ? null
-                : "Jump requires Absolute or Indirect mode",
+                mode is "Absolute" or "Indirect" or "ExtendedAddress" or "RegisterIndirect" ? null
+                : "Jump requires Absolute/Indirect (6502) or ExtendedAddress/RegisterIndirect (Z80) mode",
 
             // branch class: Relative only
             InstructionClass.Branch =>
@@ -953,10 +1103,11 @@ internal static class SpecParser
                 mode == "Implied" ? null
                 : "stack class (Push/Pull/PushP/PullP) requires Implied mode",
 
-            // flow class: per-OP matrix — Jsr requires Absolute; Rts/Brk/Rti require Implied.
+            // flow class: per-OP matrix — Jsr requires Absolute (6502) or ExtendedAddress (Z80 CALL nn);
+            // Rts requires Implied (6502 RTS / Z80 RET); Brk/Rti require Implied.
             // ClassifyOps guarantees flow has exactly one op of kind Jsr/Rts/Brk/Rti.
             InstructionClass.Flow when firstOpKind == "Jsr" =>
-                mode == "Absolute" ? null : "Jsr requires Absolute mode",
+                mode is "Absolute" or "ExtendedAddress" ? null : "Jsr requires Absolute (6502) or ExtendedAddress (Z80 CALL) mode",
             InstructionClass.Flow when firstOpKind == "Brk" =>
                 mode == "Implied" ? null : "Brk requires Implied mode",
             InstructionClass.Flow when firstOpKind == "Rti" =>
@@ -969,6 +1120,24 @@ internal static class SpecParser
             InstructionClass.Port =>
                 s_portModes.Contains(mode) ? null
                 : "port class (PortIn/PortOut) requires IoPortImmediate or IoPortIndirect mode",
+
+            // ── M3.4a Z80 classes ──
+            InstructionClass.Z80Alu =>
+                s_z80AluModes.Contains(mode) ? null
+                : "Z80 ALU class requires Register/RegisterIndirect/Immediate mode",
+            InstructionClass.Z80Ld =>
+                s_z80LdModes.Contains(mode) ? null
+                : "Z80 16-bit LD class requires ImmediateExtended/ExtendedAddress/RegisterIndirect mode",
+            InstructionClass.Z80Stack =>
+                mode == "Register" ? null : "Z80 stack class (Push16/Pop16) requires Register mode",
+            InstructionClass.Z80Exchange =>
+                mode is "Implied" or "Register" or "RegisterIndirect" ? null
+                : "Z80 exchange class requires Implied/Register/RegisterIndirect mode",
+            InstructionClass.Z80Flow =>
+                s_z80FlowModes.Contains(mode) ? null
+                : "Z80 flow class requires ExtendedAddress/RelativeJump/Implied/RegisterIndirect mode",
+            InstructionClass.Z80Misc =>
+                mode == "Implied" ? null : "Z80 misc class (DAA/CPL/SCF/CCF/DI/EI) requires Implied mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

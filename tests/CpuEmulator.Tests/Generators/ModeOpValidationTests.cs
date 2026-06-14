@@ -471,7 +471,9 @@ public class ModeOpValidationTests
             """));
 
         var diag = Assert.Single(result.GeneratorDiagnostics, d => d.Id == "CPUGEN010");
-        Assert.Contains("Jsr requires Absolute mode", diag.GetMessage());
+        // M3.4a: Jsr now also accepts the Z80 ExtendedAddress (CALL nn); Implied is still rejected.
+        // The message text grew to name both legal modes; the BEHAVIOR (rejecting Implied) is unchanged.
+        Assert.Contains("Jsr requires Absolute", diag.GetMessage());
     }
 
     [Fact]

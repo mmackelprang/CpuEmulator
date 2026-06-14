@@ -55,3 +55,55 @@ public sealed record SetSZOp(string Source) : Op;      // S = src bit7; Z = (src
 public sealed record SetParityOp(string Source) : Op;  // P/V = even parity of src (logic ops, LD A,I/R)
 public sealed record SetXYOp(string Source) : Op;      // X = src bit3; Y = src bit5 (the undocumented copies)
 public sealed record SetAddSubOp(bool Subtract) : Op;  // N = 0 (add) or 1 (subtract)
+
+// ── M3.4a Z80 base-plane micro-ops (additive; the 6502 uses none) ───────────────────────────
+// 8-bit flag-correct ALU — A-implicit; the source is resolved by the addressing mode.
+public sealed record Add8Op : Op;
+public sealed record Adc8Op : Op;
+public sealed record Sub8Op : Op;
+public sealed record Sbc8Op : Op;
+public sealed record And8Op : Op;
+public sealed record Or8Op : Op;
+public sealed record Xor8Op : Op;
+public sealed record Cp8Op : Op;
+// 8-bit INC/DEC (C preserved).
+public sealed record IncRegOp(string Target) : Op;
+public sealed record DecRegOp(string Target) : Op;
+public sealed record IncMem8Op : Op;   // INC (HL)
+public sealed record DecMem8Op : Op;   // DEC (HL)
+// 16-bit ALU.
+public sealed record Add16Op(string Target, string Source) : Op;  // ADD HL,rr
+public sealed record Inc16Op(string Target) : Op;                 // INC rr (no flags)
+public sealed record Dec16Op(string Target) : Op;                 // DEC rr (no flags)
+// 16-bit LD.
+public sealed record Load16Op(string Target) : Op;     // LD rr,nn
+public sealed record Store16Op(string Source) : Op;    // LD (nn),rr
+public sealed record LoadMem16Op(string Target) : Op;  // LD rr,(nn)
+public sealed record StoreImm8Op : Op;                 // LD (HL),n
+// Pair stack.
+public sealed record Push16Op(string Pair) : Op;
+public sealed record Pop16Op(string Pair) : Op;
+// Exchange.
+public sealed record ExDeHlOp : Op;
+public sealed record ExAfAfOp : Op;
+public sealed record ExxOp : Op;
+public sealed record ExSpHlOp : Op;
+// Flow (conditional + relative). cc = Flag + sense pair.
+public sealed record JumpIfOp(Flag Cc, bool Sense) : Op;
+public sealed record CallIfOp(Flag Cc, bool Sense) : Op;
+public sealed record RetCcOp(Flag Cc, bool Sense) : Op;
+public sealed record RelJumpOp : Op;
+public sealed record RelJumpIfOp(Flag Cc, bool Sense) : Op;
+public sealed record DjnzOp(string Counter) : Op;
+public sealed record RstOp : Op;            // RST n — vector from the opcode
+public sealed record JumpIndirectOp : Op;   // JP (HL)
+public sealed record JumpAbsOp : Op;        // JP nn
+public sealed record CallAbsOp : Op;        // CALL nn
+public sealed record RetOp : Op;            // RET
+// Misc.
+public sealed record DaaOp : Op;
+public sealed record CplOp : Op;
+public sealed record ScfOp : Op;
+public sealed record CcfOp : Op;
+public sealed record DiOp : Op;
+public sealed record EiOp : Op;

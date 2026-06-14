@@ -14,6 +14,13 @@ internal enum InstructionClass
     Stack,  // Task 7: PHA/PLA/PHP/PLP
     Flow,   // Task 7: JSR/RTS
     Port,   // M3.2: IN/OUT — an Io-bus access (PortIn/PortOut); the 6502 uses none
+    // ── M3.4a (Z80 base plane — additive; the 6502 uses none of these) ──
+    Z80Alu,       // 8-bit flag-correct ALU (Add8..Cp8), INC/DEC (IncReg/DecReg), 16-bit (Add16/Inc16/Dec16)
+    Z80Ld,        // 16-bit LD (Load16/Store16 — LD rr,nn ; LD (nn),HL ; LD HL,(nn))
+    Z80Stack,     // 16-bit pair PUSH/POP (Push16/Pop16)
+    Z80Exchange,  // EX DE,HL / EX AF,AF' / EXX / EX (SP),HL
+    Z80Flow,      // conditional+relative flow: JumpIf/CallIf/RetCc/Rst/RelJump/RelJumpIf/Djnz
+    Z80Misc,      // DAA/CPL/SCF/CCF/DI/EI — Implied register-class ops with bespoke flag effects
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502
