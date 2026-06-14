@@ -166,7 +166,13 @@ change alone keeps everything green; no DD/FD opcode is live yet.
 **Estimated size:** large — this is the ADR Decision 1 reshaping. If the `PrefixByte` extension and the
 decode-walk emit prove large, split into e-1a (AddrMode + the EA helper) and e-1b (the compound decoder).
 
-### M3.4e-2 — DD/FD core (the (IX+d) re-interpretation + the IX/IY 16-bit + undoc IXh/IXl ops)
+### M3.4e-2 — DD/FD core (the (IX+d) re-interpretation + the IX/IY 16-bit + undoc IXh/IXl ops) — ✅ DONE (2026-06-14)
+
+> **SHIPPED (2026-06-14): the DD/FD CORE is TomHarte-green — 252 DD + 252 FD opcodes (504,000 cases, 0
+> failures) at the universal Q/WZ/IM + IX/IY bar. The 213+213 rows were DERIVED (Z80DdFdSemantics); the
+> (IX+d)/(IY+d) indexed memory ops, the IX/IY 16-bit ops, the undoc IXh/IXl/IYh/IYl 8-bit ops, and the inert
+> DD/FD prefix are all live; DDCB/FDCB compound = e-3, JIT-IL = M3.5, 6502 byte-identical. Closeout in the
+> execution plan below.**
 
 > **EXPANDED (2026-06-14): this section is now detailed in a full execution-ready task-by-task plan**
 > (the M3.4c/d + e-1a/e-1b depth): `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e2-ddfd-core.md`. That doc

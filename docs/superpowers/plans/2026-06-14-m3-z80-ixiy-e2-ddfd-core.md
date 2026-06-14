@@ -1750,45 +1750,77 @@ EOF
   model. All three are vector-gated at Task 8 and pinned at Task 0; none blocks the plan, but (a) is the one
   most likely to need an emit-arm shape change. ✓
 
-## Closeout (filled at completion)
+## Closeout (COMPLETE — 2026-06-14)
 
 | Commit | Content | Suite |
 |---|---|---|
-| (Task 1) | DD/FD indexed vocabulary + Z80Indexed class + Indexed disassembler arm | green |
-| (Task 2) | LD r,(IX+d)/(IX+d),r/(IX+d),n + EmitZ80IndexedEa wiring + Z80DdFdSemantics | green |
-| (Task 3) | ALU A,(IX+d) | green |
-| (Task 4) | INC/DEC (IX+d) + the R-bump fix (G3) | green |
-| (Task 5) | IX/IY 16-bit + undoc IXh/IXl base-arm reuse + EX/JP generalization (G7) | green |
-| (Task 6) | derivation truth table + the 252+252 F1 cross-check (drives Task 7) | green (after T7) |
-| (Task 7) | derive 213+213 rows + declare DD/FD + route + regen | green |
-| (Task 8) | DD/FD core TomHarte-green + universal regression + closeout | green |
+| `37de696` (Task 1) | DD/FD indexed vocabulary + Z80Indexed class + Indexed disassembler arm | green (2324) |
+| `1ff3f70` (Task 2) | LD r,(IX+d)/(IX+d),r/(IX+d),n + EmitZ80IndexedEa wiring + Z80DdFdSemantics | green |
+| `e760258` (Task 3) | ALU A,(IX+d) | green |
+| `c796515` (Task 4) | INC/DEC (IX+d) + the R-bump confirm (G3) | green |
+| `54b6a6a` (Task 5) | IX/IY 16-bit + undoc IXh/IXl base-arm reuse + ADD/EX (SP)/JP pair-parameterization (G7) | green (2345) |
+| `72b3a69` (Task 6) | derivation truth table (the F1 count cross-check folded into Task 7) | green |
+| `2fbbfc5` (Task 7) | derive 213+213 rows + route Z80DdFdSemantics + regen Z80Spec.cs (252+252 live) | green |
+| (Task 8) | DD/FD core TomHarte-green + the +3 prefix-cycle surcharge + the prefix-Q-reset + universal regression + closeout | green |
 
 | Closeout metric | Value |
 |---|---|
-| Baseline test count (Task 0) | _(pin — e-1b closed at 2321)_ |
-| Final test count | _(pin)_ |
-| DD-core opcodes made live | _(target 252 — probe == emitted == covered)_ |
-| FD-core opcodes made live | _(target 252)_ |
-| DD/FD-core TomHarte (full UAT) | _(target 504 × 1000 = 504,000 cases, 0 failures — registers incl. IX/IY, F's X/Y, I/R, IM, IFF, WZ, Q, RAM, the per-T-state bus trace)_ |
-| Rows derived (D3) | _(target 213 DD + 213 FD = 426; total DD/FD core 252 + 252)_ |
-| `(IX+d)` WZ = EA modeled? | _(YES — confirmed dd 7e)_ |
-| IX/IY 16-bit WZ rules? | _(ADD IX,rp = IX+1; LD (nn),IX/IX,(nn) = nn+1; EX (SP),IX = new IX; JP/LD IX,nn/INC IX = no WZ)_ |
-| Undoc IXh/IXl ops? | _(YES — in scope, D7)_ |
-| Inert DD/FD prefix? | _(YES — base op, R+2, D8)_ |
-| Indexed disassembler arm? | _(YES — added, G1)_ |
-| R bumps by 2 on DD/FD? | _(YES — G3 resolved)_ |
-| Base + CB + ED + block re-validated? | _(YES — full Z80 UAT 0 failures at the universal Q/WZ/IM + IX/IY bar)_ |
-| 6502 un-regressed? | _(YES — RegeneratedSpecTests byte-identity + the 6502/Klaus sweep)_ |
-| Any 6502 file changed? | _(NONE — additive)_ |
-| `-warnaserror` | _(clean)_ |
-| Still deferred | DDCB/FDCB compound (M3.4e-3); the redundant-prefix chains (D5; unverified-pending); JIT-IL (M3.5, D4); interrupt servicing + ZEXALL (M3.5) |
+| Baseline test count (Task 0) | 2321 (e-1b close-state, confirmed) |
+| Final test count | 2886 (0 failures, 0 skips) — +565 over the 2321 baseline (the synthetic emit/derivation tests + the 504 DD/FD TomHarte theory members) |
+| DD-core opcodes made live | 252 (probe == emitted == covered) |
+| FD-core opcodes made live | 252 (probe == emitted == covered) |
+| DD/FD-core TomHarte (full UAT) | **504 opcodes × 1000 = 504,000 cases, 0 failures** — registers incl. IX/IY, F's X/Y, I/R, IM, IFF, WZ, Q, RAM, the per-T-state bus trace (`CPUEMULATOR_UAT=full`; confirmed "ran 1000" per opcode) |
+| Rows derived (D3) | 213 DD + 213 FD = 426 (total DD/FD core 252 + 252; the dataset's 39+39 documented rows kept) |
+| `(IX+d)` WZ = EA modeled? | YES (confirmed dd 7e: IX=0x2936 d=0x29 WZ=0x295F) |
+| IX/IY 16-bit WZ rules? | ADD IX,rp = pre-op IX+1; LD (nn),IX / LD IX,(nn) = nn+1; EX (SP),IX = new IX; JP (IX) / LD IX,nn / INC/DEC IX / LD SP,IX = no WZ — all vector-confirmed |
+| Undoc IXh/IXl ops? | YES (D7 — INC/DEC/LD/ALU on IXh/IXl; the half-ALU source via prefix-aware SourceRegFromOpcode) |
+| Inert DD/FD prefix? | YES (D8 — base op + the +4 prefix M1; R+2; SCF/CCF see Q=0 from the prefix M1) |
+| Indexed disassembler arm? | YES (added, G1) |
+| R bumps by 2 on DD/FD? | YES — via KeyShape.PrefixedOpcode (the decode walk consumes prefix+opcode = 2 units → OnInstructionFetched(2)); NO Z80Cpu.cs change needed |
+| Base + CB + ED + block re-validated? | YES — full Z80 UAT (base+CB+ED+block+DD+FD) 0 failures at the universal Q/WZ/IM + IX/IY bar |
+| 6502 un-regressed? | YES — RegeneratedSpecTests byte-identity green; no 6502 file touched |
+| Any 6502 file changed? | NONE — purely additive |
+| `-warnaserror` | clean |
+| Still deferred | DDCB/FDCB compound (M3.4e-3 — 62 // TODO rows); the redundant-prefix chains (D5; unverified-pending); JIT-IL (M3.5, D4 — DD/FD emit as JIT fallbacks); interrupt servicing + ZEXALL (M3.5) |
 | Recommended next chunk | M3.4e-3 — the DDCB/FDCB compound bit/rotate/shift on `(IX+d)` (+ the undoc store-copy forms) |
 
-### Deviations from the plan's literal code (to be filled at completion — honest record)
+### Deviations from the plan's literal code (honest record)
 
-_(record any vector-forced corrections: the undoc-half ALU source shape; the G5 length resolution; the G3
-R-bump fix location; the G7 EX/JP generalization shape; any WZ rule the vector corrected; the synthetic
-fixture `IAddressSpace _bus` adaptation per M3.4d deviation #1.)_
+- **G3 (R-bump) needed NO `Z80Cpu.cs` change.** The plan flagged a likely `OnInstructionFetched` fix. Recon
+  proved the structured decode walk computes `__r.Length` by CONSUMPTION (`UnitsConsumed × UnitBytes`), and a
+  DD/FD-core row is `KeyShape.PrefixedOpcode` → the walk consumes prefix+opcode = 2 units → R+2 regardless of
+  the displacement/immediate operand bytes the body reads. The R model was already correct; the fix the plan
+  reserved was unnecessary.
+- **G5 (`LD (IX+d),n` length) resolved by the decode architecture, not a length override.** `ModeLength("Indexed")=3`
+  is NOT used by the structured walk (it computes length by consumption = 2 key bytes); the body reads d THEN n
+  as operand reads, advancing PC to +4. No special-casing of 0x36 was needed.
+- **The undoc-half ALU source: handled by a prefix-aware `SourceRegFromOpcode`, NOT an op-text change.** The
+  base `Add8()` carries no source name (the arm resolves it from `opcode & 7`), so textual substitution could
+  not rewrite it. Instead `SourceRegFromOpcode` maps the H/L source slot (4/5) to IXh/IXl/IYh/IYl for a
+  DD/FD-prefixed row (reading the prefix from `insn.OperationKey`). This keeps the derivation emitting the
+  unchanged base ALU op-text and is the cleanest shape (no new op kind, no arity change).
+- **G7 (EX (SP)/JP/ADD pair) parameterized on the pair, NOT a new op kind.** `EmitZ80Add16` now writes
+  `Args[0]` (HL default; IX/IY for DD/FD); `EX (SP),pair` and `JP (pair)` read the pair from the OperationKey
+  prefix (HL when unprefixed → base output byte-identical). The 0-arg `ExSpHl()`/`JumpIndirect()` factories
+  were kept (no signature churn) — the arm reads the prefix.
+- **Two vector-forced cycle/Q corrections in Task 8 (not in the plan's per-task literal code):**
+  (a) **The +3 prefix-cycle surcharge.** The inert/half/16-bit ops REUSE the base emit arms, which balance
+  against a 1-byte fetch and the BASE total; a DD/FD op pays an extra M1 (+4 T) while Step charges 2 key bytes
+  (not 1), so a +3 internal-T surcharge is emitted for every prefixed non-indexed row (the Z80Indexed arms
+  carry their own vector-pinned totals). Confirmed: DD 04 = 8 T, DD 09 = 15 T, DD EA = 14 T.
+  (b) **The prefix Q-reset.** A DD/FD prefix is a non-flag-writing M1, so by the documented Q lifecycle it sets
+  Q = 0 before the inner opcode. Only SCF/CCF read Q mid-body (the (Q^F)|A X/Y quirk); for a DD/FD-prefixed
+  SCF/CCF the seeded q is ignored. Emitting `Q = 0;` at the start of every prefixed body fixed dd/fd 37/3f.
+- **`decode.prefixes` is NOT hand-authored.** The plan's Task 7 Step 2 (declare DD/FD in `z80-semantics.json`'s
+  decode block) is a no-op for this importer: the `Decode.Prefixes` list is AUTO-DERIVED from the emitted
+  prefixed rows (`emittedPrefixBytes`). DD/FD self-declared once their derived rows emitted (CPUGEN012 satisfied).
+- **The synthetic fixtures use `IAddressSpace _bus`** (M3.4d deviation #1; the ED/block precedent) and declare
+  `public byte Q; public int Im;` + the IX/IXh/IXl half-views — as the plan anticipated.
+- **Task 6's `Dataset_has_252` count assertion was folded into Task 7's commit** (it goes red until the rows
+  land); Task 6 committed only the always-green derivation truth table, keeping every commit's gate clean.
+- **Two stale importer assertions updated** (Z80SkeletonEndToEndTests, SpecFileEmitterTests): they asserted the
+  DD/FD plane was deferred / the dataset was 728 rows / 588 emitted — now DD/FD core is LIVE (1154 rows, 1092
+  emitted, 62 DDCB/FDCB TODO). Updated to the new state.
 
 ## Slice docs index
 

@@ -299,6 +299,16 @@ internal static class CpuEmitter
         sb.AppendLine($"    private void Op{instruction.OperationKey:X2}()");
         sb.AppendLine("    {");
 
+        // M3.4e-2: a DD/FD prefix is a non-flag-writing M1 fetch, so by the documented Q lifecycle it
+        // sets Q = 0 BEFORE the inner opcode runs. Only SCF/CCF READ Q mid-body (the X/Y quirk uses
+        // (Q ^ F) | A) — for a DD/FD-prefixed SCF/CCF (e.g. DD 37 / DD 3F, inert) the prefix has already
+        // zeroed Q, so the seeded q is ignored. Reset Q = 0 up front for every prefixed row; non-Q
+        // ops are unaffected (they overwrite Q at the body's end). Vector-confirmed against dd/fd 37/3f.
+        bool ddFdPrefixed = instruction.OperationKey is >= 0xDD00 and <= 0xDDFF
+                         or (>= 0xFD00 and <= 0xFDFF);
+        if (structured && ddFdPrefixed)
+            sb.AppendLine("        Q = 0;   // DD/FD prefix M1 zeroes Q before the inner opcode (SCF/CCF quirk)");
+
         switch (opClass)
         {
             case InstructionClass.Load:
@@ -375,6 +385,16 @@ internal static class CpuEmitter
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
         }
+
+        // M3.4e-2: the DD/FD INERT/half/16-bit ops REUSE the base emit arms (G6), which compute their
+        // T-state total from the BASE op (Z80Cycles) and balance against a 1-byte opcode fetch. But a
+        // DD/FD-prefixed op pays an EXTRA M1 (the prefix fetch = +4 T) and Step charges 2 key bytes
+        // (prefix + opcode) rather than 1. Net surcharge = +4 (prefix M1) − 1 (the extra key byte Step
+        // already charged) = +3 internal T-states. The Z80Indexed arms compute their own vector-pinned
+        // totals (already accounting for the 2-byte key fetch), so they are EXCLUDED. Confirmed against
+        // the vectors: DD 04 = 8 T (base 4 + 4), DD 09 = 15 T (base 11 + 4), DD EA = 14 T (base 10 + 4).
+        if (ddFdPrefixed && opClass != InstructionClass.Z80Indexed)
+            sb.AppendLine("        _cycles += 3;   // DD/FD prefix M1 surcharge (+4 prefix − 1 extra key byte)");
 
         // M3.4b: the cross-instruction Q lifecycle. Every Z80 op sets Q at the end: Q = F if it wrote
         // flags, else Q = 0. SCF/CCF read the PREVIOUS Q (seeded as pre-state by the harness / the prior
