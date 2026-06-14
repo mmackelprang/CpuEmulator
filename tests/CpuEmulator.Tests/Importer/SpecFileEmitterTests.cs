@@ -266,15 +266,16 @@ public class SpecFileEmitterTests
     [Fact]
     public void TODO_row_carries_plane_qualified_key()
     {
-        // A TODO(semantics) prefixed row carries the plane-qualified Key (e.g. DD 09 = ADD Register).
-        // M3.4d: the ED block ops (e.g. ED B0 LDIR) are now LIVE (no longer TODO); the DD/FD planes
-        // remain TODO and demonstrate the plane-qualified key.
+        // A TODO(semantics) prefixed row carries the plane-qualified Key. M3.4e-2: the DD/FD CORE plane is
+        // now LIVE (ADD IX,BC etc.); the DDCB/FDCB COMPOUND forms remain TODO and demonstrate the
+        // plane-qualified compound key (0xDDCB:0xNN).
         var (source, _) = RunZ80Engine();
-        Assert.Contains("// TODO(semantics): 0xDD:0x09 ADD Register", source);
-        // M3.4a: the base-plane OR r is now LIVE (no longer a TODO); a DD-prefixed Indexed row is TODO.
+        Assert.Contains("// TODO(semantics): 0xDDCB:0x06 RLC Indexed", source);   // DDCB compound still deferred
+        // M3.4a: the base-plane OR r is LIVE; M3.4e-2: the DD core rows are LIVE.
         Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);
-        Assert.Contains("// TODO(semantics): 0xDD:0x86 ADD Indexed", source);
-        // M3.4d: ED B0 LDIR now carries the EdBlock op (was a TODO row pre-M3.4d).
+        Assert.Contains("Insn(0xDD, 0x09, \"ADD\", AddrMode.Register, [Add16(\"IX\",\"BC\")]),", source);
+        Assert.Contains("Insn(0xDD, 0x86, \"ADD\", AddrMode.Indexed, [DdFdAluIndexed(\"ADD\")]),", source);
+        // M3.4d: ED B0 LDIR carries the EdBlock op.
         Assert.Contains("Insn(0xED, 0xB0, \"LDIR\", AddrMode.Implied, [EdBlock(\"LDIR\")]),", source);
     }
 
@@ -326,6 +327,10 @@ public class SpecFileEmitterTests
             : e.Prefix == "0xED"
             ? Z80EdSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16))
               ?? (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null)
+            : e.Prefix == "0xDD"
+            ? Z80DdFdSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode, isIy: false)
+            : e.Prefix == "0xFD"
+            ? Z80DdFdSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode, isIy: true)
             : (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null);
 
         int derivedEmitted = dataset.Count(e =>
@@ -339,17 +344,16 @@ public class SpecFileEmitterTests
 
         var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
 
-        Assert.Equal(728, report.Total);   // M3.4c: 706 + the 22 missing ED-core rows
+        Assert.Equal(1154, report.Total);   // M3.4e-2: 728 + the 213 DD + 213 FD derived core rows
         Assert.Equal(derivedEmitted, report.Emitted);
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
-        // M3.4a: 248 base-plane rows LIVE (+ ED NEG = 249). M3.4b: + 4 rotate-accumulators + 256 CB rows
-        // → 509. M3.4c: + the full 64 ED-core rows now route through Z80EdSemantics (NEG was already
-        // emitted as [], the other 63 are net-new emits) → 572. M3.4d: + the 16 ED block ops (0xA0–0xBB)
-        // now route through Z80EdSemantics (were []-routed TODO) → 588. The remaining TODO majority is the
-        // DD/FD planes (M3.4e).
-        Assert.Equal(588, report.Emitted);
+        // M3.4a-d: 588 base + CB + ED-core + ED-block rows LIVE. M3.4e-2: + the 252 DD-core + 252 FD-core
+        // rows route through Z80DdFdSemantics → 1092. The remaining TODO is the DDCB/FDCB compound forms
+        // (31 + 31 = 62; M3.4e-3).
+        Assert.Equal(1092, report.Emitted);
+        Assert.Equal(62, report.TodoSemantics);
     }
 
     [Fact]

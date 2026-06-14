@@ -7026,5 +7026,4265 @@
     "cycles": 23,
     "pageCrossPenalty": false,
     "source": "Zilog Z80 CPU User Manual (UM0080), IY bit/rotate plane"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x00",
+    "mnemonic": "NOP",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x01",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x02",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x03",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x04",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x05",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x06",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x07",
+    "mnemonic": "RLCA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x08",
+    "mnemonic": "EX",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x0A",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x0B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x0C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x0D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x0E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x0F",
+    "mnemonic": "RRCA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x10",
+    "mnemonic": "DJNZ",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x11",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x12",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x13",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x14",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x15",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x16",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x17",
+    "mnemonic": "RLA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x18",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x1A",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x1B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x1C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x1D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x1E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x1F",
+    "mnemonic": "RRA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x20",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x24",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x25",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x26",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x27",
+    "mnemonic": "DAA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x28",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x2C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x2D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x2E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x2F",
+    "mnemonic": "CPL",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x30",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x31",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x32",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 17,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x33",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x37",
+    "mnemonic": "SCF",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x38",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x3A",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 17,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x3B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x3C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x3D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x3E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x3F",
+    "mnemonic": "CCF",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x40",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x41",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x42",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x43",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x44",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x45",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x47",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x48",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x49",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x4A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x4B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x4C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x4D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x4F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x50",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x51",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x52",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x53",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x54",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x55",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x57",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x58",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x59",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x5A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x5B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x5C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x5D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x5F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x60",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x61",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x62",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x63",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x64",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x65",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x67",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x68",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x69",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x6A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x6B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x6C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x6D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x6F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x76",
+    "mnemonic": "HALT",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x78",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x79",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x7A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x7B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x7C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x7D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x7F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x80",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x81",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x82",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x83",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x84",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x85",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x87",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x88",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x89",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x8A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x8B",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x8C",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x8D",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x8F",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x90",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x91",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x92",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x93",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x94",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x95",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x97",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x98",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x99",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x9A",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x9B",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x9C",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x9D",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0x9F",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA0",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA1",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA2",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA3",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA4",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA5",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA7",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA8",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xA9",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xAA",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xAB",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xAC",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xAD",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xAF",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB0",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB1",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB2",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB3",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB4",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB5",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB7",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB8",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xB9",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xBA",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xBB",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xBC",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xBD",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xBF",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC3",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC6",
+    "mnemonic": "ADD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xC9",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xCA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xCC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xCD",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 21,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xCE",
+    "mnemonic": "ADC",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xCF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD3",
+    "mnemonic": "OUT",
+    "mode": "IoPortImmediate",
+    "bytes": 3,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD6",
+    "mnemonic": "SUB",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xD9",
+    "mnemonic": "EXX",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xDA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xDB",
+    "mnemonic": "IN",
+    "mode": "IoPortImmediate",
+    "bytes": 3,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xDC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xDE",
+    "mnemonic": "SBC",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xDF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE6",
+    "mnemonic": "AND",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xE8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xEA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xEB",
+    "mnemonic": "EX",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xEC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xEE",
+    "mnemonic": "XOR",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xEF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF3",
+    "mnemonic": "DI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF6",
+    "mnemonic": "OR",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xF8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xFA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xFB",
+    "mnemonic": "EI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xFC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xFE",
+    "mnemonic": "CP",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xDD",
+    "opcode": "0xFF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IX plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x00",
+    "mnemonic": "NOP",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x01",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x02",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x03",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x04",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x05",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x06",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x07",
+    "mnemonic": "RLCA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x08",
+    "mnemonic": "EX",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x0A",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x0B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x0C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x0D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x0E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x0F",
+    "mnemonic": "RRCA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x10",
+    "mnemonic": "DJNZ",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x11",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x12",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x13",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x14",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x15",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x16",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x17",
+    "mnemonic": "RLA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x18",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 16,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x1A",
+    "mnemonic": "LD",
+    "mode": "RegisterIndirect",
+    "bytes": 2,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x1B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x1C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x1D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x1E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x1F",
+    "mnemonic": "RRA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x20",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x24",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x25",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x26",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x27",
+    "mnemonic": "DAA",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x28",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x2C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x2D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x2E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x2F",
+    "mnemonic": "CPL",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x30",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x31",
+    "mnemonic": "LD",
+    "mode": "ImmediateExtended",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x32",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 17,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x33",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x37",
+    "mnemonic": "SCF",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x38",
+    "mnemonic": "JR",
+    "mode": "RelativeJump",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x3A",
+    "mnemonic": "LD",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 17,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x3B",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 10,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x3C",
+    "mnemonic": "INC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x3D",
+    "mnemonic": "DEC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x3E",
+    "mnemonic": "LD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x3F",
+    "mnemonic": "CCF",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x40",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x41",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x42",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x43",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x44",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x45",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x47",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x48",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x49",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x4A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x4B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x4C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x4D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x4F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x50",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x51",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x52",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x53",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x54",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x55",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x57",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x58",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x59",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x5A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x5B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x5C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x5D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x5F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x60",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x61",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x62",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x63",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x64",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x65",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x67",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x68",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x69",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x6A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x6B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x6C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x6D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x6F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x76",
+    "mnemonic": "HALT",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x78",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x79",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x7A",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x7B",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x7C",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x7D",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x7F",
+    "mnemonic": "LD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x80",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x81",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x82",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x83",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x84",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x85",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x87",
+    "mnemonic": "ADD",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x88",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x89",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x8A",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x8B",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x8C",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x8D",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x8F",
+    "mnemonic": "ADC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x90",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x91",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x92",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x93",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x94",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x95",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x97",
+    "mnemonic": "SUB",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x98",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x99",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x9A",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x9B",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x9C",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x9D",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0x9F",
+    "mnemonic": "SBC",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA0",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA1",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA2",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA3",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA4",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA5",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA7",
+    "mnemonic": "AND",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA8",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xA9",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xAA",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xAB",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xAC",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xAD",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xAF",
+    "mnemonic": "XOR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB0",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB1",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB2",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB3",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB4",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB5",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB7",
+    "mnemonic": "OR",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB8",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xB9",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xBA",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xBB",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xBC",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xBD",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xBF",
+    "mnemonic": "CP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC3",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC6",
+    "mnemonic": "ADD",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xC9",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xCA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xCC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xCD",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 21,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xCE",
+    "mnemonic": "ADC",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xCF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD3",
+    "mnemonic": "OUT",
+    "mode": "IoPortImmediate",
+    "bytes": 3,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD6",
+    "mnemonic": "SUB",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xD9",
+    "mnemonic": "EXX",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xDA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xDB",
+    "mnemonic": "IN",
+    "mode": "IoPortImmediate",
+    "bytes": 3,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xDC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xDE",
+    "mnemonic": "SBC",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xDF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE6",
+    "mnemonic": "AND",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xE8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xEA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xEB",
+    "mnemonic": "EX",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xEC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xEE",
+    "mnemonic": "XOR",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xEF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF0",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF1",
+    "mnemonic": "POP",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF2",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF3",
+    "mnemonic": "DI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF4",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF5",
+    "mnemonic": "PUSH",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF6",
+    "mnemonic": "OR",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF7",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xF8",
+    "mnemonic": "RET",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 9,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xFA",
+    "mnemonic": "JP",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xFB",
+    "mnemonic": "EI",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xFC",
+    "mnemonic": "CALL",
+    "mode": "ExtendedAddress",
+    "bytes": 4,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xFE",
+    "mnemonic": "CP",
+    "mode": "Immediate",
+    "bytes": 3,
+    "cycles": 11,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
+  },
+  {
+    "prefix": "0xFD",
+    "opcode": "0xFF",
+    "mnemonic": "RST",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 IY plane (M3.4e-2, derived)"
   }
 ]

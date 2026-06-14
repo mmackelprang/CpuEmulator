@@ -1,3 +1,4 @@
+using System.Linq;
 using CpuEmulator.SpecImporter;
 using Xunit;
 
@@ -5,6 +6,8 @@ namespace CpuEmulator.Tests.Importer;
 
 public class Z80DdFdSemanticsTests
 {
+    private static string Z80DatasetPath => DataPath.Get("z80-opcodes.json");
+
     [Theory]
     // Indexed memory forms (plane-agnostic op text — the prefix selects IX/IY in the emit arm).
     [InlineData(0x7E, "LD",  "Indexed", false, "[DdFdLdIndexed(\"LOAD\",\"A\")]")]
@@ -58,6 +61,14 @@ public class Z80DdFdSemanticsTests
         Assert.Null(Z80DdFdSemantics.OpsFor(0xFD, "?", "?", false));
     }
 
-    // The 252 DD + 252 FD core-row F1 cross-check (the M3.4c probe-vs-emitted discipline) lands with the
-    // derived rows in Task 7 (Dataset_has_all_252_DD_and_252_FD_core_rows).
+    [Fact]
+    public void Dataset_has_all_252_DD_and_252_FD_core_rows()
+    {
+        // The F1 gap guard (the M3.4c lesson): 39 documented + 213 derived = 252 per plane.
+        var dataset = OpcodeDataset.Load(Z80DatasetPath);
+        int dd = dataset.Count(r => r.Prefix == "0xDD");
+        int fd = dataset.Count(r => r.Prefix == "0xFD");
+        Assert.Equal(252, dd);
+        Assert.Equal(252, fd);
+    }
 }
