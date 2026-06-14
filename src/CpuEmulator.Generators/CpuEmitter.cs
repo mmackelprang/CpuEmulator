@@ -2215,10 +2215,24 @@ internal static class CpuEmitter
             sb.AppendLine($"        _cycles += {8 - 2};   // BIT y,r = 8 T-states");
     }
 
+    /// <summary>RES/SET y,reg[z]/(HL): clear/set bit y. NO flag changes. Cycles: reg 8 T, (HL) 15 T
+    /// (2 key bytes by Step; the (HL) ReadBus + WriteBus charge 2 more).</summary>
     private static void EmitZ80CbResSet(StringBuilder sb, string op, int bit, string target, bool isMem)
     {
-        // Filled in Task 7 (RES/SET clear/set bit y). Stub charges the fetch only.
-        sb.AppendLine("        _ = 0;   // TODO Task 7");
+        string mask = $"0x{(1 << bit):X2}";
+        string expr = op == "SET" ? $"(v | {mask})" : $"(v & ~{mask})";
+        if (isMem)
+        {
+            sb.AppendLine("        byte v = ReadBus(HL);");
+            sb.AppendLine($"        WriteBus(HL, unchecked((byte){expr}));");
+            sb.AppendLine($"        _cycles += {15 - 2 - 1 - 1};   // RES/SET y,(HL) = 15 T-states");
+        }
+        else
+        {
+            sb.AppendLine($"        byte v = {target};");
+            sb.AppendLine($"        {target} = unchecked((byte){expr});");
+            sb.AppendLine($"        _cycles += {8 - 2};   // RES/SET y,r = 8 T-states");
+        }
     }
 
     // ---- Monitor support (IMonitorSupport implementation) ----
