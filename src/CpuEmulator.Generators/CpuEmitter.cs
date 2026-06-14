@@ -2101,10 +2101,65 @@ internal static class CpuEmitter
         sb.AppendLine("        _cycles += 3;   // RLCA/RRCA/RLA/RRA = 4 T-states (fetch + 3 internal)");
     }
 
+    /// <summary>Strip the surrounding quotes from a CbRotate/CbBit string arg ("RLC" → RLC, "(HL)" →
+    /// (HL)). The parser stores Str args WITH quotes (Task 2) so the emitter can tell a string operand
+    /// from a register operand.</summary>
+    private static string Unquote(string s) =>
+        s.Length >= 2 && s[0] == '"' ? s.Substring(1, s.Length - 2) : s;
+
+    /// <summary>CB rotate/shift on reg[z] or (HL). Flags: S,Z from result; H=0; N=0; P/V=parity;
+    /// C=bit shifted out; X=res bit3, Y=res bit5. Writes the result back (z=6: read/op/write (HL)).
+    /// Cycles: register = 8 T, (HL) = 15 T. Step charges the 2 key bytes (prefix + opcode); ReadBus/
+    /// WriteBus each charge one; the body charges the remaining internal T-states.</summary>
     private static void EmitZ80CbRotate(StringBuilder sb, InstructionModel insn, string pc, string f, FlagBitMap flags)
     {
-        // Filled in Task 5 (CB rotate/shift on reg[z] / (HL)). Stub charges the fetch only.
-        sb.AppendLine("        _ = 0;   // TODO Task 5");
+        string op = Unquote(insn.Ops[0].Args[0]);       // "RLC".."SRL"
+        string target = Unquote(insn.Ops[0].Args[1]);   // "B".."A" or "(HL)"
+        bool isMem = target == "(HL)";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        string oldCarry = $"(({f} & {cMask}) != 0 ? 1 : 0)";
+
+        if (isMem)
+            sb.AppendLine("        byte v = ReadBus(HL);");
+        else
+            sb.AppendLine($"        byte v = {target};");
+
+        EmitRotateMath(sb, op, oldCarry);   // produces byte r + int cout
+
+        // Full CB flag word: S/Z/Y/H(=0)/X/P(parity)/N(=0)/C(=cout). Reuse the per-spec masks.
+        EmitZ80CbRotateFlags(sb, f, flags);
+
+        if (isMem)
+            sb.AppendLine("        WriteBus(HL, r);");
+        else
+            sb.AppendLine($"        {target} = r;");
+
+        // Cycles (2 key bytes charged by Step): register = 8 T → +6 internal (no bus). (HL) = 15 T →
+        // +11 internal (1 ReadBus + 1 WriteBus already charge 2).
+        if (isMem)
+            sb.AppendLine($"        _cycles += {15 - 2 - 1 - 1};   // RLC/…/(HL) = 15 T-states");
+        else
+            sb.AppendLine($"        _cycles += {8 - 2};   // RLC/… r = 8 T-states");
+    }
+
+    /// <summary>Emit the CB rotate/shift flag word from the result <c>r</c> + carry-out <c>cout</c>
+    /// (the locals EmitRotateMath produced). S/Z/Y/X/P computed; H=0, N=0; C=cout.</summary>
+    private static void EmitZ80CbRotateFlags(StringBuilder sb, string f, FlagBitMap flags)
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((r & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (r == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)r) & 1) == 0 ? {pMask} : 0x00)");
+        sb.AppendLine($"            | (cout != 0 ? {cMask} : 0x00)));");
+        // H and N are left at 0 (not ORed in) — the full-word assignment clears them.
     }
 
     private static void EmitZ80BitBody(
