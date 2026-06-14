@@ -42,3 +42,4 @@ Thumbs.db
 
 # Local test-vector caches (e.g. SingleStepTests JSON corpora)
 /tests/vectors/
+progress.md

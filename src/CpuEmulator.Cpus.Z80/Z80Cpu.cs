@@ -22,6 +22,25 @@ public sealed partial class Z80Cpu
     private readonly IAddressSpace _io;
     private bool _halted;
 
+    /// <summary>The interrupt-enable latches (M3.4a). DI clears both; EI sets both; observable in the
+    /// TomHarte final state's iff1/iff2. Interrupt ACKNOWLEDGE/vectoring is M3.4b.</summary>
+    private bool _iff1;
+    private bool _iff2;
+
+    /// <summary>IFF1 — the master interrupt-enable latch (observable Z80 state; the TomHarte vectors
+    /// check it for DI/EI). Settable so a harness can establish the initial state.</summary>
+    public bool Iff1 { get => _iff1; set => _iff1 = value; }
+
+    /// <summary>IFF2 — the shadow interrupt-enable latch (saved by an interrupt, restored by RETN).</summary>
+    public bool Iff2 { get => _iff2; set => _iff2 = value; }
+
+    /// <summary>The Q pseudo-register (M3.4a) — the documented SCF/CCF X/Y quirk. After an instruction
+    /// that modified the flags, Q = F; after one that did not, Q = 0. SCF/CCF compute their X/Y bits
+    /// from <c>(Q ^ F) | A</c> (TomHarte's `q` field). The generated SCF/CCF body reads <c>Q</c>; the
+    /// harness sets the INITIAL q so the single-instruction vector's X/Y is exact. (Maintaining Q
+    /// across instructions lands with the block ops, M3.4b.)</summary>
+    public byte Q;
+
     /// <summary>The M3.2 two-bus ctor: the program/data bus + the I/O AddressSpace(Io, 16). A null
     /// I/O bus defaults to a fresh 16-bit Io space (the Z80 port range).</summary>
     public Z80Cpu(IAddressSpace bus, IAddressSpace? io = null)
@@ -31,9 +50,19 @@ public sealed partial class Z80Cpu
         _io  = io ?? new AddressSpace(AddressSpaceKind.Io, addressBits: 16);
     }
 
-    /// <summary>Reset stub — NO real Z80 reset sequence (PC/I/R/IFF clearing is M3.4). Clears only the
-    /// skeleton's halted latch so a fresh run starts un-halted.</summary>
-    public void Reset() => _halted = false;
+    /// <summary>The documented Z80 reset state (M3.4a): PC=0, I=0, R=0, IFF1=IFF2=0, SP=0xFFFF. The
+    /// TomHarte runner sets every register explicitly, so reset's exact values are not on the vector
+    /// critical path — but the real reset is now modeled. Also clears the halted latch.</summary>
+    public void Reset()
+    {
+        PC = 0;
+        I = 0;
+        R = 0;
+        SP = 0xFFFF;
+        _iff1 = false;
+        _iff2 = false;
+        _halted = false;
+    }
 
     /// <summary>Interrupt-line setters — stubs. The Z80 interrupt policy (IM 0/1/2, NMI, IFF1/IFF2) is
     /// M3.4; the skeleton wires the lines so ICpuCore is satisfied but services nothing.</summary>
@@ -86,6 +115,16 @@ public sealed partial class Z80Cpu
     /// bytes alias documented ops); the real policy is M3.4. Charges one cycle.</summary>
     private void HandleUndefinedOpcode(byte opcode) => _cycles++;
 
-    /// <summary>No interrupt servicing in the skeleton (M3.4 owns IM 0/1/2 + the latch wake).</summary>
+    /// <summary>No interrupt servicing in the base plane (M3.4b owns IM 0/1/2 + the latch wake).</summary>
     private partial bool TryServiceInterrupt() => false;
+
+    /// <summary>The R-refresh increment (M3.4a, Ground truth F). The low 7 bits of R increment on each
+    /// opcode-fetch M1 cycle (bit 7 is preserved). The generated Step calls this once per instruction
+    /// with the count of key bytes fetched (1 for a base-plane opcode; a prefix adds an M1 — M3.4b). The
+    /// base plane fetches one opcode byte, so R bumps by 1. TomHarte's `r` field checks this.</summary>
+    partial void OnInstructionFetched(int keyBytes)
+    {
+        for (int i = 0; i < keyBytes; i++)
+            R = (byte)((R & 0x80) | ((R + 1) & 0x7F));
+    }
 }

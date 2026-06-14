@@ -24,21 +24,29 @@
     { "name": "IX", "bits": 16 },
     { "name": "IY", "bits": 16 },
     { "name": "SP", "bits": 16, "role": "StackPointer" },
-    { "name": "PC", "bits": 16, "role": "ProgramCounter" }
+    { "name": "PC", "bits": 16, "role": "ProgramCounter" },
+    { "name": "AF",  "bits": 16, "highHalf": "A",  "lowHalf": "F"  },
+    { "name": "BC",  "bits": 16, "highHalf": "B",  "lowHalf": "C"  },
+    { "name": "DE",  "bits": 16, "highHalf": "D",  "lowHalf": "E"  },
+    { "name": "HL",  "bits": 16, "highHalf": "H",  "lowHalf": "L"  },
+    { "name": "AF_", "bits": 16, "highHalf": "A_", "lowHalf": "F_" },
+    { "name": "BC_", "bits": 16, "highHalf": "B_", "lowHalf": "C_" },
+    { "name": "DE_", "bits": 16, "highHalf": "D_", "lowHalf": "E_" },
+    { "name": "HL_", "bits": 16, "highHalf": "H_", "lowHalf": "L_" }
+  ],
+  "flags": [
+    { "name": "S", "bit": 7 },
+    { "name": "Z", "bit": 6 },
+    { "name": "Y", "bit": 5 },
+    { "name": "H", "bit": 4 },
+    { "name": "X", "bit": 3 },
+    { "name": "P", "bit": 2 },
+    { "name": "N", "bit": 1 },
+    { "name": "C", "bit": 0 }
   ],
   "mnemonics": {
     "NOP":  "[]",
     "HALT": "[Halt()]",
-    "ADD":  "[Adc()]",
-    "ADC":  "[Adc()]",
-    "SUB":  "[Sbc()]",
-    "SBC":  "[Sbc()]",
-    "AND":  "[And()]",
-    "OR":   "[Ora()]",
-    "XOR":  "[Eor()]",
-    "CP":   "[Compare(\"A\")]",
-    "IN":   "[PortIn(\"A\")]",
-    "OUT":  "[PortOut(\"A\")]",
     "NEG":  "[]"
   }
 }

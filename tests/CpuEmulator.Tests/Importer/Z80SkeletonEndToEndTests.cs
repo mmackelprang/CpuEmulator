@@ -38,6 +38,11 @@ public class Z80SkeletonEndToEndTests
             private readonly IAddressSpace _bus;
             private readonly IAddressSpace _io;
             private bool _halted;
+            private bool _iff1;
+            private bool _iff2;
+            public bool Iff1 { get => _iff1; set => _iff1 = value; }
+            public bool Iff2 { get => _iff2; set => _iff2 = value; }
+            public byte Q;
             public Z80Cpu(IAddressSpace bus, IAddressSpace? io = null)
             {
                 _bus = bus;
@@ -56,6 +61,11 @@ public class Z80SkeletonEndToEndTests
             private void DoHalt() => _halted = true;
             private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
             private partial bool TryServiceInterrupt() => false;
+            partial void OnInstructionFetched(int keyBytes)
+            {
+                for (int i = 0; i < keyBytes; i++)
+                    R = (byte)((R & 0x80) | ((R + 1) & 0x7F));
+            }
         }
         """;
 
@@ -111,15 +121,14 @@ public class Z80SkeletonEndToEndTests
     }
 
     [Fact]
-    public void Z80_TODO_rows_emit_as_comments_not_rows()
+    public void Z80_base_plane_is_live_prefixed_planes_deferred()
     {
-        // The skeleton is a SKELETON: the TODO(vocab) majority emits as comments (no Insn row), so the
-        // covered minority compiles as real rows while semantics stay deferred. Confirm a representative
-        // TODO comment is present and that no compound-prefix Insn was emitted (the enumerated finding).
+        // M3.4a: the BASE plane is now LIVE (real Insn rows), but the prefixed planes (CB/ED/DD/FD)
+        // stay // TODO. Confirm the base-plane OR r is a real row, an ED block op is still deferred,
+        // and no compound-prefix Insn was emitted (the enumerated M3.4c finding).
         var source = BuildFullSource();
-        Assert.Contains("// TODO(semantics): 0xED:0xB0 LDIR", source);   // LDIR deferred (block op)
-        Assert.Contains("// TODO(mode): 0xB0 OR", source);              // OR r deferred (Register mode)
-        Assert.DoesNotContain("Insn(0xDDCB", source);                  // no compound-prefix Insn row
-        // The skeleton STILL compiles with the covered minority as real rows (the gate above proves it).
+        Assert.Contains("// TODO(semantics): 0xED:0xB0 LDIR", source);   // LDIR deferred (block op, M3.4b)
+        Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);  // base OR B — LIVE
+        Assert.DoesNotContain("Insn(0xDDCB", source);                  // no compound-prefix Insn row (M3.4c)
     }
 }

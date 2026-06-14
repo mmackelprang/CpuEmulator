@@ -16,6 +16,15 @@ Welcome to the CpuEmulator user guide. Use these pages to get the emulator runni
 | [Extraction Runbook](extraction-runbook.md) | LLM-assisted opcode extraction from CPU datasheets, cross-source diff, review report |
 | [Testing](testing.md) | Running the suite, TomHarte vectors, Klaus, UAT sessions |
 
+## Architecture support status
+
+| CPU | Interpreter (Tier 0) | JIT (Tier 1) | Monitor host | Validation |
+|---|---|---|---|---|
+| **MOS 6502** | ✅ full ISA | ✅ full ISA | ✅ Breadboard6502 | TomHarte 1,510,000 cases + Klaus (96,241,367 cycles), both tiers |
+| **Zilog Z80** | 🟡 base plane (248 opcodes) | ⬜ planned (M3.5) | ⬜ not yet | TomHarte 248,000 cases (base plane), interpreter |
+
+The Z80 base-plane interpreter is the framework's first non-6502 execution. The CB/ED/DD/FD prefix planes (bit/shift/block ops, IX/IY indexing, the remaining interrupt modes) are in progress; see [Testing](testing.md#z80-tomharte-single-step-vectors) for exactly what is covered today.
+
 ## Quick links
 
 - Project README: [`../../README.md`](../../README.md)

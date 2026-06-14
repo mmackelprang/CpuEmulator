@@ -97,6 +97,21 @@ interpreter, while on the SMC-heavy Klaus workload the interpreter is faster (th
 invalidation thrashes on self-modifying code — the recorded next optimization). See
 [The JIT Tier](docs/user-guide/jit.md) for the accuracy contract and chaining.
 
+**M3 — the Z80, the framework's second architecture — is in progress.** The point of a second ISA
+is to *prove the abstractions generalize*: every seam built for the 6502 (the register file, the
+decoder, bus I/O, flags) is being re-validated against a genuinely different processor while the
+6502 stays byte-identical. Landed so far: a **per-spec flag-bit map** (the Z80's S Z Y H X P/V N C
+layout coexists with the 6502's, no renumber), **bidirectional register-pair aliasing** (8-bit
+halves are storage, 16-bit pairs are computed views), **composable flag micro-ops**
+(`SetSZ`/`SetParity`/`SetXY`/`SetAddSub` — general, proven non-6502-specific via a synthetic CPU),
+and the **Z80 base-plane interpreter**: all **248 covered base-plane opcodes pass the Z80 TomHarte
+sweep (248,000 cases, zero failures)** — including F's undocumented X/Y bits, the per-T-state bus
+trace, and the ports array, and including the SCF/CCF NMOS X/Y quirk (via a Q pseudo-register). The
+6502 is provably un-regressed (empty source diff, full both-tier sweep, Klaus cycle-exact). Still
+ahead on the ladder: the **CB/ED/DD/FD prefix planes** (M3.4b/c), the **Z80 through the JIT** (M3.5),
+then **68000** (M4) and **8086** (M5) before a cross-architecture JIT-optimization pass (M6). See
+[Testing](docs/user-guide/testing.md#z80-tomharte-single-step-vectors) for exactly what executes today.
+
 For full detail see the [User Guide](docs/user-guide/README.md).
 
 ## User Guide

@@ -226,6 +226,8 @@ public class SpecFileEmitterTests
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",
+        // M3.4a: the Z80 register-shape modes (the base plane is now live).
+        "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
     ];
 
     private static bool IsSingleBytePrefix(string? prefix) =>
@@ -264,8 +266,9 @@ public class SpecFileEmitterTests
         // A TODO(semantics) prefixed row carries the plane-qualified Key (e.g. ED B0 = LDIR).
         var (source, _) = RunZ80Engine();
         Assert.Contains("// TODO(semantics): 0xED:0xB0 LDIR", source);
-        // And a base-plane TODO carries the bare opcode (null prefix).
-        Assert.Contains("// TODO(mode): 0xB0 OR", source);
+        // M3.4a: the base-plane OR r is now LIVE (no longer a TODO); a DD-prefixed Indexed row is TODO.
+        Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);
+        Assert.Contains("// TODO(semantics): 0xDD:0x86 ADD Indexed", source);
     }
 
     [Fact]
@@ -302,14 +305,22 @@ public class SpecFileEmitterTests
         var dataset = OpcodeDataset.Load(Z80DatasetPath);
         var map     = SemanticsMap.Load(Z80SemanticsPath);
 
+        // M3.4a: a row HAS semantics iff the base-plane algorithmic decoder owns it (Z80BaseSemantics)
+        // OR the per-mnemonic map covers it (the prefixed ED NEG). It EMITS iff it has semantics, its
+        // mode is emittable, and its prefix is a single byte (or null).
+        string? Ops(OpcodeEntry e) => e.Prefix is null
+            ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode)
+              ?? (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null)
+            : (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null);
+
         int derivedEmitted = dataset.Count(e =>
-            map.Mnemonics.ContainsKey(e.Mnemonic)
+            Ops(e) is not null
             && Z80EmittableModes.Contains(e.Mode)
             && IsSingleBytePrefix(e.Prefix));
         int derivedTodoMode = dataset.Count(e =>
-            map.Mnemonics.ContainsKey(e.Mnemonic)
+            Ops(e) is not null
             && !(Z80EmittableModes.Contains(e.Mode) && IsSingleBytePrefix(e.Prefix)));
-        int derivedTodoSemantics = dataset.Count(e => !map.Mnemonics.ContainsKey(e.Mnemonic));
+        int derivedTodoSemantics = dataset.Count(e => Ops(e) is null);
 
         var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
 
@@ -318,9 +329,11 @@ public class SpecFileEmitterTests
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
-        // The honest framing: a small covered EMITTED minority, a large TODO majority (3a state).
+        // M3.4a: the 248 base-plane target rows are LIVE (+ the ED NEG = 249 emitted); the prefixed
+        // planes remain a TODO majority (CB/ED/DD/FD → M3.4b/c).
+        Assert.Equal(249, report.Emitted);
         Assert.True(report.Emitted < report.TodoSemantics + report.TodoMode,
-            "Z80 skeleton must be a TODO-majority skeleton (the honest 3a starting state)");
+            "the prefixed planes are still a TODO majority (M3.4b/c)");
     }
 
     [Fact]

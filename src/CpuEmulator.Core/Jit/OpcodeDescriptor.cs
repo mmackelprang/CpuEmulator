@@ -25,6 +25,10 @@ public enum JitMode
     IndirectX, IndirectY, Indirect, Relative,
     IoPortImmediate,   // (n) — Z80 IN A,(n)/OUT (n),A. Additive (M3.2); no 6502 row names it.
     IoPortIndirect,    // (C) — Z80 IN r,(C)/OUT (C),r. Additive (M3.2); no 6502 row names it.
+    // M3.4a (Z80 register-shape modes, additive — no 6502 row names any). The Z80 runs
+    // interpreter-only (M3.5 JITs it), so descriptors for these are emitted but the rows that use
+    // them are JIT fallbacks; the enum members exist so the descriptor table is well-formed.
+    Register, RegisterIndirect, ImmediateExtended, ExtendedAddress, RelativeJump,
 }
 
 /// <summary>One micro-op the compiler emits, in spec order. Kind is the interpreter OpModel

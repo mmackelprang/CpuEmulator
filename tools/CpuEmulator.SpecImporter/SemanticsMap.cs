@@ -9,9 +9,14 @@ namespace CpuEmulator.SpecImporter;
 /// Configuration entry for a single register in the semantics map.
 /// </summary>
 public sealed record RegisterConfig(
-    string Name,
-    int    Bits,
-    string Role = "");
+    string  Name,
+    int     Bits,
+    string  Role = "",
+    string? HighHalf = null,   // M3.4a: for a 16-bit pair VIEW, the 8-bit high-half register name
+    string? LowHalf  = null);  // M3.4a: the 8-bit low-half register name
+
+/// <summary>M3.4a: one flag name → hardware bit position in the status-flag layout.</summary>
+public sealed record FlagBitConfig(string Name, int Bit);
 
 /// <summary>
 /// The fully loaded semantics map: config (architecture, namespace, class, registers)
@@ -23,6 +28,9 @@ public sealed class SemanticsMap
     public string Namespace     { get; init; } = "";
     public string SpecClassName { get; init; } = "";
     public RegisterConfig[]            Registers { get; init; } = [];
+    /// <summary>M3.4a: the optional status-flag bit layout (the Z80's S=7..C=0). Empty ⇒ the
+    /// FlagBit enum-fallback (the 6502 — no FlagLayout emitted).</summary>
+    public FlagBitConfig[]             Flags { get; init; } = [];
     public IReadOnlyDictionary<string, string> Mnemonics { get; init; } =
         new Dictionary<string, string>();
 
@@ -87,6 +95,11 @@ public sealed class SemanticsMap
         ["PortIn"]        = 1,  // PortIn("reg")
         ["PortOut"]       = 1,  // PortOut("reg")
         ["Halt"]          = 0,  // Halt()
+        // Composable flag micro-ops (M3.4a — general, 8086-reusable).
+        ["SetSZ"]         = 1,  // SetSZ("reg")
+        ["SetParity"]     = 1,  // SetParity("reg")
+        ["SetXY"]         = 1,  // SetXY("reg")
+        ["SetAddSub"]     = 1,  // SetAddSub(true|false)
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────
@@ -116,15 +129,25 @@ public sealed class SemanticsMap
         public string Namespace     { get; set; } = "";
         public string SpecClassName { get; set; } = "";
         public RegisterConfigDto[] Registers { get; set; } = [];
+        public FlagBitConfigDto[]  Flags { get; set; } = [];   // M3.4a (optional)
         public Dictionary<string, string> Mnemonics { get; set; } = [];
+    }
+
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    private sealed class FlagBitConfigDto
+    {
+        public string Name { get; set; } = "";
+        public int    Bit  { get; set; }
     }
 
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     private sealed class RegisterConfigDto
     {
-        public string Name { get; set; } = "";
-        public int    Bits { get; set; }
-        public string Role { get; set; } = "";
+        public string  Name { get; set; } = "";
+        public int     Bits { get; set; }
+        public string  Role { get; set; } = "";
+        public string? HighHalf { get; set; }   // M3.4a: pair-view high half (optional)
+        public string? LowHalf  { get; set; }   // M3.4a: pair-view low half (optional)
     }
 
     // ─── public API ──────────────────────────────────────────────────────
@@ -175,7 +198,8 @@ public sealed class SemanticsMap
             Architecture  = dto.Architecture,
             Namespace     = dto.Namespace,
             SpecClassName = dto.SpecClassName,
-            Registers     = dto.Registers.Select(r => new RegisterConfig(r.Name, r.Bits, r.Role)).ToArray(),
+            Registers     = dto.Registers.Select(r => new RegisterConfig(r.Name, r.Bits, r.Role, r.HighHalf, r.LowHalf)).ToArray(),
+            Flags         = dto.Flags.Select(b => new FlagBitConfig(b.Name, b.Bit)).ToArray(),
             Mnemonics     = dto.Mnemonics,
         };
     }

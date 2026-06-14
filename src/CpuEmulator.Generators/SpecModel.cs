@@ -14,6 +14,13 @@ internal enum InstructionClass
     Stack,  // Task 7: PHA/PLA/PHP/PLP
     Flow,   // Task 7: JSR/RTS
     Port,   // M3.2: IN/OUT — an Io-bus access (PortIn/PortOut); the 6502 uses none
+    // ── M3.4a (Z80 base plane — additive; the 6502 uses none of these) ──
+    Z80Alu,       // 8-bit flag-correct ALU (Add8..Cp8), INC/DEC (IncReg/DecReg), 16-bit (Add16/Inc16/Dec16)
+    Z80Ld,        // 16-bit LD (Load16/Store16 — LD rr,nn ; LD (nn),HL ; LD HL,(nn))
+    Z80Stack,     // 16-bit pair PUSH/POP (Push16/Pop16)
+    Z80Exchange,  // EX DE,HL / EX AF,AF' / EXX / EX (SP),HL
+    Z80Flow,      // conditional+relative flow: JumpIf/CallIf/RetCc/Rst/RelJump/RelJumpIf/Djnz
+    Z80Misc,      // DAA/CPL/SCF/CCF/DI/EI — Implied register-class ops with bespoke flag effects
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502
@@ -34,9 +41,14 @@ internal sealed record SpecModel(
     EquatableArray<RegisterModel> Registers,
     EquatableArray<InstructionModel> Instructions,
     DecodeStructureModel? Decode = null,          // ABSENT (the 6502) ⇒ the degenerate walk
-    FetchUnit FetchUnit = FetchUnit.Byte);
+    FetchUnit FetchUnit = FetchUnit.Byte,
+    EquatableArray<FlagBitModel> Flags = default);  // ABSENT (the 6502) ⇒ FlagBit enum fallback
 
-internal sealed record RegisterModel(string Name, int Bits, string Role);
+/// <summary>One flag name → hardware bit position parsed from a declared <c>FlagLayout</c>
+/// (Ground truth B). ABSENT on the model (empty array) ⇒ the 6502 enum-fallback FlagBit map.</summary>
+internal sealed record FlagBitModel(string Name, int Bit);
+
+internal sealed record RegisterModel(string Name, int Bits, string Role, string? HighHalf = null, string? LowHalf = null);
 
 /// <summary>The parsed decode structure (Ground truth G). ABSENT on the model means the 6502
 /// degenerate walk. Carries the prefix bytes, the ModR/M (length-determining) opcodes, and the

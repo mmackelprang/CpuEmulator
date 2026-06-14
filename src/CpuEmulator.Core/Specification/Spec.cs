@@ -68,4 +68,62 @@ public static class Spec
     public static Op PortIn(string target) => new PortInOp(target);   // Z80: IN A,(n) / IN r,(C)
     public static Op PortOut(string source) => new PortOutOp(source); // Z80: OUT (n),A / OUT (C),r
     public static Op Halt() => new HaltOp();                          // Z80 HALT / 68000 STOP
+
+    // ── Composable flag micro-ops (M3.4a — general, 8086-reusable). Register-NAME string args. ──
+    public static Op SetSZ(string source) => new SetSZOp(source);
+    public static Op SetParity(string source) => new SetParityOp(source);
+    public static Op SetXY(string source) => new SetXYOp(source);
+    public static Op SetAddSub(bool subtract) => new SetAddSubOp(subtract);
+
+    // ── M3.4a Z80 base-plane micro-ops (additive; the 6502 names none). ──
+    // 8-bit flag-correct ALU (A-implicit; source resolved by mode).
+    public static Op Add8() => new Add8Op();
+    public static Op Adc8() => new Adc8Op();
+    public static Op Sub8() => new Sub8Op();
+    public static Op Sbc8() => new Sbc8Op();
+    public static Op And8() => new And8Op();
+    public static Op Or8() => new Or8Op();
+    public static Op Xor8() => new Xor8Op();
+    public static Op Cp8() => new Cp8Op();
+    // 8-bit INC/DEC.
+    public static Op IncReg(string target) => new IncRegOp(target);
+    public static Op DecReg(string target) => new DecRegOp(target);
+    public static Op IncMem8() => new IncMem8Op();
+    public static Op DecMem8() => new DecMem8Op();
+    // 16-bit ALU.
+    public static Op Add16(string target, string source) => new Add16Op(target, source);
+    public static Op Inc16(string target) => new Inc16Op(target);
+    public static Op Dec16(string target) => new Dec16Op(target);
+    // 16-bit LD.
+    public static Op Load16(string target) => new Load16Op(target);
+    public static Op Store16(string source) => new Store16Op(source);
+    public static Op LoadMem16(string target) => new LoadMem16Op(target);
+    public static Op StoreImm8() => new StoreImm8Op();
+    // Pair stack.
+    public static Op Push16(string pair) => new Push16Op(pair);
+    public static Op Pop16(string pair) => new Pop16Op(pair);
+    // Exchange.
+    public static Op ExDeHl() => new ExDeHlOp();
+    public static Op ExAfAf() => new ExAfAfOp();
+    public static Op Exx() => new ExxOp();
+    public static Op ExSpHl() => new ExSpHlOp();
+    // Flow (conditional + relative).
+    public static Op JumpIf(Flag cc, bool sense) => new JumpIfOp(cc, sense);
+    public static Op CallIf(Flag cc, bool sense) => new CallIfOp(cc, sense);
+    public static Op RetCc(Flag cc, bool sense) => new RetCcOp(cc, sense);
+    public static Op RelJump() => new RelJumpOp();
+    public static Op RelJumpIf(Flag cc, bool sense) => new RelJumpIfOp(cc, sense);
+    public static Op Djnz(string counter) => new DjnzOp(counter);
+    public static Op Rst() => new RstOp();
+    public static Op JumpIndirect() => new JumpIndirectOp();
+    public static Op JumpAbs() => new JumpAbsOp();
+    public static Op CallAbs() => new CallAbsOp();
+    public static Op Ret() => new RetOp();
+    // Misc.
+    public static Op Daa() => new DaaOp();
+    public static Op Cpl() => new CplOp();
+    public static Op Scf() => new ScfOp();
+    public static Op Ccf() => new CcfOp();
+    public static Op Di() => new DiOp();
+    public static Op Ei() => new EiOp();
 }

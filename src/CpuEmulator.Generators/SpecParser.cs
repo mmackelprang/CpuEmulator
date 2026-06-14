@@ -76,6 +76,64 @@ internal static class SpecParser
         ["PortIn"] = new[] { ArgKind.Reg },
         ["PortOut"] = new[] { ArgKind.Reg },
         ["Halt"] = System.Array.Empty<ArgKind>(),
+        // Composable flag micro-ops (M3.4a — general). SetSZ/SetParity/SetXY name a result register;
+        // SetAddSub takes a bool (true = subtract).
+        ["SetSZ"] = new[] { ArgKind.Reg },
+        ["SetParity"] = new[] { ArgKind.Reg },
+        ["SetXY"] = new[] { ArgKind.Reg },
+        ["SetAddSub"] = new[] { ArgKind.Bool },
+        // ── M3.4a Z80 base-plane micro-ops ──
+        // 8-bit flag-correct ALU — A is implicit; the SOURCE is resolved by the mode (a register in
+        // Register mode, (HL) in RegisterIndirect, n in Immediate). Arity 0.
+        ["Add8"] = System.Array.Empty<ArgKind>(),
+        ["Adc8"] = System.Array.Empty<ArgKind>(),
+        ["Sub8"] = System.Array.Empty<ArgKind>(),
+        ["Sbc8"] = System.Array.Empty<ArgKind>(),
+        ["And8"] = System.Array.Empty<ArgKind>(),
+        ["Or8"] = System.Array.Empty<ArgKind>(),
+        ["Xor8"] = System.Array.Empty<ArgKind>(),
+        ["Cp8"] = System.Array.Empty<ArgKind>(),
+        // 8-bit INC/DEC — the target register (Register), or (HL) implied by RegisterIndirect (no arg).
+        ["IncReg"] = new[] { ArgKind.Reg },
+        ["DecReg"] = new[] { ArgKind.Reg },
+        ["IncMem8"] = System.Array.Empty<ArgKind>(),   // INC (HL) — target is the pair-EA byte
+        ["DecMem8"] = System.Array.Empty<ArgKind>(),   // DEC (HL)
+        // 16-bit ALU.
+        ["Add16"] = new[] { ArgKind.Reg, ArgKind.Reg },  // Add16("HL","BC")
+        ["Inc16"] = new[] { ArgKind.Reg },
+        ["Dec16"] = new[] { ArgKind.Reg },
+        // 16-bit LD (Load16 reg ← operand; Store16 reg → memory; LoadMem16 reg ← (nn)).
+        ["Load16"] = new[] { ArgKind.Reg },      // LD rr,nn (ImmediateExtended)
+        ["Store16"] = new[] { ArgKind.Reg },     // LD (nn),rr (ExtendedAddress)
+        ["LoadMem16"] = new[] { ArgKind.Reg },   // LD rr,(nn) (ExtendedAddress)
+        ["StoreImm8"] = System.Array.Empty<ArgKind>(),   // LD (HL),n
+        // 16-bit pair stack.
+        ["Push16"] = new[] { ArgKind.Reg },
+        ["Pop16"] = new[] { ArgKind.Reg },
+        // Exchange.
+        ["ExDeHl"] = System.Array.Empty<ArgKind>(),
+        ["ExAfAf"] = System.Array.Empty<ArgKind>(),
+        ["Exx"] = System.Array.Empty<ArgKind>(),
+        ["ExSpHl"] = System.Array.Empty<ArgKind>(),
+        // Conditional + relative flow. cc is a Flag + bool sense pair (like BranchIf).
+        ["JumpIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["CallIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["RetCc"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["RelJump"] = System.Array.Empty<ArgKind>(),
+        ["RelJumpIf"] = new[] { ArgKind.Flag, ArgKind.Bool },
+        ["Djnz"] = new[] { ArgKind.Reg },         // Djnz("B")
+        ["Rst"] = System.Array.Empty<ArgKind>(),  // vector derived from the opcode (opcode & 0x38)
+        ["JumpIndirect"] = System.Array.Empty<ArgKind>(),  // JP (HL) — PC = HL
+        ["JumpAbs"] = System.Array.Empty<ArgKind>(),       // JP nn — Z80 16-bit absolute jump
+        ["CallAbs"] = System.Array.Empty<ArgKind>(),       // CALL nn — Z80 unconditional call
+        ["Ret"] = System.Array.Empty<ArgKind>(),           // RET — Z80 unconditional return
+        // Misc.
+        ["Daa"] = System.Array.Empty<ArgKind>(),
+        ["Cpl"] = System.Array.Empty<ArgKind>(),
+        ["Scf"] = System.Array.Empty<ArgKind>(),
+        ["Ccf"] = System.Array.Empty<ArgKind>(),
+        ["Di"] = System.Array.Empty<ArgKind>(),
+        ["Ei"] = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -85,12 +143,17 @@ internal static class SpecParser
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
+        // M3.4a (additive): the Z80 register-shape modes.
+        "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
     };
 
-    /// <summary>Valid Flag enum members for BranchIf (CPUGEN006 for anything else).</summary>
+    /// <summary>Valid Flag enum members for BranchIf/SetFlag/cc args (CPUGEN006 for anything else).
+    /// M3.4a (additive): the Z80 names S/H/P/Y/X join so SetFlag(Flag.H, …)/JumpIf(Flag.P, …) parse.
+    /// The 6502 names C/Z/I/D/V/N are unchanged — the 6502 spec uses only those.</summary>
     private static readonly HashSet<string> s_flagMembers = new(System.StringComparer.Ordinal)
     {
         "C", "Z", "I", "D", "V", "N",
+        "S", "H", "P", "Y", "X",   // M3.4a: Z80 flag names (additive)
     };
 
     /// <summary>Local variable names the emitter writes into opcode bodies (and Step/Run).
@@ -108,6 +171,8 @@ internal static class SpecParser
         "Decrement",  // register-class use: DEX/DEY (op is register class, not rmw class)
         "SetFlag",    // register-class use: CLC/SEC/CLI/SEI/CLV/CLD/SED
         "Halt",       // M3.2: HALT/STOP — an Implied/Register-class op that sets the halted latch
+        // M3.4a: composable flag micro-ops — register-class (they only modify the Status register).
+        "SetSZ", "SetParity", "SetXY", "SetAddSub",
     };
 
     // M3.2 (additive): the I/O-port op kinds + their legal modes. A Port-class row's first op is
@@ -141,6 +206,58 @@ internal static class SpecParser
     private static readonly HashSet<string> s_flowOpKinds = new(System.StringComparer.Ordinal)
     {
         "Jsr", "Rts", "Brk", "Rti",
+    };
+
+    // ── M3.4a Z80 op-kind class sets (additive; the 6502 names none) ──
+    private static readonly HashSet<string> s_z80AluOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Add8", "Adc8", "Sub8", "Sbc8", "And8", "Or8", "Xor8", "Cp8",
+        "IncReg", "DecReg", "IncMem8", "DecMem8",
+        "Add16", "Inc16", "Dec16",
+    };
+
+    private static readonly HashSet<string> s_z80LdOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Load16", "Store16", "LoadMem16", "StoreImm8",
+    };
+
+    private static readonly HashSet<string> s_z80StackOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Push16", "Pop16",
+    };
+
+    private static readonly HashSet<string> s_z80ExchangeOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "ExDeHl", "ExAfAf", "Exx", "ExSpHl",
+    };
+
+    private static readonly HashSet<string> s_z80FlowOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "JumpIf", "CallIf", "RetCc", "RelJump", "RelJumpIf", "Djnz", "Rst", "JumpIndirect",
+        "JumpAbs", "CallAbs", "Ret",
+    };
+
+    private static readonly HashSet<string> s_z80MiscOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Daa", "Cpl", "Scf", "Ccf", "Di", "Ei",
+    };
+
+    // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
+    // 16-bit ALU is Register only. INC/DEC (HL) is RegisterIndirect.
+    private static readonly HashSet<string> s_z80AluModes = new(System.StringComparer.Ordinal)
+    {
+        "Register", "RegisterIndirect", "Immediate",
+    };
+
+    private static readonly HashSet<string> s_z80LdModes = new(System.StringComparer.Ordinal)
+    {
+        "ImmediateExtended", "ExtendedAddress", "RegisterIndirect",
+        "Immediate",   // LD (HL),n — StoreImm8 reads the immediate, writes to (HL)
+    };
+
+    private static readonly HashSet<string> s_z80FlowModes = new(System.StringComparer.Ordinal)
+    {
+        "ExtendedAddress", "RelativeJump", "Implied", "RegisterIndirect",
     };
 
     // Per-class allowed modes: load/alu share the same 9 modes; rmw has its own 5.
@@ -226,11 +343,15 @@ internal static class SpecParser
         // Optional decode structure (Ground truth G). ABSENT (the 6502) ⇒ the degenerate walk.
         var decode = ParseDecodeStructure(classDecl, instructions, diagnostics);
 
+        // Optional flag layout (M3.4a Ground truth B). ABSENT (the 6502) ⇒ the FlagBit enum fallback.
+        var flags = ParseFlagLayout(classDecl, diagnostics);
+
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         var model = new SpecModel(ns, cpuName, architecture,
-            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode);
+            LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode,
+            FetchUnit.Byte, flags);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -253,14 +374,44 @@ internal static class SpecParser
         foreach (var element in collection.Elements)
         {
             if (element is not ExpressionElementSyntax expr ||
-                GetCreationArguments(expr.Expression) is not { } args ||
-                args.Count is < 2 or > 3 ||
-                LiteralString(args[0]) is not { } name ||
-                LiteralInt(args[1]) is not { } bits)
+                GetCreationArgumentSyntaxes(expr.Expression) is not { } cargs ||
+                cargs.Count < 2 ||
+                LiteralString(cargs[0].Expression) is not { } name ||
+                LiteralInt(cargs[1].Expression) is not { } bits)
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
                     element.GetLocation(), element.ToString(),
-                    "expected new(\"NAME\", bits[, RegisterRole.X]) with literal arguments"));
+                    "expected new(\"NAME\", bits[, RegisterRole.X][, HighHalf: \"H\", LowHalf: \"L\"]) with literal arguments"));
+                continue;
+            }
+
+            // Parse the optional 3rd positional RegisterRole + the optional named HighHalf/LowHalf
+            // (M3.4a pair view). A 3rd POSITIONAL arg (no NameColon) is the RegisterRole; named
+            // args set the pair-view halves.
+            string role = "General";
+            string? highHalf = null, lowHalf = null;
+            bool argError = false;
+            for (int i = 2; i < cargs.Count; i++)
+            {
+                var a = cargs[i];
+                string? argName = a.NameColon?.Name.Identifier.Text;
+                if (argName is null)
+                {
+                    if (EnumMemberName(a.Expression, "RegisterRole") is { } parsedRole)
+                        role = parsedRole;
+                    else { argError = true; break; }
+                }
+                else if (argName == "HighHalf")
+                    highHalf = LiteralString(a.Expression) ?? Sentinel(ref argError);
+                else if (argName == "LowHalf")
+                    lowHalf = LiteralString(a.Expression) ?? Sentinel(ref argError);
+                else { argError = true; break; }
+            }
+            if (argError)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
+                    element.GetLocation(), name,
+                    "extra arguments must be a RegisterRole member and/or HighHalf:/LowHalf: string literals"));
                 continue;
             }
 
@@ -294,19 +445,35 @@ internal static class SpecParser
                 continue;
             }
 
-            string role = "General";
-            if (args.Count == 3)
-            {
-                if (EnumMemberName(args[2], "RegisterRole") is not { } parsedRole)
-                {
-                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
-                        element.GetLocation(), name, "third argument must be a RegisterRole member"));
-                    continue;
-                }
-                role = parsedRole;
-            }
+            registers.Add(new RegisterModel(name, bits, role, highHalf, lowHalf));
+        }
 
-            registers.Add(new RegisterModel(name, bits, role));
+        // M3.4a (Ground truth A.3): validate every pair-view RegisterDef. A view (HighHalf/LowHalf
+        // set) must be 16-bit and name two DECLARED 8-bit registers (CPUGEN014). Validated after the
+        // full table is read so a half declared later in the table still resolves.
+        var byName = new Dictionary<string, RegisterModel>(System.StringComparer.Ordinal);
+        foreach (var r in registers)
+            byName[r.Name] = r;
+        foreach (var r in registers)
+        {
+            if (r.HighHalf is null && r.LowHalf is null)
+                continue;
+            if (r.HighHalf is null || r.LowHalf is null)
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidPairView,
+                    classDecl.Identifier.GetLocation(), r.Name,
+                    "a pair view must declare BOTH HighHalf and LowHalf"));
+            else if (r.Bits != 16)
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidPairView,
+                    classDecl.Identifier.GetLocation(), r.Name,
+                    "a pair view must be 16-bit"));
+            else
+            {
+                foreach (string half in new[] { r.HighHalf, r.LowHalf })
+                    if (!byName.TryGetValue(half, out var hr) || hr.Bits != 8)
+                        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidPairView,
+                            classDecl.Identifier.GetLocation(), r.Name,
+                            $"half '{half}' must name a declared 8-bit register"));
+            }
         }
 
         int pcCount = registers.Count(r => r.Role == "ProgramCounter");
@@ -567,6 +734,66 @@ internal static class SpecParser
         return new DecodeStructureModel(prefixes.ToImmutable(), modRm.ToImmutable(), subField.ToImmutable());
     }
 
+    /// <summary>Parse the optional <c>Flags</c> field (M3.4a Ground truth B). ABSENT ⇒ empty (the
+    /// 6502 FlagBit enum-fallback). Present ⇒ a <c>new([ new("S", 7), new("Z", 6), … ])</c> /
+    /// <c>new FlagLayout([...])</c> creation whose collection of <c>FlagBitDef("NAME", bit)</c>
+    /// entries is parsed into the model. A malformed structure or a bit outside 0–7 reports
+    /// CPUGEN013. Each name must be a known Flag member (CPUGEN013 otherwise).</summary>
+    private static ImmutableArray<FlagBitModel> ParseFlagLayout(
+        ClassDeclarationSyntax classDecl,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        var field = FindArrayField(classDecl, "Flags");
+        if (field is null)
+            return ImmutableArray<FlagBitModel>.Empty;   // ABSENT — the 6502 default.
+
+        Location loc = field.GetLocation();
+        if (field.Declaration.Variables[0].Initializer?.Value is not { } init ||
+            GetCreationArguments(init) is not { Count: 1 } args ||
+            args[0] is not CollectionExpressionSyntax bitsColl)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout, loc,
+                "expected new([ new(\"NAME\", bit), ... ]) with literal arguments"));
+            return ImmutableArray<FlagBitModel>.Empty;
+        }
+
+        var bits = ImmutableArray.CreateBuilder<FlagBitModel>();
+        var seen = new HashSet<string>(System.StringComparer.Ordinal);
+        foreach (var element in bitsColl.Elements)
+        {
+            if (element is not ExpressionElementSyntax expr ||
+                GetCreationArguments(expr.Expression) is not { Count: 2 } bargs ||
+                LiteralString(bargs[0]) is not { } name ||
+                LiteralInt(bargs[1]) is not { } bit)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), "expected new(\"NAME\", bit) with literal arguments"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            if (!s_flagMembers.Contains(name))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), $"'{name}' is not a known Flag member"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            if (bit is < 0 or > 7)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), $"bit {bit} for flag '{name}' is outside 0–7"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            if (!seen.Add(name))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
+                    element.GetLocation(), $"duplicate flag '{name}' in layout"));
+                return ImmutableArray<FlagBitModel>.Empty;
+            }
+            bits.Add(new FlagBitModel(name, bit));
+        }
+
+        return bits.ToImmutable();
+    }
+
     /// <summary>Parse a collection of 0xNN byte literals into the builder; false on any non-literal
     /// or out-of-range element.</summary>
     private static bool ParseByteCollection(ExpressionSyntax expr, ImmutableArray<byte>.Builder into)
@@ -632,11 +859,14 @@ internal static class SpecParser
 
         // Stack-touching classes need a StackPointer-role register — the emitter writes its
         // NAME into the templates; without it the generated code would not compile (CS0103).
-        if (instructionClass is InstructionClass.Stack or InstructionClass.Flow && !hasStackPointer)
+        // M3.4a: the Z80 stack/flow/exchange classes also push/pop or exchange via SP.
+        bool touchesStack = instructionClass is InstructionClass.Stack or InstructionClass.Flow
+            or InstructionClass.Z80Stack or InstructionClass.Z80Flow or InstructionClass.Z80Exchange;
+        if (touchesStack && !hasStackPointer)
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.UnsupportedModeOpCombination,
                 location, mnemonic,
-                $"{(instructionClass == InstructionClass.Stack ? "stack" : "flow")} class requires a StackPointer-role register"));
+                $"{instructionClass.ToString().ToLowerInvariant()} class requires a StackPointer-role register"));
             return false;
         }
 
@@ -644,9 +874,11 @@ internal static class SpecParser
         // PushP/PullP move P itself). BRK/RTI also touch P: BRK stacks P|0x30 and sets I,
         // RTI restores P from the stack — the emitter writes the Status NAME into both
         // templates, so a Status-role register is mandatory (CS0103 otherwise).
+        // M3.4a: the Z80 ALU + misc (DAA/SCF/CCF/CPL) classes write the Status register too.
         bool flowTouchesStatus = instructionClass == InstructionClass.Flow
             && firstOpKind is "Brk" or "Rti";
         if ((instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
+                or InstructionClass.Z80Alu or InstructionClass.Z80Misc
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -768,6 +1000,40 @@ internal static class SpecParser
             return InstructionClass.Port;
         }
 
+        // ── M3.4a Z80 classes (additive — the 6502 names none of these op kinds) ──
+        // Each Z80 class is a single bespoke op (the flag/EA logic is in the emitter body). No
+        // trailing register ops (the flag-setting is inline in the ALU/INC arm, not composed here).
+        if (s_z80AluOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 ALU class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Alu;
+        }
+        if (s_z80LdOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 16-bit LD class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Ld;
+        }
+        if (s_z80StackOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 stack class must contain exactly one op (Push16/Pop16)"; return null; }
+            return InstructionClass.Z80Stack;
+        }
+        if (s_z80ExchangeOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 exchange class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Exchange;
+        }
+        if (s_z80FlowOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 flow class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Flow;
+        }
+        if (s_z80MiscOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 misc class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Misc;
+        }
+
         // All must be register ops
         foreach (var op in ops)
         {
@@ -792,35 +1058,40 @@ internal static class SpecParser
     {
         return opClass switch
         {
-            // register class: Implied only
+            // register class: Implied (6502) OR the Z80 register-shape modes (LD r,r' is Register;
+            // LD SP,HL is Register). Additive — the 6502 register-class rows stay Implied.
             InstructionClass.Register =>
-                mode == "Implied" ? null
-                : "register-class ops (Transfer/Increment/SetNZ/Decrement/SetFlag or empty) require Implied mode",
+                mode is "Implied" or "Register" ? null
+                : "register-class ops require Implied (6502) or Register (Z80 LD r,r') mode",
 
-            // load class: Immediate + all 8 memory modes (9 total)
+            // load class: Immediate + all 8 6502 memory modes (9 total), PLUS the Z80 register-shape
+            // load modes (RegisterIndirect for LD r,(HL); ExtendedAddress for LD A,(nn); Register for
+            // LD r,r' authored as Load — though Z80 LD r,r' uses Transfer/Register class). Additive.
             InstructionClass.Load =>
-                s_loadAluModes.Contains(mode) ? null
-                : "Load requires a memory or immediate addressing mode",
+                s_loadAluModes.Contains(mode) || mode is "RegisterIndirect" or "ExtendedAddress" or "Register" ? null
+                : "Load requires a memory/immediate or Z80 register-shape addressing mode",
 
-            // alu class: same 9 modes as load
+            // alu class: same 9 modes as load (6502 — UNCHANGED).
             InstructionClass.Alu =>
                 s_loadAluModes.Contains(mode) ? null
                 : "Alu requires a memory or immediate addressing mode",
 
-            // store class: 8 memory modes (no Immediate)
+            // store class: 8 6502 memory modes (no Immediate), PLUS the Z80 RegisterIndirect (LD (HL),r;
+            // LD (BC),A) and ExtendedAddress (LD (nn),A). Additive — the 6502 store rows unchanged.
             InstructionClass.Store =>
-                s_storeModes.Contains(mode) ? null
-                : "Store requires a memory addressing mode (ZeroPage/Absolute/Indirect families)",
+                s_storeModes.Contains(mode) || mode is "RegisterIndirect" or "ExtendedAddress" ? null
+                : "Store requires a 6502 memory mode or a Z80 register-shape store mode",
 
             // rmw class: ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator
             InstructionClass.Rmw =>
                 s_rmwModes.Contains(mode) ? null
                 : "Rmw requires ZeroPage/ZeroPageX/Absolute/AbsoluteX/Accumulator mode",
 
-            // jump class: Absolute and Indirect
+            // jump class: Absolute/Indirect (6502) OR the Z80 ExtendedAddress (JP nn) /
+            // RegisterIndirect (JP (HL)). Additive — the 6502 jump rows stay Absolute/Indirect.
             InstructionClass.Jump =>
-                (mode == "Absolute" || mode == "Indirect") ? null
-                : "Jump requires Absolute or Indirect mode",
+                mode is "Absolute" or "Indirect" or "ExtendedAddress" or "RegisterIndirect" ? null
+                : "Jump requires Absolute/Indirect (6502) or ExtendedAddress/RegisterIndirect (Z80) mode",
 
             // branch class: Relative only
             InstructionClass.Branch =>
@@ -832,10 +1103,11 @@ internal static class SpecParser
                 mode == "Implied" ? null
                 : "stack class (Push/Pull/PushP/PullP) requires Implied mode",
 
-            // flow class: per-OP matrix — Jsr requires Absolute; Rts/Brk/Rti require Implied.
+            // flow class: per-OP matrix — Jsr requires Absolute (6502) or ExtendedAddress (Z80 CALL nn);
+            // Rts requires Implied (6502 RTS / Z80 RET); Brk/Rti require Implied.
             // ClassifyOps guarantees flow has exactly one op of kind Jsr/Rts/Brk/Rti.
             InstructionClass.Flow when firstOpKind == "Jsr" =>
-                mode == "Absolute" ? null : "Jsr requires Absolute mode",
+                mode is "Absolute" or "ExtendedAddress" ? null : "Jsr requires Absolute (6502) or ExtendedAddress (Z80 CALL) mode",
             InstructionClass.Flow when firstOpKind == "Brk" =>
                 mode == "Implied" ? null : "Brk requires Implied mode",
             InstructionClass.Flow when firstOpKind == "Rti" =>
@@ -848,6 +1120,24 @@ internal static class SpecParser
             InstructionClass.Port =>
                 s_portModes.Contains(mode) ? null
                 : "port class (PortIn/PortOut) requires IoPortImmediate or IoPortIndirect mode",
+
+            // ── M3.4a Z80 classes ──
+            InstructionClass.Z80Alu =>
+                s_z80AluModes.Contains(mode) ? null
+                : "Z80 ALU class requires Register/RegisterIndirect/Immediate mode",
+            InstructionClass.Z80Ld =>
+                s_z80LdModes.Contains(mode) ? null
+                : "Z80 16-bit LD class requires ImmediateExtended/ExtendedAddress/RegisterIndirect mode",
+            InstructionClass.Z80Stack =>
+                mode == "Register" ? null : "Z80 stack class (Push16/Pop16) requires Register mode",
+            InstructionClass.Z80Exchange =>
+                mode is "Implied" or "Register" or "RegisterIndirect" ? null
+                : "Z80 exchange class requires Implied/Register/RegisterIndirect mode",
+            InstructionClass.Z80Flow =>
+                s_z80FlowModes.Contains(mode) ? null
+                : "Z80 flow class requires ExtendedAddress/RelativeJump/Implied/RegisterIndirect mode",
+            InstructionClass.Z80Misc =>
+                mode == "Implied" ? null : "Z80 misc class (DAA/CPL/SCF/CCF/DI/EI) requires Implied mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };
@@ -979,6 +1269,20 @@ internal static class SpecParser
             InvocationExpressionSyntax i => i.ArgumentList.Arguments.Select(a => a.Expression).ToList(),
             _ => null,
         };
+
+    /// <summary>Argument SYNTAXES (carrying NameColon) of a creation — needed to distinguish a
+    /// positional RegisterRole arg from the named HighHalf:/LowHalf: pair-view args (M3.4a).</summary>
+    private static IReadOnlyList<ArgumentSyntax>? GetCreationArgumentSyntaxes(ExpressionSyntax expression) =>
+        expression switch
+        {
+            ImplicitObjectCreationExpressionSyntax c => c.ArgumentList.Arguments,
+            ObjectCreationExpressionSyntax { ArgumentList: { } al } => al.Arguments,
+            InvocationExpressionSyntax i => i.ArgumentList.Arguments,
+            _ => null,
+        };
+
+    /// <summary>Set the error flag and return null (for an inline "non-literal half" reject).</summary>
+    private static string? Sentinel(ref bool error) { error = true; return null; }
 
     private static string? LiteralString(ExpressionSyntax expression) =>
         expression is LiteralExpressionSyntax { Token.Value: string s } ? s : null;

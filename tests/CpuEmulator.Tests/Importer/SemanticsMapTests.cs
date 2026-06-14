@@ -298,13 +298,14 @@ public class SemanticsMapTests
     [Fact]
     public void Z80_registers_load_as_declared()
     {
-        // The 22 Z80 register configs: 18 8-bit (main A F B C D E H L + alternate A_..L_ + I R) +
-        // 4 16-bit (IX IY SP PC). F is Status; SP StackPointer; PC ProgramCounter.
+        // The 30 Z80 register configs: 18 8-bit STORAGE (main A F B C D E H L + alternate A_..L_ +
+        // I R) + 4 16-bit storage (IX IY SP PC) + 8 16-bit pair VIEWS (AF/BC/DE/HL + the alt pairs,
+        // M3.4a). F is Status; SP StackPointer; PC ProgramCounter.
         var map = SemanticsMap.Load(Z80SemanticsPath);
         Assert.Equal("z80", map.Architecture);
         Assert.Equal("CpuEmulator.Cpus.Z80", map.Namespace);
         Assert.Equal("Z80Spec", map.SpecClassName);
-        Assert.Equal(22, map.Registers.Length);
+        Assert.Equal(30, map.Registers.Length);
 
         var byName = map.Registers.ToDictionary(r => r.Name);
         Assert.Equal("Status", byName["F"].Role);
@@ -318,21 +319,34 @@ public class SemanticsMapTests
         Assert.Equal(8, byName["R"].Bits);
         Assert.Equal(16, byName["IX"].Bits);
         Assert.Equal(16, byName["IY"].Bits);
+        // M3.4a: the 8 pair VIEWS carry HighHalf/LowHalf over the 8-bit halves (bidirectional aliasing).
+        Assert.Equal("B", byName["BC"].HighHalf);
+        Assert.Equal("C", byName["BC"].LowHalf);
+        Assert.Equal("A", byName["AF"].HighHalf);
+        Assert.Equal("F", byName["AF"].LowHalf);
+        Assert.Equal("B_", byName["BC_"].HighHalf);
+        Assert.Equal("L_", byName["HL_"].LowHalf);
     }
 
     [Fact]
-    public void Z80_semantics_uses_only_existing_factories()
+    public void Z80_semantics_map_and_flag_layout_load()
     {
-        // Every covered mnemonic's ops text validates against the UNCHANGED FactoryArity (no new M3.4
-        // factory names — the M3.3 invariant). Loading without throwing IS the validation (the loader
-        // runs ValidateOpsText against FactoryArity for every mnemonic).
+        // M3.4a: the Z80 base-plane per-opcode ops are now computed ALGORITHMICALLY from the opcode
+        // byte (Z80BaseSemantics), so the per-mnemonic map shrank to NOP/HALT/NEG (the prefixed ED NEG
+        // still rides the map; the base plane no longer uses it). The map's ops text validates against
+        // FactoryArity (loading without throwing IS the validation). The Z80 flag layout (S=7..C=0) is
+        // declared and loaded.
         var map = SemanticsMap.Load(Z80SemanticsPath);
         Assert.NotEmpty(map.Mnemonics);
-        // spot-check the covered decode-shapes map to existing factories
         Assert.Equal("[]", map.Mnemonics["NOP"]);
         Assert.Equal("[Halt()]", map.Mnemonics["HALT"]);
-        Assert.Equal("[Adc()]", map.Mnemonics["ADD"]);
-        Assert.Equal("[PortIn(\"A\")]", map.Mnemonics["IN"]);
-        Assert.Equal("[PortOut(\"A\")]", map.Mnemonics["OUT"]);
+        Assert.Equal("[]", map.Mnemonics["NEG"]);
+        // The Z80 flag layout: 8 bits, S at bit 7, Z at bit 6, C at bit 0 (the per-spec map).
+        Assert.Equal(8, map.Flags.Length);
+        var flagBit = map.Flags.ToDictionary(b => b.Name, b => b.Bit);
+        Assert.Equal(7, flagBit["S"]);
+        Assert.Equal(6, flagBit["Z"]);
+        Assert.Equal(4, flagBit["H"]);
+        Assert.Equal(0, flagBit["C"]);
     }
 }
