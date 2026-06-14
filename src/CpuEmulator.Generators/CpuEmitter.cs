@@ -387,7 +387,8 @@ internal static class CpuEmitter
 
     /// <summary>Does this Z80 instruction WRITE the flag word (→ Q = F) or not (→ Q = 0)? Z80Alu writes
     /// flags EXCEPT Inc16/Dec16 (the 16-bit INC/DEC set none); Z80Misc writes EXCEPT Di/Ei; Z80Rot
-    /// always writes; Z80Bit writes only for BIT (RES/SET set none); Z80Ld/Stack/Exchange/Flow never.</summary>
+    /// always writes; Z80Bit writes only for BIT (RES/SET set none); Z80EdIo writes only for EdIn (IN
+    /// r,(C) sets S/Z/Y/X/P; OUT (C),r sets none); Z80Ld/Stack/Exchange/Flow never.</summary>
     private static bool Z80WritesFlags(InstructionClass cls, InstructionModel insn)
     {
         string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : "";
@@ -397,6 +398,7 @@ internal static class CpuEmitter
             InstructionClass.Z80Misc => kind is not ("Di" or "Ei"),
             InstructionClass.Z80Rot => true,
             InstructionClass.Z80Bit => Unquote(insn.Ops[0].Args[0]) == "BIT",
+            InstructionClass.Z80EdIo => kind == "EdIn",   // IN sets flags; OUT does not
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -2331,10 +2333,44 @@ internal static class CpuEmitter
 
     // ---- M3.4c ED-core classes (classification-only STUB bodies — real behavior in B-Tasks 2-7) ----
 
+    /// <summary>ED IN r,(C) / OUT (C),r (+ the undoc IN (C) discard / OUT (C),0). The port is BC and
+    /// both forms write WZ = BC+1 (MEMPTR). IN reads the Io bus, optionally stores it into r[y], and
+    /// recomputes S/Z/Y/X/P from the input (H=0, N=0, C preserved); OUT writes r[y] (or 0) to the Io
+    /// bus and touches NO flags. Cycles: 12 T — Step charges the 2 key bytes, ReadIo/WriteIo charge 1,
+    /// the body adds the remaining 9 internal.</summary>
     private static void EmitZ80EdIoBody(
         StringBuilder sb, InstructionModel insn, string pc, string? statusReg, FlagBitMap flags)
     {
-        sb.AppendLine("        _ = 0;   // TODO B-Task 2 (IN/OUT (C))");
+        string f = statusReg ?? "F";
+        string kind = insn.Ops[0].Kind;
+        string operand = Unquote(insn.Ops[0].Args[0]);   // "B".."A" / "none" / "zero"
+        sb.AppendLine("        WZ = unchecked((ushort)(BC + 1));");   // both IN and OUT: WZ = BC+1
+
+        if (kind == "EdIn")
+        {
+            string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+            string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+            string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+            string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+            string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+            string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+            sb.AppendLine("        byte inp = ReadIo(BC);");
+            if (operand != "none")
+                sb.AppendLine($"        {operand} = inp;");          // y!=6: store into r[y]
+            sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");
+            sb.AppendLine($"            | ((inp & 0x80) != 0 ? {sMask} : 0x00)");
+            sb.AppendLine($"            | (inp == 0 ? {zMask} : 0x00)");
+            sb.AppendLine($"            | ((inp & 0x20) != 0 ? {yMask} : 0x00)");
+            sb.AppendLine($"            | ((inp & 0x08) != 0 ? {xMask} : 0x00)");
+            sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)inp) & 1) == 0 ? {pMask} : 0x00)));");
+        }
+        else // EdOut
+        {
+            string value = operand == "zero" ? "0" : operand;  // y=6: OUT (C),0
+            sb.AppendLine($"        WriteIo(BC, unchecked((byte)({value})));");
+        }
+        // Cycles: 12 T. Step charged 2 (key bytes); the ReadIo/WriteIo charges 1. +9 internal.
+        sb.AppendLine($"        _cycles += {12 - 2 - 1};   // IN/OUT (C) = 12 T-states");
     }
 
     private static void EmitZ80EdOpBody(
