@@ -211,6 +211,23 @@ derive-vs-hand-author decision (D3) lands on hand-authoring, consider splitting 
 
 ### M3.4e-3 — DDCB/FDCB compound (bit/rotate/shift on (IX+d) + the undoc store-copy forms)
 
+> **EXPANDED (2026-06-14): this section is now detailed in a full execution-ready task-by-task plan**
+> (the M3.4c/d + e-1a/e-1b/e-2 depth): `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md`. That
+> doc carries the load-bearing literal code (the D3 derivation `Z80DdCbSemantics`; the ONE compound emit arm
+> `EmitZ80DdCbBody` reusing the M3.4b CB rotate/BIT/RES-SET math + the store-copy + the BIT-X/Y-from-`(EA>>8)`
+> quirk; the importer compound-row + compound-`PrefixByte` emission), the RECON-FINDINGS (H1 the
+> compound-key disassembler fix; H2 the Q-reset predicate widening; **H3/D10 the load-bearing seam — the
+> parameterless `Op{key}()` body cannot reach `DecodeResult.Operands.Lo`, so it re-reads the displacement
+> via a NON-CHARGING `_bus.Read8((ushort)(PC - 2))` peek**; H4 the atomic compound declaration; H5 the
+> store-copy writes the PLAIN B..A, never IXh/IXl), the F1 cross-check (225 DDCB + 225 FDCB rows DERIVED —
+> the dataset has 31+31, the harness gates 256+256), the per-task gates, and the honest close-state. D4
+> (JIT-IL = M3.5) + D5 (no chains) carried; DD-CB + FD-CB ship in ONE PR (D9). **NEW decisions for the
+> Coordinator: D10 (the `_bus.Read8(PC-2)` displacement peek) + D11 (the compound-key IX/IY disassembler
+> discriminator) + a possible per-family RES/SET Q split (the one item RECON could not pin from prose — the
+> vector is the oracle at Task 0).** With e-3 GREEN this is the **M3.4e-completion milestone** — the entire
+> documented + undocumented Z80 ISA is TomHarte-green. The outline below is retained as the framing the doc
+> expands.
+
 **Goal:** add the ~225+225 missing DDCB/FDCB dataset rows, implement the compound emit arm (the operation
 on `(IX+d)` + the undoc result-copy into a register), drive `dd cb __ *.json` + `fd cb __ *.json` (512
 vectors) green.
@@ -290,6 +307,8 @@ reuses them). Detailing them now would fabricate precision that D1–D3 + the e-
   half-views), `…-ixiy-e1b-compound-decoder.md` (the declarative compound decoder)
 - **M3.4e-2 DD/FD core (full execution-ready plan):**
   `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e2-ddfd-core.md`
+- **M3.4e-3 DDCB/FDCB compound (full execution-ready plan):**
+  `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md`
 - **Previous slice (depth template + the close-state record):**
   `docs/superpowers/plans/2026-06-14-m3-z80-ed-core.md`
 - **Immediately-prior slice:** `docs/superpowers/plans/2026-06-14-m3-z80-ed-block-ops.md`
