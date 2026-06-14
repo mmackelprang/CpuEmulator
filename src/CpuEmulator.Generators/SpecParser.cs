@@ -164,6 +164,8 @@ internal static class SpecParser
         ["DdFdStoreImmIndexed"] = System.Array.Empty<ArgKind>(),
         ["DdFdAluIndexed"]      = new[] { ArgKind.Str },               // DdFdAluIndexed("ADD")
         ["DdFdIncDecIndexed"]   = new[] { ArgKind.Bool },              // DdFdIncDecIndexed(true)
+        // M3.4e-3: the DDCB/FDCB compound op.
+        ["DdCb"] = new[] { ArgKind.Str, ArgKind.Int, ArgKind.Str },    // DdCb("RLC", 0, "B")
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -308,6 +310,9 @@ internal static class SpecParser
     {
         "DdFdLdIndexed", "DdFdStoreImmIndexed", "DdFdAluIndexed", "DdFdIncDecIndexed",
     };
+
+    // ── M3.4e-3 DDCB/FDCB compound op-kind class set (additive) ──
+    private static readonly HashSet<string> s_z80DdCbOpKinds = new(System.StringComparer.Ordinal) { "DdCb" };
 
     // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
     // 16-bit ALU is Register only. INC/DEC (HL) is RegisterIndirect.
@@ -1003,6 +1008,7 @@ internal static class SpecParser
                 or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
                 or InstructionClass.Z80EdBlock
                 or InstructionClass.Z80Indexed
+                or InstructionClass.Z80DdCb
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -1187,6 +1193,11 @@ internal static class SpecParser
             if (ops.Length != 1) { error = "Z80 indexed class must contain exactly one op"; return null; }
             return InstructionClass.Z80Indexed;
         }
+        if (s_z80DdCbOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 DDCB class must contain exactly one op"; return null; }
+            return InstructionClass.Z80DdCb;
+        }
 
         // All must be register ops
         foreach (var op in ops)
@@ -1317,6 +1328,10 @@ internal static class SpecParser
             // M3.4e-2: the indexed (IX+d)/(IY+d) memory ops are all Indexed mode.
             InstructionClass.Z80Indexed =>
                 mode == "Indexed" ? null : "Z80 indexed class ((IX+d)/(IY+d)) requires Indexed mode",
+
+            // M3.4e-3: the compound DDCB/FDCB ops are all Indexed mode (KeyShape.Compound at the row level).
+            InstructionClass.Z80DdCb =>
+                mode == "Indexed" ? null : "Z80 DDCB class (compound (IX+d)/(IY+d)) requires Indexed mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

@@ -155,3 +155,9 @@ public sealed record DdFdStoreImmIndexedOp : Op;
 public sealed record DdFdAluIndexedOp(string Op) : Op;
 // INC (IX+d) / DEC (IX+d). IsDec distinguishes.
 public sealed record DdFdIncDecIndexedOp(bool IsDec) : Op;
+
+// ── M3.4e-3 DDCB/FDCB compound plane (additive; the index register IX/IY is read from the compound key) ──
+// A bit/rotate/shift on (IX+d)/(IY+d). Op ∈ rotate/shift ("RLC".."SRL") or "BIT"/"RES"/"SET".
+// Index = the bit index for BIT/RES/SET (0..7), 0 for rotates. CopyReg = the undoc store-copy register
+// ("B".."A") for z != 6, or "-" (no copy) for z=6 and for ALL BIT forms (the plain register, NOT IXh/IXl).
+public sealed record DdCbOp(string Op, int Index, string CopyReg) : Op;

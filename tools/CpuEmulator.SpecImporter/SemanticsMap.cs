@@ -125,6 +125,8 @@ public sealed class SemanticsMap
         ["DdFdStoreImmIndexed"] = 0,
         ["DdFdAluIndexed"]      = 1,
         ["DdFdIncDecIndexed"]   = 1,
+        // M3.4e-3: the DDCB/FDCB compound op.
+        ["DdCb"] = 3,
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────
@@ -135,8 +137,9 @@ public sealed class SemanticsMap
     // requirement (CPUGEN011).
     // M3.4b: also accept a bare integer (the CB bit index 0..7) and a quoted "(HL)" target (the CB
     // EA shorthand — the only non-\w quoted arg). The generator is the real gate (runs in the e2e test).
+    // M3.4e-3: also accept the quoted "-" no-store-copy sentinel (the DDCB store-copy slot for z=6 / BIT).
     private static readonly Regex AllowedArgPattern =
-        new(@"^(""\w+""|""\(HL\)""|Flag\.\w+|true|false|\d+)$", RegexOptions.Compiled);
+        new(@"^(""\w+""|""\(HL\)""|""-""|Flag\.\w+|true|false|\d+)$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
