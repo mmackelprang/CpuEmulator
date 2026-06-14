@@ -54,8 +54,9 @@ public static class SpecFileEmitter
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
         // M3.4a (additive): the Z80 register-shape modes the base plane needs. Indexed (IX+d, M3.4c)
-        // and Bit (CB plane, M3.4b) stay OUT — their rows keep emitting // TODO(mode).
+        // stays OUT — its rows keep emitting // TODO(mode).
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
+        "Bit",   // M3.4b (CB plane): BIT/RES/SET + rotate/shift
     ];
 
     /// <summary>
@@ -158,9 +159,12 @@ public static class SpecFileEmitter
 
         foreach (var entry in dataset)
         {
-            // The Z80 base-plane algorithmic ops (null ⇒ defer: rotate-accumulator / unowned).
-            string? z80Ops = isZ80 && entry.Prefix is null
-                ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16), entry.Mnemonic, entry.Mode)
+            // The Z80 base-plane (null prefix) AND CB-plane (0xCB prefix) algorithmic ops.
+            string? z80Ops =
+                isZ80 && entry.Prefix is null
+                    ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16), entry.Mnemonic, entry.Mode)
+                : isZ80 && entry.Prefix == "0xCB"
+                    ? Z80CbSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16))
                 : null;
 
             string? opsText;

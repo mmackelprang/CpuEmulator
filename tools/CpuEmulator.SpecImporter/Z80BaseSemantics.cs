@@ -113,6 +113,12 @@ public static class Z80BaseSemantics
             case "IN":  return "[PortIn(\"A\")]";                              // IN A,(n)
             case "OUT": return "[PortOut(\"A\")]";                             // OUT (n),A
 
+            // M3.4b: the four base-plane rotate-accumulators (share the rotate math, preserve S/Z/P-V).
+            case "RLCA": return "[Rlca()]";
+            case "RRCA": return "[Rrca()]";
+            case "RLA":  return "[Rla()]";
+            case "RRA":  return "[Rra()]";
+
             default: return null;
         }
     }

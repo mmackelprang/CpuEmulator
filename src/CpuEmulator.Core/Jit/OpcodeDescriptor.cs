@@ -29,6 +29,7 @@ public enum JitMode
     // interpreter-only (M3.5 JITs it), so descriptors for these are emitted but the rows that use
     // them are JIT fallbacks; the enum members exist so the descriptor table is well-formed.
     Register, RegisterIndirect, ImmediateExtended, ExtendedAddress, RelativeJump,
+    Bit,               // M3.4b (CB plane): BIT/RES/SET + rotate/shift. Z80 interpreter-only — a JIT fallback.
 }
 
 /// <summary>One micro-op the compiler emits, in spec order. Kind is the interpreter OpModel

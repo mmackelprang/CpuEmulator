@@ -228,6 +228,7 @@ public class SpecFileEmitterTests
         "IoPortImmediate", "IoPortIndirect",
         // M3.4a: the Z80 register-shape modes (the base plane is now live).
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
+        "Bit",   // M3.4b: the CB plane is now emittable.
     ];
 
     private static bool IsSingleBytePrefix(string? prefix) =>
@@ -305,12 +306,15 @@ public class SpecFileEmitterTests
         var dataset = OpcodeDataset.Load(Z80DatasetPath);
         var map     = SemanticsMap.Load(Z80SemanticsPath);
 
-        // M3.4a: a row HAS semantics iff the base-plane algorithmic decoder owns it (Z80BaseSemantics)
-        // OR the per-mnemonic map covers it (the prefixed ED NEG). It EMITS iff it has semantics, its
-        // mode is emittable, and its prefix is a single byte (or null).
+        // M3.4a/b: a row HAS semantics iff the base-plane algorithmic decoder owns it (Z80BaseSemantics),
+        // OR the CB-plane decoder owns it (Z80CbSemantics, M3.4b), OR the per-mnemonic map covers it (the
+        // prefixed ED NEG). It EMITS iff it has semantics, its mode is emittable, and its prefix is a
+        // single byte (or null).
         string? Ops(OpcodeEntry e) => e.Prefix is null
             ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode)
               ?? (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null)
+            : e.Prefix == "0xCB"
+            ? Z80CbSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16))
             : (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null);
 
         int derivedEmitted = dataset.Count(e =>
@@ -324,16 +328,14 @@ public class SpecFileEmitterTests
 
         var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
 
-        Assert.Equal(698, report.Total);
+        Assert.Equal(706, report.Total);   // M3.4b: 698 + the 8 SLL rows
         Assert.Equal(derivedEmitted, report.Emitted);
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
-        // M3.4a: the 248 base-plane target rows are LIVE (+ the ED NEG = 249 emitted); the prefixed
-        // planes remain a TODO majority (CB/ED/DD/FD → M3.4b/c).
-        Assert.Equal(249, report.Emitted);
-        Assert.True(report.Emitted < report.TodoSemantics + report.TodoMode,
-            "the prefixed planes are still a TODO majority (M3.4b/c)");
+        // M3.4a: 248 base-plane rows LIVE (+ ED NEG = 249). M3.4b: + 4 rotate-accumulators + 256 CB rows
+        // → 509 emitted. The remaining TODO majority is the ED/DD/FD planes (M3.4c/d).
+        Assert.Equal(509, report.Emitted);
     }
 
     [Fact]

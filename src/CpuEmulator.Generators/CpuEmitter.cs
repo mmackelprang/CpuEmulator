@@ -277,7 +277,8 @@ internal static class CpuEmitter
         InstructionClass opClass = instruction.Class;
         bool isZ80 = opClass is InstructionClass.Z80Alu or InstructionClass.Z80Ld
             or InstructionClass.Z80Stack or InstructionClass.Z80Exchange
-            or InstructionClass.Z80Flow or InstructionClass.Z80Misc;
+            or InstructionClass.Z80Flow or InstructionClass.Z80Misc
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -347,12 +348,46 @@ internal static class CpuEmitter
             case InstructionClass.Z80Misc:
                 EmitZ80MiscBody(sb, instruction, pc, statusReg, flags);
                 break;
+            // ── M3.4b CB plane + rotate-accumulators ──
+            case InstructionClass.Z80Rot:
+                EmitZ80RotBody(sb, instruction, pc, pcType, statusReg, flags);
+                break;
+            case InstructionClass.Z80Bit:
+                EmitZ80BitBody(sb, instruction, pc, statusReg, flags);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
         }
 
+        // M3.4b: the cross-instruction Q lifecycle. Every Z80 op sets Q at the end: Q = F if it wrote
+        // flags, else Q = 0. SCF/CCF read the PREVIOUS Q (seeded as pre-state by the harness / the prior
+        // instruction). The 6502 has no Z80 class, so this never fires for it (Q is undeclared there).
+        // Every Z80 op BODY falls through to here (no generated body emits an early return), so this
+        // Q-write is always reached on every exit path — incl. the conditional flow forms (JP/JR/CALL/RET
+        // cc), whose generated bodies use `if (...) { ... }` then fall through, never `return`.
+        if (isZ80)
+            sb.AppendLine(Z80WritesFlags(opClass, instruction)
+                ? $"        Q = {statusReg ?? "F"};"
+                : "        Q = 0;");
+
         sb.AppendLine("    }");
+    }
+
+    /// <summary>Does this Z80 instruction WRITE the flag word (→ Q = F) or not (→ Q = 0)? Z80Alu writes
+    /// flags EXCEPT Inc16/Dec16 (the 16-bit INC/DEC set none); Z80Misc writes EXCEPT Di/Ei; Z80Rot
+    /// always writes; Z80Bit writes only for BIT (RES/SET set none); Z80Ld/Stack/Exchange/Flow never.</summary>
+    private static bool Z80WritesFlags(InstructionClass cls, InstructionModel insn)
+    {
+        string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : "";
+        return cls switch
+        {
+            InstructionClass.Z80Alu => kind is not ("Inc16" or "Dec16"),
+            InstructionClass.Z80Misc => kind is not ("Di" or "Ei"),
+            InstructionClass.Z80Rot => true,
+            InstructionClass.Z80Bit => Unquote(insn.Ops[0].Args[0]) == "BIT",
+            _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
+        };
     }
 
     private static int ComputeCycles(string mode, InstructionClass opClass) => (mode, opClass) switch
@@ -452,6 +487,13 @@ internal static class CpuEmitter
         (InstructionClass.Z80Flow, "Rst", _) => 11,                        // RST n
         // ── misc (Implied; all 4 T-states) ──
         (InstructionClass.Z80Misc, _, _) => 4,
+        // ── rotate-accumulators (Implied, 4 T) + CB rotate/shift (Bit mode) ──
+        (InstructionClass.Z80Rot, "Rlca", _) => 4,
+        (InstructionClass.Z80Rot, "Rrca", _) => 4,
+        (InstructionClass.Z80Rot, "Rla", _) => 4,
+        (InstructionClass.Z80Rot, "Rra", _) => 4,
+        (InstructionClass.Z80Rot, "CbRotate", "Bit") => 8,   // base; the (HL) form overrides to 15 in-body
+        (InstructionClass.Z80Bit, _, _) => 8,    // placeholder — real cycles in Task 6/7
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2005,6 +2047,221 @@ internal static class CpuEmitter
         if (internalT > 0) sb.AppendLine($"        _cycles += {internalT};");
     }
 
+    // ── M3.4b CB plane + rotate-accumulators ──
+
+    /// <summary>Emit the rotate/shift of an 8-bit value held in C# local <c>v</c> (byte), producing the
+    /// result in local <c>r</c> (byte) and the carry-out in local <c>cout</c> (int 0/1). <paramref
+    /// name="op"/> ∈ RLC/RRC/RL/RR/SLA/SRA/SLL/SRL. RL/RR consume the current carry via <paramref
+    /// name="oldCarryExpr"/> (an int 0/1 expression). Shared by the rotate-accumulators (Task 4) and the
+    /// CB rotate/shift (Task 5).</summary>
+    private static void EmitRotateMath(StringBuilder sb, string op, string oldCarryExpr)
+    {
+        switch (op)
+        {
+            case "RLC":
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v << 1) | cout));");
+                break;
+            case "RRC":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v >> 1) | (cout << 7)));");
+                break;
+            case "RL":
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine($"        byte r = unchecked((byte)((v << 1) | {oldCarryExpr}));");
+                break;
+            case "RR":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine($"        byte r = unchecked((byte)((v >> 1) | ({oldCarryExpr} << 7)));");
+                break;
+            case "SLA":
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)(v << 1));");
+                break;
+            case "SRA":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v >> 1) | (v & 0x80)));");
+                break;
+            case "SLL":   // undocumented: shift left, bit0 forced to 1
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v << 1) | 1));");
+                break;
+            case "SRL":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)(v >> 1));");
+                break;
+            default:
+                throw new System.InvalidOperationException($"unknown rotate op '{op}'");
+        }
+    }
+
+    private static void EmitZ80RotBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        string kind = insn.Ops[0].Kind;
+        // CB rotate/shift (CbRotate, Bit mode) is Task 5. Here: the four base-plane rotate-accumulators.
+        if (kind == "CbRotate")
+        {
+            EmitZ80CbRotate(sb, insn, pc, f, flags);   // Task 5
+            return;
+        }
+
+        // Rotate-accumulators: operate on A, set ONLY C/H/N + X/Y (from new A); PRESERVE S/Z/P-V.
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        // Preserve mask = S|Z|P bits (everything the rotate-accumulators leave alone). H and N are NOT
+        // in the mask, so they fall out at 0 — exactly the documented H=0, N=0.
+        byte preserveBits = (byte)((1 << flags.BitOf("S")) | (1 << flags.BitOf("Z")) | (1 << flags.BitOf("P")));
+        string preserve = $"0x{preserveBits:X2}";
+        string op = kind switch { "Rlca" => "RLC", "Rrca" => "RRC", "Rla" => "RL", _ => "RR" };
+        string oldCarry = $"(({f} & {cMask}) != 0 ? 1 : 0)";
+
+        sb.AppendLine("        byte v = A;");
+        EmitRotateMath(sb, op, oldCarry);
+        sb.AppendLine("        A = r;");
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {preserve})");
+        sb.AppendLine($"            | (cout != 0 ? {cMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x08) != 0 ? {xMask} : 0x00)));");
+        sb.AppendLine("        _cycles += 3;   // RLCA/RRCA/RLA/RRA = 4 T-states (fetch + 3 internal)");
+    }
+
+    /// <summary>Strip the surrounding quotes from a CbRotate/CbBit string arg ("RLC" → RLC, "(HL)" →
+    /// (HL)). The parser stores Str args WITH quotes (Task 2) so the emitter can tell a string operand
+    /// from a register operand.</summary>
+    private static string Unquote(string s) =>
+        s.Length >= 2 && s[0] == '"' ? s.Substring(1, s.Length - 2) : s;
+
+    /// <summary>CB rotate/shift on reg[z] or (HL). Flags: S,Z from result; H=0; N=0; P/V=parity;
+    /// C=bit shifted out; X=res bit3, Y=res bit5. Writes the result back (z=6: read/op/write (HL)).
+    /// Cycles: register = 8 T, (HL) = 15 T. Step charges the 2 key bytes (prefix + opcode); ReadBus/
+    /// WriteBus each charge one; the body charges the remaining internal T-states.</summary>
+    private static void EmitZ80CbRotate(StringBuilder sb, InstructionModel insn, string pc, string f, FlagBitMap flags)
+    {
+        string op = Unquote(insn.Ops[0].Args[0]);       // "RLC".."SRL"
+        string target = Unquote(insn.Ops[0].Args[1]);   // "B".."A" or "(HL)"
+        bool isMem = target == "(HL)";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        string oldCarry = $"(({f} & {cMask}) != 0 ? 1 : 0)";
+
+        if (isMem)
+            sb.AppendLine("        byte v = ReadBus(HL);");
+        else
+            sb.AppendLine($"        byte v = {target};");
+
+        EmitRotateMath(sb, op, oldCarry);   // produces byte r + int cout
+
+        // Full CB flag word: S/Z/Y/H(=0)/X/P(parity)/N(=0)/C(=cout). Reuse the per-spec masks.
+        EmitZ80CbRotateFlags(sb, f, flags);
+
+        if (isMem)
+            sb.AppendLine("        WriteBus(HL, r);");
+        else
+            sb.AppendLine($"        {target} = r;");
+
+        // Cycles (2 key bytes charged by Step): register = 8 T → +6 internal (no bus). (HL) = 15 T →
+        // +11 internal (1 ReadBus + 1 WriteBus already charge 2).
+        if (isMem)
+            sb.AppendLine($"        _cycles += {15 - 2 - 1 - 1};   // RLC/…/(HL) = 15 T-states");
+        else
+            sb.AppendLine($"        _cycles += {8 - 2};   // RLC/… r = 8 T-states");
+    }
+
+    /// <summary>Emit the CB rotate/shift flag word from the result <c>r</c> + carry-out <c>cout</c>
+    /// (the locals EmitRotateMath produced). S/Z/Y/X/P computed; H=0, N=0; C=cout.</summary>
+    private static void EmitZ80CbRotateFlags(StringBuilder sb, string f, FlagBitMap flags)
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((r & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (r == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)r) & 1) == 0 ? {pMask} : 0x00)");
+        sb.AppendLine($"            | (cout != 0 ? {cMask} : 0x00)));");
+        // H and N are left at 0 (not ORed in) — the full-word assignment clears them.
+    }
+
+    private static void EmitZ80BitBody(
+        StringBuilder sb, InstructionModel insn, string pc, string? statusReg, FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        string opName = Unquote(insn.Ops[0].Args[0]);    // "BIT" / "RES" / "SET"
+        int bit = int.Parse(insn.Ops[0].Args[1], System.Globalization.CultureInfo.InvariantCulture);
+        string target = Unquote(insn.Ops[0].Args[2]);    // "B".."A" or "(HL)"
+        bool isMem = target == "(HL)";
+
+        if (opName == "BIT")
+        {
+            EmitZ80CbBit(sb, f, flags, bit, target, isMem);
+            return;
+        }
+        // RES/SET — Task 7.
+        EmitZ80CbResSet(sb, opName, bit, target, isMem);
+    }
+
+    /// <summary>BIT y,reg[z]/(HL): Z=(bit==0), P/V=Z, H=1, N=0, S=(y==7 && bit set), C preserved.
+    /// X/Y: register operand → operand bits 3/5; (HL) → W=(WZ>>8) bits 3/5. NOT written back.
+    /// Cycles: reg 8 T, (HL) 12 T (2 key bytes charged by Step; ReadBus charges 1 for the (HL) read).</summary>
+    private static void EmitZ80CbBit(StringBuilder sb, string f, FlagBitMap flags, int bit, string target, bool isMem)
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+
+        if (isMem)
+            sb.AppendLine("        byte v = ReadBus(HL);");
+        else
+            sb.AppendLine($"        byte v = {target};");
+        sb.AppendLine($"        bool bitSet = (v & 0x{(1 << bit):X2}) != 0;");
+        // X/Y source: (HL) → W (WZ high byte); register → the operand v.
+        string xySrc = isMem ? "(byte)(WZ >> 8)" : "v";
+        sb.AppendLine($"        int xy = {xySrc};");
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");   // C preserved
+        sb.AppendLine($"            | (bitSet ? 0x00 : {zMask})");           // Z = (bit == 0)
+        sb.AppendLine($"            | {hMask}");                              // H = 1
+        sb.AppendLine($"            | (bitSet ? 0x00 : {pMask})");           // P/V = Z
+        sb.AppendLine($"            | ((bitSet && {bit} == 7) ? {sMask} : 0x00)");  // S = (y==7 && bit set)
+        sb.AppendLine($"            | ((xy & 0x20) != 0 ? {yMask} : 0x00)");  // Y
+        sb.AppendLine($"            | ((xy & 0x08) != 0 ? {xMask} : 0x00)));"); // X
+        // Cycles: reg 8 → +6 internal (no bus). (HL) 12 → +9 internal (1 ReadBus charges 1).
+        if (isMem)
+            sb.AppendLine($"        _cycles += {12 - 2 - 1};   // BIT y,(HL) = 12 T-states");
+        else
+            sb.AppendLine($"        _cycles += {8 - 2};   // BIT y,r = 8 T-states");
+    }
+
+    /// <summary>RES/SET y,reg[z]/(HL): clear/set bit y. NO flag changes. Cycles: reg 8 T, (HL) 15 T
+    /// (2 key bytes by Step; the (HL) ReadBus + WriteBus charge 2 more).</summary>
+    private static void EmitZ80CbResSet(StringBuilder sb, string op, int bit, string target, bool isMem)
+    {
+        string mask = $"0x{(1 << bit):X2}";
+        string expr = op == "SET" ? $"(v | {mask})" : $"(v & ~{mask})";
+        if (isMem)
+        {
+            sb.AppendLine("        byte v = ReadBus(HL);");
+            sb.AppendLine($"        WriteBus(HL, unchecked((byte){expr}));");
+            sb.AppendLine($"        _cycles += {15 - 2 - 1 - 1};   // RES/SET y,(HL) = 15 T-states");
+        }
+        else
+        {
+            sb.AppendLine($"        byte v = {target};");
+            sb.AppendLine($"        {target} = unchecked((byte){expr});");
+            sb.AppendLine($"        _cycles += {8 - 2};   // RES/SET y,r = 8 T-states");
+        }
+    }
+
     // ---- Monitor support (IMonitorSupport implementation) ----
 
     /// <summary>Mode → instruction length in bytes (1–3). Implied/Accumulator = 1;
@@ -2018,7 +2275,7 @@ internal static class CpuEmitter
         "Immediate" or "ZeroPage" or "ZeroPageX" or "ZeroPageY"
             or "IndirectX" or "IndirectY" or "Relative"
             or "IoPortImmediate" => 2,                          // (n): opcode + port byte (M3.2)
-        "RelativeJump" => 2,                                    // M3.4a: opcode + signed displacement
+        "RelativeJump" or "Bit" => 2,                           // M3.4a/b: opcode + (displacement | CB op byte)
         "Absolute" or "AbsoluteX" or "AbsoluteY" or "Indirect" => 3,
         "ImmediateExtended" or "ExtendedAddress" => 3,          // M3.4a: opcode + 16-bit operand
         _ => throw new System.InvalidOperationException(
@@ -2329,6 +2586,10 @@ internal static class CpuEmitter
                     $"            0x{instruction.OperationKey:X2} => $\"{m} (${{operandHi:X2}}{{operandLo:X2}})\",",
                 "RelativeJump" =>
                     $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandLo:X2}}\",",
+                // M3.4b (CB plane): the bit index + target register are opcode-encoded (not in
+                // operandLo/Hi), so the disassembly shows the mnemonic only.
+                "Bit" =>
+                    $"            0x{instruction.OperationKey:X2} => \"{m}\",",
                 _ => throw new System.InvalidOperationException(
                     $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
             };
@@ -2466,7 +2727,8 @@ internal static class CpuEmitter
         // M3.4a: Z80 classes get their base T-state count from the Z80 cycle table (the not-taken
         // base for conditional flow; the body adds the taken penalty — parallel to the 6502 branch).
         if (cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
-            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc)
+            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -2515,7 +2777,8 @@ internal static class CpuEmitter
         // Z80 block defers to the interpreter; the JIT never emits IL for a Z80 op. The 6502 (which
         // names none of these classes) is unchanged. Z80 control-flow classes also end the block.
         bool z80 = cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
-            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc;
+            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -2538,7 +2801,8 @@ internal static class CpuEmitter
             // M3.4a: Z80 classes ride the Flow/Undefined-style fallback — they never emit IL.
             InstructionClass.Z80Flow => "Flow",
             InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
-                or InstructionClass.Z80Exchange or InstructionClass.Z80Misc => "Register",
+                or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
+                or InstructionClass.Z80Rot or InstructionClass.Z80Bit => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -2608,11 +2872,14 @@ internal static class CpuEmitter
                 flagBit = (byte)flags.BitOf(op.Args[0]);
                 boolArg = op.Args[1] == "true";
                 break;
+            case "CbRotate":   // (string op, string target) — JIT fallback; slots unused
+            case "CbBit":      // (string op, int bit, string target) — JIT fallback; slots unused
+                break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,
             // Brk, Rti; M3.4a Add8..Cp8, IncMem8/DecMem8, StoreImm8, ExDeHl/ExAfAf/Exx/ExSpHl,
-            // RelJump/Rst/JumpIndirect/JumpAbs/CallAbs/Ret, Daa/Cpl/Scf/Ccf/Di/Ei)
-            // carry no register/flag operands — register slots stay "".
+            // RelJump/Rst/JumpIndirect/JumpAbs/CallAbs/Ret, Daa/Cpl/Scf/Ccf/Di/Ei;
+            // M3.4b Rlca/Rrca/Rla/Rra) carry no register/flag operands — register slots stay "".
             default:
                 break;
         }

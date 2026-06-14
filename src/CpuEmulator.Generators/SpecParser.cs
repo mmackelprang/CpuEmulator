@@ -10,7 +10,12 @@ namespace CpuEmulator.Generators;
 internal static class SpecParser
 {
     /// <summary>Expected argument kind for each micro-op parameter position.</summary>
-    private enum ArgKind { Reg, Flag, Bool }
+    private enum ArgKind
+    {
+        Reg, Flag, Bool,
+        Str,    // M3.4b: a bare string literal arg (the CB op name "RLC"/"BIT"/… or the target "(HL)")
+        Int,    // M3.4b: a bare integer literal arg (the CB bit index 0..7)
+    }
 
     // ───────────────────────── MIRROR TABLES ─────────────────────────
     // These sets mirror, by name, surface defined elsewhere and MUST be updated together:
@@ -134,6 +139,13 @@ internal static class SpecParser
         ["Ccf"] = System.Array.Empty<ArgKind>(),
         ["Di"] = System.Array.Empty<ArgKind>(),
         ["Ei"] = System.Array.Empty<ArgKind>(),
+        // M3.4b: rotate-accumulators (zero-arg) + the CB rotate/shift + BIT/RES/SET ops.
+        ["Rlca"] = System.Array.Empty<ArgKind>(),
+        ["Rrca"] = System.Array.Empty<ArgKind>(),
+        ["Rla"] = System.Array.Empty<ArgKind>(),
+        ["Rra"] = System.Array.Empty<ArgKind>(),
+        ["CbRotate"] = new[] { ArgKind.Str, ArgKind.Str },  // CbRotate("RLC", "B")  (op name, target)
+        ["CbBit"] = new[] { ArgKind.Str, ArgKind.Int, ArgKind.Str },  // CbBit("BIT", 7, "(HL)")
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -145,6 +157,7 @@ internal static class SpecParser
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
         // M3.4a (additive): the Z80 register-shape modes.
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
+        "Bit",   // M3.4b (CB plane)
     };
 
     /// <summary>Valid Flag enum members for BranchIf/SetFlag/cc args (CPUGEN006 for anything else).
@@ -240,6 +253,18 @@ internal static class SpecParser
     private static readonly HashSet<string> s_z80MiscOpKinds = new(System.StringComparer.Ordinal)
     {
         "Daa", "Cpl", "Scf", "Ccf", "Di", "Ei",
+    };
+
+    // ── M3.4b Z80 CB-plane + rotate-accumulator op-kind class sets (additive) ──
+    private static readonly HashSet<string> s_z80RotOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Rlca", "Rrca", "Rla", "Rra",   // base-plane rotate-accumulators (Implied)
+        "CbRotate",                      // CB rotate/shift (Bit mode)
+    };
+
+    private static readonly HashSet<string> s_z80BitOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "CbBit",   // CB BIT/RES/SET (Bit mode)
     };
 
     // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
@@ -879,6 +904,7 @@ internal static class SpecParser
             && firstOpKind is "Brk" or "Rti";
         if ((instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
                 or InstructionClass.Z80Alu or InstructionClass.Z80Misc
+                or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -1033,6 +1059,16 @@ internal static class SpecParser
             if (ops.Length != 1) { error = "Z80 misc class must contain exactly one op"; return null; }
             return InstructionClass.Z80Misc;
         }
+        if (s_z80RotOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 rotate class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Rot;
+        }
+        if (s_z80BitOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 bit class (CbBit) must contain exactly one op"; return null; }
+            return InstructionClass.Z80Bit;
+        }
 
         // All must be register ops
         foreach (var op in ops)
@@ -1139,6 +1175,16 @@ internal static class SpecParser
             InstructionClass.Z80Misc =>
                 mode == "Implied" ? null : "Z80 misc class (DAA/CPL/SCF/CCF/DI/EI) requires Implied mode",
 
+            // ── M3.4b Z80 CB-plane + rotate-accumulator classes ──
+            // Z80Rot: the rotate-accumulators are Implied (RLCA etc.); CB rotate/shift is Bit.
+            InstructionClass.Z80Rot =>
+                mode is "Implied" or "Bit" ? null
+                : "Z80 rotate class requires Implied (RLCA/…) or Bit (CB rotate/shift) mode",
+            // Z80Bit: CB BIT/RES/SET — Bit mode only.
+            InstructionClass.Z80Bit =>
+                mode == "Bit" ? null
+                : "Z80 bit class (CbBit) requires Bit mode",
+
             _ => $"unrecognised op class '{opClass}'",
         };
     }
@@ -1200,6 +1246,8 @@ internal static class SpecParser
                 {
                     ArgKind.Reg => LiteralString(argument.Expression),            // register arg is a STRING LITERAL
                     ArgKind.Flag => EnumMemberName(argument.Expression, "Flag"),  // Flag UNCHANGED (out of scope)
+                    ArgKind.Str => LiteralRaw(argument.Expression),               // M3.4b: CB op name / "(HL)" target (quoted)
+                    ArgKind.Int => CbBitIndex(argument.Expression),               // M3.4b: CB bit index 0..7 → its digit text
                     _ => BoolLiteral(argument.Expression),
                 };
                 if (value is null)
@@ -1208,6 +1256,8 @@ internal static class SpecParser
                     {
                         ArgKind.Reg => "register-name string literal",
                         ArgKind.Flag => "Flag member",
+                        ArgKind.Str => "string literal",
+                        ArgKind.Int => "integer 0..7",
                         _ => "bool literal",
                     };
                     diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidMicroOpArgument,
@@ -1251,6 +1301,17 @@ internal static class SpecParser
 
     private static string? BoolLiteral(ExpressionSyntax expression) =>
         expression is LiteralExpressionSyntax { Token.Value: bool b } ? (b ? "true" : "false") : null;
+
+    // M3.4b: the raw quoted-string literal (INCLUDING quotes) — the CB op name "RLC" or the "(HL)"
+    // target. Distinct from LiteralString (which strips quotes and is register-table-checked).
+    private static string? LiteralRaw(ExpressionSyntax expression) =>
+        expression is LiteralExpressionSyntax { Token.Value: string } lit ? lit.Token.Text : null;
+
+    // M3.4b: the CB bit index 0..7 (reusing the existing LiteralInt helper). Returns the digit text the
+    // model stores, or null if not an int 0..7 (drives the InvalidMicroOpArgument diagnostic).
+    private static string? CbBitIndex(ExpressionSyntax expression) =>
+        LiteralInt(expression) is { } n && n is >= 0 and <= 7
+            ? n.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
 
     private static string Truncate(string text) =>
         text.Length <= 60 ? text : text.Substring(0, 57) + "...";

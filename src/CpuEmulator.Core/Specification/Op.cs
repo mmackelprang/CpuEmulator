@@ -107,3 +107,14 @@ public sealed record ScfOp : Op;
 public sealed record CcfOp : Op;
 public sealed record DiOp : Op;
 public sealed record EiOp : Op;
+
+// ── M3.4b CB plane + rotate-accumulators (additive; the 6502 + base plane name none) ──
+// Base-plane rotate-accumulators (RLCA/RRCA/RLA/RRA) — share the rotate math but PRESERVE S/Z/P-V.
+public sealed record RlcaOp : Op;
+public sealed record RrcaOp : Op;
+public sealed record RlaOp : Op;
+public sealed record RraOp : Op;
+// CB rotate/shift on reg[z] (Op ∈ RLC/RRC/RL/RR/SLA/SRA/SLL/SRL). Target = "B".."A" or "(HL)".
+public sealed record CbRotateOp(string Op, string Target) : Op;
+// CB BIT/RES/SET — Op ∈ BIT/RES/SET, Bit = 0..7, Target = "B".."A" or "(HL)".
+public sealed record CbBitOp(string Op, int Bit, string Target) : Op;

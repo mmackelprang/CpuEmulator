@@ -298,14 +298,15 @@ public class SemanticsMapTests
     [Fact]
     public void Z80_registers_load_as_declared()
     {
-        // The 30 Z80 register configs: 18 8-bit STORAGE (main A F B C D E H L + alternate A_..L_ +
-        // I R) + 4 16-bit storage (IX IY SP PC) + 8 16-bit pair VIEWS (AF/BC/DE/HL + the alt pairs,
-        // M3.4a). F is Status; SP StackPointer; PC ProgramCounter.
+        // The 31 Z80 register configs: 18 8-bit STORAGE (main A F B C D E H L + alternate A_..L_ +
+        // I R) + 5 16-bit storage (WZ IX IY SP PC) + 8 16-bit pair VIEWS (AF/BC/DE/HL + the alt pairs,
+        // M3.4a). M3.4b adds WZ/MEMPTR (read by BIT y,(HL) for its X/Y). F is Status; SP StackPointer;
+        // PC ProgramCounter.
         var map = SemanticsMap.Load(Z80SemanticsPath);
         Assert.Equal("z80", map.Architecture);
         Assert.Equal("CpuEmulator.Cpus.Z80", map.Namespace);
         Assert.Equal("Z80Spec", map.SpecClassName);
-        Assert.Equal(30, map.Registers.Length);
+        Assert.Equal(31, map.Registers.Length);
 
         var byName = map.Registers.ToDictionary(r => r.Name);
         Assert.Equal("Status", byName["F"].Role);

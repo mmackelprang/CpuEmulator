@@ -126,4 +126,12 @@ public static class Spec
     public static Op Ccf() => new CcfOp();
     public static Op Di() => new DiOp();
     public static Op Ei() => new EiOp();
+
+    // ── M3.4b CB plane + rotate-accumulators (additive) ──
+    public static Op Rlca() => new RlcaOp();
+    public static Op Rrca() => new RrcaOp();
+    public static Op Rla() => new RlaOp();
+    public static Op Rra() => new RraOp();
+    public static Op CbRotate(string op, string target) => new CbRotateOp(op, target);
+    public static Op CbBit(string op, int bit, string target) => new CbBitOp(op, bit, target);
 }

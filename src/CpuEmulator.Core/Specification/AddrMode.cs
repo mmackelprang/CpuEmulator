@@ -18,4 +18,5 @@ public enum AddrMode
     ImmediateExtended, // 16-bit immediate (LD rr,nn)
     ExtendedAddress,   // (nn) 16-bit absolute, byte AND word (LD (nn),A ; LD HL,(nn) ; JP nn ; CALL nn)
     RelativeJump,      // PC + signed displacement (JR d ; JR cc,d ; DJNZ d)
+    Bit,               // CB-plane bit/rotate/shift (BIT/RES/SET n,r ; RLC/RR/SLA/… r). 2 bytes: 0xCB + op
 }

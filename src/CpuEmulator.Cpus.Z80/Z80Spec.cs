@@ -2,7 +2,7 @@
 //   Tool    : CpuEmulator.SpecImporter
 //   Dataset : tools/CpuEmulator.SpecImporter/data/z80-opcodes.json
 //   Semantics: tools/CpuEmulator.SpecImporter/data/z80-semantics.json
-//   Total rows : 698
+//   Total rows : 706
 //   Regenerate :
 //     dotnet run --project tools/CpuEmulator.SpecImporter -- \
 //       --dataset tools/CpuEmulator.SpecImporter/data/z80-opcodes.json \
@@ -38,6 +38,7 @@ public static class Z80Spec
         new("L_", 8),
         new("I", 8),
         new("R", 8),
+        new("WZ", 16),
         new("IX", 16),
         new("IY", 16),
         new("SP", 16, RegisterRole.StackPointer),
@@ -55,20 +56,20 @@ public static class Z80Spec
     public static readonly FlagLayout Flags = new([new("S", 7), new("Z", 6), new("Y", 5), new("H", 4), new("X", 3), new("P", 2), new("N", 1), new("C", 0)]);
 
     public static readonly DecodeStructure Decode = new(
-        Prefixes: [new PrefixByte(0xED)],
+        Prefixes: [new PrefixByte(0xCB), new PrefixByte(0xED)],
         ModRmOpcodes: [],
         SubFieldOpcodes: []);
 
     public static readonly InstructionDef[] Instructions =
     [
         Insn(0x00, "NOP", AddrMode.Implied, []),
-        // TODO(semantics): 0x07 RLCA Implied — awaiting micro-op vocabulary
+        Insn(0x07, "RLCA", AddrMode.Implied, [Rlca()]),
         Insn(0x08, "EX", AddrMode.Implied, [ExAfAf()]),
-        // TODO(semantics): 0x0F RRCA Implied — awaiting micro-op vocabulary
+        Insn(0x0F, "RRCA", AddrMode.Implied, [Rrca()]),
         Insn(0x10, "DJNZ", AddrMode.RelativeJump, [Djnz("B")]),
-        // TODO(semantics): 0x17 RLA Implied — awaiting micro-op vocabulary
+        Insn(0x17, "RLA", AddrMode.Implied, [Rla()]),
         Insn(0x18, "JR", AddrMode.RelativeJump, [RelJump()]),
-        // TODO(semantics): 0x1F RRA Implied — awaiting micro-op vocabulary
+        Insn(0x1F, "RRA", AddrMode.Implied, [Rra()]),
         Insn(0x27, "DAA", AddrMode.Implied, [Daa()]),
         Insn(0x2F, "CPL", AddrMode.Implied, [Cpl()]),
         Insn(0x37, "SCF", AddrMode.Implied, [Scf()]),
@@ -313,254 +314,262 @@ public static class Z80Spec
         Insn(0xEF, "RST", AddrMode.Implied, [Rst()]),
         Insn(0xF7, "RST", AddrMode.Implied, [Rst()]),
         Insn(0xFF, "RST", AddrMode.Implied, [Rst()]),
-        // TODO(semantics): 0xCB:0x00 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x01 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x02 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x03 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x04 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x05 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x06 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x07 RLC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x08 RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x09 RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x0A RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x0B RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x0C RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x0D RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x0E RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x0F RRC Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x10 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x11 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x12 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x13 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x14 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x15 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x16 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x17 RL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x18 RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x19 RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x1A RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x1B RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x1C RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x1D RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x1E RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x1F RR Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x20 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x21 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x22 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x23 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x24 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x25 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x26 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x27 SLA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x28 SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x29 SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x2A SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x2B SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x2C SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x2D SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x2E SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x2F SRA Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x38 SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x39 SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x3A SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x3B SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x3C SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x3D SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x3E SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x3F SRL Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x40 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x41 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x42 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x43 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x44 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x45 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x46 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x47 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x48 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x49 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x4A BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x4B BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x4C BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x4D BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x4E BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x4F BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x50 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x51 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x52 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x53 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x54 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x55 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x56 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x57 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x58 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x59 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x5A BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x5B BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x5C BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x5D BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x5E BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x5F BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x60 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x61 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x62 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x63 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x64 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x65 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x66 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x67 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x68 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x69 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x6A BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x6B BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x6C BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x6D BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x6E BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x6F BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x70 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x71 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x72 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x73 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x74 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x75 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x76 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x77 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x78 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x79 BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x7A BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x7B BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x7C BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x7D BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x7E BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x7F BIT Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x80 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x81 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x82 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x83 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x84 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x85 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x86 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x87 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x88 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x89 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x8A RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x8B RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x8C RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x8D RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x8E RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x8F RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x90 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x91 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x92 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x93 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x94 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x95 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x96 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x97 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x98 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x99 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x9A RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x9B RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x9C RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x9D RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x9E RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0x9F RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA0 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA1 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA2 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA3 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA4 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA5 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA6 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA7 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA8 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xA9 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xAA RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xAB RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xAC RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xAD RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xAE RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xAF RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB0 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB1 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB2 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB3 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB4 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB5 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB6 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB7 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB8 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xB9 RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xBA RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xBB RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xBC RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xBD RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xBE RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xBF RES Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC0 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC1 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC2 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC3 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC4 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC5 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC6 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC7 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC8 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xC9 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xCA SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xCB SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xCC SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xCD SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xCE SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xCF SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD0 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD1 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD2 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD3 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD4 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD5 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD6 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD7 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD8 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xD9 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xDA SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xDB SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xDC SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xDD SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xDE SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xDF SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE0 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE1 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE2 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE3 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE4 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE5 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE6 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE7 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE8 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xE9 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xEA SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xEB SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xEC SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xED SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xEE SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xEF SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF0 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF1 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF2 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF3 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF4 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF5 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF6 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF7 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF8 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xF9 SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xFA SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xFB SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xFC SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xFD SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xFE SET Bit — awaiting micro-op vocabulary
-        // TODO(semantics): 0xCB:0xFF SET Bit — awaiting micro-op vocabulary
+        Insn(0xCB, 0x00, "RLC", AddrMode.Bit, [CbRotate("RLC","B")]),
+        Insn(0xCB, 0x01, "RLC", AddrMode.Bit, [CbRotate("RLC","C")]),
+        Insn(0xCB, 0x02, "RLC", AddrMode.Bit, [CbRotate("RLC","D")]),
+        Insn(0xCB, 0x03, "RLC", AddrMode.Bit, [CbRotate("RLC","E")]),
+        Insn(0xCB, 0x04, "RLC", AddrMode.Bit, [CbRotate("RLC","H")]),
+        Insn(0xCB, 0x05, "RLC", AddrMode.Bit, [CbRotate("RLC","L")]),
+        Insn(0xCB, 0x06, "RLC", AddrMode.Bit, [CbRotate("RLC","(HL)")]),
+        Insn(0xCB, 0x07, "RLC", AddrMode.Bit, [CbRotate("RLC","A")]),
+        Insn(0xCB, 0x08, "RRC", AddrMode.Bit, [CbRotate("RRC","B")]),
+        Insn(0xCB, 0x09, "RRC", AddrMode.Bit, [CbRotate("RRC","C")]),
+        Insn(0xCB, 0x0A, "RRC", AddrMode.Bit, [CbRotate("RRC","D")]),
+        Insn(0xCB, 0x0B, "RRC", AddrMode.Bit, [CbRotate("RRC","E")]),
+        Insn(0xCB, 0x0C, "RRC", AddrMode.Bit, [CbRotate("RRC","H")]),
+        Insn(0xCB, 0x0D, "RRC", AddrMode.Bit, [CbRotate("RRC","L")]),
+        Insn(0xCB, 0x0E, "RRC", AddrMode.Bit, [CbRotate("RRC","(HL)")]),
+        Insn(0xCB, 0x0F, "RRC", AddrMode.Bit, [CbRotate("RRC","A")]),
+        Insn(0xCB, 0x10, "RL", AddrMode.Bit, [CbRotate("RL","B")]),
+        Insn(0xCB, 0x11, "RL", AddrMode.Bit, [CbRotate("RL","C")]),
+        Insn(0xCB, 0x12, "RL", AddrMode.Bit, [CbRotate("RL","D")]),
+        Insn(0xCB, 0x13, "RL", AddrMode.Bit, [CbRotate("RL","E")]),
+        Insn(0xCB, 0x14, "RL", AddrMode.Bit, [CbRotate("RL","H")]),
+        Insn(0xCB, 0x15, "RL", AddrMode.Bit, [CbRotate("RL","L")]),
+        Insn(0xCB, 0x16, "RL", AddrMode.Bit, [CbRotate("RL","(HL)")]),
+        Insn(0xCB, 0x17, "RL", AddrMode.Bit, [CbRotate("RL","A")]),
+        Insn(0xCB, 0x18, "RR", AddrMode.Bit, [CbRotate("RR","B")]),
+        Insn(0xCB, 0x19, "RR", AddrMode.Bit, [CbRotate("RR","C")]),
+        Insn(0xCB, 0x1A, "RR", AddrMode.Bit, [CbRotate("RR","D")]),
+        Insn(0xCB, 0x1B, "RR", AddrMode.Bit, [CbRotate("RR","E")]),
+        Insn(0xCB, 0x1C, "RR", AddrMode.Bit, [CbRotate("RR","H")]),
+        Insn(0xCB, 0x1D, "RR", AddrMode.Bit, [CbRotate("RR","L")]),
+        Insn(0xCB, 0x1E, "RR", AddrMode.Bit, [CbRotate("RR","(HL)")]),
+        Insn(0xCB, 0x1F, "RR", AddrMode.Bit, [CbRotate("RR","A")]),
+        Insn(0xCB, 0x20, "SLA", AddrMode.Bit, [CbRotate("SLA","B")]),
+        Insn(0xCB, 0x21, "SLA", AddrMode.Bit, [CbRotate("SLA","C")]),
+        Insn(0xCB, 0x22, "SLA", AddrMode.Bit, [CbRotate("SLA","D")]),
+        Insn(0xCB, 0x23, "SLA", AddrMode.Bit, [CbRotate("SLA","E")]),
+        Insn(0xCB, 0x24, "SLA", AddrMode.Bit, [CbRotate("SLA","H")]),
+        Insn(0xCB, 0x25, "SLA", AddrMode.Bit, [CbRotate("SLA","L")]),
+        Insn(0xCB, 0x26, "SLA", AddrMode.Bit, [CbRotate("SLA","(HL)")]),
+        Insn(0xCB, 0x27, "SLA", AddrMode.Bit, [CbRotate("SLA","A")]),
+        Insn(0xCB, 0x28, "SRA", AddrMode.Bit, [CbRotate("SRA","B")]),
+        Insn(0xCB, 0x29, "SRA", AddrMode.Bit, [CbRotate("SRA","C")]),
+        Insn(0xCB, 0x2A, "SRA", AddrMode.Bit, [CbRotate("SRA","D")]),
+        Insn(0xCB, 0x2B, "SRA", AddrMode.Bit, [CbRotate("SRA","E")]),
+        Insn(0xCB, 0x2C, "SRA", AddrMode.Bit, [CbRotate("SRA","H")]),
+        Insn(0xCB, 0x2D, "SRA", AddrMode.Bit, [CbRotate("SRA","L")]),
+        Insn(0xCB, 0x2E, "SRA", AddrMode.Bit, [CbRotate("SRA","(HL)")]),
+        Insn(0xCB, 0x2F, "SRA", AddrMode.Bit, [CbRotate("SRA","A")]),
+        Insn(0xCB, 0x30, "SLL", AddrMode.Bit, [CbRotate("SLL","B")]),
+        Insn(0xCB, 0x31, "SLL", AddrMode.Bit, [CbRotate("SLL","C")]),
+        Insn(0xCB, 0x32, "SLL", AddrMode.Bit, [CbRotate("SLL","D")]),
+        Insn(0xCB, 0x33, "SLL", AddrMode.Bit, [CbRotate("SLL","E")]),
+        Insn(0xCB, 0x34, "SLL", AddrMode.Bit, [CbRotate("SLL","H")]),
+        Insn(0xCB, 0x35, "SLL", AddrMode.Bit, [CbRotate("SLL","L")]),
+        Insn(0xCB, 0x36, "SLL", AddrMode.Bit, [CbRotate("SLL","(HL)")]),
+        Insn(0xCB, 0x37, "SLL", AddrMode.Bit, [CbRotate("SLL","A")]),
+        Insn(0xCB, 0x38, "SRL", AddrMode.Bit, [CbRotate("SRL","B")]),
+        Insn(0xCB, 0x39, "SRL", AddrMode.Bit, [CbRotate("SRL","C")]),
+        Insn(0xCB, 0x3A, "SRL", AddrMode.Bit, [CbRotate("SRL","D")]),
+        Insn(0xCB, 0x3B, "SRL", AddrMode.Bit, [CbRotate("SRL","E")]),
+        Insn(0xCB, 0x3C, "SRL", AddrMode.Bit, [CbRotate("SRL","H")]),
+        Insn(0xCB, 0x3D, "SRL", AddrMode.Bit, [CbRotate("SRL","L")]),
+        Insn(0xCB, 0x3E, "SRL", AddrMode.Bit, [CbRotate("SRL","(HL)")]),
+        Insn(0xCB, 0x3F, "SRL", AddrMode.Bit, [CbRotate("SRL","A")]),
+        Insn(0xCB, 0x40, "BIT", AddrMode.Bit, [CbBit("BIT",0,"B")]),
+        Insn(0xCB, 0x41, "BIT", AddrMode.Bit, [CbBit("BIT",0,"C")]),
+        Insn(0xCB, 0x42, "BIT", AddrMode.Bit, [CbBit("BIT",0,"D")]),
+        Insn(0xCB, 0x43, "BIT", AddrMode.Bit, [CbBit("BIT",0,"E")]),
+        Insn(0xCB, 0x44, "BIT", AddrMode.Bit, [CbBit("BIT",0,"H")]),
+        Insn(0xCB, 0x45, "BIT", AddrMode.Bit, [CbBit("BIT",0,"L")]),
+        Insn(0xCB, 0x46, "BIT", AddrMode.Bit, [CbBit("BIT",0,"(HL)")]),
+        Insn(0xCB, 0x47, "BIT", AddrMode.Bit, [CbBit("BIT",0,"A")]),
+        Insn(0xCB, 0x48, "BIT", AddrMode.Bit, [CbBit("BIT",1,"B")]),
+        Insn(0xCB, 0x49, "BIT", AddrMode.Bit, [CbBit("BIT",1,"C")]),
+        Insn(0xCB, 0x4A, "BIT", AddrMode.Bit, [CbBit("BIT",1,"D")]),
+        Insn(0xCB, 0x4B, "BIT", AddrMode.Bit, [CbBit("BIT",1,"E")]),
+        Insn(0xCB, 0x4C, "BIT", AddrMode.Bit, [CbBit("BIT",1,"H")]),
+        Insn(0xCB, 0x4D, "BIT", AddrMode.Bit, [CbBit("BIT",1,"L")]),
+        Insn(0xCB, 0x4E, "BIT", AddrMode.Bit, [CbBit("BIT",1,"(HL)")]),
+        Insn(0xCB, 0x4F, "BIT", AddrMode.Bit, [CbBit("BIT",1,"A")]),
+        Insn(0xCB, 0x50, "BIT", AddrMode.Bit, [CbBit("BIT",2,"B")]),
+        Insn(0xCB, 0x51, "BIT", AddrMode.Bit, [CbBit("BIT",2,"C")]),
+        Insn(0xCB, 0x52, "BIT", AddrMode.Bit, [CbBit("BIT",2,"D")]),
+        Insn(0xCB, 0x53, "BIT", AddrMode.Bit, [CbBit("BIT",2,"E")]),
+        Insn(0xCB, 0x54, "BIT", AddrMode.Bit, [CbBit("BIT",2,"H")]),
+        Insn(0xCB, 0x55, "BIT", AddrMode.Bit, [CbBit("BIT",2,"L")]),
+        Insn(0xCB, 0x56, "BIT", AddrMode.Bit, [CbBit("BIT",2,"(HL)")]),
+        Insn(0xCB, 0x57, "BIT", AddrMode.Bit, [CbBit("BIT",2,"A")]),
+        Insn(0xCB, 0x58, "BIT", AddrMode.Bit, [CbBit("BIT",3,"B")]),
+        Insn(0xCB, 0x59, "BIT", AddrMode.Bit, [CbBit("BIT",3,"C")]),
+        Insn(0xCB, 0x5A, "BIT", AddrMode.Bit, [CbBit("BIT",3,"D")]),
+        Insn(0xCB, 0x5B, "BIT", AddrMode.Bit, [CbBit("BIT",3,"E")]),
+        Insn(0xCB, 0x5C, "BIT", AddrMode.Bit, [CbBit("BIT",3,"H")]),
+        Insn(0xCB, 0x5D, "BIT", AddrMode.Bit, [CbBit("BIT",3,"L")]),
+        Insn(0xCB, 0x5E, "BIT", AddrMode.Bit, [CbBit("BIT",3,"(HL)")]),
+        Insn(0xCB, 0x5F, "BIT", AddrMode.Bit, [CbBit("BIT",3,"A")]),
+        Insn(0xCB, 0x60, "BIT", AddrMode.Bit, [CbBit("BIT",4,"B")]),
+        Insn(0xCB, 0x61, "BIT", AddrMode.Bit, [CbBit("BIT",4,"C")]),
+        Insn(0xCB, 0x62, "BIT", AddrMode.Bit, [CbBit("BIT",4,"D")]),
+        Insn(0xCB, 0x63, "BIT", AddrMode.Bit, [CbBit("BIT",4,"E")]),
+        Insn(0xCB, 0x64, "BIT", AddrMode.Bit, [CbBit("BIT",4,"H")]),
+        Insn(0xCB, 0x65, "BIT", AddrMode.Bit, [CbBit("BIT",4,"L")]),
+        Insn(0xCB, 0x66, "BIT", AddrMode.Bit, [CbBit("BIT",4,"(HL)")]),
+        Insn(0xCB, 0x67, "BIT", AddrMode.Bit, [CbBit("BIT",4,"A")]),
+        Insn(0xCB, 0x68, "BIT", AddrMode.Bit, [CbBit("BIT",5,"B")]),
+        Insn(0xCB, 0x69, "BIT", AddrMode.Bit, [CbBit("BIT",5,"C")]),
+        Insn(0xCB, 0x6A, "BIT", AddrMode.Bit, [CbBit("BIT",5,"D")]),
+        Insn(0xCB, 0x6B, "BIT", AddrMode.Bit, [CbBit("BIT",5,"E")]),
+        Insn(0xCB, 0x6C, "BIT", AddrMode.Bit, [CbBit("BIT",5,"H")]),
+        Insn(0xCB, 0x6D, "BIT", AddrMode.Bit, [CbBit("BIT",5,"L")]),
+        Insn(0xCB, 0x6E, "BIT", AddrMode.Bit, [CbBit("BIT",5,"(HL)")]),
+        Insn(0xCB, 0x6F, "BIT", AddrMode.Bit, [CbBit("BIT",5,"A")]),
+        Insn(0xCB, 0x70, "BIT", AddrMode.Bit, [CbBit("BIT",6,"B")]),
+        Insn(0xCB, 0x71, "BIT", AddrMode.Bit, [CbBit("BIT",6,"C")]),
+        Insn(0xCB, 0x72, "BIT", AddrMode.Bit, [CbBit("BIT",6,"D")]),
+        Insn(0xCB, 0x73, "BIT", AddrMode.Bit, [CbBit("BIT",6,"E")]),
+        Insn(0xCB, 0x74, "BIT", AddrMode.Bit, [CbBit("BIT",6,"H")]),
+        Insn(0xCB, 0x75, "BIT", AddrMode.Bit, [CbBit("BIT",6,"L")]),
+        Insn(0xCB, 0x76, "BIT", AddrMode.Bit, [CbBit("BIT",6,"(HL)")]),
+        Insn(0xCB, 0x77, "BIT", AddrMode.Bit, [CbBit("BIT",6,"A")]),
+        Insn(0xCB, 0x78, "BIT", AddrMode.Bit, [CbBit("BIT",7,"B")]),
+        Insn(0xCB, 0x79, "BIT", AddrMode.Bit, [CbBit("BIT",7,"C")]),
+        Insn(0xCB, 0x7A, "BIT", AddrMode.Bit, [CbBit("BIT",7,"D")]),
+        Insn(0xCB, 0x7B, "BIT", AddrMode.Bit, [CbBit("BIT",7,"E")]),
+        Insn(0xCB, 0x7C, "BIT", AddrMode.Bit, [CbBit("BIT",7,"H")]),
+        Insn(0xCB, 0x7D, "BIT", AddrMode.Bit, [CbBit("BIT",7,"L")]),
+        Insn(0xCB, 0x7E, "BIT", AddrMode.Bit, [CbBit("BIT",7,"(HL)")]),
+        Insn(0xCB, 0x7F, "BIT", AddrMode.Bit, [CbBit("BIT",7,"A")]),
+        Insn(0xCB, 0x80, "RES", AddrMode.Bit, [CbBit("RES",0,"B")]),
+        Insn(0xCB, 0x81, "RES", AddrMode.Bit, [CbBit("RES",0,"C")]),
+        Insn(0xCB, 0x82, "RES", AddrMode.Bit, [CbBit("RES",0,"D")]),
+        Insn(0xCB, 0x83, "RES", AddrMode.Bit, [CbBit("RES",0,"E")]),
+        Insn(0xCB, 0x84, "RES", AddrMode.Bit, [CbBit("RES",0,"H")]),
+        Insn(0xCB, 0x85, "RES", AddrMode.Bit, [CbBit("RES",0,"L")]),
+        Insn(0xCB, 0x86, "RES", AddrMode.Bit, [CbBit("RES",0,"(HL)")]),
+        Insn(0xCB, 0x87, "RES", AddrMode.Bit, [CbBit("RES",0,"A")]),
+        Insn(0xCB, 0x88, "RES", AddrMode.Bit, [CbBit("RES",1,"B")]),
+        Insn(0xCB, 0x89, "RES", AddrMode.Bit, [CbBit("RES",1,"C")]),
+        Insn(0xCB, 0x8A, "RES", AddrMode.Bit, [CbBit("RES",1,"D")]),
+        Insn(0xCB, 0x8B, "RES", AddrMode.Bit, [CbBit("RES",1,"E")]),
+        Insn(0xCB, 0x8C, "RES", AddrMode.Bit, [CbBit("RES",1,"H")]),
+        Insn(0xCB, 0x8D, "RES", AddrMode.Bit, [CbBit("RES",1,"L")]),
+        Insn(0xCB, 0x8E, "RES", AddrMode.Bit, [CbBit("RES",1,"(HL)")]),
+        Insn(0xCB, 0x8F, "RES", AddrMode.Bit, [CbBit("RES",1,"A")]),
+        Insn(0xCB, 0x90, "RES", AddrMode.Bit, [CbBit("RES",2,"B")]),
+        Insn(0xCB, 0x91, "RES", AddrMode.Bit, [CbBit("RES",2,"C")]),
+        Insn(0xCB, 0x92, "RES", AddrMode.Bit, [CbBit("RES",2,"D")]),
+        Insn(0xCB, 0x93, "RES", AddrMode.Bit, [CbBit("RES",2,"E")]),
+        Insn(0xCB, 0x94, "RES", AddrMode.Bit, [CbBit("RES",2,"H")]),
+        Insn(0xCB, 0x95, "RES", AddrMode.Bit, [CbBit("RES",2,"L")]),
+        Insn(0xCB, 0x96, "RES", AddrMode.Bit, [CbBit("RES",2,"(HL)")]),
+        Insn(0xCB, 0x97, "RES", AddrMode.Bit, [CbBit("RES",2,"A")]),
+        Insn(0xCB, 0x98, "RES", AddrMode.Bit, [CbBit("RES",3,"B")]),
+        Insn(0xCB, 0x99, "RES", AddrMode.Bit, [CbBit("RES",3,"C")]),
+        Insn(0xCB, 0x9A, "RES", AddrMode.Bit, [CbBit("RES",3,"D")]),
+        Insn(0xCB, 0x9B, "RES", AddrMode.Bit, [CbBit("RES",3,"E")]),
+        Insn(0xCB, 0x9C, "RES", AddrMode.Bit, [CbBit("RES",3,"H")]),
+        Insn(0xCB, 0x9D, "RES", AddrMode.Bit, [CbBit("RES",3,"L")]),
+        Insn(0xCB, 0x9E, "RES", AddrMode.Bit, [CbBit("RES",3,"(HL)")]),
+        Insn(0xCB, 0x9F, "RES", AddrMode.Bit, [CbBit("RES",3,"A")]),
+        Insn(0xCB, 0xA0, "RES", AddrMode.Bit, [CbBit("RES",4,"B")]),
+        Insn(0xCB, 0xA1, "RES", AddrMode.Bit, [CbBit("RES",4,"C")]),
+        Insn(0xCB, 0xA2, "RES", AddrMode.Bit, [CbBit("RES",4,"D")]),
+        Insn(0xCB, 0xA3, "RES", AddrMode.Bit, [CbBit("RES",4,"E")]),
+        Insn(0xCB, 0xA4, "RES", AddrMode.Bit, [CbBit("RES",4,"H")]),
+        Insn(0xCB, 0xA5, "RES", AddrMode.Bit, [CbBit("RES",4,"L")]),
+        Insn(0xCB, 0xA6, "RES", AddrMode.Bit, [CbBit("RES",4,"(HL)")]),
+        Insn(0xCB, 0xA7, "RES", AddrMode.Bit, [CbBit("RES",4,"A")]),
+        Insn(0xCB, 0xA8, "RES", AddrMode.Bit, [CbBit("RES",5,"B")]),
+        Insn(0xCB, 0xA9, "RES", AddrMode.Bit, [CbBit("RES",5,"C")]),
+        Insn(0xCB, 0xAA, "RES", AddrMode.Bit, [CbBit("RES",5,"D")]),
+        Insn(0xCB, 0xAB, "RES", AddrMode.Bit, [CbBit("RES",5,"E")]),
+        Insn(0xCB, 0xAC, "RES", AddrMode.Bit, [CbBit("RES",5,"H")]),
+        Insn(0xCB, 0xAD, "RES", AddrMode.Bit, [CbBit("RES",5,"L")]),
+        Insn(0xCB, 0xAE, "RES", AddrMode.Bit, [CbBit("RES",5,"(HL)")]),
+        Insn(0xCB, 0xAF, "RES", AddrMode.Bit, [CbBit("RES",5,"A")]),
+        Insn(0xCB, 0xB0, "RES", AddrMode.Bit, [CbBit("RES",6,"B")]),
+        Insn(0xCB, 0xB1, "RES", AddrMode.Bit, [CbBit("RES",6,"C")]),
+        Insn(0xCB, 0xB2, "RES", AddrMode.Bit, [CbBit("RES",6,"D")]),
+        Insn(0xCB, 0xB3, "RES", AddrMode.Bit, [CbBit("RES",6,"E")]),
+        Insn(0xCB, 0xB4, "RES", AddrMode.Bit, [CbBit("RES",6,"H")]),
+        Insn(0xCB, 0xB5, "RES", AddrMode.Bit, [CbBit("RES",6,"L")]),
+        Insn(0xCB, 0xB6, "RES", AddrMode.Bit, [CbBit("RES",6,"(HL)")]),
+        Insn(0xCB, 0xB7, "RES", AddrMode.Bit, [CbBit("RES",6,"A")]),
+        Insn(0xCB, 0xB8, "RES", AddrMode.Bit, [CbBit("RES",7,"B")]),
+        Insn(0xCB, 0xB9, "RES", AddrMode.Bit, [CbBit("RES",7,"C")]),
+        Insn(0xCB, 0xBA, "RES", AddrMode.Bit, [CbBit("RES",7,"D")]),
+        Insn(0xCB, 0xBB, "RES", AddrMode.Bit, [CbBit("RES",7,"E")]),
+        Insn(0xCB, 0xBC, "RES", AddrMode.Bit, [CbBit("RES",7,"H")]),
+        Insn(0xCB, 0xBD, "RES", AddrMode.Bit, [CbBit("RES",7,"L")]),
+        Insn(0xCB, 0xBE, "RES", AddrMode.Bit, [CbBit("RES",7,"(HL)")]),
+        Insn(0xCB, 0xBF, "RES", AddrMode.Bit, [CbBit("RES",7,"A")]),
+        Insn(0xCB, 0xC0, "SET", AddrMode.Bit, [CbBit("SET",0,"B")]),
+        Insn(0xCB, 0xC1, "SET", AddrMode.Bit, [CbBit("SET",0,"C")]),
+        Insn(0xCB, 0xC2, "SET", AddrMode.Bit, [CbBit("SET",0,"D")]),
+        Insn(0xCB, 0xC3, "SET", AddrMode.Bit, [CbBit("SET",0,"E")]),
+        Insn(0xCB, 0xC4, "SET", AddrMode.Bit, [CbBit("SET",0,"H")]),
+        Insn(0xCB, 0xC5, "SET", AddrMode.Bit, [CbBit("SET",0,"L")]),
+        Insn(0xCB, 0xC6, "SET", AddrMode.Bit, [CbBit("SET",0,"(HL)")]),
+        Insn(0xCB, 0xC7, "SET", AddrMode.Bit, [CbBit("SET",0,"A")]),
+        Insn(0xCB, 0xC8, "SET", AddrMode.Bit, [CbBit("SET",1,"B")]),
+        Insn(0xCB, 0xC9, "SET", AddrMode.Bit, [CbBit("SET",1,"C")]),
+        Insn(0xCB, 0xCA, "SET", AddrMode.Bit, [CbBit("SET",1,"D")]),
+        Insn(0xCB, 0xCB, "SET", AddrMode.Bit, [CbBit("SET",1,"E")]),
+        Insn(0xCB, 0xCC, "SET", AddrMode.Bit, [CbBit("SET",1,"H")]),
+        Insn(0xCB, 0xCD, "SET", AddrMode.Bit, [CbBit("SET",1,"L")]),
+        Insn(0xCB, 0xCE, "SET", AddrMode.Bit, [CbBit("SET",1,"(HL)")]),
+        Insn(0xCB, 0xCF, "SET", AddrMode.Bit, [CbBit("SET",1,"A")]),
+        Insn(0xCB, 0xD0, "SET", AddrMode.Bit, [CbBit("SET",2,"B")]),
+        Insn(0xCB, 0xD1, "SET", AddrMode.Bit, [CbBit("SET",2,"C")]),
+        Insn(0xCB, 0xD2, "SET", AddrMode.Bit, [CbBit("SET",2,"D")]),
+        Insn(0xCB, 0xD3, "SET", AddrMode.Bit, [CbBit("SET",2,"E")]),
+        Insn(0xCB, 0xD4, "SET", AddrMode.Bit, [CbBit("SET",2,"H")]),
+        Insn(0xCB, 0xD5, "SET", AddrMode.Bit, [CbBit("SET",2,"L")]),
+        Insn(0xCB, 0xD6, "SET", AddrMode.Bit, [CbBit("SET",2,"(HL)")]),
+        Insn(0xCB, 0xD7, "SET", AddrMode.Bit, [CbBit("SET",2,"A")]),
+        Insn(0xCB, 0xD8, "SET", AddrMode.Bit, [CbBit("SET",3,"B")]),
+        Insn(0xCB, 0xD9, "SET", AddrMode.Bit, [CbBit("SET",3,"C")]),
+        Insn(0xCB, 0xDA, "SET", AddrMode.Bit, [CbBit("SET",3,"D")]),
+        Insn(0xCB, 0xDB, "SET", AddrMode.Bit, [CbBit("SET",3,"E")]),
+        Insn(0xCB, 0xDC, "SET", AddrMode.Bit, [CbBit("SET",3,"H")]),
+        Insn(0xCB, 0xDD, "SET", AddrMode.Bit, [CbBit("SET",3,"L")]),
+        Insn(0xCB, 0xDE, "SET", AddrMode.Bit, [CbBit("SET",3,"(HL)")]),
+        Insn(0xCB, 0xDF, "SET", AddrMode.Bit, [CbBit("SET",3,"A")]),
+        Insn(0xCB, 0xE0, "SET", AddrMode.Bit, [CbBit("SET",4,"B")]),
+        Insn(0xCB, 0xE1, "SET", AddrMode.Bit, [CbBit("SET",4,"C")]),
+        Insn(0xCB, 0xE2, "SET", AddrMode.Bit, [CbBit("SET",4,"D")]),
+        Insn(0xCB, 0xE3, "SET", AddrMode.Bit, [CbBit("SET",4,"E")]),
+        Insn(0xCB, 0xE4, "SET", AddrMode.Bit, [CbBit("SET",4,"H")]),
+        Insn(0xCB, 0xE5, "SET", AddrMode.Bit, [CbBit("SET",4,"L")]),
+        Insn(0xCB, 0xE6, "SET", AddrMode.Bit, [CbBit("SET",4,"(HL)")]),
+        Insn(0xCB, 0xE7, "SET", AddrMode.Bit, [CbBit("SET",4,"A")]),
+        Insn(0xCB, 0xE8, "SET", AddrMode.Bit, [CbBit("SET",5,"B")]),
+        Insn(0xCB, 0xE9, "SET", AddrMode.Bit, [CbBit("SET",5,"C")]),
+        Insn(0xCB, 0xEA, "SET", AddrMode.Bit, [CbBit("SET",5,"D")]),
+        Insn(0xCB, 0xEB, "SET", AddrMode.Bit, [CbBit("SET",5,"E")]),
+        Insn(0xCB, 0xEC, "SET", AddrMode.Bit, [CbBit("SET",5,"H")]),
+        Insn(0xCB, 0xED, "SET", AddrMode.Bit, [CbBit("SET",5,"L")]),
+        Insn(0xCB, 0xEE, "SET", AddrMode.Bit, [CbBit("SET",5,"(HL)")]),
+        Insn(0xCB, 0xEF, "SET", AddrMode.Bit, [CbBit("SET",5,"A")]),
+        Insn(0xCB, 0xF0, "SET", AddrMode.Bit, [CbBit("SET",6,"B")]),
+        Insn(0xCB, 0xF1, "SET", AddrMode.Bit, [CbBit("SET",6,"C")]),
+        Insn(0xCB, 0xF2, "SET", AddrMode.Bit, [CbBit("SET",6,"D")]),
+        Insn(0xCB, 0xF3, "SET", AddrMode.Bit, [CbBit("SET",6,"E")]),
+        Insn(0xCB, 0xF4, "SET", AddrMode.Bit, [CbBit("SET",6,"H")]),
+        Insn(0xCB, 0xF5, "SET", AddrMode.Bit, [CbBit("SET",6,"L")]),
+        Insn(0xCB, 0xF6, "SET", AddrMode.Bit, [CbBit("SET",6,"(HL)")]),
+        Insn(0xCB, 0xF7, "SET", AddrMode.Bit, [CbBit("SET",6,"A")]),
+        Insn(0xCB, 0xF8, "SET", AddrMode.Bit, [CbBit("SET",7,"B")]),
+        Insn(0xCB, 0xF9, "SET", AddrMode.Bit, [CbBit("SET",7,"C")]),
+        Insn(0xCB, 0xFA, "SET", AddrMode.Bit, [CbBit("SET",7,"D")]),
+        Insn(0xCB, 0xFB, "SET", AddrMode.Bit, [CbBit("SET",7,"E")]),
+        Insn(0xCB, 0xFC, "SET", AddrMode.Bit, [CbBit("SET",7,"H")]),
+        Insn(0xCB, 0xFD, "SET", AddrMode.Bit, [CbBit("SET",7,"L")]),
+        Insn(0xCB, 0xFE, "SET", AddrMode.Bit, [CbBit("SET",7,"(HL)")]),
+        Insn(0xCB, 0xFF, "SET", AddrMode.Bit, [CbBit("SET",7,"A")]),
         // TODO(semantics): 0xED:0x40 IN Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0x48 IN Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0x50 IN Register — awaiting micro-op vocabulary

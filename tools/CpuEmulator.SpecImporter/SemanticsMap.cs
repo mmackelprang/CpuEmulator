@@ -100,6 +100,13 @@ public sealed class SemanticsMap
         ["SetParity"]     = 1,  // SetParity("reg")
         ["SetXY"]         = 1,  // SetXY("reg")
         ["SetAddSub"]     = 1,  // SetAddSub(true|false)
+        // M3.4b: rotate-accumulators + CB plane.
+        ["Rlca"]          = 0,
+        ["Rrca"]          = 0,
+        ["Rla"]           = 0,
+        ["Rra"]           = 0,
+        ["CbRotate"]      = 2,  // CbRotate("RLC", "B")
+        ["CbBit"]         = 3,  // CbBit("BIT", 7, "(HL)")
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────
@@ -108,8 +115,10 @@ public sealed class SemanticsMap
     // M3.1a: the register-arg form moved from Reg.<word> to a double-quoted identifier; a bare
     // unquoted register token (e.g. A) is now rejected here, mirroring the parser's string-literal
     // requirement (CPUGEN011).
+    // M3.4b: also accept a bare integer (the CB bit index 0..7) and a quoted "(HL)" target (the CB
+    // EA shorthand — the only non-\w quoted arg). The generator is the real gate (runs in the e2e test).
     private static readonly Regex AllowedArgPattern =
-        new(@"^(""\w+""|Flag\.\w+|true|false)$", RegexOptions.Compiled);
+        new(@"^(""\w+""|""\(HL\)""|Flag\.\w+|true|false|\d+)$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

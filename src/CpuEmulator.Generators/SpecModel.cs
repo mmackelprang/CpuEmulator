@@ -21,6 +21,8 @@ internal enum InstructionClass
     Z80Exchange,  // EX DE,HL / EX AF,AF' / EXX / EX (SP),HL
     Z80Flow,      // conditional+relative flow: JumpIf/CallIf/RetCc/Rst/RelJump/RelJumpIf/Djnz
     Z80Misc,      // DAA/CPL/SCF/CCF/DI/EI — Implied register-class ops with bespoke flag effects
+    Z80Rot,       // M3.4b: rotate-accumulators (RLCA/RRCA/RLA/RRA) + CB rotate/shift (CbRotate)
+    Z80Bit,       // M3.4b: CB BIT/RES/SET (CbBit)
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502

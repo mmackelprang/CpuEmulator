@@ -17,7 +17,13 @@ namespace CpuEmulator.Tests.TomHarte;
 /// </summary>
 internal static class Z80TomHarteRunner
 {
-    public static string? RunCase(Z80TomHarteCase c, bool registersOnly = false)
+    /// <summary>Run one case. <paramref name="checkInternal"/> additionally diffs the final Q and WZ —
+    /// enforced for the M3.4b-implemented surface (the CB plane + the 4 rotate-accumulators), whose ops
+    /// maintain Q and leave WZ invariant. The general base plane does NOT model WZ writes (CALL/JP/RET/…
+    /// update WZ — M3.4c) nor maintain Q on the shared 6502-class ops (LD r,r' etc.), so it keeps the
+    /// M3.4a posture (registers/RAM/ports/cycles/trace, no Q/WZ); enabling those checks for it would
+    /// require out-of-scope base-plane WZ + shared-class-Q modeling.</summary>
+    public static string? RunCase(Z80TomHarteCase c, bool registersOnly = false, bool checkInternal = false)
     {
         var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
         inner.MapMemory(0x0000, new byte[0x10000], writable: true);
@@ -40,8 +46,7 @@ internal static class Z80TomHarteRunner
         cpu.SetRegister("H", s.H);   cpu.SetRegister("L", s.L);
         cpu.SetRegister("I", s.I);   cpu.SetRegister("R", s.R);
         cpu.SetRegister("IX", s.Ix); cpu.SetRegister("IY", s.Iy);
-        // WZ/MEMPTR is NOT modeled in M3.4a (Ground truth F) — it only affects the X/Y flags of a few
-        // ops, none in the base plane unless a vector forces it. The initial wz is read but not set.
+        cpu.SetRegister("WZ", s.Wz);   // M3.4b: WZ/MEMPTR — BIT y,(HL) reads its high byte for X/Y
         cpu.SetRegister("AF_", s.Af_); cpu.SetRegister("BC_", s.Bc_);  // pair-view set of the alt set
         cpu.SetRegister("DE_", s.De_); cpu.SetRegister("HL_", s.Hl_);
         cpu.Iff1 = s.Iff1; cpu.Iff2 = s.Iff2;
@@ -60,6 +65,12 @@ internal static class Z80TomHarteRunner
         Check(problems, cpu, "IX", f.Ix, 4); Check(problems, cpu, "IY", f.Iy, 4);
         Check(problems, cpu, "AF_", f.Af_, 4); Check(problems, cpu, "BC_", f.Bc_, 4);
         Check(problems, cpu, "DE_", f.De_, 4); Check(problems, cpu, "HL_", f.Hl_, 4);
+        if (checkInternal)
+        {
+            // M3.4b: the CB plane + rotate-accumulators maintain Q and leave WZ invariant.
+            Check(problems, cpu, "WZ", f.Wz, 4);
+            if (cpu.Q != f.Q) problems.Add($"Q: expected {f.Q:X2}, got {cpu.Q:X2}");
+        }
         if (cpu.Iff1 != f.Iff1) problems.Add($"IFF1: expected {f.Iff1}, got {cpu.Iff1}");
         if (cpu.Iff2 != f.Iff2) problems.Add($"IFF2: expected {f.Iff2}, got {cpu.Iff2}");
 

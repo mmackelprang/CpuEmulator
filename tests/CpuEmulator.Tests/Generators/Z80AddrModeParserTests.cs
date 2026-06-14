@@ -47,6 +47,7 @@ public class Z80AddrModeParserTests
         {
             private readonly IAddressSpace _bus;
             private bool _iff1, _iff2;
+            public byte Q;   // M3.4b: the Q pseudo-register every Z80 op maintains (Q=F / Q=0)
             public bool Iff1 { get => _iff1; set => _iff1 = value; }
             public bool Iff2 { get => _iff2; set => _iff2 = value; }
             public Z80LikeCpu(IAddressSpace bus) => _bus = bus;
