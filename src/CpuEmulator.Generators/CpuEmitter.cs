@@ -2464,8 +2464,31 @@ internal static class CpuEmitter
         sb.AppendLine($"            | ({carry} ? {cMask} : 0x00)));");
     }
 
-    private static void EmitZ80EdLdNnRp(StringBuilder sb, InstructionModel insn, string pc, string pcType, FlagBitMap flags)
-    { sb.AppendLine("        _ = 0;   // TODO B-Task 4"); }
+    private static void EmitZ80EdLdNnRp(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, FlagBitMap flags)
+    {
+        bool store = Unquote(insn.Ops[0].Args[0]) == "STORE";
+        string pair = Unquote(insn.Ops[0].Args[1]);
+        sb.AppendLine($"        byte al = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        sb.AppendLine($"        byte ah = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+        EmitWz(sb, "ea + 1");
+        if (store)
+        {
+            sb.AppendLine($"        WriteBus(ea, unchecked((byte){pair}));");
+            sb.AppendLine($"        WriteBus((ea + 1) & 0xFFFF, unchecked((byte)({pair} >> 8)));");
+            sb.AppendLine($"        _cycles += {20 - 2 - 2 - 2};   // LD (nn),rp = 20 T (2 key + 2 addr reads + 2 writes)");
+        }
+        else
+        {
+            sb.AppendLine("        byte vlo = ReadBus(ea);");
+            sb.AppendLine("        byte vhi = ReadBus((ea + 1) & 0xFFFF);");
+            sb.AppendLine($"        {pair} = unchecked((ushort)(vlo | (vhi << 8)));");
+            sb.AppendLine($"        _cycles += {20 - 2 - 2 - 2};   // LD rp,(nn) = 20 T (2 key + 2 addr + 2 data reads)");
+        }
+    }
 
     private static void EmitZ80EdNeg(StringBuilder sb, string f, FlagBitMap flags)
     { sb.AppendLine("        _ = 0;   // TODO B-Task 5"); }
