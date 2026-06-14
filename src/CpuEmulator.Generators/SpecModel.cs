@@ -55,14 +55,14 @@ internal sealed record FlagBitModel(string Name, int Bit);
 
 internal sealed record RegisterModel(string Name, int Bits, string Role, string? HighHalf = null, string? LowHalf = null);
 
-/// <summary>The parsed decode structure (Ground truth G). ABSENT on the model means the 6502
-/// degenerate walk. Carries the prefix bytes, the ModR/M (length-determining) opcodes, and the
-/// opcode-group (sub-field-key) opcodes the synthetic spec declares.</summary>
 /// <summary>One declared prefix's compound metadata (M3.4e-1b). CompoundWith is the byte this prefix
 /// compounds with (-1 ⇒ a plain prefix like CB/ED); DisplacementBeforeOpcode declares the DD CB d op
 /// shape (the displacement consumed before the final opcode).</summary>
 internal sealed record PrefixByteModel(byte Value, int CompoundWith = -1, bool DisplacementBeforeOpcode = false);
 
+/// <summary>The parsed decode structure (Ground truth G). ABSENT on the model means the 6502
+/// degenerate walk. Carries the prefix bytes, the ModR/M (length-determining) opcodes, and the
+/// opcode-group (sub-field-key) opcodes the synthetic spec declares.</summary>
 internal sealed record DecodeStructureModel(
     EquatableArray<byte> Prefixes,
     EquatableArray<byte> ModRmOpcodes,
