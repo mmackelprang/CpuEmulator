@@ -145,4 +145,4 @@ All work happens on short-lived feature branches; changes merge to `main` via pu
 
 ## License
 
-TBD.
+CpuEmulator is released under the [MIT License](LICENSE).
