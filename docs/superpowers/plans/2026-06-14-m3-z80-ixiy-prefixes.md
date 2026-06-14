@@ -1,5 +1,11 @@
 # M3.4e: The Z80 DD/FD/DDCB/FDCB IX/IY Prefixes — Scoped Plan
 
+> **✅ M3.4e COMPLETE (2026-06-14).** All sub-slices shipped: e-1a (#24) + e-1b (#25) framework, e-2 (#27)
+> DD/FD core, **e-3 (#28) DDCB/FDCB compound**. The ENTIRE documented + undocumented Z80 instruction set is
+> now TomHarte-green — base + CB + ED + block + DD/FD core + DDCB/FDCB compound — per-T-state, with final
+> Q/WZ/IM + IX/IY checked. Only interrupt servicing + ZEXALL + Z80-through-JIT remain = M3.5. The DD/FD
+> redundant-prefix chains are unverified (no vectors). See each slice's closeout for the honest close-state.
+
 > **For agentic workers:** this is a SCOPED plan — the finish-line, PR breakdown, dependencies, and known
 > quirks/risks are pinned, but the deepest task-by-task literal code is to be DETAILED JUST-IN-TIME before
 > each sub-PR's Builder run, because it depends on design decisions (D1–D4 below) and on what the framework
@@ -209,7 +215,35 @@ TDD synthetic + then the sweep) + the regen + the `dd`/`fd` TomHarte theories (5
 derive-vs-hand-author decision (D3) lands on hand-authoring, consider splitting DD and FD into separate PRs
 (they are mechanically identical — FD is DD with IY for IX).
 
-### M3.4e-3 — DDCB/FDCB compound (bit/rotate/shift on (IX+d) + the undoc store-copy forms)
+### M3.4e-3 — DDCB/FDCB compound (bit/rotate/shift on (IX+d) + the undoc store-copy forms) — ✅ DONE (PR #28)
+
+> **✅ SHIPPED (2026-06-14):** the 256 DDCB + 256 FDCB compound opcodes are TomHarte-green — the documented
+> bit/rotate/shift on `(IX+d)`/`(IY+d)`, the undocumented store-copy forms (`z≠6` writes the plain register),
+> and the `BIT b,(IX+d)` X/Y-from-`(IX+d)>>8` quirk — full state (registers, flags, WZ, R, the per-T-state
+> bus trace, cycles, memory). Full UAT sweep: **512 vectors × 1000 = 512,000 cases, 0 failures.** The 450
+> rows DERIVED (`Z80DdCbSemantics`); 1604 importer rows, 0 TODO; 6502 byte-identical; full suite 3424/0/0.
+> **With e-3 GREEN, M3.4e is COMPLETE — the entire documented + undocumented Z80 ISA is TomHarte-green.**
+> D10 shipped REVISED (the displacement is surfaced via a generated `_decodeOperandLo` field from `Step`,
+> NOT a bus re-read, which the `TracingAddressSpace` would record as a spurious access); D11 + the per-family
+> RES/SET Q split (Q=0, F preserved) shipped as planned. Only interrupt servicing + ZEXALL + Z80-through-JIT
+> remain = M3.5. **Closeout:** `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md` (CLOSEOUT).
+
+> **EXPANDED (2026-06-14): this section is now detailed in a full execution-ready task-by-task plan**
+> (the M3.4c/d + e-1a/e-1b/e-2 depth): `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md`. That
+> doc carries the load-bearing literal code (the D3 derivation `Z80DdCbSemantics`; the ONE compound emit arm
+> `EmitZ80DdCbBody` reusing the M3.4b CB rotate/BIT/RES-SET math + the store-copy + the BIT-X/Y-from-`(EA>>8)`
+> quirk; the importer compound-row + compound-`PrefixByte` emission), the RECON-FINDINGS (H1 the
+> compound-key disassembler fix; H2 the Q-reset predicate widening; **H3/D10 the load-bearing seam — the
+> parameterless `Op{key}()` body cannot reach `DecodeResult.Operands.Lo`, so it re-reads the displacement
+> via a NON-CHARGING `_bus.Read8((ushort)(PC - 2))` peek**; H4 the atomic compound declaration; H5 the
+> store-copy writes the PLAIN B..A, never IXh/IXl), the F1 cross-check (225 DDCB + 225 FDCB rows DERIVED —
+> the dataset has 31+31, the harness gates 256+256), the per-task gates, and the honest close-state. D4
+> (JIT-IL = M3.5) + D5 (no chains) carried; DD-CB + FD-CB ship in ONE PR (D9). **NEW decisions for the
+> Coordinator: D10 (the `_bus.Read8(PC-2)` displacement peek) + D11 (the compound-key IX/IY disassembler
+> discriminator) + a possible per-family RES/SET Q split (the one item RECON could not pin from prose — the
+> vector is the oracle at Task 0).** With e-3 GREEN this is the **M3.4e-completion milestone** — the entire
+> documented + undocumented Z80 ISA is TomHarte-green. The outline below is retained as the framing the doc
+> expands.
 
 **Goal:** add the ~225+225 missing DDCB/FDCB dataset rows, implement the compound emit arm (the operation
 on `(IX+d)` + the undoc result-copy into a register), drive `dd cb __ *.json` + `fd cb __ *.json` (512
@@ -290,6 +324,8 @@ reuses them). Detailing them now would fabricate precision that D1–D3 + the e-
   half-views), `…-ixiy-e1b-compound-decoder.md` (the declarative compound decoder)
 - **M3.4e-2 DD/FD core (full execution-ready plan):**
   `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e2-ddfd-core.md`
+- **M3.4e-3 DDCB/FDCB compound (full execution-ready plan):**
+  `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md`
 - **Previous slice (depth template + the close-state record):**
   `docs/superpowers/plans/2026-06-14-m3-z80-ed-core.md`
 - **Immediately-prior slice:** `docs/superpowers/plans/2026-06-14-m3-z80-ed-block-ops.md`

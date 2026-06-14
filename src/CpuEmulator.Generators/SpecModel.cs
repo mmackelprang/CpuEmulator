@@ -27,6 +27,7 @@ internal enum InstructionClass
     Z80EdOp,      // M3.4c: the rest of the ED-core (ADC/SBC HL,rp; LD (nn),rp; NEG; RETN/RETI; IM; LD I/R/A; RRD/RLD; NOP)
     Z80EdBlock,   // M3.4d: ED block ops (LDI/LDD/LDIR/LDDR/CPI/.../OTDR) — memory/port transfer + repeat
     Z80Indexed,   // M3.4e-2: the (IX+d)/(IY+d) memory ops (LD/ALU/INC-DEC/LD-imm on the indexed EA)
+    Z80DdCb,      // M3.4e-3: the compound DDCB/FDCB bit/rotate/shift on (IX+d)/(IY+d) + the undoc store-copy
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502

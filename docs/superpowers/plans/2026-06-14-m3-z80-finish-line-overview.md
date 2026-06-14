@@ -50,12 +50,12 @@ M3.4d  ED block ops (0xA0–0xBB)        ← DONE (PR #23): 16 ops TomHarte-gree
    │      LDI/LDD/LDIR/LDDR, CPI/CPD/CPIR/CPDR, INI/IND/INIR/INDR, OUTI/OUTD/OTIR/OTDR
    │      the repeat-rewind PC quirk, the F3/F5 (X/Y) undocumented-flag quirks, BC/DE/HL auto-inc/dec, WZ
    ▼
-M3.4e  DD/FD/DDCB/FDCB IX/IY prefixes  ← NEXT; scoped; SPLITS into sub-PRs (see §4)
-   │      M3.4e-1  framework: the compound-prefix decoder + the Indexed AddrMode + (IX+d) EA
-   │      M3.4e-2  DD/FD core (the (IX+d)/(IY+d) re-interpretation of the base + the IX/IY 16-bit ops)
-   │      M3.4e-3  DDCB/FDCB compound (bit/rotate/shift on (IX+d), incl. the undoc "store-copy" forms)
+M3.4e  DD/FD/DDCB/FDCB IX/IY prefixes  ← DONE: the ENTIRE Z80 ISA is TomHarte-green
+   │      M3.4e-1  framework: the compound-prefix decoder + the Indexed AddrMode + (IX+d) EA  ← DONE (#24/#25)
+   │      M3.4e-2  DD/FD core (the (IX+d)/(IY+d) re-interpretation of the base + the IX/IY 16-bit ops)  ← DONE (#27)
+   │      M3.4e-3  DDCB/FDCB compound (bit/rotate/shift on (IX+d), incl. the undoc "store-copy" forms)  ← DONE (#28)
    ▼
-M3.5   ZEXALL + interrupt servicing + Z80-through-JIT  ← scoped; SPLITS into sub-PRs (see §5)
+M3.5   ZEXALL + interrupt servicing + Z80-through-JIT  ← NEXT; scoped; SPLITS into sub-PRs (see §5)
    │      M3.5-1  interrupt SERVICING (IM 0/1/2 + NMI, IFF1/IFF2, EI-delay, HALT wake)
    │      M3.5-2  ZEXALL/ZEXDOC integration harness (the CP/M BDOS stub + the CRC gate)
    │      M3.5-3  Z80 through the JIT (the J1/J2/J3 generic-compiler work + tier parity) + the findings doc

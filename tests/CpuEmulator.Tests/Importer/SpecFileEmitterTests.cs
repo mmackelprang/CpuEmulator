@@ -264,46 +264,53 @@ public class SpecFileEmitterTests
     }
 
     [Fact]
-    public void TODO_row_carries_plane_qualified_key()
+    public void Live_rows_carry_their_derived_ops()
     {
-        // A TODO(semantics) prefixed row carries the plane-qualified Key. M3.4e-2: the DD/FD CORE plane is
-        // now LIVE (ADD IX,BC etc.); the DDCB/FDCB COMPOUND forms remain TODO and demonstrate the
-        // plane-qualified compound key (0xDDCB:0xNN).
+        // M3.4a: the base-plane OR r is LIVE; M3.4e-2: the DD core rows are LIVE; M3.4e-3: the DDCB
+        // compound rows now emit as the Insn(0xDD, 0xCB, finalOp, …) overload via Z80DdCbSemantics.
         var (source, _) = RunZ80Engine();
-        Assert.Contains("// TODO(semantics): 0xDDCB:0x06 RLC Indexed", source);   // DDCB compound still deferred
-        // M3.4a: the base-plane OR r is LIVE; M3.4e-2: the DD core rows are LIVE.
         Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);
         Assert.Contains("Insn(0xDD, 0x09, \"ADD\", AddrMode.Register, [Add16(\"IX\",\"BC\")]),", source);
         Assert.Contains("Insn(0xDD, 0x86, \"ADD\", AddrMode.Indexed, [DdFdAluIndexed(\"ADD\")]),", source);
         // M3.4d: ED B0 LDIR carries the EdBlock op.
         Assert.Contains("Insn(0xED, 0xB0, \"LDIR\", AddrMode.Implied, [EdBlock(\"LDIR\")]),", source);
+        // M3.4e-3: the DDCB compound row (RLC (IX+d), the 0xDDCB:0x06 finalOp) now emits, no longer TODO.
+        Assert.Contains("Insn(0xDD, 0xCB, 0x06, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"-\")]),", source);
     }
 
     [Fact]
     public void DecodeStructure_is_emitted_with_backing_prefix()
     {
         // The skeleton declares a DecodeStructure with the prefix bytes that back EMITTED prefixed
-        // rows. ED is backed (NEG); the CB/DD/FD/compound planes have no emittable rows (the M3.4
-        // finding), so they are not declared (the CPUGEN012 cross-check would reject an orphan prefix).
+        // rows. ED is backed (NEG) as a plain PrefixByte; M3.4e-3: the DD/FD bytes back BOTH plain core
+        // rows AND compound DDCB/FDCB rows, so they emit the compound PrefixByte (CompoundWith + the
+        // displacement-before-opcode flag) — the metadata that turns the compound decode routing ON.
         var (source, _) = RunZ80Engine();
         Assert.Contains("DecodeStructure Decode = new(", source);
         Assert.Contains("new PrefixByte(0xED)", source);
+        Assert.Contains("new PrefixByte(0xDD, CompoundWith: 0xCB, DisplacementBeforeOpcode: true)", source);
+        Assert.Contains("new PrefixByte(0xFD, CompoundWith: 0xCB, DisplacementBeforeOpcode: true)", source);
         Assert.Contains("ModRmOpcodes: []", source);
         Assert.Contains("SubFieldOpcodes: []", source);
     }
 
     [Fact]
-    public void DDCB_compound_rows_emit_as_TODO_not_prefixed_Insn()
+    public void DDCB_compound_rows_emit_as_the_compound_Insn_overload()
     {
-        // A DDCB/FDCB compound-prefix row is NEVER emitted as a prefixed Insn: the compound prefix
-        // (0xDDCB) is not a single PrefixByte, so the importer cannot key it. (M3.4e-1a made the Indexed
-        // MODE emittable, but the compound DECODER is M3.4e-1b; until then these rows stay TODO.) The row
-        // appears only as a TODO comment with its compound plane-qualified Key.
+        // M3.4e-3: a DDCB/FDCB compound row emits the Insn(p1, p2, finalOp, …) overload (the two prefix
+        // bytes split apart — 0xDD, 0xCB — NOT a single 0xDDCB literal, which has no Insn overload). The
+        // ops are derived by Z80DdCbSemantics. M3.4e-3 added the undocumented store-copy forms, so the
+        // documented z=6 forms AND the undoc store-copy forms (z != 6) are all present.
         var (source, _) = RunZ80Engine();
-        Assert.Contains("0xDDCB:0x06", source);   // RLC (IX+d) — present as a TODO key
-        // No Insn row should ever carry a compound prefix literal (there is no 0xDDCB Insn overload arg).
+        Assert.Contains("Insn(0xDD, 0xCB, 0x06, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"-\")]),", source);
+        Assert.Contains("Insn(0xDD, 0xCB, 0x00, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"B\")]),", source);   // undoc store-copy B
+        Assert.Contains("Insn(0xDD, 0xCB, 0x04, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"H\")]),", source);   // undoc store-copy plain H
+        Assert.Contains("Insn(0xDD, 0xCB, 0x46, \"BIT\", AddrMode.Indexed, [DdCb(\"BIT\",0,\"-\")]),", source);
+        Assert.Contains("Insn(0xDD, 0xCB, 0x86, \"RES\", AddrMode.Indexed, [DdCb(\"RES\",0,\"-\")]),", source);
+        Assert.Contains("Insn(0xDD, 0xCB, 0xFF, \"SET\", AddrMode.Indexed, [DdCb(\"SET\",7,\"A\")]),", source);   // y=7,z=7 -> copy A
+        Assert.Contains("Insn(0xFD, 0xCB, 0x06, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"-\")]),", source);
+        // There is no single-literal 0xDDCB Insn overload — the prefix is always split.
         Assert.DoesNotContain("Insn(0xDDCB", source);
-        Assert.DoesNotContain("Insn(0xDDCB,", source);
     }
 
     [Fact]
@@ -331,29 +338,37 @@ public class SpecFileEmitterTests
             ? Z80DdFdSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode, isIy: false)
             : e.Prefix == "0xFD"
             ? Z80DdFdSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode, isIy: true)
+            : e.Prefix is "0xDDCB" or "0xFDCB"
+            ? Z80DdCbSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16))   // M3.4e-3: the compound plane
             : (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null);
+
+        // M3.4e-3: the compound DDCB/FDCB prefix is NOT a single byte, but it IS emittable (the compound
+        // Insn overload). The emittable predicate now accepts a compound prefix too.
+        bool IsEmittablePrefix(string? prefix) =>
+            IsSingleBytePrefix(prefix) ||
+            (prefix is { Length: 6 } && prefix.StartsWith("0x", StringComparison.OrdinalIgnoreCase));
 
         int derivedEmitted = dataset.Count(e =>
             Ops(e) is not null
             && Z80EmittableModes.Contains(e.Mode)
-            && IsSingleBytePrefix(e.Prefix));
+            && IsEmittablePrefix(e.Prefix));
         int derivedTodoMode = dataset.Count(e =>
             Ops(e) is not null
-            && !(Z80EmittableModes.Contains(e.Mode) && IsSingleBytePrefix(e.Prefix)));
+            && !(Z80EmittableModes.Contains(e.Mode) && IsEmittablePrefix(e.Prefix)));
         int derivedTodoSemantics = dataset.Count(e => Ops(e) is null);
 
         var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
 
-        Assert.Equal(1154, report.Total);   // M3.4e-2: 728 + the 213 DD + 213 FD derived core rows
+        Assert.Equal(1604, report.Total);   // M3.4e-3: 1154 + the 225 DDCB + 225 FDCB derived rows
         Assert.Equal(derivedEmitted, report.Emitted);
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
-        // M3.4a-d: 588 base + CB + ED-core + ED-block rows LIVE. M3.4e-2: + the 252 DD-core + 252 FD-core
-        // rows route through Z80DdFdSemantics → 1092. The remaining TODO is the DDCB/FDCB compound forms
-        // (31 + 31 = 62; M3.4e-3).
-        Assert.Equal(1092, report.Emitted);
-        Assert.Equal(62, report.TodoSemantics);
+        // M3.4a-d: base + CB + ED-core + ED-block LIVE. M3.4e-2: + 252 DD-core + 252 FD-core → 1092.
+        // M3.4e-3: + the 256 DDCB + 256 FDCB compound rows via Z80DdCbSemantics → 1604, ZERO TODO. With
+        // this the ENTIRE documented + undocumented Z80 instruction set emits.
+        Assert.Equal(1604, report.Emitted);
+        Assert.Equal(0, report.TodoSemantics);
     }
 
     [Fact]

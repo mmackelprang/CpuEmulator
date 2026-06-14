@@ -162,4 +162,7 @@ public static class Spec
     public static Op DdFdStoreImmIndexed() => new DdFdStoreImmIndexedOp();
     public static Op DdFdAluIndexed(string op) => new DdFdAluIndexedOp(op);
     public static Op DdFdIncDecIndexed(bool isDec) => new DdFdIncDecIndexedOp(isDec);
+
+    // ── M3.4e-3 DDCB/FDCB compound plane (additive) ──
+    public static Op DdCb(string op, int index, string copyReg) => new DdCbOp(op, index, copyReg);
 }
