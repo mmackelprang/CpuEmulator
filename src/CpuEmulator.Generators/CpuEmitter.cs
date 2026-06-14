@@ -1464,12 +1464,15 @@ internal static class CpuEmitter
                     $"emitter has no port template for op '{op.Kind}' (opcode 0x{instruction.Opcode:X2})");
         }
 
-        // M3.4c (Piece A): the Z80 IN A,(n)/OUT (n),A MEMPTR write — WZ = (A<<8) | ((n+1)&0xFF)
-        // (vector-confirmed db/d3; A is the high byte, the operand n+1 the low byte). Derived from
-        // `port` (= (A_pre<<8)|n) so the IN form uses the PRE-read A (the read above overwrote A).
-        // `pn` is the (n) operand local. Z80-only (`structured`).
+        // M3.4c (Piece A): the Z80 IN A,(n)/OUT (n),A MEMPTR write — the two forms DIFFER (vector-
+        // confirmed). IN A,(n): WZ = port + 1 = ((A<<8)|n)+1, the FULL 16-bit increment, so the n=0xFF
+        // carry propagates into the high byte (`db 0066`: A=0x3E,n=0xFF → WZ=0x3F00). OUT (n),A: WZ =
+        // (A<<8) | ((n+1)&0xFF), the A-high quirk — NO carry (`d3 00BC`: A=0x9A,n=0xFF → WZ=0x9A00).
+        // Derived from `port` (= (A_pre<<8)|n) so IN uses the PRE-read A. Z80-only (`structured`).
         if (structured && instruction.Mode == "IoPortImmediate")
-            EmitWz(sb, "(port & 0xFF00u) | ((pn + 1u) & 0xFFu)");
+            EmitWz(sb, op.Kind == "PortIn"
+                ? "port + 1u"
+                : "(port & 0xFF00u) | ((pn + 1u) & 0xFFu)");
 
         // M3.4a: the Z80 IN A,(n)/OUT (n),A are 11 T-states. Charged so far: Step fetch (1) + the (n)
         // operand read (1) + the Io access (ReadIo/WriteIo charge 1) = 3. Add the 8 internal T-states.
