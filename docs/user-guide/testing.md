@@ -135,6 +135,43 @@ A passing run needs approximately 96,241,367 cycles. Any deviation from the expe
 
 Integration-level correctness: all ALU operations, addressing modes, branch taken/not-taken, stack operations, subroutine call/return, interrupt handling, and decimal mode. The test self-modifies RAM and self-tests; it detects misimplemented instructions by failing at an error trap before `$3469`.
 
+### Z80 TomHarte single-step vectors
+
+The Z80 is the framework's second architecture. It uses a **separate** vector corpus — [SingleStepTests/z80](https://github.com/SingleStepTests/z80) — with a distinct schema from the 6502 set: 1000 cases per file, packed alt-register pairs (`af_`/`bc_`/`de_`/`hl_`), the `i`/`r`/`wz`/`iff1`/`iff2`/`im`/`p`/`q` state, a separate `ports` array for I/O, and per-T-state (not per-machine-cycle) bus signals.
+
+**Current coverage — base plane only.** As of M3.4a, the **248 covered base-plane opcodes** (the un-prefixed instructions, excluding the four rotate-accumulators 07/0F/17/1F and the CB/ED/DD/FD prefix bytes) pass the full sweep:
+
+> 248 opcodes × 1000 cases = **248,000 cases, zero failures** — including F's undocumented X/Y bits (3 and 5), the per-T-state bus-trace ordering, and the ports array.
+
+Not yet implemented (tracked on the genericity ladder): the **CB/ED/DD/FD/DDCB/FDCB prefix planes** (M3.4b/c), the **Z80 JIT tier** (M3.5), and a **Z80 monitor host** (no Z80 REPL machine ships yet — the host boots the Breadboard6502).
+
+#### Fetch Z80 vectors
+
+```
+# Windows
+pwsh tools/get-test-vectors-z80.ps1
+
+# Linux/macOS
+bash tools/get-test-vectors-z80.sh
+```
+
+They cache under `$TESTVECTORS/z80/v1/`.
+
+#### Run
+
+```
+# Sampled (default)
+dotnet test --filter "FullyQualifiedName~Z80TomHarte"
+
+# Full base-plane sweep (1000/opcode = 248,000 cases)
+#   Windows PowerShell
+$env:CPUEMULATOR_UAT = "full"; dotnet test --filter "FullyQualifiedName~Z80TomHarte"; Remove-Item Env:\CPUEMULATOR_UAT
+#   Linux/macOS bash
+CPUEMULATOR_UAT=full dotnet test --filter "FullyQualifiedName~Z80TomHarte"
+```
+
+A registers-only subset (skips the bus-trace/ports diff) is available via `CPUEMULATOR_Z80_REGS_ONLY=1` for fast triage; the merge gate always runs the full diff.
+
 ---
 
 ## Pre-merge gate checklist
@@ -174,6 +211,7 @@ The PR body must include the total TomHarte case count (must equal 1,510,000), t
 |---|---|---|
 | `CPUEMULATOR_TESTVECTORS` | `~/.cache/cpuemulator/vectors` | All vectors |
 | *(none)* | `$TESTVECTORS/6502/v1/` | TomHarte 6502 JSON files (one per opcode hex) |
+| *(none)* | `$TESTVECTORS/z80/v1/` | TomHarte Z80 JSON files (separate corpus, distinct schema) |
 | *(none)* | `$TESTVECTORS/klaus/6502_functional_test.bin` | Klaus 64 KiB binary |
 
 Vectors are never vendored into the repository. The fetch scripts download and cache them on demand; they are safe to re-run (idempotent).
