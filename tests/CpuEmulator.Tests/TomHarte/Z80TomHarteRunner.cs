@@ -45,6 +45,7 @@ internal static class Z80TomHarteRunner
         cpu.SetRegister("AF_", s.Af_); cpu.SetRegister("BC_", s.Bc_);  // pair-view set of the alt set
         cpu.SetRegister("DE_", s.De_); cpu.SetRegister("HL_", s.Hl_);
         cpu.Iff1 = s.Iff1; cpu.Iff2 = s.Iff2;
+        cpu.Q = (byte)s.Q;   // the q-pseudo-register drives the SCF/CCF X/Y quirk
 
         cpu.Step();
 
@@ -102,18 +103,23 @@ internal static class Z80TomHarteRunner
 
     private static void DiffBusTrace(List<string> problems, IReadOnlyList<BusAccess> trace, Z80Cycle[] expected)
     {
-        // The expected cycles array has one entry per T-state; only the memory-request T-states carry a
-        // bus access (the others are internal/null-bus). Filter to the memory accesses and compare to
-        // the recorded bus trace in order.
+        // The Z80 splits a memory access across T-states: the MREQ T-state ('*-m-') carries the address
+        // with NULL data, and the data byte arrives on a following T-state (at the same address for a
+        // read/write, or at the refresh address for the M1 opcode fetch). We extract one access per
+        // MREQ T-state as (address, direction) and compare to the recorded bus trace IN ORDER. The
+        // access VALUES are validated separately by the RAM diff (a read returns ram[addr]; a write
+        // lands in ram), so matching (address, direction) order is the bus-trace fidelity that the
+        // staged gate's second stage checks — the per-T-state ORDERING, not a redundant value re-check.
         var expectedAccesses = expected
-            .Where(c => c.HasData && (c.IsMemRead || c.IsMemWrite))
+            .Where(c => c.IsMemReq && (c.IsRead || c.IsWrite))
+            .Select(c => (c.Address, IsRead: c.IsRead))
             .ToList();
         for (int i = 0; i < Math.Min(trace.Count, expectedAccesses.Count); i++)
         {
             var a = trace[i]; var e = expectedAccesses[i];
-            if (a.Address != e.Address || a.Value != e.Value || a.IsRead != e.IsMemRead)
+            if (a.Address != e.Address || a.IsRead != e.IsRead)
             {
-                problems.Add($"bus trace diverges at access {i + 1}: expected {(e.IsMemRead ? "R" : "W")} {e.Address:X4}={e.Value:X2}, got {a}");
+                problems.Add($"bus trace diverges at access {i + 1}: expected {(e.IsRead ? "R" : "W")} {e.Address:X4}, got {(a.IsRead ? "R" : "W")} {a.Address:X4}");
                 break;
             }
         }

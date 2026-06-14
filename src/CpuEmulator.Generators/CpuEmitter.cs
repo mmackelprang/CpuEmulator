@@ -1763,11 +1763,12 @@ internal static class CpuEmitter
                 sb.AppendLine("        (L, L_) = (L_, L);");
                 EmitInternal(sb, total, 0, 0);
                 return;
-            case "ExSpHl":  // EX (SP),HL — swap HL with the word at (SP).
+            case "ExSpHl":  // EX (SP),HL — swap HL with the word at (SP). The Z80 reads (SP) then (SP+1),
+                            // then writes (SP+1)=H BEFORE (SP)=L (the documented write order TomHarte checks).
                 sb.AppendLine($"        byte slo = ReadBus({sp});");
                 sb.AppendLine($"        byte shi = ReadBus((uint)(({sp} + 1) & 0xFFFF));");
-                sb.AppendLine($"        WriteBus({sp}, unchecked((byte)HL));");
                 sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)(HL >> 8)));");
+                sb.AppendLine($"        WriteBus({sp}, unchecked((byte)HL));");
                 sb.AppendLine("        HL = unchecked((ushort)(slo | (shi << 8)));");
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
@@ -1800,19 +1801,21 @@ internal static class CpuEmitter
                 sb.AppendLine($"            | ((A & 0x20) != 0 ? {yMask} : 0x00)");
                 sb.AppendLine($"            | ((A & 0x08) != 0 ? {xMask} : 0x00)));");
                 break;
-            case "Scf":  // C=1, H=0, N=0; X/Y from A; S/Z/P preserved.
+            case "Scf":  // C=1, H=0, N=0; X/Y from (Q ^ F) | A (the q-quirk); S/Z/P preserved.
+                sb.AppendLine($"        int xy = (Q ^ {f}) | A;");
                 sb.AppendLine($"        {f} = unchecked((byte)(({f} & {(string)$"0x{(byte)(1<<flags.BitOf("S")|1<<flags.BitOf("Z")|1<<flags.BitOf("P")):X2}"})");
                 sb.AppendLine($"            | {cMask}");
-                sb.AppendLine($"            | ((A & 0x20) != 0 ? {yMask} : 0x00)");
-                sb.AppendLine($"            | ((A & 0x08) != 0 ? {xMask} : 0x00)));");
+                sb.AppendLine($"            | ((xy & 0x20) != 0 ? {yMask} : 0x00)");
+                sb.AppendLine($"            | ((xy & 0x08) != 0 ? {xMask} : 0x00)));");
                 break;
-            case "Ccf":  // C = ~C, H = old C, N=0; X/Y from A; S/Z/P preserved.
+            case "Ccf":  // C = ~C, H = old C, N=0; X/Y from (Q ^ F) | A; S/Z/P preserved.
                 sb.AppendLine($"        bool oldC = ({f} & {cMask}) != 0;");
+                sb.AppendLine($"        int xy = (Q ^ {f}) | A;");
                 sb.AppendLine($"        {f} = unchecked((byte)(({f} & {(string)$"0x{(byte)(1<<flags.BitOf("S")|1<<flags.BitOf("Z")|1<<flags.BitOf("P")):X2}"})");
                 sb.AppendLine($"            | (oldC ? 0x00 : {cMask})");
                 sb.AppendLine($"            | (oldC ? {hMask} : 0x00)");
-                sb.AppendLine($"            | ((A & 0x20) != 0 ? {yMask} : 0x00)");
-                sb.AppendLine($"            | ((A & 0x08) != 0 ? {xMask} : 0x00)));");
+                sb.AppendLine($"            | ((xy & 0x20) != 0 ? {yMask} : 0x00)");
+                sb.AppendLine($"            | ((xy & 0x08) != 0 ? {xMask} : 0x00)));");
                 break;
             case "Daa":
                 EmitZ80Daa(sb, f, sMask, zMask, yMask, hMask, xMask, pMask, nMask, cMask);
@@ -1960,7 +1963,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"            {sp} = unchecked((ushort)({sp} - 1));");
                 sb.AppendLine($"            WriteBus({sp}, unchecked((byte){pc}));");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})(cl | (ch << 8)));");
-                sb.AppendLine("            _cycles += 7;   // taken penalty (10 → 17)");
+                sb.AppendLine("            _cycles += 5;   // taken penalty: 10 → 17, minus the 2 push writes charged inline");
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
@@ -1972,7 +1975,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"            byte rh = ReadBus({sp});");
                 sb.AppendLine($"            {sp} = unchecked((ushort)({sp} + 1));");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})(rl | (rh << 8)));");
-                sb.AppendLine("            _cycles += 6;   // taken penalty (5 → 11)");
+                sb.AppendLine("            _cycles += 4;   // taken penalty: 5 → 11, minus the 2 pop reads charged inline");
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 0, busWrites: 0);
                 return;

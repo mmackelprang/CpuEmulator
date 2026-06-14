@@ -42,6 +42,7 @@ public class Z80SkeletonEndToEndTests
             private bool _iff2;
             public bool Iff1 { get => _iff1; set => _iff1 = value; }
             public bool Iff2 { get => _iff2; set => _iff2 = value; }
+            public byte Q;
             public Z80Cpu(IAddressSpace bus, IAddressSpace? io = null)
             {
                 _bus = bus;

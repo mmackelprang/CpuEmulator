@@ -34,6 +34,13 @@ public sealed partial class Z80Cpu
     /// <summary>IFF2 — the shadow interrupt-enable latch (saved by an interrupt, restored by RETN).</summary>
     public bool Iff2 { get => _iff2; set => _iff2 = value; }
 
+    /// <summary>The Q pseudo-register (M3.4a) — the documented SCF/CCF X/Y quirk. After an instruction
+    /// that modified the flags, Q = F; after one that did not, Q = 0. SCF/CCF compute their X/Y bits
+    /// from <c>(Q ^ F) | A</c> (TomHarte's `q` field). The generated SCF/CCF body reads <c>Q</c>; the
+    /// harness sets the INITIAL q so the single-instruction vector's X/Y is exact. (Maintaining Q
+    /// across instructions lands with the block ops, M3.4b.)</summary>
+    public byte Q;
+
     /// <summary>The M3.2 two-bus ctor: the program/data bus + the I/O AddressSpace(Io, 16). A null
     /// I/O bus defaults to a fresh 16-bit Io space (the Z80 port range).</summary>
     public Z80Cpu(IAddressSpace bus, IAddressSpace? io = null)
