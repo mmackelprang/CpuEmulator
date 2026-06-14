@@ -16,9 +16,21 @@ public static class Z80EdSemantics
     // the vectors (RECON FINDING F7): 0x46->0 0x4E->0 0x56->1 0x5E->2 0x66->0 0x6E->0 0x76->1 0x7E->2.
     private static readonly int[] ImMode = [0, 0, 1, 2, 0, 0, 1, 2];
 
-    /// <summary>Ops-text for an ED-core opcode (0x40–0x7F), or null if outside the core.</summary>
+    // M3.4d: the 16 ED block ops, keyed by opcode. Outside this set + the 0x40–0x7F core, OpsFor returns
+    // null (the block ops are 0xA0–0xBB; everything else in the ED plane is still out of scope).
+    private static readonly System.Collections.Generic.Dictionary<int, string> Block = new()
+    {
+        [0xA0] = "LDI",  [0xA1] = "CPI",  [0xA2] = "INI",  [0xA3] = "OUTI",
+        [0xA8] = "LDD",  [0xA9] = "CPD",  [0xAA] = "IND",  [0xAB] = "OUTD",
+        [0xB0] = "LDIR", [0xB1] = "CPIR", [0xB2] = "INIR", [0xB3] = "OTIR",
+        [0xB8] = "LDDR", [0xB9] = "CPDR", [0xBA] = "INDR", [0xBB] = "OTDR",
+    };
+
+    /// <summary>Ops-text for an ED-core opcode (0x40–0x7F) or an ED block op (0xA0–0xBB), or null if
+    /// outside both.</summary>
     public static string? OpsFor(int opcode)
     {
+        if (Block.TryGetValue(opcode, out var blk)) return $"[EdBlock(\"{blk}\")]";
         if (opcode is < 0x40 or > 0x7F) return null;   // block ops + low ED are out of scope here
         int y = (opcode >> 3) & 0x07;
         int z = opcode & 0x07;

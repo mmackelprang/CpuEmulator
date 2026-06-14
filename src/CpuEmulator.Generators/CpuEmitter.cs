@@ -409,6 +409,7 @@ internal static class CpuEmitter
                 "EdLdIaRa" => Unquote(insn.Ops[0].Args[0]) is "A_I" or "A_R",  // LD A,I/A,R set flags; I,A/R,A don't
                 _ => false,   // EdLdNnRp / EdRetn / EdIm / EdNop write no flags
             },
+            InstructionClass.Z80EdBlock => true,   // every block op writes F
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -2415,7 +2416,64 @@ internal static class CpuEmitter
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg,
         FlagBitMap flags)
     {
-        sb.AppendLine("        _ = 0;   // TODO M3.4d Tasks 2-4 (LD/CP/IN/OUT block ops)");
+        string f = statusReg ?? "F";
+        string mn = Unquote(insn.Ops[0].Args[0]);   // "LDI".."OTDR"
+        // Flag masks (computed once).
+        string sM = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zM = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yM = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hM = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xM = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pM = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nM = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cM = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+
+        switch (mn)
+        {
+            case "LDI":  case "LDD":  case "LDIR": case "LDDR":
+            {
+                bool inc = mn is "LDI" or "LDIR";
+                bool repeat = mn is "LDIR" or "LDDR";
+                string delta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __n = ReadBus(HL);");
+                sb.AppendLine("        WriteBus(DE, __n);");
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {delta}));");
+                sb.AppendLine($"        DE = unchecked((ushort)(DE {delta}));");
+                sb.AppendLine("        BC = unchecked((ushort)(BC - 1));");
+                // n_xy = A + transferred byte (the LD-family X/Y quirk).
+                sb.AppendLine("        int __xy = (A + __n) & 0xFF;");
+                // H=0, N=0; P/V = (BC != 0); S/Z/C preserved; X = bit3 of __xy, Y = bit1 of __xy.
+                sb.AppendLine($"        {f} = unchecked((byte)(({f} & ({sM} | {zM} | {cM}))");
+                sb.AppendLine($"            | (BC != 0 ? {pM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x08) != 0 ? {xM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x02) != 0 ? {yM} : 0x00)));");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus + WriteBus charged 2. +12 internal.
+                sb.AppendLine("        _cycles += 12;   // LDI/LDD = 16 T (16 - 2 fetch - 2 bus)");
+                EmitBlockRepeatTail(sb, repeat, f, "BC != 0");   // WZ unchanged unless repeating
+                break;
+            }
+            // CP / IN / OUT arms are added in Tasks 3-4.
+            default:
+                sb.AppendLine("        _ = 0;   // TODO Tasks 3-4 (CP/IN/OUT block ops)");
+                break;
+        }
+    }
+
+    /// <summary>M3.4d: the shared repeat tail. For a repeating *R op, when the loop is NOT done (the
+    /// caller passes the family-specific condition — "BC != 0" for LD; "BC != 0 &amp;&amp; __r != 0" for CP;
+    /// "B != 0" for IN/OUT), rewind PC by the 2 key bytes and set WZ = instruction-PC + 1 (Step has
+    /// already advanced PC by 2, so the rewound PC + 1 = the original instruction PC + 1) and charge the
+    /// +5 repeat T-states (21 - 16). Non-repeating ops leave PC + WZ as the body set them.</summary>
+    private static void EmitBlockRepeatTail(StringBuilder sb, bool repeat, string f, string condition)
+    {
+        if (!repeat)
+            return;   // single ops: PC advances (Step did it); WZ rule is per-family (handled in-body).
+        sb.AppendLine($"        if ({condition})");
+        sb.AppendLine("        {");
+        sb.AppendLine("            PC = unchecked((ushort)(PC - 2));");          // rewind to re-execute
+        sb.AppendLine("            WZ = unchecked((ushort)(PC + 1));");          // MEMPTR = instr PC + 1
+        sb.AppendLine("            _cycles += 5;");                              // 21 - 16 = +5 on repeat
+        sb.AppendLine("        }");
     }
 
     /// <summary>ED ADC/SBC HL,rp (16-bit). S/Z from the 16-bit result; H from bit 11; P/V overflow;

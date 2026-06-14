@@ -265,12 +265,16 @@ public class SpecFileEmitterTests
     [Fact]
     public void TODO_row_carries_plane_qualified_key()
     {
-        // A TODO(semantics) prefixed row carries the plane-qualified Key (e.g. ED B0 = LDIR).
+        // A TODO(semantics) prefixed row carries the plane-qualified Key (e.g. DD 09 = ADD Register).
+        // M3.4d: the ED block ops (e.g. ED B0 LDIR) are now LIVE (no longer TODO); the DD/FD planes
+        // remain TODO and demonstrate the plane-qualified key.
         var (source, _) = RunZ80Engine();
-        Assert.Contains("// TODO(semantics): 0xED:0xB0 LDIR", source);
+        Assert.Contains("// TODO(semantics): 0xDD:0x09 ADD Register", source);
         // M3.4a: the base-plane OR r is now LIVE (no longer a TODO); a DD-prefixed Indexed row is TODO.
         Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);
         Assert.Contains("// TODO(semantics): 0xDD:0x86 ADD Indexed", source);
+        // M3.4d: ED B0 LDIR now carries the EdBlock op (was a TODO row pre-M3.4d).
+        Assert.Contains("Insn(0xED, 0xB0, \"LDIR\", AddrMode.Implied, [EdBlock(\"LDIR\")]),", source);
     }
 
     [Fact]
@@ -340,9 +344,10 @@ public class SpecFileEmitterTests
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
         // M3.4a: 248 base-plane rows LIVE (+ ED NEG = 249). M3.4b: + 4 rotate-accumulators + 256 CB rows
         // → 509. M3.4c: + the full 64 ED-core rows now route through Z80EdSemantics (NEG was already
-        // emitted as [], the other 63 are net-new emits) → 572. The remaining TODO majority is the ED
-        // block ops (0xA0–0xBB) + the DD/FD planes (M3.4d).
-        Assert.Equal(572, report.Emitted);
+        // emitted as [], the other 63 are net-new emits) → 572. M3.4d: + the 16 ED block ops (0xA0–0xBB)
+        // now route through Z80EdSemantics (were []-routed TODO) → 588. The remaining TODO majority is the
+        // DD/FD planes (M3.4e).
+        Assert.Equal(588, report.Emitted);
     }
 
     [Fact]
