@@ -582,7 +582,7 @@ internal static class SpecParser
             //   Insn(prefix, opcode, mnemonic, mode, ops)              — 5 args, KeyShape.PrefixedOpcode
             //   Insn(opcode, subfield: n, mnemonic, mode, ops)         — 5 args (2nd named 'subfield'),
             //                                                             KeyShape.OpcodeGroup
-            int? opcode, prefix = null, subField = null;
+            int? opcode, prefix = null, prefix2 = null, subField = null;
             KeyShape keyShape;
             int mnemonicIdx, modeIdx, opsIdx;
 
@@ -617,6 +617,21 @@ internal static class SpecParser
                     diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
                         element.GetLocation(), Truncate(element.ToString()),
                         "prefix must be a literal in 0x00-0xFF"));
+                    continue;
+                }
+            }
+            else if (args.Count == 6)
+            {
+                keyShape = KeyShape.Compound;
+                prefix = LiteralInt(args[0].Expression);
+                prefix2 = LiteralInt(args[1].Expression);
+                opcode = LiteralInt(args[2].Expression);   // the FINAL opcode
+                mnemonicIdx = 3; modeIdx = 4; opsIdx = 5;
+                if (prefix is null or < 0 or > 0xFF || prefix2 is null or < 0 or > 0xFF)
+                {
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidInstruction,
+                        element.GetLocation(), Truncate(element.ToString()),
+                        "compound prefix bytes must be literals in 0x00-0xFF"));
                     continue;
                 }
             }
@@ -667,6 +682,7 @@ internal static class SpecParser
             // dense [256] index). Prefixed: (prefix << 8) | opcode. Opcode-group: (opcode << 3) | sub.
             uint operationKey = keyShape switch
             {
+                KeyShape.Compound => (uint)((prefix!.Value << 16) | (prefix2!.Value << 8) | opcode.Value),
                 KeyShape.PrefixedOpcode => (uint)((prefix!.Value << 8) | opcode.Value),
                 KeyShape.OpcodeGroup => (uint)((opcode.Value << 3) | subField!.Value),
                 _ => (uint)opcode.Value,
@@ -694,7 +710,7 @@ internal static class SpecParser
 
             instructions.Add(new InstructionModel(
                 (byte)opcode.Value, mnemonic, mode, instructionClass, ops,
-                operationKey, keyShape, prefix ?? -1, subField ?? -1));
+                operationKey, keyShape, prefix ?? -1, prefix2 ?? -1, subField ?? -1));
         }
 
         return instructions.ToImmutable();
@@ -725,6 +741,7 @@ internal static class SpecParser
         }
 
         var prefixes = ImmutableArray.CreateBuilder<byte>();
+        var prefixDetails = ImmutableArray.CreateBuilder<PrefixByteModel>();   // M3.4e-1b: per-prefix compound metadata
         var modRm = ImmutableArray.CreateBuilder<byte>();
         var subField = ImmutableArray.CreateBuilder<byte>();
 
@@ -738,15 +755,49 @@ internal static class SpecParser
             return null;
         }
 
-        // Prefixes: a collection of PrefixByte(0xNN) creations.
+        // Prefixes: a collection of PrefixByte(0xNN [, CompoundWith: 0xNN] [, DisplacementBeforeOpcode: true])
+        // creations. M3.4e-1b: arg 0 is always the Value byte; the optional CompoundWith / Displacement-
+        // BeforeOpcode args may be named or positional (arg1 ⇒ CompoundWith, arg2 ⇒ DisplacementBeforeOpcode).
         if (args[0] is CollectionExpressionSyntax prefixColl)
         {
             foreach (var e in prefixColl.Elements)
             {
                 if (e is ExpressionElementSyntax pe &&
-                    GetCreationArguments(pe.Expression) is { Count: 1 } pargs &&
-                    LiteralInt(pargs[0]) is { } pv and >= 0 and <= 0xFF)
-                    prefixes.Add((byte)pv);
+                    GetCreationArgumentSyntaxes(pe.Expression) is { } pargs && pargs.Count >= 1 &&
+                    LiteralInt(pargs[0].Expression) is { } pv and >= 0 and <= 0xFF)
+                {
+                    int compoundWith = -1;
+                    bool dispBefore = false;
+                    bool argsOk = true;
+                    for (int ai = 1; ai < pargs.Count; ai++)
+                    {
+                        string? name = pargs[ai].NameColon?.Name.Identifier.Text;
+                        ExpressionSyntax expr = pargs[ai].Expression;
+                        // Named ⇒ route by name; positional ⇒ route by position (arg1 = CompoundWith,
+                        // arg2 = DisplacementBeforeOpcode), mirroring the PrefixByte record order.
+                        bool isCompoundWith = name == "CompoundWith" || (name is null && ai == 1);
+                        bool isDispBefore = name == "DisplacementBeforeOpcode" || (name is null && ai == 2);
+                        if (isCompoundWith)
+                        {
+                            if (LiteralInt(expr) is { } cw and >= 0 and <= 0xFF) compoundWith = cw;
+                            else argsOk = false;
+                        }
+                        else if (isDispBefore)
+                        {
+                            if (expr.IsKind(SyntaxKind.TrueLiteralExpression)) dispBefore = true;
+                            else if (expr.IsKind(SyntaxKind.FalseLiteralExpression)) dispBefore = false;
+                            else argsOk = false;
+                        }
+                        else { argsOk = false; }
+                    }
+
+                    if (argsOk)
+                    {
+                        prefixes.Add((byte)pv);
+                        prefixDetails.Add(new PrefixByteModel((byte)pv, compoundWith, dispBefore));
+                    }
+                    else { ok = false; }
+                }
                 else { ok = false; }
             }
         }
@@ -766,7 +817,9 @@ internal static class SpecParser
         // ModRm/sub-field opcode must back at least one matching row (so the structure and the table
         // cannot drift). A malformed/orphan declaration is CPUGEN012.
         foreach (byte p in prefixes)
-            if (!instructions.Any(i => i.KeyShape == KeyShape.PrefixedOpcode && i.Prefix == p))
+            if (!instructions.Any(i =>
+                    (i.KeyShape == KeyShape.PrefixedOpcode && i.Prefix == p) ||
+                    (i.KeyShape == KeyShape.Compound && i.Prefix == p)))
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidDecodeStructure, loc,
                     $"prefix 0x{p:X2} has no prefixed Insn row"));
@@ -787,7 +840,7 @@ internal static class SpecParser
                 return null;
             }
 
-        return new DecodeStructureModel(prefixes.ToImmutable(), modRm.ToImmutable(), subField.ToImmutable());
+        return new DecodeStructureModel(prefixes.ToImmutable(), modRm.ToImmutable(), subField.ToImmutable(), prefixDetails.ToImmutable());
     }
 
     /// <summary>Parse the optional <c>Flags</c> field (M3.4a Ground truth B). ABSENT ⇒ empty (the

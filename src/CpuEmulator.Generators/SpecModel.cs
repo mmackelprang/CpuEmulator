@@ -32,7 +32,7 @@ internal enum InstructionClass
 /// degenerate case (key == opcode). PrefixedOpcode packs (prefix &lt;&lt; 8) | opcode. OpcodeGroup
 /// packs (opcode &lt;&lt; 3) | subfield (a non-first-byte sub-field). The generated Decode realizes
 /// the packing; the consumers treat the key as opaque.</summary>
-internal enum KeyShape { OpcodeByte, PrefixedOpcode, OpcodeGroup }
+internal enum KeyShape { OpcodeByte, PrefixedOpcode, OpcodeGroup, Compound }
 
 /// <summary>The fetch unit the decode walk reads through (Ground truth D). Byte is the default
 /// (6502/Z80/8086). Word is the 68000 (M4) — wired but no shipped M3 spec sets it.</summary>
@@ -58,16 +58,23 @@ internal sealed record RegisterModel(string Name, int Bits, string Role, string?
 /// <summary>The parsed decode structure (Ground truth G). ABSENT on the model means the 6502
 /// degenerate walk. Carries the prefix bytes, the ModR/M (length-determining) opcodes, and the
 /// opcode-group (sub-field-key) opcodes the synthetic spec declares.</summary>
+/// <summary>One declared prefix's compound metadata (M3.4e-1b). CompoundWith is the byte this prefix
+/// compounds with (-1 ⇒ a plain prefix like CB/ED); DisplacementBeforeOpcode declares the DD CB d op
+/// shape (the displacement consumed before the final opcode).</summary>
+internal sealed record PrefixByteModel(byte Value, int CompoundWith = -1, bool DisplacementBeforeOpcode = false);
+
 internal sealed record DecodeStructureModel(
     EquatableArray<byte> Prefixes,
     EquatableArray<byte> ModRmOpcodes,
-    EquatableArray<byte> SubFieldOpcodes);
+    EquatableArray<byte> SubFieldOpcodes,
+    EquatableArray<PrefixByteModel> PrefixDetails = default);   // M3.4e-1b: per-prefix compound metadata
 
 internal sealed record InstructionModel(
     byte Opcode, string Mnemonic, string Mode, InstructionClass Class, EquatableArray<OpModel> Ops,
     uint OperationKey = 0,                         // the opaque key the walk computes (0 ⇒ defaulted to opcode)
     KeyShape KeyShape = KeyShape.OpcodeByte,
     int Prefix = -1,                               // the prefix byte (PrefixedOpcode rows); -1 if none
+    int Prefix2 = -1,                              // M3.4e-1b: the second prefix byte (Compound rows); -1 if none
     int SubField = -1);                            // the sub-field (OpcodeGroup rows); -1 if none
 
 internal sealed record OpModel(string Kind, EquatableArray<string> Args);

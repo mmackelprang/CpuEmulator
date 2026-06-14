@@ -18,6 +18,13 @@ public static class Spec
     public static InstructionDef Insn(byte prefix, byte opcode, string mnemonic, AddrMode mode, Op[] ops) =>
         new(opcode, mnemonic, mode, ops, Prefix: prefix, KeyShape: DecodeKeyShape.PrefixedOpcode);
 
+    // NEW (M3.4e-1b, default-off): a COMPOUND-prefixed row (the Z80 DD CB d op / FD CB d op). Names
+    // BOTH prefix bytes + the final opcode. The displacement sits between the prefix-pair and the
+    // opcode (declared via the PrefixByte's DisplacementBeforeOpcode). The generator packs
+    // key = (prefix1 << 16) | (prefix2 << 8) | finalOpcode (KeyShape.Compound). The 6502 never uses it.
+    public static InstructionDef Insn(byte prefix1, byte prefix2, byte finalOpcode, string mnemonic, AddrMode mode, Op[] ops) =>
+        new(finalOpcode, mnemonic, mode, ops, Prefix: prefix1, Prefix2: prefix2, KeyShape: DecodeKeyShape.Compound);
+
     // NEW (M3.1b, default-off): an OPCODE-GROUP row — key = (opcode, sub-field of a non-first byte).
     // The generator packs key = (opcode << 3) | subfield (KeyShape.OpcodeGroup). Named arg `subfield`
     // distinguishes this from the prefixed overload above. The 6502 never uses this overload.
