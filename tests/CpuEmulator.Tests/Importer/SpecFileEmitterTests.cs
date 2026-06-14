@@ -256,9 +256,10 @@ public class SpecFileEmitterTests
     public void Prefixed_row_emits_prefixed_Insn()
     {
         // A covered ED-plane row (NEG, ED 0x44, Implied) emits the M3.1b prefixed Insn(prefix,opcode,…).
+        // M3.4c: ED-core is now routed through Z80EdSemantics, so NEG carries the [EdNeg()] op (was []).
         var (source, _) = RunZ80Engine();
         var norm = NormalizeWhitespace(source);
-        Assert.Contains("Insn(0xED, 0x44, \"NEG\", AddrMode.Implied, []),", norm);
+        Assert.Contains("Insn(0xED, 0x44, \"NEG\", AddrMode.Implied, [EdNeg()]),", norm);
     }
 
     [Fact]
@@ -306,15 +307,19 @@ public class SpecFileEmitterTests
         var dataset = OpcodeDataset.Load(Z80DatasetPath);
         var map     = SemanticsMap.Load(Z80SemanticsPath);
 
-        // M3.4a/b: a row HAS semantics iff the base-plane algorithmic decoder owns it (Z80BaseSemantics),
-        // OR the CB-plane decoder owns it (Z80CbSemantics, M3.4b), OR the per-mnemonic map covers it (the
-        // prefixed ED NEG). It EMITS iff it has semantics, its mode is emittable, and its prefix is a
-        // single byte (or null).
+        // M3.4a/b/c: a row HAS semantics iff the base-plane algorithmic decoder owns it (Z80BaseSemantics),
+        // OR the CB-plane decoder owns it (Z80CbSemantics, M3.4b), OR the ED-core decoder owns it
+        // (Z80EdSemantics, M3.4c — null for the block ops 0xA0–0xBB, which fall back to the map), OR the
+        // per-mnemonic map covers it. It EMITS iff it has semantics, its mode is emittable, and its prefix
+        // is a single byte (or null).
         string? Ops(OpcodeEntry e) => e.Prefix is null
             ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16), e.Mnemonic, e.Mode)
               ?? (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null)
             : e.Prefix == "0xCB"
             ? Z80CbSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16))
+            : e.Prefix == "0xED"
+            ? Z80EdSemantics.OpsFor(System.Convert.ToInt32(e.Opcode, 16))
+              ?? (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null)
             : (map.Mnemonics.ContainsKey(e.Mnemonic) ? map.Mnemonics[e.Mnemonic] : null);
 
         int derivedEmitted = dataset.Count(e =>
@@ -328,14 +333,16 @@ public class SpecFileEmitterTests
 
         var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
 
-        Assert.Equal(706, report.Total);   // M3.4b: 698 + the 8 SLL rows
+        Assert.Equal(728, report.Total);   // M3.4c: 706 + the 22 missing ED-core rows
         Assert.Equal(derivedEmitted, report.Emitted);
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
         // M3.4a: 248 base-plane rows LIVE (+ ED NEG = 249). M3.4b: + 4 rotate-accumulators + 256 CB rows
-        // → 509 emitted. The remaining TODO majority is the ED/DD/FD planes (M3.4c/d).
-        Assert.Equal(509, report.Emitted);
+        // → 509. M3.4c: + the full 64 ED-core rows now route through Z80EdSemantics (NEG was already
+        // emitted as [], the other 63 are net-new emits) → 572. The remaining TODO majority is the ED
+        // block ops (0xA0–0xBB) + the DD/FD planes (M3.4d).
+        Assert.Equal(572, report.Emitted);
     }
 
     [Fact]

@@ -4899,6 +4899,16 @@
   },
   {
     "prefix": "0xED",
+    "opcode": "0x70",
+    "mnemonic": "IN",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
     "opcode": "0x41",
     "mnemonic": "OUT",
     "mode": "Register",
@@ -4960,6 +4970,16 @@
   {
     "prefix": "0xED",
     "opcode": "0x79",
+    "mnemonic": "OUT",
+    "mode": "Register",
+    "bytes": 2,
+    "cycles": 12,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x71",
     "mnemonic": "OUT",
     "mode": "Register",
     "bytes": 2,
@@ -5139,7 +5159,137 @@
   },
   {
     "prefix": "0xED",
+    "opcode": "0x4C",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x54",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x5C",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x64",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x6C",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x74",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x7C",
+    "mnemonic": "NEG",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
     "opcode": "0x45",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x55",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x5D",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x65",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x6D",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x75",
+    "mnemonic": "RETN",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 14,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x7D",
     "mnemonic": "RETN",
     "mode": "Implied",
     "bytes": 2,
@@ -5180,6 +5330,56 @@
   {
     "prefix": "0xED",
     "opcode": "0x5E",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x4E",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x66",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x6E",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x76",
+    "mnemonic": "IM",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x7E",
     "mnemonic": "IM",
     "mode": "Implied",
     "bytes": 2,
@@ -5244,6 +5444,26 @@
     "mode": "RegisterIndirect",
     "bytes": 2,
     "cycles": 18,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x77",
+    "mnemonic": "NOP",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
+  },
+  {
+    "prefix": "0xED",
+    "opcode": "0x7F",
+    "mnemonic": "NOP",
+    "mode": "Implied",
+    "bytes": 2,
+    "cycles": 8,
     "pageCrossPenalty": false,
     "source": "Zilog Z80 CPU User Manual (UM0080), ED extended plane"
   },
