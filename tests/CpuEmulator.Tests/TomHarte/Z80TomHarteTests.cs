@@ -41,6 +41,10 @@ public class Z80TomHarteTests(ITestOutputHelper output)
                            out int parsed) && parsed > 0 ? parsed : 200;
         // Staged gate (Ground truth G): registers-only unless the FULL trace is requested.
         bool registersOnly = Environment.GetEnvironmentVariable("CPUEMULATOR_Z80_REGS_ONLY") == "1";
+        // M3.4b: the 4 rotate-accumulators (0x07/0x0F/0x17/0x1F) maintain Q and leave WZ invariant, so
+        // they ride the full Q/WZ check; the rest of the base plane keeps the M3.4a posture (no Q/WZ —
+        // its shared-class ops do not maintain Q and CALL/JP/… write WZ, which is M3.4c).
+        bool checkInternal = opcode is 0x07 or 0x0F or 0x17 or 0x1F;
 
         int run = 0;
         var failures = new List<string>();
@@ -48,7 +52,7 @@ public class Z80TomHarteTests(ITestOutputHelper output)
         {
             if (run >= sampleSize) break;
             run++;
-            if (Z80TomHarteRunner.RunCase(testCase, registersOnly) is { } failure)
+            if (Z80TomHarteRunner.RunCase(testCase, registersOnly, checkInternal) is { } failure)
             {
                 failures.Add(failure);
                 if (failures.Count >= 3) break;

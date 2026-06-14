@@ -2749,6 +2749,86 @@
   },
   {
     "prefix": "0xCB",
+    "opcode": "0x30",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x31",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x32",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x33",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x34",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x35",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x36",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 15,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline (HL)"
+  },
+  {
+    "prefix": "0xCB",
+    "opcode": "0x37",
+    "mnemonic": "SLL",
+    "mode": "Bit",
+    "bytes": 2,
+    "cycles": 8,
+    "pageCrossPenalty": false,
+    "source": "Zilog Z80 undocumented (SLL/SLI), CB shift-left-inline r"
+  },
+  {
+    "prefix": "0xCB",
     "opcode": "0x38",
     "mnemonic": "SRL",
     "mode": "Bit",
