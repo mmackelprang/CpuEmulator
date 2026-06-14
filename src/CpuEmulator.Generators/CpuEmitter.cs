@@ -3253,6 +3253,7 @@ internal static class CpuEmitter
         {
             KeyShape.PrefixedOpcode => 2,   // prefix + opcode
             KeyShape.OpcodeGroup => 2,       // opcode + the sub-field byte
+            KeyShape.Compound => 4,          // M3.4e-1b: prefix + CB + displacement + opcode
             _ => isModRm ? 2 : 1,            // ModRm base (opcode + modrm) | plain single byte
         };
         string rule = isModRm
@@ -3527,8 +3528,12 @@ internal static class CpuEmitter
     /// key = (prefix &lt;&lt; 8) | opcode; if it is a SUB-FIELD opcode, read the next byte and pack
     /// key = (opcode &lt;&lt; 3) | ((next &gt;&gt; 3) &amp; 7); if it is a MODR/M opcode, read the
     /// length-determining byte and consume (byte &amp; 3) tail bytes — a COMPUTED length; otherwise the
-    /// degenerate key == opcode. DescriptorFor resolves through the keyed dictionary. Length ==
-    /// stream.UnitsConsumed × stream.UnitBytes throughout — never a field read.</summary>
+    /// degenerate key == opcode. A declared COMPOUND prefix (the Z80 DD CB d op form) routes via
+    /// s_compoundWith / s_dispBeforeOpcode: when the next byte is the prefix's CompoundWith byte the
+    /// walk consumes the displacement (DisplacementBeforeOpcode) then the final opcode, packing a
+    /// 24-bit key (prefix &lt;&lt; 16) | (CompoundWith &lt;&lt; 8) | opcode. DescriptorFor resolves
+    /// through the keyed dictionary. Length == stream.UnitsConsumed × stream.UnitBytes throughout —
+    /// never a field read.</summary>
     private static void EmitStructuredDecodeWalk(StringBuilder sb, SpecModel model)
     {
         var decode = model.Decode!;
@@ -3541,6 +3546,16 @@ internal static class CpuEmitter
         sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_modRmOpcodes = new() {{ {modRmSet} }};");
         sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_subFieldOpcodes = new() {{ {subFieldSet} }};");
 
+        // M3.4e-1b: the per-prefix COMPOUND metadata. s_compoundWith maps a compound prefix byte
+        // (DD/FD) → its CompoundWith byte (CB); s_dispBeforeOpcode is the set of compound prefixes
+        // whose displacement precedes the final opcode (the DD CB d op shape). A plain prefix
+        // (CB/ED — no CompoundWith) appears in NEITHER, so its decode is byte-identical.
+        var compoundPrefixes = decode.PrefixDetails.Values.Where(p => p.CompoundWith >= 0).ToList();
+        string compoundWithPairs = string.Join(", ", compoundPrefixes.Select(p => $"{{ 0x{p.Value:X2}, 0x{p.CompoundWith:X2} }}"));
+        string dispBeforeSet = string.Join(", ", compoundPrefixes.Where(p => p.DisplacementBeforeOpcode).Select(p => $"0x{p.Value:X2}"));
+        sb.AppendLine($"    private static readonly System.Collections.Generic.Dictionary<uint, uint> s_compoundWith = new() {{ {compoundWithPairs} }};");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_dispBeforeOpcode = new() {{ {dispBeforeSet} }};");
+
         sb.AppendLine();
         sb.AppendLine("    /// <summary>The generated decode walk for a declared DecodeStructure (Ground truth A/C):");
         sb.AppendLine("    /// prefix / mid-stream-length (ModR/M) / sub-field-key, with Length COMPUTED by consumption");
@@ -3552,8 +3567,27 @@ internal static class CpuEmitter
         sb.AppendLine("        byte lo = 0, hi = 0, count = 0;");
         sb.AppendLine("        if (s_prefixBytes.Contains(first))");
         sb.AppendLine("        {");
-        sb.AppendLine("            uint op = stream.NextUnit();                       // prefix → consume the real opcode");
-        sb.AppendLine("            key = (first << 8) | op;                           // KeyShape.PrefixedOpcode");
+        sb.AppendLine("            uint op = stream.NextUnit();                       // the byte after the prefix");
+        sb.AppendLine("            if (s_compoundWith.TryGetValue(first, out uint second) && op == second)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                // M3.4e-1b COMPOUND prefix (Z80 DD CB / FD CB). When the displacement");
+        sb.AppendLine("                // precedes the opcode (DD CB d op), consume it BEFORE the final opcode.");
+        sb.AppendLine("                uint finalOp;");
+        sb.AppendLine("                if (s_dispBeforeOpcode.Contains(first))");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    lo = (byte)stream.NextUnit(); count = 1;       // the displacement byte d");
+        sb.AppendLine("                    finalOp = stream.NextUnit();                   // then the final opcode");
+        sb.AppendLine("                }");
+        sb.AppendLine("                else");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    finalOp = stream.NextUnit();");
+        sb.AppendLine("                }");
+        sb.AppendLine("                key = (first << 16) | (second << 8) | finalOp;     // KeyShape.Compound (24-bit)");
+        sb.AppendLine("            }");
+        sb.AppendLine("            else");
+        sb.AppendLine("            {");
+        sb.AppendLine("                key = (first << 8) | op;                           // KeyShape.PrefixedOpcode (plain / DD-core)");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("        else if (s_subFieldOpcodes.Contains(first))");
         sb.AppendLine("        {");
