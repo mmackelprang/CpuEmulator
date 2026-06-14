@@ -255,6 +255,18 @@ internal static class SpecParser
         "Daa", "Cpl", "Scf", "Ccf", "Di", "Ei",
     };
 
+    // ── M3.4b Z80 CB-plane + rotate-accumulator op-kind class sets (additive) ──
+    private static readonly HashSet<string> s_z80RotOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "Rlca", "Rrca", "Rla", "Rra",   // base-plane rotate-accumulators (Implied)
+        "CbRotate",                      // CB rotate/shift (Bit mode)
+    };
+
+    private static readonly HashSet<string> s_z80BitOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "CbBit",   // CB BIT/RES/SET (Bit mode)
+    };
+
     // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
     // 16-bit ALU is Register only. INC/DEC (HL) is RegisterIndirect.
     private static readonly HashSet<string> s_z80AluModes = new(System.StringComparer.Ordinal)
@@ -892,6 +904,7 @@ internal static class SpecParser
             && firstOpKind is "Brk" or "Rti";
         if ((instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
                 or InstructionClass.Z80Alu or InstructionClass.Z80Misc
+                or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -1046,6 +1059,16 @@ internal static class SpecParser
             if (ops.Length != 1) { error = "Z80 misc class must contain exactly one op"; return null; }
             return InstructionClass.Z80Misc;
         }
+        if (s_z80RotOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 rotate class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Rot;
+        }
+        if (s_z80BitOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 bit class (CbBit) must contain exactly one op"; return null; }
+            return InstructionClass.Z80Bit;
+        }
 
         // All must be register ops
         foreach (var op in ops)
@@ -1151,6 +1174,16 @@ internal static class SpecParser
                 : "Z80 flow class requires ExtendedAddress/RelativeJump/Implied/RegisterIndirect mode",
             InstructionClass.Z80Misc =>
                 mode == "Implied" ? null : "Z80 misc class (DAA/CPL/SCF/CCF/DI/EI) requires Implied mode",
+
+            // ── M3.4b Z80 CB-plane + rotate-accumulator classes ──
+            // Z80Rot: the rotate-accumulators are Implied (RLCA etc.); CB rotate/shift is Bit.
+            InstructionClass.Z80Rot =>
+                mode is "Implied" or "Bit" ? null
+                : "Z80 rotate class requires Implied (RLCA/…) or Bit (CB rotate/shift) mode",
+            // Z80Bit: CB BIT/RES/SET — Bit mode only.
+            InstructionClass.Z80Bit =>
+                mode == "Bit" ? null
+                : "Z80 bit class (CbBit) requires Bit mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

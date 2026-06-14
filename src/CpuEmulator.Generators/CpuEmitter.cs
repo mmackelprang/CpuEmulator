@@ -277,7 +277,8 @@ internal static class CpuEmitter
         InstructionClass opClass = instruction.Class;
         bool isZ80 = opClass is InstructionClass.Z80Alu or InstructionClass.Z80Ld
             or InstructionClass.Z80Stack or InstructionClass.Z80Exchange
-            or InstructionClass.Z80Flow or InstructionClass.Z80Misc;
+            or InstructionClass.Z80Flow or InstructionClass.Z80Misc
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -346,6 +347,13 @@ internal static class CpuEmitter
                 break;
             case InstructionClass.Z80Misc:
                 EmitZ80MiscBody(sb, instruction, pc, statusReg, flags);
+                break;
+            // ── M3.4b CB plane + rotate-accumulators ──
+            case InstructionClass.Z80Rot:
+                EmitZ80RotBody(sb, instruction, pc, pcType, statusReg, flags);
+                break;
+            case InstructionClass.Z80Bit:
+                EmitZ80BitBody(sb, instruction, pc, statusReg, flags);
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -452,6 +460,9 @@ internal static class CpuEmitter
         (InstructionClass.Z80Flow, "Rst", _) => 11,                        // RST n
         // ── misc (Implied; all 4 T-states) ──
         (InstructionClass.Z80Misc, _, _) => 4,
+        // ── M3.4b CB plane + rotate-accumulators (placeholders — refined in Task 4/5/6) ──
+        (InstructionClass.Z80Rot, _, _) => 4,    // placeholder — real cycles in Task 4/5
+        (InstructionClass.Z80Bit, _, _) => 8,    // placeholder — real cycles in Task 6/7
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2005,6 +2016,22 @@ internal static class CpuEmitter
         if (internalT > 0) sb.AppendLine($"        _cycles += {internalT};");
     }
 
+    // ── M3.4b CB plane + rotate-accumulators ──
+
+    private static void EmitZ80RotBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
+    {
+        // Filled in Task 4 (rotate-accumulators) + Task 5 (CB rotate/shift). Stub charges the fetch only.
+        sb.AppendLine("        _ = 0;   // TODO Task 4/5");
+    }
+
+    private static void EmitZ80BitBody(
+        StringBuilder sb, InstructionModel insn, string pc, string? statusReg, FlagBitMap flags)
+    {
+        // Filled in Task 6 (BIT) + Task 7 (RES/SET). Stub charges the fetch only.
+        sb.AppendLine("        _ = 0;   // TODO Task 6/7");
+    }
+
     // ---- Monitor support (IMonitorSupport implementation) ----
 
     /// <summary>Mode → instruction length in bytes (1–3). Implied/Accumulator = 1;
@@ -2470,7 +2497,8 @@ internal static class CpuEmitter
         // M3.4a: Z80 classes get their base T-state count from the Z80 cycle table (the not-taken
         // base for conditional flow; the body adds the taken penalty — parallel to the 6502 branch).
         if (cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
-            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc)
+            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -2519,7 +2547,8 @@ internal static class CpuEmitter
         // Z80 block defers to the interpreter; the JIT never emits IL for a Z80 op. The 6502 (which
         // names none of these classes) is unchanged. Z80 control-flow classes also end the block.
         bool z80 = cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
-            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc;
+            or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -2542,7 +2571,8 @@ internal static class CpuEmitter
             // M3.4a: Z80 classes ride the Flow/Undefined-style fallback — they never emit IL.
             InstructionClass.Z80Flow => "Flow",
             InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
-                or InstructionClass.Z80Exchange or InstructionClass.Z80Misc => "Register",
+                or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
+                or InstructionClass.Z80Rot or InstructionClass.Z80Bit => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -2612,11 +2642,14 @@ internal static class CpuEmitter
                 flagBit = (byte)flags.BitOf(op.Args[0]);
                 boolArg = op.Args[1] == "true";
                 break;
+            case "CbRotate":   // (string op, string target) — JIT fallback; slots unused
+            case "CbBit":      // (string op, int bit, string target) — JIT fallback; slots unused
+                break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,
             // Brk, Rti; M3.4a Add8..Cp8, IncMem8/DecMem8, StoreImm8, ExDeHl/ExAfAf/Exx/ExSpHl,
-            // RelJump/Rst/JumpIndirect/JumpAbs/CallAbs/Ret, Daa/Cpl/Scf/Ccf/Di/Ei)
-            // carry no register/flag operands — register slots stay "".
+            // RelJump/Rst/JumpIndirect/JumpAbs/CallAbs/Ret, Daa/Cpl/Scf/Ccf/Di/Ei;
+            // M3.4b Rlca/Rrca/Rla/Rra) carry no register/flag operands — register slots stay "".
             default:
                 break;
         }
