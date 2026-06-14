@@ -279,7 +279,8 @@ internal static class CpuEmitter
             or InstructionClass.Z80Stack or InstructionClass.Z80Exchange
             or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp;
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+            or InstructionClass.Z80EdBlock;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -362,6 +363,9 @@ internal static class CpuEmitter
                 break;
             case InstructionClass.Z80EdOp:
                 EmitZ80EdOpBody(sb, instruction, pc, pcType, statusReg, spReg, flags);
+                break;
+            case InstructionClass.Z80EdBlock:
+                EmitZ80EdBlockBody(sb, instruction, pc, pcType, statusReg, flags);
                 break;
             default:
                 throw new System.InvalidOperationException(
@@ -522,6 +526,7 @@ internal static class CpuEmitter
         (InstructionClass.Z80EdOp, "EdLdIaRa", _) => 9,
         (InstructionClass.Z80EdOp, "EdRrdRld", _) => 18,
         (InstructionClass.Z80EdOp, "EdNop", _) => 8,
+        (InstructionClass.Z80EdBlock, _, _) => 16,   // placeholder — base/final cycles; +5 on repeat in body
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2406,6 +2411,13 @@ internal static class CpuEmitter
         }
     }
 
+    private static void EmitZ80EdBlockBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg,
+        FlagBitMap flags)
+    {
+        sb.AppendLine("        _ = 0;   // TODO M3.4d Tasks 2-4 (LD/CP/IN/OUT block ops)");
+    }
+
     /// <summary>ED ADC/SBC HL,rp (16-bit). S/Z from the 16-bit result; H from bit 11; P/V overflow;
     /// N=1(SBC)/0(ADC); C from bit 16; X/Y from the result high byte. WZ = HL+1 (pre-op). Cycles 15.</summary>
     private static void EmitZ80EdAdcSbc16(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
@@ -3080,7 +3092,8 @@ internal static class CpuEmitter
         if (cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp)
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+            or InstructionClass.Z80EdBlock)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -3131,7 +3144,8 @@ internal static class CpuEmitter
         bool z80 = cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp;
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+            or InstructionClass.Z80EdBlock;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -3156,7 +3170,8 @@ internal static class CpuEmitter
             InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-                or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp => "Register",
+                or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+                or InstructionClass.Z80EdBlock => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -3239,6 +3254,7 @@ internal static class CpuEmitter
             case "EdLdIaRa":
             case "EdRrdRld":
             case "EdNop":
+            case "EdBlock":   // M3.4d ED block op — JIT fallback; slots unused
                 break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,

@@ -146,4 +146,7 @@ public static class Spec
     public static Op EdLdIaRa(string op) => new EdLdIaRaOp(op);
     public static Op EdRrdRld(bool isRld) => new EdRrdRldOp(isRld);
     public static Op EdNop() => new EdNopOp();
+
+    // ── M3.4d ED block ops (additive) ──
+    public static Op EdBlock(string mnemonic) => new EdBlockOp(mnemonic);
 }
