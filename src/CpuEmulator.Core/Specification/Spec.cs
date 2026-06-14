@@ -134,4 +134,16 @@ public static class Spec
     public static Op Rra() => new RraOp();
     public static Op CbRotate(string op, string target) => new CbRotateOp(op, target);
     public static Op CbBit(string op, int bit, string target) => new CbBitOp(op, bit, target);
+
+    // ── M3.4c ED-core plane (additive) ──
+    public static Op EdIn(string target) => new EdInOp(target);
+    public static Op EdOut(string source) => new EdOutOp(source);
+    public static Op EdAdcSbc16(string op, string pair) => new EdAdcSbc16Op(op, pair);
+    public static Op EdLdNnRp(string op, string pair) => new EdLdNnRpOp(op, pair);
+    public static Op EdNeg() => new EdNegOp();
+    public static Op EdRetn(bool isReti) => new EdRetnOp(isReti);
+    public static Op EdIm(int mode) => new EdImOp(mode);
+    public static Op EdLdIaRa(string op) => new EdLdIaRaOp(op);
+    public static Op EdRrdRld(bool isRld) => new EdRrdRldOp(isRld);
+    public static Op EdNop() => new EdNopOp();
 }
