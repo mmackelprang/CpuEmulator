@@ -11,4 +11,14 @@ public sealed record DecodeStructure(
     byte[] ModRmOpcodes,          // opcodes carrying a length-determining mid-stream byte — property 1
     byte[] SubFieldOpcodes);      // opcodes whose operation is refined by a non-first-byte sub-field — property 3
 
-public sealed record PrefixByte(byte Value);
+/// <summary>A prefix byte the decode walk switches "page" on. M3.4e-1b (Z80 IX/IY) extends it to express
+/// a COMPOUND prefix: <see cref="CompoundWith"/> names a second prefix byte that, when it FOLLOWS this
+/// one, forms a compound page (the Z80 <c>DD CB</c>/<c>FD CB</c>), and <see cref="DisplacementBeforeOpcode"/>
+/// declares that the compound consumes a DISPLACEMENT byte BEFORE the final opcode (the <c>DD CB d op</c>
+/// shape — ADR 0001 Decision 1: "no single-byte decoder can express it"). A plain prefix (the 6502 has
+/// none; the Z80 <c>CB</c>/<c>ED</c>) leaves both at their defaults, so the existing declarations +
+/// the degenerate walk are unchanged.</summary>
+public sealed record PrefixByte(
+    byte Value,
+    byte? CompoundWith = null,
+    bool DisplacementBeforeOpcode = false);
