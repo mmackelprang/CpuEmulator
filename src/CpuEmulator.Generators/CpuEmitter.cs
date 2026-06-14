@@ -280,7 +280,8 @@ internal static class CpuEmitter
             or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed;
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed
+            or InstructionClass.Z80DdCb;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -305,7 +306,9 @@ internal static class CpuEmitter
         // zeroed Q, so the seeded q is ignored. Reset Q = 0 up front for every prefixed row; non-Q
         // ops are unaffected (they overwrite Q at the body's end). Vector-confirmed against dd/fd 37/3f.
         bool ddFdPrefixed = instruction.OperationKey is >= 0xDD00 and <= 0xDDFF
-                         or (>= 0xFD00 and <= 0xFDFF);
+                         or (>= 0xFD00 and <= 0xFDFF)
+                         or (>= 0xDDCB00 and <= 0xDDCBFF)     // M3.4e-3: the DDCB compound key range (H2)
+                         or (>= 0xFDCB00 and <= 0xFDCBFF);    // M3.4e-3: the FDCB compound key range (H2)
         if (structured && ddFdPrefixed)
             sb.AppendLine("        Q = 0;   // DD/FD prefix M1 zeroes Q before the inner opcode (SCF/CCF quirk)");
 
@@ -381,6 +384,10 @@ internal static class CpuEmitter
             case InstructionClass.Z80Indexed:
                 EmitZ80IndexedBody(sb, instruction, pc, pcType, statusReg, flags);
                 break;
+            // ── M3.4e-3 DDCB/FDCB compound plane ──
+            case InstructionClass.Z80DdCb:
+                EmitZ80DdCbBody(sb, instruction, pc, pcType, statusReg, flags);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
@@ -436,6 +443,10 @@ internal static class CpuEmitter
             InstructionClass.Z80EdBlock => true,   // every block op writes F
             // M3.4e-2: ALU + INC/DEC (IX+d) write F; LD r,(IX+d) / (IX+d),r / (IX+d),n do not.
             InstructionClass.Z80Indexed => kind is "DdFdAluIndexed" or "DdFdIncDecIndexed",
+            // M3.4e-3: rotate/shift + BIT (IX+d) write F (Q = F); RES/SET preserve F and end with Q = 0
+            // (vector-confirmed: dd cb __ 86/80/c6 — F unchanged, q final = 0). Per-op-family, mirroring
+            // the Z80Bit arm above (BIT writes F; RES/SET do not).
+            InstructionClass.Z80DdCb => Unquote(insn.Ops[0].Args[0]) is not ("RES" or "SET"),
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -557,6 +568,9 @@ internal static class CpuEmitter
         // ── M3.4e-2 DD/FD indexed plane (vector-pinned totals) ──
         (InstructionClass.Z80Indexed, "DdFdIncDecIndexed", _) => 23,   // INC/DEC (IX+d)
         (InstructionClass.Z80Indexed, _, _) => 19,                     // LD r,(IX+d)/(IX+d),r/(IX+d),n ; ALU A,(IX+d)
+        // ── M3.4e-3 DDCB/FDCB compound plane (descriptor base; the body self-accounts the interpreter
+        // total per-family: rotate/shift + RES/SET = 23 T, BIT = 20 T — vector-pinned in EmitZ80DdCb*) ──
+        (InstructionClass.Z80DdCb, _, _) => 23,
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2514,6 +2528,105 @@ internal static class CpuEmitter
         }
     }
 
+    // ── M3.4e-3 DDCB/FDCB compound plane: bit/rotate/shift on (IX+d)/(IY+d) + the undoc store-copy ──
+
+    /// <summary>The compound DDCB/FDCB body. The e-1b compound decode walk consumed the displacement
+    /// into DecodeResult.Operands.Lo and advanced PC by 4 (the layout is DD CB d op). The parameterless
+    /// Op{key}() body cannot reach __r, so it re-reads d via the RAW, NON-CHARGING _bus.Read8 at (PC - 2)
+    /// — the d fetch was already charged ONCE by Step's _cycles += __r.Length (D10/H3; ReadBus would
+    /// double-charge). Then compute the EA (EmitZ80IndexedEa) and publish WZ = EA (= IX+d for ALL
+    /// compound forms, vector-confirmed). The index register (IX vs IY) is the compound key's p1 byte
+    /// (>> 16, the 24-bit key — NOT >> 8). Then switch on the op family:
+    ///   x=0 rotate/shift: RMW + the full CB rotate/shift flags + the undoc store-copy (z != 6);
+    ///   x=1 BIT:          test bit, X/Y from (EA>>8), no store, z ignored;
+    ///   x=2/3 RES/SET:    RMW clear/set, no flags, the undoc store-copy (z != 6).</summary>
+    private static void EmitZ80DdCbBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        string ix = (insn.OperationKey >> 16) == 0xDD ? "IX" : "IY";   // 24-bit compound key (H1)
+        string op = Unquote(insn.Ops[0].Args[0]);                      // "RLC".."SRL" | "BIT"/"RES"/"SET"
+        int index = int.Parse(insn.Ops[0].Args[1], System.Globalization.CultureInfo.InvariantCulture);
+        string copyReg = Unquote(insn.Ops[0].Args[2]);                 // "B".."A" | "-" (no copy)
+
+        // D10: re-read the displacement via the non-charging raw bus read at (PC - 2) (the d fetch is
+        // already charged in Step's _cycles += __r.Length = 4).
+        sb.AppendLine($"        byte d = _bus.Read8(unchecked((ushort)({pc} - 2)));");
+        EmitZ80IndexedEa(sb, ix, "d");   // -> ushort __ea = unchecked((ushort)(IX + (sbyte)(d)));
+        EmitWz(sb, "__ea");              // WZ = the computed EA (the (IX+d) MEMPTR — all compound forms)
+
+        bool isBit = op == "BIT";
+        bool isResSet = op is "RES" or "SET";
+
+        if (!isBit && !isResSet)
+        {
+            // x=0: rotate/shift the EA byte. RMW + the CB rotate/shift flag word + the store-copy.
+            string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+            string oldCarry = $"(({f} & {cMask}) != 0 ? 1 : 0)";
+            sb.AppendLine("        byte v = ReadBus(__ea);");
+            EmitRotateMath(sb, op, oldCarry);          // -> byte r + int cout (reused from M3.4b)
+            EmitZ80CbRotateFlags(sb, f, flags);        // the full S/Z/Y/H(=0)/X/P/N(=0)/C(=cout) word (reused)
+            sb.AppendLine("        WriteBus(__ea, r);");
+            if (copyReg != "-")
+                sb.AppendLine($"        {copyReg} = r;");   // the undoc store-copy (z != 6) — plain register (H5)
+            // 23 T: -4 key bytes charged by Step (__r.Length = 4: DD CB d op), -1 ReadBus(__ea), -1 WriteBus(__ea).
+            sb.AppendLine($"        _cycles += {23 - 4 - 1 - 1};");   // vector-pinned: dd cb __ 06.json = 23 T
+            return;
+        }
+
+        if (isResSet)
+        {
+            EmitZ80DdCbResSet(sb, op, index, copyReg);
+            return;
+        }
+        EmitZ80DdCbBit(sb, f, flags, index);
+    }
+
+    /// <summary>BIT y,(IX+d): test bit y of ReadBus(EA). Z=(bit==0), P/V=Z, H=1, N=0, S=(y==7 &amp;&amp; bit
+    /// set), C preserved. X/Y from the EA HIGH byte (EA>>8) — the documented DDCB BIT quirk (the value's
+    /// bits are NOT used; vector-confirmed dd cb __ 46.json). NO store-copy (z is ignored for BIT — all
+    /// of dd cb __ 40..47 produce the identical case). __ea + WZ are emitted by the preamble. Cycles 20 T.</summary>
+    private static void EmitZ80DdCbBit(StringBuilder sb, string f, FlagBitMap flags, int bit)
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine("        byte v = ReadBus(__ea);");
+        sb.AppendLine($"        bool bitSet = (v & 0x{(1 << bit):X2}) != 0;");
+        sb.AppendLine("        int xy = (byte)(__ea >> 8);");   // the DDCB BIT quirk: X/Y from the EA high byte
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");   // C preserved
+        sb.AppendLine($"            | (bitSet ? 0x00 : {zMask})");           // Z = (bit == 0)
+        sb.AppendLine($"            | {hMask}");                              // H = 1
+        sb.AppendLine($"            | (bitSet ? 0x00 : {pMask})");           // P/V = Z
+        sb.AppendLine($"            | ((bitSet && {bit} == 7) ? {sMask} : 0x00)");  // S = (y==7 && bit set)
+        sb.AppendLine($"            | ((xy & 0x20) != 0 ? {yMask} : 0x00)");  // Y from (EA>>8) bit 5
+        sb.AppendLine($"            | ((xy & 0x08) != 0 ? {xMask} : 0x00)));"); // X from (EA>>8) bit 3
+        // 20 T: -4 (Step's __r.Length), -1 ReadBus(__ea); no write. Vector-pinned: dd cb __ 46.json = 20 T.
+        sb.AppendLine($"        _cycles += {20 - 4 - 1};");
+    }
+
+    /// <summary>RES/SET y,(IX+d): clear/set bit y of ReadBus(EA), write back. NO flag change (F preserved
+    /// — Q ends 0; vector-confirmed dd cb __ 86/c6.json). The undoc store-copy (z != 6) ALSO writes the
+    /// result to the plain register (H5). __ea + WZ are emitted by the preamble. Cycles 23 T. The Q=0
+    /// outcome is realized by Z80WritesFlags(Z80DdCb) returning false for RES/SET (the body does not
+    /// touch F, the trailing Q lifecycle emits Q = 0).</summary>
+    private static void EmitZ80DdCbResSet(StringBuilder sb, string op, int bit, string copyReg)
+    {
+        string mask = $"0x{(1 << bit):X2}";
+        string expr = op == "SET" ? $"(v | {mask})" : $"(v & ~{mask})";
+        sb.AppendLine("        byte v = ReadBus(__ea);");
+        sb.AppendLine($"        byte r = unchecked((byte){expr});");
+        sb.AppendLine("        WriteBus(__ea, r);");
+        if (copyReg != "-")
+            sb.AppendLine($"        {copyReg} = r;");   // the undoc store-copy (z != 6) — plain register (H5)
+        // 23 T: -4 (Step's __r.Length), -1 ReadBus(__ea), -1 WriteBus(__ea). Vector-pinned: dd cb __ 86.json = 23 T.
+        sb.AppendLine($"        _cycles += {23 - 4 - 1 - 1};");
+    }
+
     // ---- M3.4c ED-core classes (classification-only STUB bodies — real behavior in B-Tasks 2-7) ----
 
     /// <summary>ED IN r,(C) / OUT (C),r (+ the undoc IN (C) discard / OUT (C),0). The port is BC and
@@ -3445,7 +3558,8 @@ internal static class CpuEmitter
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed)
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed
+            or InstructionClass.Z80DdCb)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -3497,7 +3611,8 @@ internal static class CpuEmitter
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed;
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed
+            or InstructionClass.Z80DdCb;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -3523,7 +3638,8 @@ internal static class CpuEmitter
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-                or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed => "Register",
+                or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed
+                or InstructionClass.Z80DdCb => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -3612,6 +3728,7 @@ internal static class CpuEmitter
             case "DdFdStoreImmIndexed":
             case "DdFdAluIndexed":
             case "DdFdIncDecIndexed":
+            case "DdCb":      // M3.4e-3 DDCB/FDCB compound op — JIT fallback (D4); slots unused
                 break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,
