@@ -25,6 +25,7 @@ internal enum InstructionClass
     Z80Bit,       // M3.4b: CB BIT/RES/SET (CbBit)
     Z80EdIo,      // M3.4c: ED IN r,(C) / OUT (C),r (touches the I/O bus + the ports array)
     Z80EdOp,      // M3.4c: the rest of the ED-core (ADC/SBC HL,rp; LD (nn),rp; NEG; RETN/RETI; IM; LD I/R/A; RRD/RLD; NOP)
+    Z80EdBlock,   // M3.4d: ED block ops (LDI/LDD/LDIR/LDDR/CPI/.../OTDR) — memory/port transfer + repeat
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502

@@ -118,6 +118,8 @@ public sealed class SemanticsMap
         ["EdLdIaRa"]    = 1,
         ["EdRrdRld"]    = 1,
         ["EdNop"]       = 0,
+        // M3.4d: the ED block ops.
+        ["EdBlock"]     = 1,
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────

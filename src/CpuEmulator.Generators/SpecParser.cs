@@ -157,6 +157,8 @@ internal static class SpecParser
         ["EdLdIaRa"]   = new[] { ArgKind.Str },                 // EdLdIaRa("A_I")
         ["EdRrdRld"]   = new[] { ArgKind.Bool },                // EdRrdRld(true) (IsRld)
         ["EdNop"]      = System.Array.Empty<ArgKind>(),
+        // M3.4d: the ED block ops.
+        ["EdBlock"]    = new[] { ArgKind.Str },                 // EdBlock("LDIR")
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -287,6 +289,12 @@ internal static class SpecParser
     private static readonly HashSet<string> s_z80EdOpKinds = new(System.StringComparer.Ordinal)
     {
         "EdAdcSbc16", "EdLdNnRp", "EdNeg", "EdRetn", "EdIm", "EdLdIaRa", "EdRrdRld", "EdNop",
+    };
+
+    // ── M3.4d ED block-op kind set (additive) ──
+    private static readonly HashSet<string> s_z80EdBlockOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "EdBlock",
     };
 
     // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
@@ -928,6 +936,7 @@ internal static class SpecParser
                 or InstructionClass.Z80Alu or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+                or InstructionClass.Z80EdBlock
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -1102,6 +1111,11 @@ internal static class SpecParser
             if (ops.Length != 1) { error = "Z80 ED-op class must contain exactly one op"; return null; }
             return InstructionClass.Z80EdOp;
         }
+        if (s_z80EdBlockOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 ED block class must contain exactly one op"; return null; }
+            return InstructionClass.Z80EdBlock;
+        }
 
         // All must be register ops
         foreach (var op in ops)
@@ -1224,6 +1238,10 @@ internal static class SpecParser
             InstructionClass.Z80EdOp =>
                 mode is "Register" or "ExtendedAddress" or "RegisterIndirect" or "Implied" ? null
                 : "Z80 ED-op class requires Register/ExtendedAddress/RegisterIndirect/Implied mode",
+
+            // M3.4d: the block ops are all Implied (operands are the implicit BC/DE/HL/A/C registers).
+            InstructionClass.Z80EdBlock =>
+                mode == "Implied" ? null : "Z80 ED block class requires Implied mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

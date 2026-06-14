@@ -139,3 +139,9 @@ public sealed record EdLdIaRaOp(string Op) : Op;
 public sealed record EdRrdRldOp(bool IsRld) : Op;
 // The undocumented ED NOP (0x77/0x7F) — no effect.
 public sealed record EdNopOp : Op;
+
+// ── M3.4d ED block ops (0xA0–0xBB; additive) ──
+// The 16 block ops LDI/LDD/LDIR/LDDR, CPI/CPD/CPIR/CPDR, INI/IND/INIR/INDR, OUTI/OUTD/OTIR/OTDR.
+// Mnemonic is the discriminator the emit arm switches on. All are mode Implied; all combine a
+// memory/port transfer + BC/HL adjust + (for the *R repeating forms) a conditional PC-rewind.
+public sealed record EdBlockOp(string Mnemonic) : Op;

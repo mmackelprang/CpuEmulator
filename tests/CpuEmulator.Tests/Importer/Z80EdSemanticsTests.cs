@@ -36,8 +36,12 @@ public class Z80EdSemanticsTests
     [Fact]
     public void OpsFor_returns_null_outside_the_core()
     {
-        Assert.Null(Z80EdSemantics.OpsFor(0xA0));   // LDI — block op, out of scope
-        Assert.Null(Z80EdSemantics.OpsFor(0xB0));   // LDIR
+        // M3.4d: the block ops 0xA0–0xBB are now LIVE (see Z80EdBlockSemanticsTests). The rest of the
+        // ED plane outside the core (0x40–0x7F) and the block range (0xA0–0xBB) is still out of scope.
+        Assert.Null(Z80EdSemantics.OpsFor(0x80));   // ED plane but not core, not block
+        Assert.Null(Z80EdSemantics.OpsFor(0x9F));
+        Assert.Null(Z80EdSemantics.OpsFor(0xBC));   // just past the block range
+        Assert.Null(Z80EdSemantics.OpsFor(0xFF));
     }
 
     [Fact]

@@ -124,11 +124,12 @@ public class Z80SkeletonEndToEndTests
     [Fact]
     public void Z80_base_plane_is_live_prefixed_planes_deferred()
     {
-        // M3.4a: the BASE plane is now LIVE (real Insn rows), but the prefixed planes (CB/ED/DD/FD)
-        // stay // TODO. Confirm the base-plane OR r is a real row, an ED block op is still deferred,
-        // and no compound-prefix Insn was emitted (the enumerated M3.4c finding).
+        // M3.4a: the BASE plane is LIVE (real Insn rows). M3.4d: the ED block ops (0xA0–0xBB) are now
+        // LIVE too; the DD/FD planes stay // TODO. Confirm the base-plane OR r is a real row, an ED block
+        // op (LDIR) is now live, a DD-plane row is still deferred, and no compound-prefix Insn was emitted.
         var source = BuildFullSource();
-        Assert.Contains("// TODO(semantics): 0xED:0xB0 LDIR", source);   // LDIR deferred (block op, M3.4b)
+        Assert.Contains("Insn(0xED, 0xB0, \"LDIR\", AddrMode.Implied, [EdBlock(\"LDIR\")]),", source); // LDIR — LIVE (M3.4d)
+        Assert.Contains("// TODO(semantics): 0xDD:0x09 ADD Register", source);   // DD plane still deferred
         Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);  // base OR B — LIVE
         Assert.DoesNotContain("Insn(0xDDCB", source);                  // no compound-prefix Insn row (M3.4c)
     }

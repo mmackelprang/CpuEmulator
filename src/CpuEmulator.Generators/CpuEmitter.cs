@@ -279,7 +279,8 @@ internal static class CpuEmitter
             or InstructionClass.Z80Stack or InstructionClass.Z80Exchange
             or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp;
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+            or InstructionClass.Z80EdBlock;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -363,6 +364,9 @@ internal static class CpuEmitter
             case InstructionClass.Z80EdOp:
                 EmitZ80EdOpBody(sb, instruction, pc, pcType, statusReg, spReg, flags);
                 break;
+            case InstructionClass.Z80EdBlock:
+                EmitZ80EdBlockBody(sb, instruction, pc, pcType, statusReg, flags);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
@@ -405,6 +409,7 @@ internal static class CpuEmitter
                 "EdLdIaRa" => Unquote(insn.Ops[0].Args[0]) is "A_I" or "A_R",  // LD A,I/A,R set flags; I,A/R,A don't
                 _ => false,   // EdLdNnRp / EdRetn / EdIm / EdNop write no flags
             },
+            InstructionClass.Z80EdBlock => true,   // every block op writes F
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -522,6 +527,7 @@ internal static class CpuEmitter
         (InstructionClass.Z80EdOp, "EdLdIaRa", _) => 9,
         (InstructionClass.Z80EdOp, "EdRrdRld", _) => 18,
         (InstructionClass.Z80EdOp, "EdNop", _) => 8,
+        (InstructionClass.Z80EdBlock, _, _) => 16,   // placeholder — base/final cycles; +5 on repeat in body
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2406,6 +2412,193 @@ internal static class CpuEmitter
         }
     }
 
+    private static void EmitZ80EdBlockBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg,
+        FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        string mn = Unquote(insn.Ops[0].Args[0]);   // "LDI".."OTDR"
+        // Flag masks (computed once).
+        string sM = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zM = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yM = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hM = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xM = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pM = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nM = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cM = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+
+        switch (mn)
+        {
+            case "LDI":  case "LDD":  case "LDIR": case "LDDR":
+            {
+                bool inc = mn is "LDI" or "LDIR";
+                bool repeat = mn is "LDIR" or "LDDR";
+                string delta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __n = ReadBus(HL);");
+                sb.AppendLine("        WriteBus(DE, __n);");
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {delta}));");
+                sb.AppendLine($"        DE = unchecked((ushort)(DE {delta}));");
+                sb.AppendLine("        BC = unchecked((ushort)(BC - 1));");
+                // n_xy = A + transferred byte (the LD-family X/Y quirk).
+                sb.AppendLine("        int __xy = (A + __n) & 0xFF;");
+                // H=0, N=0; P/V = (BC != 0); S/Z/C preserved; X = bit3 of __xy, Y = bit1 of __xy.
+                sb.AppendLine($"        {f} = unchecked((byte)(({f} & ({sM} | {zM} | {cM}))");
+                sb.AppendLine($"            | (BC != 0 ? {pM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x08) != 0 ? {xM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x02) != 0 ? {yM} : 0x00)));");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus + WriteBus charged 2. +12 internal.
+                sb.AppendLine("        _cycles += 12;   // LDI/LDD = 16 T (16 - 2 fetch - 2 bus)");
+                EmitBlockRepeatTail(sb, repeat, f, "BC != 0", xM, yM);   // WZ unchanged unless repeating
+                break;
+            }
+            case "CPI":  case "CPD":  case "CPIR": case "CPDR":
+            {
+                bool inc = mn is "CPI" or "CPIR";
+                bool repeat = mn is "CPIR" or "CPDR";
+                string delta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __m = ReadBus(HL);");
+                sb.AppendLine("        int __r = (A - __m) & 0xFF;");
+                sb.AppendLine("        int __hc = ((A & 0x0F) - (__m & 0x0F)) < 0 ? 1 : 0;");  // half-borrow
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {delta}));");
+                sb.AppendLine("        BC = unchecked((ushort)(BC - 1));");
+                sb.AppendLine($"        WZ = unchecked((ushort)(WZ {(inc ? "+ 1" : "- 1")}));");
+                // n_xy = (A - (HL) - H) for the X/Y quirk.
+                sb.AppendLine("        int __xy = (__r - __hc) & 0xFF;");
+                // S/Z from __r; H from __hc; N=1; P/V=(BC!=0); C preserved; X=bit3, Y=bit1 of __xy.
+                sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cM})");
+                sb.AppendLine($"            | ((__r & 0x80) != 0 ? {sM} : 0x00)");
+                sb.AppendLine($"            | (__r == 0 ? {zM} : 0x00)");
+                sb.AppendLine($"            | (__hc != 0 ? {hM} : 0x00)");
+                sb.AppendLine($"            | {nM}");
+                sb.AppendLine($"            | (BC != 0 ? {pM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x08) != 0 ? {xM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x02) != 0 ? {yM} : 0x00)));");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus charged 1. +13 internal.
+                sb.AppendLine("        _cycles += 13;   // CPI/CPD = 16 T (16 - 2 fetch - 1 bus)");
+                // Repeat while BC != 0 AND not matched (Z == 0). The tail (after WZ +/- 1) overrides
+                // WZ to instruction-PC+1 on repeat; on the final/match iteration WZ stays at WZ +/- 1.
+                EmitBlockRepeatTail(sb, repeat, f, "BC != 0 && __r != 0", xM, yM);
+                break;
+            }
+            case "INI":  case "IND":  case "INIR": case "INDR":
+            {
+                bool inc = mn is "INI" or "INIR";
+                bool repeat = mn is "INIR" or "INDR";
+                string hlDelta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __v = ReadIo(BC);");           // port read (BC)
+                sb.AppendLine("        WriteBus(HL, __v);");               // (HL) <- input
+                // WZ = (BC BEFORE the B decrement) +/- 1 (vector-derived: IN uses the ORIGINAL B).
+                sb.AppendLine($"        WZ = unchecked((ushort)(BC {(inc ? "+ 1" : "- 1")}));");
+                sb.AppendLine("        B = unchecked((byte)(B - 1));");    // the counter
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {hlDelta}));");
+                // k = input + ((C +/- 1) & 0xFF) ; INI/INIR uses C+1, IND/INDR uses C-1.
+                sb.AppendLine($"        int __k = __v + ((C {(inc ? "+ 1" : "- 1")}) & 0xFF);");
+                EmitBlockIoFlags(sb, f, sM, zM, yM, hM, xM, pM, nM, cM, transferredByte: "__v");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadIo + WriteBus charged 2. +12 internal.
+                sb.AppendLine("        _cycles += 12;   // INI/IND = 16 T (16 - 2 fetch - 2 bus)");
+                EmitBlockRepeatTail(sb, repeat, f, "B != 0", xM, yM, ioRepeatFix: true, hM: hM, pM: pM);
+                break;
+            }
+            case "OUTI": case "OUTD": case "OTIR": case "OTDR":
+            {
+                bool inc = mn is "OUTI" or "OTIR";
+                bool repeat = mn is "OTIR" or "OTDR";
+                string hlDelta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __v = ReadBus(HL);");          // (HL) -> output
+                sb.AppendLine("        B = unchecked((byte)(B - 1));");    // OUT decrements B BEFORE WZ/port
+                sb.AppendLine("        WriteIo(BC, __v);");                // port write (BC, B already decremented)
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {hlDelta}));");
+                // WZ = (BC AFTER the B decrement) +/- 1 (vector-derived: OUT uses the DECREMENTED B).
+                sb.AppendLine($"        WZ = unchecked((ushort)(BC {(inc ? "+ 1" : "- 1")}));");
+                // k = output + L (L AFTER the HL adjust).
+                sb.AppendLine("        int __k = __v + L;");
+                EmitBlockIoFlags(sb, f, sM, zM, yM, hM, xM, pM, nM, cM, transferredByte: "__v");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus + WriteIo charged 2. +12 internal.
+                sb.AppendLine("        _cycles += 12;   // OUTI/OUTD = 16 T (16 - 2 fetch - 2 bus)");
+                EmitBlockRepeatTail(sb, repeat, f, "B != 0", xM, yM, ioRepeatFix: true, hM: hM, pM: pM);
+                break;
+            }
+            default:
+                throw new System.InvalidOperationException($"unknown ED block op '{mn}'");
+        }
+    }
+
+    /// <summary>M3.4d: the IN/OUT block-op flag word. S/Z/X/Y from the DECREMENTED B; N = bit7 of the
+    /// transferred byte; H = C = (k &gt; 0xFF); P/V = parity of ((k &amp; 7) ^ B). `__k` is in scope
+    /// (the caller computed it per family); B is already decremented.</summary>
+    private static void EmitBlockIoFlags(
+        StringBuilder sb, string f, string sM, string zM, string yM, string hM, string xM,
+        string pM, string nM, string cM, string transferredByte)
+    {
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((B & 0x80) != 0 ? {sM} : 0x00)");
+        sb.AppendLine($"            | (B == 0 ? {zM} : 0x00)");
+        sb.AppendLine($"            | ((B & 0x20) != 0 ? {yM} : 0x00)");
+        sb.AppendLine($"            | ((B & 0x08) != 0 ? {xM} : 0x00)");
+        sb.AppendLine($"            | (({transferredByte} & 0x80) != 0 ? {nM} : 0x00)");
+        sb.AppendLine($"            | (__k > 0xFF ? ({hM} | {cM}) : 0x00)");
+        sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)(((__k & 7) ^ B))) & 1) == 0 ? {pM} : 0x00)));");
+    }
+
+    /// <summary>M3.4d: the shared repeat tail. For a repeating *R op, when the loop is NOT done (the
+    /// caller passes the family-specific condition — "BC != 0" for LD; "BC != 0 &amp;&amp; __r != 0" for CP;
+    /// "B != 0" for IN/OUT), rewind PC by the 2 key bytes and set WZ = instruction-PC + 1 (Step has
+    /// already advanced PC by 2, so the rewound PC + 1 = the original instruction PC + 1) and charge the
+    /// +5 repeat T-states (21 - 16). Non-repeating ops leave PC + WZ as the body set them.
+    /// <para>The repeat ALSO overrides the undocumented F3/F5 (X/Y) flags: on a repeating block op, X/Y
+    /// come from bits 3/5 of the HIGH byte of the (rewound) instruction PC — NOT from the per-family
+    /// transfer-byte value the body computed. Re-derived from the SingleStepTests vectors (ed b0..bb):
+    /// across all 8 repeating families, F3=bit3 of PCH and F5=bit5 of PCH (PCH = high byte of the
+    /// instruction PC) match every repeating case.</para></summary>
+    private static void EmitBlockRepeatTail(
+        StringBuilder sb, bool repeat, string f, string condition, string xM, string yM,
+        bool ioRepeatFix = false, string hM = "", string pM = "")
+    {
+        if (!repeat)
+            return;   // single ops: PC advances (Step did it); WZ rule is per-family (handled in-body).
+        sb.AppendLine($"        if ({condition})");
+        sb.AppendLine("        {");
+        sb.AppendLine("            PC = unchecked((ushort)(PC - 2));");          // rewind to re-execute
+        sb.AppendLine("            WZ = unchecked((ushort)(PC + 1));");          // MEMPTR = instr PC + 1
+        sb.AppendLine("            _cycles += 5;");                              // 21 - 16 = +5 on repeat
+        // The repeating IN/OUT ops get the documented "interrupted INxR/OTxR" H/P-V correction (Patrik
+        // Rak / hoglet67 Z80Decoder). __k carries (k > 0xFF) = CF; __v is the data byte; B is decremented.
+        // PF/HF on the left are the standard values already in F. Re-derived: 0 fails across ed b2/ba/b3/bb.
+        if (ioRepeatFix)
+        {
+            sb.AppendLine("            if (__k > 0xFF)");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                bool __pfold = (({f} & {pM}) != 0);");
+            sb.AppendLine("                if ((__v & 0x80) != 0)");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    bool __pf = __pfold ^ ((System.Numerics.BitOperations.PopCount((uint)((B - 1) & 7)) & 1) == 0) ^ true;");
+            sb.AppendLine($"                    {f} = unchecked((byte)(({f} & ~({pM} | {hM}))");
+            sb.AppendLine($"                        | (__pf ? {pM} : 0x00)");
+            sb.AppendLine($"                        | ((B & 0x0F) == 0x00 ? {hM} : 0x00)));");
+            sb.AppendLine("                }");
+            sb.AppendLine("                else");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    bool __pf = __pfold ^ ((System.Numerics.BitOperations.PopCount((uint)((B + 1) & 7)) & 1) == 0) ^ true;");
+            sb.AppendLine($"                    {f} = unchecked((byte)(({f} & ~({pM} | {hM}))");
+            sb.AppendLine($"                        | (__pf ? {pM} : 0x00)");
+            sb.AppendLine($"                        | ((B & 0x0F) == 0x0F ? {hM} : 0x00)));");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                bool __pf = (({f} & {pM}) != 0) ^ ((System.Numerics.BitOperations.PopCount((uint)(B & 7)) & 1) == 0) ^ true;");
+            sb.AppendLine($"                {f} = unchecked((byte)(({f} & ~{pM}) | (__pf ? {pM} : 0x00)));");
+            sb.AppendLine("            }");
+        }
+        // Repeat X/Y quirk: F3/F5 come from bits 3/5 of the high byte of the instruction PC (= rewound PC).
+        sb.AppendLine("            int __pch = (PC >> 8) & 0xFF;");
+        sb.AppendLine($"            {f} = unchecked((byte)(({f} & ~({xM} | {yM}))");
+        sb.AppendLine($"                | ((__pch & 0x08) != 0 ? {xM} : 0x00)");
+        sb.AppendLine($"                | ((__pch & 0x20) != 0 ? {yM} : 0x00)));");
+        sb.AppendLine("        }");
+    }
+
     /// <summary>ED ADC/SBC HL,rp (16-bit). S/Z from the 16-bit result; H from bit 11; P/V overflow;
     /// N=1(SBC)/0(ADC); C from bit 16; X/Y from the result high byte. WZ = HL+1 (pre-op). Cycles 15.</summary>
     private static void EmitZ80EdAdcSbc16(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
@@ -3080,7 +3273,8 @@ internal static class CpuEmitter
         if (cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp)
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+            or InstructionClass.Z80EdBlock)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -3131,7 +3325,8 @@ internal static class CpuEmitter
         bool z80 = cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp;
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+            or InstructionClass.Z80EdBlock;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -3156,7 +3351,8 @@ internal static class CpuEmitter
             InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
-                or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp => "Register",
+                or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
+                or InstructionClass.Z80EdBlock => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -3239,6 +3435,7 @@ internal static class CpuEmitter
             case "EdLdIaRa":
             case "EdRrdRld":
             case "EdNop":
+            case "EdBlock":   // M3.4d ED block op — JIT fallback; slots unused
                 break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,
