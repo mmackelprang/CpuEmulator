@@ -1,5 +1,11 @@
 # M3.4e: The Z80 DD/FD/DDCB/FDCB IX/IY Prefixes — Scoped Plan
 
+> **✅ M3.4e COMPLETE (2026-06-14).** All sub-slices shipped: e-1a (#24) + e-1b (#25) framework, e-2 (#27)
+> DD/FD core, **e-3 (#28) DDCB/FDCB compound**. The ENTIRE documented + undocumented Z80 instruction set is
+> now TomHarte-green — base + CB + ED + block + DD/FD core + DDCB/FDCB compound — per-T-state, with final
+> Q/WZ/IM + IX/IY checked. Only interrupt servicing + ZEXALL + Z80-through-JIT remain = M3.5. The DD/FD
+> redundant-prefix chains are unverified (no vectors). See each slice's closeout for the honest close-state.
+
 > **For agentic workers:** this is a SCOPED plan — the finish-line, PR breakdown, dependencies, and known
 > quirks/risks are pinned, but the deepest task-by-task literal code is to be DETAILED JUST-IN-TIME before
 > each sub-PR's Builder run, because it depends on design decisions (D1–D4 below) and on what the framework
@@ -209,7 +215,18 @@ TDD synthetic + then the sweep) + the regen + the `dd`/`fd` TomHarte theories (5
 derive-vs-hand-author decision (D3) lands on hand-authoring, consider splitting DD and FD into separate PRs
 (they are mechanically identical — FD is DD with IY for IX).
 
-### M3.4e-3 — DDCB/FDCB compound (bit/rotate/shift on (IX+d) + the undoc store-copy forms)
+### M3.4e-3 — DDCB/FDCB compound (bit/rotate/shift on (IX+d) + the undoc store-copy forms) — ✅ DONE (PR #28)
+
+> **✅ SHIPPED (2026-06-14):** the 256 DDCB + 256 FDCB compound opcodes are TomHarte-green — the documented
+> bit/rotate/shift on `(IX+d)`/`(IY+d)`, the undocumented store-copy forms (`z≠6` writes the plain register),
+> and the `BIT b,(IX+d)` X/Y-from-`(IX+d)>>8` quirk — full state (registers, flags, WZ, R, the per-T-state
+> bus trace, cycles, memory). Full UAT sweep: **512 vectors × 1000 = 512,000 cases, 0 failures.** The 450
+> rows DERIVED (`Z80DdCbSemantics`); 1604 importer rows, 0 TODO; 6502 byte-identical; full suite 3424/0/0.
+> **With e-3 GREEN, M3.4e is COMPLETE — the entire documented + undocumented Z80 ISA is TomHarte-green.**
+> D10 shipped REVISED (the displacement is surfaced via a generated `_decodeOperandLo` field from `Step`,
+> NOT a bus re-read, which the `TracingAddressSpace` would record as a spurious access); D11 + the per-family
+> RES/SET Q split (Q=0, F preserved) shipped as planned. Only interrupt servicing + ZEXALL + Z80-through-JIT
+> remain = M3.5. **Closeout:** `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md` (CLOSEOUT).
 
 > **EXPANDED (2026-06-14): this section is now detailed in a full execution-ready task-by-task plan**
 > (the M3.4c/d + e-1a/e-1b/e-2 depth): `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e3-ddcb-fdcb.md`. That

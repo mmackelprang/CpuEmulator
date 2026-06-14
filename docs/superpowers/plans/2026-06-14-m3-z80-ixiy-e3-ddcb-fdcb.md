@@ -1405,3 +1405,96 @@ public static class Z80DdCbSemantics
 - **Depth template + close-state record:** `…-m3-z80-ed-core.md`, `…-m3-z80-ed-block-ops.md`
 - **Next slice:** `docs/superpowers/plans/2026-06-14-m3-z80-zexall-jit-m35.md`
 - **Architecture (Decisions 1, 3, 4, 7):** `docs/architecture/0001-z80-second-architecture.md`
+
+---
+
+## CLOSEOUT — SHIPPED (2026-06-14) — the M3.4e-completion milestone
+
+**Status: DONE. The entire documented + undocumented Z80 instruction set is TomHarte-green.** The DDCB/FDCB
+compound plane (the bit/rotate/shift on `(IX+d)`/`(IY+d)` + the undocumented store-copy forms + the
+`BIT b,(IX+d)` X/Y-from-`(IX+d)>>8` quirk) is per-T-state-accurate against the SingleStepTests/z80 vectors,
+with final Q/WZ/IM + IX/IY checked. With this slice green, M3.4e is COMPLETE.
+
+### What shipped (Tasks 1–8, all committed)
+
+- **Task 1** — the compound micro-op vocabulary: `DdCbOp(Op, Index, CopyReg)` record + `DdCb(...)` factory +
+  the `Z80DdCb` `InstructionClass` + the parser wiring (`s_microOpSignatures`, `s_z80DdCbOpKinds`,
+  `ClassifyOps`, `ValidateModeForClass`, the status-touch predicate) + the importer `FactoryArity`. Extended
+  the importer's `AllowedArgPattern` to accept the `"-"` no-copy sentinel.
+- **Task 2** — `EmitZ80DdCbBody`'s rotate/shift path: read the displacement (see D10-as-shipped below),
+  compute `__ea = IX/IY + (sbyte)d`, publish `WZ = __ea`, run `EmitRotateMath` + `EmitZ80CbRotateFlags`,
+  write back, and (z≠6) copy the result into the plain register. Wired the dispatch arm + `isZ80` + the
+  Q-reset predicate widening (H2) + `Z80Cycles` + `Z80WritesFlags` + the JIT fallback predicates (D4).
+- **Task 3** — `EmitZ80DdCbBit` (X/Y from `(EA>>8)`, no store, z ignored, 20 T) + `EmitZ80DdCbResSet` (RMW,
+  no flags, store-copy, 23 T). Synthetic tests pin the BIT quirk, the z-ignored equivalence, the
+  RES/SET F-preservation + Q=0, and the store-copy.
+- **Task 4** — the disassembler `Indexed` arm's IX/IY discriminator now keys off `>>16` for a 24-bit
+  compound key (H1/D11), `>>8` for a plain prefixed key. Classify test: one body per family, both planes.
+- **Task 5** — `Z80DdCbSemantics.OpsFor` (the D3 derivation, total over 0x00–0xFF) + the importer routing
+  for `0xDDCB`/`0xFDCB` + the compound `Insn(p1, p2, finalOp, …)` emission + the compound `PrefixByte`
+  declaration (`CompoundWith: 0xCB, DisplacementBeforeOpcode: true`) + `TryParseCompoundPrefix` (H4).
+- **Task 6** — the **225 DDCB + 225 FDCB derived dataset rows** (the F1 gap; the full 0x00–0xFF space, no
+  holes) + the atomic `Z80Spec.cs` regen: **1604 emitted, 0 TODO.** The 1092 non-compound + 62 original
+  compound dataset rows byte-preserved; the 6502 `Mos6502Spec.cs` byte-identical; no DD/FD core decode
+  regression (the compound arm fires only when the byte after DD/FD is CB).
+- **Task 7** — the `CoveredDdCbPlaneOpcodes`/`CoveredFdCbPlaneOpcodes` theories (the 4-token
+  `dd cb __ NN.json` filename + the `0xDDCB00|op` compound probe) + the two systematic fixes the
+  full-state bus-trace check surfaced (see below). **Full UAT sweep: 256 DDCB + 256 FDCB opcodes ×
+  1000 cases = 512,000 cases, 0 failures.**
+- **Task 8** — this closeout + the scoped-parent update + the PR/merge.
+
+### The pinned per-op rules (the vector is the oracle — confirmed at Task 0 + the gate)
+
+- **WZ = `IX+d`** (the computed EA) for ALL compound forms (rotate/shift, BIT, RES, SET).
+- **Cycles:** rotate/shift = 23 T, RES/SET = 23 T, BIT = 20 T. `Step` charges the 4 fetch cycles
+  (`__r.Length = 4`); the body self-accounts the remainder (`23-4-1-1 = 17`; `20-4-1 = 15`).
+- **R bumps by +2** (the two M1 prefix fetches DD+CB — NOT `__r.Length`=4). The displacement + final
+  opcode are not M1 cycles.
+- **Q:** rotate/shift + BIT write F → **Q = written F**. RES/SET **preserve F → Q = 0** (vector-confirmed
+  `dd cb __ 86/80/c6`: F unchanged, q final = 0). Expressed by `Z80WritesFlags(Z80DdCb)` returning
+  `false` for RES/SET (the body never assigns F, the universal lifecycle emits `Q = 0`) — the class-level
+  predicate sees the op record, so the per-family split needed NO generator-machinery change (it mirrors
+  the existing `Z80Bit` arm's `BIT→F, RES/SET→0`).
+- **The undoc store-copy** (final-opcode `z ≠ 6` for rotate/shift/RES/SET): the result goes to BOTH
+  `(IX+d)` AND the **plain** register `B C D E H L — A` (`z=6` = no copy). NEVER IXh/IXl — confirmed
+  `dd cb __ 04` (H changes, IX/IXh unchanged). BIT (x=1) NEVER copies (z ignored).
+- **`BIT b,(IX+d)` X/Y from `(EA>>8)`** — the EA high byte, NOT the value's bits 3/5 (the documented DDCB
+  BIT quirk).
+
+### D9–D11 + the RES/SET-Q resolution AS-SHIPPED
+
+- **D9** (DD-CB + FD-CB in ONE PR): shipped together; FD-CB is mechanically DD-CB with IY, the index
+  register read from the compound key's p1 byte (`>>16`).
+- **D10 (the load-bearing seam) — REVISED during the gate.** The plan's D10 (`_bus.Read8(PC-2)` non-charging
+  peek) was correct for *cycle* accounting but WRONG for the *bus trace*: the TomHarte runner's
+  `TracingAddressSpace` records EVERY `_bus` access, so the in-body re-read of `d` was a spurious 7th bus
+  access (the vector records 6: 4 fetch + 1 EA read + 1 EA write). **As-shipped:** the structured `Step`
+  stashes the walk's already-decoded `__r.Operands.Lo` (the displacement the compound walk consumed) into a
+  new generated `private byte _decodeOperandLo;` field, and the compound body reads `d = _decodeOperandLo`
+  — NO second bus access. This honors the plan's constraint (bodies stay parameterless; the 6502 takes the
+  degenerate `Step` and never sees the field → byte-identity preserved) while fixing the trace. This is the
+  one genuine deviation from the literal plan, forced by the oracle.
+- **D11** (the disassembler compound-key discriminator): shipped (`>>16` for `>0xFFFF`, else `>>8`).
+- **The R+2 fix** (Task 7): the compound key consumes 4 bytes but has 2 M1 fetches; `Step` now bumps R by
+  2 for a compound key (`__r.OperationKey > 0xFFFF ? 2 : __r.Length`). The +3 DD/FD prefix-M1 cycle
+  surcharge is excluded for `Z80DdCb` (the body self-accounts).
+
+### Honest close-state (in / out of scope)
+
+- **IN, GREEN:** the 256 DDCB + 256 FDCB compound opcodes (512,000 cases, 0 failures) at the universal
+  Q/WZ/IM + IX/IY bar, plus the re-validated base + CB + ED + block + DD/FD core. **The entire documented +
+  undocumented Z80 ISA is TomHarte-green.**
+- **OUT (deferred, honest):** the redundant-prefix chains (`DD DD CB` / `DD FD CB` / `DD ED`) are
+  **unverified** (no vectors; D5; not modeled). JIT-IL for the compound ops = M3.5 (D4 — they emit as JIT
+  FALLBACKS only; the descriptor table is well-formed, no IL). Interrupt SERVICING + ZEXALL +
+  Z80-through-JIT = M3.5.
+
+### Final numbers
+
+- **Full suite: 3424 passed, 0 failed, 0 skipped** (baseline was 2886; the delta is the 512 compound
+  opcode theories + the synthetic/derivation/importer tests).
+- **`dotnet build --no-incremental -warnaserror`: clean** (0 warnings, 0 errors).
+- **6502 byte-identity: green** (`RegeneratedSpecTests`; `Mos6502Spec.cs` byte-unchanged).
+- **Importer: 1604 emitted, 0 TODO** — every Z80 dataset row is live.
+- **Z80 covered opcodes now TomHarte-green:** base (256) + CB (256) + ED (the covered ED-core/block) +
+  DD/FD core (252+252) + **DDCB/FDCB compound (256+256)**. The full Z80 ISA.
