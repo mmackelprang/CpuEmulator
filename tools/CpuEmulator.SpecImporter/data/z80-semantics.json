@@ -21,6 +21,7 @@
     { "name": "L_", "bits": 8 },
     { "name": "I",  "bits": 8 },
     { "name": "R",  "bits": 8 },
+    { "name": "WZ", "bits": 16 },
     { "name": "IX", "bits": 16 },
     { "name": "IY", "bits": 16 },
     { "name": "SP", "bits": 16, "role": "StackPointer" },

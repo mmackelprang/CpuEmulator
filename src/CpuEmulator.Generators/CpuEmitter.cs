@@ -2165,8 +2165,60 @@ internal static class CpuEmitter
     private static void EmitZ80BitBody(
         StringBuilder sb, InstructionModel insn, string pc, string? statusReg, FlagBitMap flags)
     {
-        // Filled in Task 6 (BIT) + Task 7 (RES/SET). Stub charges the fetch only.
-        sb.AppendLine("        _ = 0;   // TODO Task 6/7");
+        string f = statusReg ?? "F";
+        string opName = Unquote(insn.Ops[0].Args[0]);    // "BIT" / "RES" / "SET"
+        int bit = int.Parse(insn.Ops[0].Args[1], System.Globalization.CultureInfo.InvariantCulture);
+        string target = Unquote(insn.Ops[0].Args[2]);    // "B".."A" or "(HL)"
+        bool isMem = target == "(HL)";
+
+        if (opName == "BIT")
+        {
+            EmitZ80CbBit(sb, f, flags, bit, target, isMem);
+            return;
+        }
+        // RES/SET — Task 7.
+        EmitZ80CbResSet(sb, opName, bit, target, isMem);
+    }
+
+    /// <summary>BIT y,reg[z]/(HL): Z=(bit==0), P/V=Z, H=1, N=0, S=(y==7 && bit set), C preserved.
+    /// X/Y: register operand → operand bits 3/5; (HL) → W=(WZ>>8) bits 3/5. NOT written back.
+    /// Cycles: reg 8 T, (HL) 12 T (2 key bytes charged by Step; ReadBus charges 1 for the (HL) read).</summary>
+    private static void EmitZ80CbBit(StringBuilder sb, string f, FlagBitMap flags, int bit, string target, bool isMem)
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+
+        if (isMem)
+            sb.AppendLine("        byte v = ReadBus(HL);");
+        else
+            sb.AppendLine($"        byte v = {target};");
+        sb.AppendLine($"        bool bitSet = (v & 0x{(1 << bit):X2}) != 0;");
+        // X/Y source: (HL) → W (WZ high byte); register → the operand v.
+        string xySrc = isMem ? "(byte)(WZ >> 8)" : "v";
+        sb.AppendLine($"        int xy = {xySrc};");
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");   // C preserved
+        sb.AppendLine($"            | (bitSet ? 0x00 : {zMask})");           // Z = (bit == 0)
+        sb.AppendLine($"            | {hMask}");                              // H = 1
+        sb.AppendLine($"            | (bitSet ? 0x00 : {pMask})");           // P/V = Z
+        sb.AppendLine($"            | ((bitSet && {bit} == 7) ? {sMask} : 0x00)");  // S = (y==7 && bit set)
+        sb.AppendLine($"            | ((xy & 0x20) != 0 ? {yMask} : 0x00)");  // Y
+        sb.AppendLine($"            | ((xy & 0x08) != 0 ? {xMask} : 0x00)));"); // X
+        // Cycles: reg 8 → +6 internal (no bus). (HL) 12 → +9 internal (1 ReadBus charges 1).
+        if (isMem)
+            sb.AppendLine($"        _cycles += {12 - 2 - 1};   // BIT y,(HL) = 12 T-states");
+        else
+            sb.AppendLine($"        _cycles += {8 - 2};   // BIT y,r = 8 T-states");
+    }
+
+    private static void EmitZ80CbResSet(StringBuilder sb, string op, int bit, string target, bool isMem)
+    {
+        // Filled in Task 7 (RES/SET clear/set bit y). Stub charges the fetch only.
+        sb.AppendLine("        _ = 0;   // TODO Task 7");
     }
 
     // ---- Monitor support (IMonitorSupport implementation) ----
