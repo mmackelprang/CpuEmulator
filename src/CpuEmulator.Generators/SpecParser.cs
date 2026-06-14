@@ -171,6 +171,7 @@ internal static class SpecParser
         // M3.4a (additive): the Z80 register-shape modes.
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
         "Bit",   // M3.4b (CB plane)
+        "Indexed",   // M3.4e-1a (Z80 IX/IY): (IX+d)/(IY+d)
     };
 
     /// <summary>Valid Flag enum members for BranchIf/SetFlag/cc args (CPUGEN006 for anything else).

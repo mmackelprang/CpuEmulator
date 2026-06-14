@@ -53,10 +53,12 @@ public static class SpecFileEmitter
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
-        // M3.4a (additive): the Z80 register-shape modes the base plane needs. Indexed (IX+d, M3.4c)
-        // stays OUT — its rows keep emitting // TODO(mode).
+        // M3.4a (additive): the Z80 register-shape modes the base plane needs.
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
         "Bit",   // M3.4b (CB plane): BIT/RES/SET + rotate/shift
+        // M3.4e-1a (additive): the indexed (IX+d)/(IY+d) mode. The DD/FD-core indexed rows emit as
+        // Indexed; the DDCB/FDCB compound rows decode via the compound-prefix walk (M3.4e-1b).
+        "Indexed",
     ];
 
     /// <summary>

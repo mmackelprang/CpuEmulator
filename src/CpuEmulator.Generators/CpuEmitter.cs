@@ -2822,6 +2822,7 @@ internal static class CpuEmitter
         "RelativeJump" or "Bit" => 2,                           // M3.4a/b: opcode + (displacement | CB op byte)
         "Absolute" or "AbsoluteX" or "AbsoluteY" or "Indirect" => 3,
         "ImmediateExtended" or "ExtendedAddress" => 3,          // M3.4a: opcode + 16-bit operand
+        "Indexed" => 3,                                         // M3.4e-1a: prefix + opcode + displacement
         _ => throw new System.InvalidOperationException(
             $"emitter has no instruction length for mode '{mode}'"),
     };
