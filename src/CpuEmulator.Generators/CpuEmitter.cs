@@ -2157,12 +2157,63 @@ internal static class CpuEmitter
     }
 
     // ── M3.4e-2 DD/FD indexed plane: LD/ALU/INC-DEC on the (IX+d)/(IY+d) effective address ──
-    // The bodies are filled task-by-task (Tasks 2-4). Task 1 emits a stub so the class classifies +
-    // generates (incl. the Indexed disassembler arm) without committing the body.
+    // Every form: read the displacement byte (the byte after the opcode), compute the signed EA via
+    // EmitZ80IndexedEa, set WZ = EA (the (IX+d) MEMPTR rule), then operate on __ea. The index register
+    // (IX vs IY) is read from the OperationKey prefix high byte (0xDD -> IX, else IY). Step charges the
+    // 2 key bytes (prefix + opcode); the body charges (total - 2 - <body bus accesses>), the ED
+    // precedent's cycle balance. The disp/imm reads and the memory access each charge 1 via ReadBus/
+    // WriteBus on the real Z80Cpu.
     private static void EmitZ80IndexedBody(
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
     {
-        sb.AppendLine("        _ = 0;   // TODO Tasks 2-4 (the (IX+d) families)");
+        string f = statusReg ?? "F";
+        string ix = (insn.OperationKey >> 8) == 0xDD ? "IX" : "IY";   // the index register (G1 / Task 1)
+        // Read the displacement byte and compute the signed EA, then publish WZ = EA.
+        sb.AppendLine($"        byte d = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        EmitZ80IndexedEa(sb, ix, "d");   // -> ushort __ea = unchecked((ushort)(IX + (sbyte)(d)));
+        EmitWz(sb, "__ea");              // WZ = the computed EA
+
+        switch (insn.Ops[0].Kind)
+        {
+            case "DdFdLdIndexed":
+            {
+                string op = Unquote(insn.Ops[0].Args[0]);    // LOAD / STORE
+                string reg = Unquote(insn.Ops[0].Args[1]);   // B..A
+                if (op == "LOAD")
+                    sb.AppendLine($"        {reg} = ReadBus(__ea);");
+                else
+                    sb.AppendLine($"        WriteBus(__ea, {reg});");
+                // 19 T: -2 key bytes (Step), -1 disp read, -1 memory access.
+                sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1};");
+                return;
+            }
+            case "DdFdStoreImmIndexed":
+            {
+                sb.AppendLine($"        byte n = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine("        WriteBus(__ea, n);");
+                // 19 T: -2 key, -1 disp, -1 imm, -1 write.
+                sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1 - 1};");
+                return;
+            }
+            case "DdFdAluIndexed":    EmitZ80IndexedAlu(sb, insn, f, flags); return;     // Task 3
+            case "DdFdIncDecIndexed": EmitZ80IndexedIncDec(sb, insn, f, flags); return;  // Task 4
+            default:
+                throw new System.InvalidOperationException($"Z80Indexed: no template for '{insn.Ops[0].Kind}'");
+        }
+    }
+
+    // Task 3 fills this (ALU A,(IX+d)).
+    private static void EmitZ80IndexedAlu(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        sb.AppendLine("        _ = 0;   // TODO Task 3 (ALU A,(IX+d))");
+    }
+
+    // Task 4 fills this (INC/DEC (IX+d)).
+    private static void EmitZ80IndexedIncDec(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        sb.AppendLine("        _ = 0;   // TODO Task 4 (INC/DEC (IX+d))");
     }
 
     // ── M3.4b CB plane + rotate-accumulators ──
