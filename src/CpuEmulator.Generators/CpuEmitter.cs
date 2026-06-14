@@ -2519,11 +2519,30 @@ internal static class CpuEmitter
         sb.AppendLine($"        _cycles += {8 - 2};   // NEG = 8 T-states");
     }
 
-    private static void EmitZ80EdRetn(StringBuilder sb, InstructionModel insn, string pc, string pcType, string? spReg)
-    { sb.AppendLine("        _ = 0;   // TODO B-Task 6"); }
+    /// <summary>ED RETN/RETI: pop PC, IFF1 = IFF2, WZ = popped PC. No flags. Cycles 14. (RETI vs RETN
+    /// differ only in disassembly/the device daisy-chain ack, which is out of scope here — both restore
+    /// IFF1 from IFF2; CONFIRMED against ed 45/ed 4d.)</summary>
+    private static void EmitZ80EdRetn(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? spReg)
+    {
+        string sp = spReg ?? "SP";
+        sb.AppendLine($"        byte rl = ReadBus({sp});");
+        sb.AppendLine($"        {sp} = unchecked((ushort)({sp} + 1));");
+        sb.AppendLine($"        byte rh = ReadBus({sp});");
+        sb.AppendLine($"        {sp} = unchecked((ushort)({sp} + 1));");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})(rl | (rh << 8)));");
+        sb.AppendLine($"        WZ = unchecked((ushort)({pc}));");   // WZ = popped PC
+        sb.AppendLine("        _iff1 = _iff2;");                      // IFF1 = IFF2
+        sb.AppendLine($"        _cycles += {14 - 2 - 2};   // RETN/RETI = 14 T (2 key + 2 pop reads)");
+    }
 
+    /// <summary>ED IM n: set the interrupt mode. No flags, no WZ. Cycles 8.</summary>
     private static void EmitZ80EdIm(StringBuilder sb, InstructionModel insn)
-    { sb.AppendLine("        _ = 0;   // TODO B-Task 6"); }
+    {
+        int mode = int.Parse(insn.Ops[0].Args[0], System.Globalization.CultureInfo.InvariantCulture);
+        sb.AppendLine($"        Im = {mode};");
+        sb.AppendLine($"        _cycles += {8 - 2};   // IM n = 8 T-states");
+    }
 
     private static void EmitZ80EdLdIaRa(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
     { sb.AppendLine("        _ = 0;   // TODO B-Task 7"); }
