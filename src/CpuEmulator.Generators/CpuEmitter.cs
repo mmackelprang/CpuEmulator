@@ -2490,8 +2490,34 @@ internal static class CpuEmitter
         }
     }
 
+    /// <summary>ED NEG: A = 0 − A. Flags as SUB(0,A): S/Z/X/Y from result, H = borrow from bit 4,
+    /// P/V = (A==0x80), N=1, C = (A!=0). No WZ write. Cycles 8.</summary>
     private static void EmitZ80EdNeg(StringBuilder sb, string f, FlagBitMap flags)
-    { sb.AppendLine("        _ = 0;   // TODO B-Task 5"); }
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine("        int a0 = A;");
+        sb.AppendLine("        int diff = 0 - a0;");
+        sb.AppendLine("        int half = 0 - (a0 & 0x0F);");
+        sb.AppendLine("        byte res = unchecked((byte)diff);");
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((res & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (res == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((half & 0x10) != 0 ? {hMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | (a0 == 0x80 ? {pMask} : 0x00)");
+        sb.AppendLine($"            | {nMask}");
+        sb.AppendLine($"            | (a0 != 0 ? {cMask} : 0x00)));");
+        sb.AppendLine("        A = res;");
+        sb.AppendLine($"        _cycles += {8 - 2};   // NEG = 8 T-states");
+    }
 
     private static void EmitZ80EdRetn(StringBuilder sb, InstructionModel insn, string pc, string pcType, string? spReg)
     { sb.AppendLine("        _ = 0;   // TODO B-Task 6"); }
