@@ -2544,11 +2544,74 @@ internal static class CpuEmitter
         sb.AppendLine($"        _cycles += {8 - 2};   // IM n = 8 T-states");
     }
 
+    /// <summary>ED LD I,A / R,A / A,I / A,R. I,A/R,A: copy A→I/R, no flags. A,I/A,R: copy I/R→A, S/Z
+    /// from value, H=0, N=0, P/V = IFF2, X/Y from value, C preserved. Cycles 9. No WZ write.</summary>
     private static void EmitZ80EdLdIaRa(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
-    { sb.AppendLine("        _ = 0;   // TODO B-Task 7"); }
+    {
+        string op = Unquote(insn.Ops[0].Args[0]);   // "I_A"/"R_A"/"A_I"/"A_R"
+        switch (op)
+        {
+            case "I_A": sb.AppendLine("        I = A;"); break;
+            case "R_A": sb.AppendLine("        R = A;"); break;
+            case "A_I":
+            case "A_R":
+            {
+                string src = op == "A_I" ? "I" : "R";
+                string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+                string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+                string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+                string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+                string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+                string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+                sb.AppendLine($"        byte v = {src};");
+                sb.AppendLine("        A = v;");
+                sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");   // C preserved
+                sb.AppendLine($"            | ((v & 0x80) != 0 ? {sMask} : 0x00)");
+                sb.AppendLine($"            | (v == 0 ? {zMask} : 0x00)");
+                sb.AppendLine($"            | ((v & 0x20) != 0 ? {yMask} : 0x00)");
+                sb.AppendLine($"            | ((v & 0x08) != 0 ? {xMask} : 0x00)");
+                sb.AppendLine($"            | (_iff2 ? {pMask} : 0x00)));");          // P/V = IFF2
+                break;
+            }
+            default:
+                throw new System.InvalidOperationException($"EdLdIaRa: unknown op '{op}'");
+        }
+        sb.AppendLine($"        _cycles += {9 - 2};   // LD I,A/R,A/A,I/A,R = 9 T-states");
+    }
 
+    /// <summary>ED RRD/RLD: nibble rotate between A's low nibble and (HL). S/Z/P from A, H=0, N=0,
+    /// C preserved, X/Y from A. WZ = HL+1. Cycles 18.</summary>
     private static void EmitZ80EdRrdRld(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
-    { sb.AppendLine("        _ = 0;   // TODO B-Task 7"); }
+    {
+        bool rld = insn.Ops[0].Args[0] == "true";   // EdRrdRld(IsRld) -- Bool args stored raw "true"/"false"
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine("        byte m = ReadBus(HL);");
+        sb.AppendLine("        int alo = A & 0x0F;");
+        if (rld)
+        {
+            sb.AppendLine("        byte newM = unchecked((byte)((m << 4) | alo));");
+            sb.AppendLine("        A = unchecked((byte)((A & 0xF0) | (m >> 4)));");
+        }
+        else
+        {
+            sb.AppendLine("        byte newM = unchecked((byte)((alo << 4) | (m >> 4)));");
+            sb.AppendLine("        A = unchecked((byte)((A & 0xF0) | (m & 0x0F)));");
+        }
+        sb.AppendLine("        WriteBus(HL, newM);");
+        sb.AppendLine("        WZ = unchecked((ushort)(HL + 1));");
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");
+        sb.AppendLine($"            | ((A & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (A == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((A & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((A & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)A) & 1) == 0 ? {pMask} : 0x00)));");
+        sb.AppendLine($"        _cycles += {18 - 2 - 1 - 1};   // RRD/RLD = 18 T (2 key + 1 read + 1 write)");
+    }
 
     // ---- Monitor support (IMonitorSupport implementation) ----
 
