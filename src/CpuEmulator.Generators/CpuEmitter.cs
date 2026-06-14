@@ -2221,10 +2221,39 @@ internal static class CpuEmitter
         sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1};");
     }
 
-    // Task 4 fills this (INC/DEC (IX+d)).
+    /// <summary>INC/DEC (IX+d): RMW on the indexed EA with full INC/DEC flags (S/Z/Y/H/X/P-V from
+    /// before/res, N per op, C preserved) — the SAME flag word EmitZ80IncDec8 computes for the (HL)
+    /// form, differing only in the address (__ea). __ea + WZ are already emitted by EmitZ80IndexedBody.
+    /// Cycles 23.</summary>
     private static void EmitZ80IndexedIncDec(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
     {
-        sb.AppendLine("        _ = 0;   // TODO Task 4 (INC/DEC (IX+d))");
+        bool dec = insn.Ops[0].Args[0] == "true";   // IsDec — bool args stored as the bare word (M3.4c)
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        string delta = dec ? "- 1" : "+ 1";
+        sb.AppendLine("        byte before = ReadBus(__ea);");
+        sb.AppendLine($"        byte res = unchecked((byte)(before {delta}));");
+        // H: INC = (before&0xF)==0xF; DEC = (before&0xF)==0. P/V: INC overflow at 0x7F->0x80; DEC at 0x80->0x7F.
+        string halfExpr = dec ? "((before & 0x0F) == 0x00)" : "((before & 0x0F) == 0x0F)";
+        string ovExpr = dec ? "(before == 0x80)" : "(before == 0x7F)";
+        // C is PRESERVED — start from the old C bit only.
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");
+        sb.AppendLine($"            | ((res & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (res == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ({halfExpr} ? {hMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ({ovExpr} ? {pMask} : 0x00)");
+        sb.AppendLine($"            | {(dec ? nMask : "0x00")}));");
+        sb.AppendLine("        WriteBus(__ea, res);");
+        // 23 T: -2 key bytes (Step), -1 disp read, -1 memory read, -1 memory write.
+        sb.AppendLine($"        _cycles += {23 - 2 - 1 - 1 - 1};");
     }
 
     // ── M3.4b CB plane + rotate-accumulators ──
