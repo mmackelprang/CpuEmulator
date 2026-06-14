@@ -280,7 +280,7 @@ internal static class CpuEmitter
             or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock;
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -367,6 +367,10 @@ internal static class CpuEmitter
             case InstructionClass.Z80EdBlock:
                 EmitZ80EdBlockBody(sb, instruction, pc, pcType, statusReg, flags);
                 break;
+            // ── M3.4e-2 DD/FD indexed plane ──
+            case InstructionClass.Z80Indexed:
+                EmitZ80IndexedBody(sb, instruction, pc, pcType, statusReg, flags);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
@@ -410,6 +414,8 @@ internal static class CpuEmitter
                 _ => false,   // EdLdNnRp / EdRetn / EdIm / EdNop write no flags
             },
             InstructionClass.Z80EdBlock => true,   // every block op writes F
+            // M3.4e-2: ALU + INC/DEC (IX+d) write F; LD r,(IX+d) / (IX+d),r / (IX+d),n do not.
+            InstructionClass.Z80Indexed => kind is "DdFdAluIndexed" or "DdFdIncDecIndexed",
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -528,6 +534,9 @@ internal static class CpuEmitter
         (InstructionClass.Z80EdOp, "EdRrdRld", _) => 18,
         (InstructionClass.Z80EdOp, "EdNop", _) => 8,
         (InstructionClass.Z80EdBlock, _, _) => 16,   // placeholder — base/final cycles; +5 on repeat in body
+        // ── M3.4e-2 DD/FD indexed plane (vector-pinned totals) ──
+        (InstructionClass.Z80Indexed, "DdFdIncDecIndexed", _) => 23,   // INC/DEC (IX+d)
+        (InstructionClass.Z80Indexed, _, _) => 19,                     // LD r,(IX+d)/(IX+d),r/(IX+d),n ; ALU A,(IX+d)
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2147,6 +2156,15 @@ internal static class CpuEmitter
         if (internalT > 0) sb.AppendLine($"        _cycles += {internalT};");
     }
 
+    // ── M3.4e-2 DD/FD indexed plane: LD/ALU/INC-DEC on the (IX+d)/(IY+d) effective address ──
+    // The bodies are filled task-by-task (Tasks 2-4). Task 1 emits a stub so the class classifies +
+    // generates (incl. the Indexed disassembler arm) without committing the body.
+    private static void EmitZ80IndexedBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
+    {
+        sb.AppendLine("        _ = 0;   // TODO Tasks 2-4 (the (IX+d) families)");
+    }
+
     // ── M3.4b CB plane + rotate-accumulators ──
 
     /// <summary>Emit the rotate/shift of an 8-bit value held in C# local <c>v</c> (byte), producing the
@@ -3147,6 +3165,11 @@ internal static class CpuEmitter
                 // operandLo/Hi), so the disassembly shows the mnemonic only.
                 "Bit" =>
                     $"            0x{instruction.OperationKey:X2} => \"{m}\",",
+                // M3.4e-2 (IX+d)/(IY+d): the index register is the prefix in the OperationKey high byte
+                // (0xDD -> IX, else IY); the displacement is the first operand byte (operandLo). The
+                // disassembly string is NOT vector-gated — it need only be well-formed + not throw.
+                "Indexed" =>
+                    $"            0x{instruction.OperationKey:X} => $\"{m} ({((instruction.OperationKey >> 8) == 0xDD ? "IX" : "IY")}+${{operandLo:X2}})\",",
                 _ => throw new System.InvalidOperationException(
                     $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
             };
@@ -3288,7 +3311,7 @@ internal static class CpuEmitter
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock)
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -3340,7 +3363,7 @@ internal static class CpuEmitter
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock;
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -3366,7 +3389,7 @@ internal static class CpuEmitter
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-                or InstructionClass.Z80EdBlock => "Register",
+                or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -3450,6 +3473,11 @@ internal static class CpuEmitter
             case "EdRrdRld":
             case "EdNop":
             case "EdBlock":   // M3.4d ED block op — JIT fallback; slots unused
+            // M3.4e-2 DD/FD indexed ops — JIT fallback (D4: DD/FD JIT-IL deferred to M3.5); slots unused.
+            case "DdFdLdIndexed":
+            case "DdFdStoreImmIndexed":
+            case "DdFdAluIndexed":
+            case "DdFdIncDecIndexed":
                 break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,

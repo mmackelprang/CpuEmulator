@@ -145,3 +145,13 @@ public sealed record EdNopOp : Op;
 // Mnemonic is the discriminator the emit arm switches on. All are mode Implied; all combine a
 // memory/port transfer + BC/HL adjust + (for the *R repeating forms) a conditional PC-rewind.
 public sealed record EdBlockOp(string Mnemonic) : Op;
+
+// ── M3.4e-2 DD/FD indexed plane (additive; the index register IX/IY is read from the OperationKey prefix) ──
+// LD r,(IX+d) / LD (IX+d),r. Op ∈ "LOAD"/"STORE"; Reg ∈ "B".."A" (the register loaded-from/stored-to (IX+d)).
+public sealed record DdFdLdIndexedOp(string Op, string Reg) : Op;
+// LD (IX+d),n — reads the displacement THEN the immediate (G5; the 4-byte form).
+public sealed record DdFdStoreImmIndexedOp : Op;
+// ALU A,(IX+d). Op ∈ "ADD"/"ADC"/"SUB"/"SBC"/"AND"/"XOR"/"OR"/"CP".
+public sealed record DdFdAluIndexedOp(string Op) : Op;
+// INC (IX+d) / DEC (IX+d). IsDec distinguishes.
+public sealed record DdFdIncDecIndexedOp(bool IsDec) : Op;
