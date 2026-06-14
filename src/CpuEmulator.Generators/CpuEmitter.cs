@@ -399,6 +399,12 @@ internal static class CpuEmitter
             InstructionClass.Z80Rot => true,
             InstructionClass.Z80Bit => Unquote(insn.Ops[0].Args[0]) == "BIT",
             InstructionClass.Z80EdIo => kind == "EdIn",   // IN sets flags; OUT does not
+            InstructionClass.Z80EdOp => kind switch
+            {
+                "EdAdcSbc16" or "EdNeg" or "EdRrdRld" => true,
+                "EdLdIaRa" => Unquote(insn.Ops[0].Args[0]) is "A_I" or "A_R",  // LD A,I/A,R set flags; I,A/R,A don't
+                _ => false,   // EdLdNnRp / EdRetn / EdIm / EdNop write no flags
+            },
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -508,7 +514,14 @@ internal static class CpuEmitter
         (InstructionClass.Z80Rot, "CbRotate", "Bit") => 8,   // base; the (HL) form overrides to 15 in-body
         (InstructionClass.Z80Bit, _, _) => 8,    // placeholder — real cycles in Task 6/7
         (InstructionClass.Z80EdIo, _, _) => 12,   // placeholder — real cycles in B-Task 2
-        (InstructionClass.Z80EdOp, _, _) => 8,    // placeholder — real cycles in B-Tasks 3-7
+        (InstructionClass.Z80EdOp, "EdAdcSbc16", _) => 15,
+        (InstructionClass.Z80EdOp, "EdLdNnRp", _) => 20,
+        (InstructionClass.Z80EdOp, "EdNeg", _) => 8,
+        (InstructionClass.Z80EdOp, "EdRetn", _) => 14,
+        (InstructionClass.Z80EdOp, "EdIm", _) => 8,
+        (InstructionClass.Z80EdOp, "EdLdIaRa", _) => 9,
+        (InstructionClass.Z80EdOp, "EdRrdRld", _) => 18,
+        (InstructionClass.Z80EdOp, "EdNop", _) => 8,
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -2377,8 +2390,97 @@ internal static class CpuEmitter
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg,
         string? spReg, FlagBitMap flags)
     {
-        sb.AppendLine("        _ = 0;   // TODO B-Tasks 3-7");
+        string f = statusReg ?? "F";
+        switch (insn.Ops[0].Kind)
+        {
+            case "EdAdcSbc16": EmitZ80EdAdcSbc16(sb, insn, f, flags); return;
+            case "EdLdNnRp":   EmitZ80EdLdNnRp(sb, insn, pc, pcType, flags); return;   // B-Task 4
+            case "EdNeg":      EmitZ80EdNeg(sb, f, flags); return;                     // B-Task 5
+            case "EdRetn":     EmitZ80EdRetn(sb, insn, pc, pcType, spReg); return;     // B-Task 6
+            case "EdIm":       EmitZ80EdIm(sb, insn); return;                          // B-Task 6
+            case "EdLdIaRa":   EmitZ80EdLdIaRa(sb, insn, f, flags); return;            // B-Task 7
+            case "EdRrdRld":   EmitZ80EdRrdRld(sb, insn, f, flags); return;            // B-Task 7
+            case "EdNop":      sb.AppendLine($"        _cycles += {8 - 2};   // ED NOP = 8 T"); return;
+            default:
+                throw new System.InvalidOperationException($"Z80 EdOp: no template for '{insn.Ops[0].Kind}'");
+        }
     }
+
+    /// <summary>ED ADC/SBC HL,rp (16-bit). S/Z from the 16-bit result; H from bit 11; P/V overflow;
+    /// N=1(SBC)/0(ADC); C from bit 16; X/Y from the result high byte. WZ = HL+1 (pre-op). Cycles 15.</summary>
+    private static void EmitZ80EdAdcSbc16(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        bool sub = Unquote(insn.Ops[0].Args[0]) == "SBC";
+        string pair = Unquote(insn.Ops[0].Args[1]);
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+
+        sb.AppendLine("        WZ = unchecked((ushort)(HL + 1));");   // pre-op HL
+        sb.AppendLine("        int hl = HL;");
+        sb.AppendLine($"        int rr = {pair};");
+        sb.AppendLine($"        int cin = (({f} & {cMask}) != 0 ? 1 : 0);");
+        if (sub)
+        {
+            sb.AppendLine("        int full = hl - rr - cin;");
+            sb.AppendLine("        int half = (hl & 0x0FFF) - (rr & 0x0FFF) - cin;");
+            sb.AppendLine("        ushort res16 = unchecked((ushort)full);");
+            sb.AppendLine("        int ov = ((hl ^ rr) & (hl ^ full) & 0x8000);");
+            EmitZ80Ed16FlagWord(sb, f, sMask, zMask, yMask, hMask, xMask, pMask, nMask, cMask,
+                subtract: true, halfBit: "((half & 0x1000) != 0)", carry: "(full < 0)", ov: "(ov != 0)");
+        }
+        else
+        {
+            sb.AppendLine("        int full = hl + rr + cin;");
+            sb.AppendLine("        int half = (hl & 0x0FFF) + (rr & 0x0FFF) + cin;");
+            sb.AppendLine("        ushort res16 = unchecked((ushort)full);");
+            sb.AppendLine("        int ov = (~(hl ^ rr) & (hl ^ full) & 0x8000);");
+            EmitZ80Ed16FlagWord(sb, f, sMask, zMask, yMask, hMask, xMask, pMask, nMask, cMask,
+                subtract: false, halfBit: "((half & 0x1000) != 0)", carry: "(full > 0xFFFF)", ov: "(ov != 0)");
+        }
+        sb.AppendLine("        HL = res16;");
+        sb.AppendLine($"        _cycles += {15 - 2};   // ADC/SBC HL,rp = 15 T-states");
+    }
+
+    /// <summary>The 16-bit ED ADC/SBC flag word: S=bit15, Z=(res==0), Y/X from the high byte, H from
+    /// bit 11 carry, P/V overflow, N per op, C from bit 16.</summary>
+    private static void EmitZ80Ed16FlagWord(
+        StringBuilder sb, string f, string sMask, string zMask, string yMask, string hMask, string xMask,
+        string pMask, string nMask, string cMask, bool subtract, string halfBit, string carry, string ov)
+    {
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((res16 & 0x8000) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (res16 == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | (((res16 >> 8) & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ({halfBit} ? {hMask} : 0x00)");
+        sb.AppendLine($"            | (((res16 >> 8) & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ({ov} ? {pMask} : 0x00)");
+        sb.AppendLine($"            | {(subtract ? nMask : "0x00")}");
+        sb.AppendLine($"            | ({carry} ? {cMask} : 0x00)));");
+    }
+
+    private static void EmitZ80EdLdNnRp(StringBuilder sb, InstructionModel insn, string pc, string pcType, FlagBitMap flags)
+    { sb.AppendLine("        _ = 0;   // TODO B-Task 4"); }
+
+    private static void EmitZ80EdNeg(StringBuilder sb, string f, FlagBitMap flags)
+    { sb.AppendLine("        _ = 0;   // TODO B-Task 5"); }
+
+    private static void EmitZ80EdRetn(StringBuilder sb, InstructionModel insn, string pc, string pcType, string? spReg)
+    { sb.AppendLine("        _ = 0;   // TODO B-Task 6"); }
+
+    private static void EmitZ80EdIm(StringBuilder sb, InstructionModel insn)
+    { sb.AppendLine("        _ = 0;   // TODO B-Task 6"); }
+
+    private static void EmitZ80EdLdIaRa(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    { sb.AppendLine("        _ = 0;   // TODO B-Task 7"); }
+
+    private static void EmitZ80EdRrdRld(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    { sb.AppendLine("        _ = 0;   // TODO B-Task 7"); }
 
     // ---- Monitor support (IMonitorSupport implementation) ----
 
