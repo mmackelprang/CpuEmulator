@@ -122,19 +122,19 @@ public class Z80SkeletonEndToEndTests
     }
 
     [Fact]
-    public void Z80_base_plane_is_live_ddfd_core_live_compound_deferred()
+    public void Z80_base_plane_is_live_ddfd_core_live_compound_live()
     {
         // M3.4a: the BASE plane is LIVE. M3.4d: the ED block ops (0xA0–0xBB) are LIVE. M3.4e-2: the DD/FD
-        // CORE plane (252 + 252 opcodes) is now LIVE too; only the DDCB/FDCB COMPOUND bit/rotate/shift
-        // forms stay // TODO (M3.4e-3). Confirm the base-plane OR r + an ED block op (LDIR) + DD-core rows
-        // (ADD IX,BC ; ADD A,IXh ; INC B inert) are real rows, and no compound-prefix Insn was emitted.
+        // CORE plane (252 + 252 opcodes) is LIVE. M3.4e-3: the DDCB/FDCB COMPOUND bit/rotate/shift forms
+        // are now LIVE too (the Insn(0xDD, 0xCB, finalOp, …) overload via Z80DdCbSemantics). Confirm the
+        // base-plane OR r + an ED block op (LDIR) + DD-core rows + a DDCB compound row are real rows.
         var source = BuildFullSource();
         Assert.Contains("Insn(0xED, 0xB0, \"LDIR\", AddrMode.Implied, [EdBlock(\"LDIR\")]),", source); // LDIR — LIVE (M3.4d)
         Assert.Contains("Insn(0xDD, 0x09, \"ADD\", AddrMode.Register, [Add16(\"IX\",\"BC\")]),", source); // ADD IX,BC — LIVE (M3.4e-2)
         Assert.Contains("Insn(0xDD, 0x84, \"ADD\", AddrMode.Register, [Add8()]),", source);  // ADD A,IXh — LIVE (M3.4e-2)
         Assert.Contains("Insn(0xB0, \"OR\", AddrMode.Register, [Or8()]),", source);  // base OR B — LIVE
-        // The DDCB/FDCB compound bit/rotate/shift forms remain deferred (M3.4e-3).
-        Assert.Contains("// TODO(semantics): 0xDDCB:", source);        // DDCB compound still deferred
-        Assert.DoesNotContain("Insn(0xDDCB", source);                  // no compound-prefix Insn row
+        // M3.4e-3: the DDCB compound bit/rotate/shift forms are LIVE (the compound Insn overload).
+        Assert.Contains("Insn(0xDD, 0xCB, 0x06, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"-\")]),", source);
+        Assert.DoesNotContain("Insn(0xDDCB", source);                  // the prefix is split (0xDD, 0xCB), not a single literal
     }
 }
