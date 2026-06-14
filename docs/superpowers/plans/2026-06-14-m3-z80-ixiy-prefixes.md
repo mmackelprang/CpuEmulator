@@ -121,6 +121,18 @@ displacement). The DDCB theory must build `$"dd cb __ {op:x2}.json"`. Do NOT ass
 
 ### M3.4e-1 — Framework: the compound-prefix decoder + `Indexed` AddrMode + `(IX+d)` EA
 
+> **EXPANDED (2026-06-14): this section is now detailed in TWO full task-by-task plans (split per the
+> "Estimated size" note below + D1–D5).** Build them in order:
+> - **e-1a** (`Indexed` AddrMode + 4 mirror tables + `JitMode.Indexed`; IXh/IXl/IYh/IYl half-views incl. the
+>   D2 storage-inversion; the `(IX+d)` EA helper): `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e1a-addrmode-ea.md`
+> - **e-1b** (the declarative `PrefixByte`/`DecodeStructure` D1 extension + `EmitStructuredDecodeWalk`
+>   compound routing + the synthetic `DD CB d op` decode-walk test):
+>   `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-e1b-compound-decoder.md`
+>
+> The two docs carry the load-bearing literal code, the RECON-FINDINGS (incl. the runner ALREADY wires
+> IX/IY — no runner change; the D2 storage-inversion; the compound descriptor-length question), per-task
+> gates, and the honest close-state. The outline below is retained as the framing the two docs expand.
+
 **Goal:** add the decode + addressing machinery WITHOUT making any DD/FD row live yet; prove the 6502 +
 base/CB/ED planes regenerate byte-identically (zero-prefix + single-prefix are the unchanged special cases).
 
