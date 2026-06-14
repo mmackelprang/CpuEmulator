@@ -460,8 +460,12 @@ internal static class CpuEmitter
         (InstructionClass.Z80Flow, "Rst", _) => 11,                        // RST n
         // ── misc (Implied; all 4 T-states) ──
         (InstructionClass.Z80Misc, _, _) => 4,
-        // ── M3.4b CB plane + rotate-accumulators (placeholders — refined in Task 4/5/6) ──
-        (InstructionClass.Z80Rot, _, _) => 4,    // placeholder — real cycles in Task 4/5
+        // ── rotate-accumulators (Implied, 4 T) + CB rotate/shift (Bit mode) ──
+        (InstructionClass.Z80Rot, "Rlca", _) => 4,
+        (InstructionClass.Z80Rot, "Rrca", _) => 4,
+        (InstructionClass.Z80Rot, "Rla", _) => 4,
+        (InstructionClass.Z80Rot, "Rra", _) => 4,
+        (InstructionClass.Z80Rot, "CbRotate", "Bit") => 8,   // base; the (HL) form overrides to 15 in-body
         (InstructionClass.Z80Bit, _, _) => 8,    // placeholder — real cycles in Task 6/7
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
@@ -2018,11 +2022,89 @@ internal static class CpuEmitter
 
     // ── M3.4b CB plane + rotate-accumulators ──
 
+    /// <summary>Emit the rotate/shift of an 8-bit value held in C# local <c>v</c> (byte), producing the
+    /// result in local <c>r</c> (byte) and the carry-out in local <c>cout</c> (int 0/1). <paramref
+    /// name="op"/> ∈ RLC/RRC/RL/RR/SLA/SRA/SLL/SRL. RL/RR consume the current carry via <paramref
+    /// name="oldCarryExpr"/> (an int 0/1 expression). Shared by the rotate-accumulators (Task 4) and the
+    /// CB rotate/shift (Task 5).</summary>
+    private static void EmitRotateMath(StringBuilder sb, string op, string oldCarryExpr)
+    {
+        switch (op)
+        {
+            case "RLC":
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v << 1) | cout));");
+                break;
+            case "RRC":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v >> 1) | (cout << 7)));");
+                break;
+            case "RL":
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine($"        byte r = unchecked((byte)((v << 1) | {oldCarryExpr}));");
+                break;
+            case "RR":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine($"        byte r = unchecked((byte)((v >> 1) | ({oldCarryExpr} << 7)));");
+                break;
+            case "SLA":
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)(v << 1));");
+                break;
+            case "SRA":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v >> 1) | (v & 0x80)));");
+                break;
+            case "SLL":   // undocumented: shift left, bit0 forced to 1
+                sb.AppendLine("        int cout = (v >> 7) & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)((v << 1) | 1));");
+                break;
+            case "SRL":
+                sb.AppendLine("        int cout = v & 1;");
+                sb.AppendLine("        byte r = unchecked((byte)(v >> 1));");
+                break;
+            default:
+                throw new System.InvalidOperationException($"unknown rotate op '{op}'");
+        }
+    }
+
     private static void EmitZ80RotBody(
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
     {
-        // Filled in Task 4 (rotate-accumulators) + Task 5 (CB rotate/shift). Stub charges the fetch only.
-        sb.AppendLine("        _ = 0;   // TODO Task 4/5");
+        string f = statusReg ?? "F";
+        string kind = insn.Ops[0].Kind;
+        // CB rotate/shift (CbRotate, Bit mode) is Task 5. Here: the four base-plane rotate-accumulators.
+        if (kind == "CbRotate")
+        {
+            EmitZ80CbRotate(sb, insn, pc, f, flags);   // Task 5
+            return;
+        }
+
+        // Rotate-accumulators: operate on A, set ONLY C/H/N + X/Y (from new A); PRESERVE S/Z/P-V.
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        // Preserve mask = S|Z|P bits (everything the rotate-accumulators leave alone). H and N are NOT
+        // in the mask, so they fall out at 0 — exactly the documented H=0, N=0.
+        byte preserveBits = (byte)((1 << flags.BitOf("S")) | (1 << flags.BitOf("Z")) | (1 << flags.BitOf("P")));
+        string preserve = $"0x{preserveBits:X2}";
+        string op = kind switch { "Rlca" => "RLC", "Rrca" => "RRC", "Rla" => "RL", _ => "RR" };
+        string oldCarry = $"(({f} & {cMask}) != 0 ? 1 : 0)";
+
+        sb.AppendLine("        byte v = A;");
+        EmitRotateMath(sb, op, oldCarry);
+        sb.AppendLine("        A = r;");
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {preserve})");
+        sb.AppendLine($"            | (cout != 0 ? {cMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((r & 0x08) != 0 ? {xMask} : 0x00)));");
+        sb.AppendLine("        _cycles += 3;   // RLCA/RRCA/RLA/RRA = 4 T-states (fetch + 3 internal)");
+    }
+
+    private static void EmitZ80CbRotate(StringBuilder sb, InstructionModel insn, string pc, string f, FlagBitMap flags)
+    {
+        // Filled in Task 5 (CB rotate/shift on reg[z] / (HL)). Stub charges the fetch only.
+        sb.AppendLine("        _ = 0;   // TODO Task 5");
     }
 
     private static void EmitZ80BitBody(

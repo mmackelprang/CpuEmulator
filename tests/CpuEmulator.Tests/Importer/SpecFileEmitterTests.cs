@@ -329,9 +329,11 @@ public class SpecFileEmitterTests
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
-        // M3.4a: the 248 base-plane target rows are LIVE (+ the ED NEG = 249 emitted); the prefixed
+        // M3.4a: the 248 base-plane target rows are LIVE (+ the ED NEG = 249 emitted). M3.4b adds the
+        // 4 base-plane rotate-accumulators (RLCA/RRCA/RLA/RRA, now owned by Z80BaseSemantics) → 253
+        // emitted; the CB plane is still routed at Task 9 (its rows remain TODO here). The prefixed
         // planes remain a TODO majority (CB/ED/DD/FD → M3.4b/c).
-        Assert.Equal(249, report.Emitted);
+        Assert.Equal(253, report.Emitted);
         Assert.True(report.Emitted < report.TodoSemantics + report.TodoMode,
             "the prefixed planes are still a TODO majority (M3.4b/c)");
     }
