@@ -1905,6 +1905,18 @@ internal static class CpuEmitter
 
     // ---- Z80 flow (JP/CALL/RET/RST/JR/DJNZ — conditional + relative) ----
 
+    /// <summary>M3.4c (Piece A): emit the WZ/MEMPTR write <c>WZ = unchecked((ushort)(&lt;expr&gt;));</c>. The
+    /// MEMPTR rules are per-op (the documented Z80 internal pointer); each Z80 emit arm appends the
+    /// right WZ assignment so the runner's universal final-WZ check (A-Task 3) passes. WZ is a declared
+    /// register (Z80Spec.cs), so this compiles on the real spec + every WZ-declaring synthetic spec.</summary>
+    private static void EmitWz(StringBuilder sb, string expr) =>
+        sb.AppendLine($"        WZ = unchecked((ushort)({expr}));");
+
+    /// <summary>The 12-space-indented variant of <see cref="EmitWz"/>, for a WZ write INSIDE an
+    /// <c>if (taken) {{ … }}</c> block (JR cc / DJNZ / RET cc — WZ is written only when taken).</summary>
+    private static void EmitWzIndented(StringBuilder sb, string expr) =>
+        sb.AppendLine($"            WZ = unchecked((ushort)({expr}));");
+
     private static void EmitZ80FlowBody(
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, string? spReg, FlagBitMap flags)
     {
@@ -1933,6 +1945,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte jh = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(jl | (jh << 8)));");
+                EmitWz(sb, pc);   // WZ = nn (the new PC)
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
             case "CallAbs":  // CALL nn — read nn, push PC, PC = nn. 17 T-states.
@@ -1945,6 +1958,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {sp} = unchecked((ushort)({sp} - 1));");
                 sb.AppendLine($"        WriteBus({sp}, unchecked((byte){pc}));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(cl | (ch << 8)));");
+                EmitWz(sb, pc);   // WZ = nn (the new PC)
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
             case "Ret":  // RET — pop PC. 10 T-states.
@@ -1953,12 +1967,14 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte rh = ReadBus({sp});");
                 sb.AppendLine($"        {sp} = unchecked((ushort)({sp} + 1));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(rl | (rh << 8)));");
+                EmitWz(sb, pc);   // WZ = popped PC
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
             case "RelJump":  // JR d — read signed d, PC += d.
                 sb.AppendLine($"        sbyte d = unchecked((sbyte)ReadBus({pc}));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + d));");
+                EmitWz(sb, pc);   // WZ = dest (the new PC)
                 EmitInternal(sb, total, busReads: 1, busWrites: 0);
                 return;
             case "RelJumpIf":  // JR cc,d — always reads d; if taken, PC += d (taken adds 5 T-states).
@@ -1968,6 +1984,7 @@ internal static class CpuEmitter
                 sb.AppendLine("        {");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})({pc} + d));");
                 sb.AppendLine("            _cycles += 5;   // taken penalty (7 → 12)");
+                EmitWzIndented(sb, pc);   // WZ = dest ONLY when taken (vector-confirmed: JR cc not-taken leaves WZ)
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 1, busWrites: 0);
                 return;
@@ -1981,6 +1998,7 @@ internal static class CpuEmitter
                 sb.AppendLine("        {");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})({pc} + d));");
                 sb.AppendLine("            _cycles += 5;   // taken penalty (8 → 13)");
+                EmitWzIndented(sb, pc);   // WZ = dest ONLY when taken
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 1, busWrites: 0);
                 return;
@@ -1990,6 +2008,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte jh = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                EmitWz(sb, "jl | (jh << 8)");   // WZ = nn UNCONDITIONALLY (operand always fetched; vector-confirmed)
                 sb.AppendLine($"        if ({CondExpr()}) {pc} = unchecked(({pcType})(jl | (jh << 8)));");
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
@@ -1998,6 +2017,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte ch = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                EmitWz(sb, "cl | (ch << 8)");   // WZ = nn UNCONDITIONALLY (operand always fetched; vector-confirmed)
                 sb.AppendLine($"        if ({CondExpr()})");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            {sp} = unchecked((ushort)({sp} - 1));");
@@ -2018,6 +2038,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"            {sp} = unchecked((ushort)({sp} + 1));");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})(rl | (rh << 8)));");
                 sb.AppendLine("            _cycles += 4;   // taken penalty: 5 → 11, minus the 2 pop reads charged inline");
+                EmitWzIndented(sb, pc);   // WZ = popped PC ONLY when taken (vector-confirmed)
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 0, busWrites: 0);
                 return;
@@ -2029,6 +2050,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {sp} = unchecked((ushort)({sp} - 1));");
                 sb.AppendLine($"        WriteBus({sp}, unchecked((byte){pc}));");
                 sb.AppendLine($"        {pc} = 0x{vec:X2};");
+                EmitWz(sb, $"0x{vec:X2}");   // WZ = the RST vector n
                 EmitInternal(sb, total, busReads: 0, busWrites: 2);
                 return;
             }
