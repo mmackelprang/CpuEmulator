@@ -2018,7 +2018,7 @@ internal static class CpuEmitter
         "Immediate" or "ZeroPage" or "ZeroPageX" or "ZeroPageY"
             or "IndirectX" or "IndirectY" or "Relative"
             or "IoPortImmediate" => 2,                          // (n): opcode + port byte (M3.2)
-        "RelativeJump" => 2,                                    // M3.4a: opcode + signed displacement
+        "RelativeJump" or "Bit" => 2,                           // M3.4a/b: opcode + (displacement | CB op byte)
         "Absolute" or "AbsoluteX" or "AbsoluteY" or "Indirect" => 3,
         "ImmediateExtended" or "ExtendedAddress" => 3,          // M3.4a: opcode + 16-bit operand
         _ => throw new System.InvalidOperationException(
@@ -2329,6 +2329,10 @@ internal static class CpuEmitter
                     $"            0x{instruction.OperationKey:X2} => $\"{m} (${{operandHi:X2}}{{operandLo:X2}})\",",
                 "RelativeJump" =>
                     $"            0x{instruction.OperationKey:X2} => $\"{m} ${{operandLo:X2}}\",",
+                // M3.4b (CB plane): the bit index + target register are opcode-encoded (not in
+                // operandLo/Hi), so the disassembly shows the mnemonic only.
+                "Bit" =>
+                    $"            0x{instruction.OperationKey:X2} => \"{m}\",",
                 _ => throw new System.InvalidOperationException(
                     $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
             };

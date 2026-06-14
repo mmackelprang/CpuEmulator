@@ -145,6 +145,7 @@ internal static class SpecParser
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
         // M3.4a (additive): the Z80 register-shape modes.
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
+        "Bit",   // M3.4b (CB plane)
     };
 
     /// <summary>Valid Flag enum members for BranchIf/SetFlag/cc args (CPUGEN006 for anything else).
