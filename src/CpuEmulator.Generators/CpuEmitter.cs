@@ -2481,11 +2481,64 @@ internal static class CpuEmitter
                 EmitBlockRepeatTail(sb, repeat, f, "BC != 0 && __r != 0");
                 break;
             }
-            // IN / OUT arms are added in Task 4.
-            default:
-                sb.AppendLine("        _ = 0;   // TODO Task 4 (IN/OUT block ops)");
+            case "INI":  case "IND":  case "INIR": case "INDR":
+            {
+                bool inc = mn is "INI" or "INIR";
+                bool repeat = mn is "INIR" or "INDR";
+                string hlDelta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __v = ReadIo(BC);");           // port read (BC)
+                sb.AppendLine("        WriteBus(HL, __v);");               // (HL) <- input
+                // WZ = (BC BEFORE the B decrement) +/- 1 (vector-derived: IN uses the ORIGINAL B).
+                sb.AppendLine($"        WZ = unchecked((ushort)(BC {(inc ? "+ 1" : "- 1")}));");
+                sb.AppendLine("        B = unchecked((byte)(B - 1));");    // the counter
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {hlDelta}));");
+                // k = input + ((C +/- 1) & 0xFF) ; INI/INIR uses C+1, IND/INDR uses C-1.
+                sb.AppendLine($"        int __k = __v + ((C {(inc ? "+ 1" : "- 1")}) & 0xFF);");
+                EmitBlockIoFlags(sb, f, sM, zM, yM, hM, xM, pM, nM, cM, transferredByte: "__v");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadIo + WriteBus charged 2. +12 internal.
+                sb.AppendLine("        _cycles += 12;   // INI/IND = 16 T (16 - 2 fetch - 2 bus)");
+                EmitBlockRepeatTail(sb, repeat, f, "B != 0");
                 break;
+            }
+            case "OUTI": case "OUTD": case "OTIR": case "OTDR":
+            {
+                bool inc = mn is "OUTI" or "OTIR";
+                bool repeat = mn is "OTIR" or "OTDR";
+                string hlDelta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __v = ReadBus(HL);");          // (HL) -> output
+                sb.AppendLine("        B = unchecked((byte)(B - 1));");    // OUT decrements B BEFORE WZ/port
+                sb.AppendLine("        WriteIo(BC, __v);");                // port write (BC, B already decremented)
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {hlDelta}));");
+                // WZ = (BC AFTER the B decrement) +/- 1 (vector-derived: OUT uses the DECREMENTED B).
+                sb.AppendLine($"        WZ = unchecked((ushort)(BC {(inc ? "+ 1" : "- 1")}));");
+                // k = output + L (L AFTER the HL adjust).
+                sb.AppendLine("        int __k = __v + L;");
+                EmitBlockIoFlags(sb, f, sM, zM, yM, hM, xM, pM, nM, cM, transferredByte: "__v");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus + WriteIo charged 2. +12 internal.
+                sb.AppendLine("        _cycles += 12;   // OUTI/OUTD = 16 T (16 - 2 fetch - 2 bus)");
+                EmitBlockRepeatTail(sb, repeat, f, "B != 0");
+                break;
+            }
+            default:
+                throw new System.InvalidOperationException($"unknown ED block op '{mn}'");
         }
+    }
+
+    /// <summary>M3.4d: the IN/OUT block-op flag word. S/Z/X/Y from the DECREMENTED B; N = bit7 of the
+    /// transferred byte; H = C = (k &gt; 0xFF); P/V = parity of ((k &amp; 7) ^ B). `__k` is in scope
+    /// (the caller computed it per family); B is already decremented.</summary>
+    private static void EmitBlockIoFlags(
+        StringBuilder sb, string f, string sM, string zM, string yM, string hM, string xM,
+        string pM, string nM, string cM, string transferredByte)
+    {
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((B & 0x80) != 0 ? {sM} : 0x00)");
+        sb.AppendLine($"            | (B == 0 ? {zM} : 0x00)");
+        sb.AppendLine($"            | ((B & 0x20) != 0 ? {yM} : 0x00)");
+        sb.AppendLine($"            | ((B & 0x08) != 0 ? {xM} : 0x00)");
+        sb.AppendLine($"            | (({transferredByte} & 0x80) != 0 ? {nM} : 0x00)");
+        sb.AppendLine($"            | (__k > 0xFF ? ({hM} | {cM}) : 0x00)");
+        sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)(((__k & 7) ^ B))) & 1) == 0 ? {pM} : 0x00)));");
     }
 
     /// <summary>M3.4d: the shared repeat tail. For a repeating *R op, when the loop is NOT done (the
