@@ -10,11 +10,14 @@
 passing, interrupt SERVICING implemented, and the Z80 driven through the JIT — in a dependency-ordered set
 of reviewable PRs.
 
-**Where we are (PR #22, merge `8b9feab`):** the Z80 **base + CB + ED-core (0x40–0x7F)** planes are
-TomHarte-green — 572 covered opcodes, 64k+ cases per the full sweep, registers incl. F's X/Y, I/R, IM,
-IFF1/IFF2, WZ, Q, RAM, ports, and the per-T-state bus trace. The WZ/MEMPTR model is COMPLETE with a
-universal final Q/WZ/IM check (`checkInternal` retired). Full suite 2252/0/0, `-warnaserror` clean, 6502
-byte-identical. This overview was written against that close-state.
+**Where we are (PR #23, merged):** the Z80 **base + CB + ED-core (0x40–0x7F) + ED block ops (0xA0–0xBB)**
+planes are TomHarte-green — **588 covered opcodes** (252 base + 256 CB + 80 ED), full-sweep cases incl. F's
+X/Y, I/R, IM, IFF1/IFF2, WZ, Q, RAM, ports, the per-T-state bus trace, AND the block-op repeat PC-rewind.
+The WZ/MEMPTR model is COMPLETE with a universal final Q/WZ/IM check (`checkInternal` retired). Full suite
+2306/0/0, `-warnaserror` clean, 6502 byte-identical.
+
+> _Prior close-state (this overview was originally written against): PR #22 (merge `8b9feab`) — base + CB +
+> ED-core, 572 covered, full suite 2252/0/0._
 
 ---
 
@@ -25,8 +28,8 @@ byte-identical. This overview was written against that close-state.
 | Base (unprefixed) | TomHarte-green | done (M3.4a) |
 | CB (0x00–0xFF) | TomHarte-green | done (M3.4b) |
 | ED core (0x40–0x7F, 64) | TomHarte-green | done (M3.4c, PR #22) |
-| **ED block ops (0xA0–0xBB, 16)** | `// TODO(semantics)` skeleton | **M3.4d — the NEXT PR (fully planned)** |
-| **DD / FD prefixes ((IX/IY) + (IX+d))** | `// TODO(mode)` (Indexed mode unsupported) | **M3.4e — scoped, likely 2–3 PRs** |
+| ED block ops (0xA0–0xBB, 16) | TomHarte-green | done (M3.4d, PR #23) |
+| **DD / FD prefixes ((IX/IY) + (IX+d))** | `// TODO(mode)` (Indexed mode unsupported) | **M3.4e — the NEXT PR; scoped, likely 2–3 PRs** |
 | **DDCB / FDCB compound prefixes** | not decodable (compound key unsupported) | **part of M3.4e** |
 | **Interrupt SERVICING (IM 0/1/2 + NMI vectoring)** | `TryServiceInterrupt() => false` | **M3.5** |
 | **ZEXALL / ZEXDOC exerciser** | not wired | **M3.5** |
@@ -43,11 +46,11 @@ the cross-cutting interrupt-servicing + JIT-genericity work.
 PR #22 (DONE) ── base + CB + ED-core green; WZ/MEMPTR complete; universal Q/WZ/IM check
    │
    ▼
-M3.4d  ED block ops (0xA0–0xBB)        ← NEXT, fully planned (one PR)
+M3.4d  ED block ops (0xA0–0xBB)        ← DONE (PR #23): 16 ops TomHarte-green
    │      LDI/LDD/LDIR/LDDR, CPI/CPD/CPIR/CPDR, INI/IND/INIR/INDR, OUTI/OUTD/OTIR/OTDR
    │      the repeat-rewind PC quirk, the F3/F5 (X/Y) undocumented-flag quirks, BC/DE/HL auto-inc/dec, WZ
    ▼
-M3.4e  DD/FD/DDCB/FDCB IX/IY prefixes  ← scoped; SPLITS into sub-PRs (see §4)
+M3.4e  DD/FD/DDCB/FDCB IX/IY prefixes  ← NEXT; scoped; SPLITS into sub-PRs (see §4)
    │      M3.4e-1  framework: the compound-prefix decoder + the Indexed AddrMode + (IX+d) EA
    │      M3.4e-2  DD/FD core (the (IX+d)/(IY+d) re-interpretation of the base + the IX/IY 16-bit ops)
    │      M3.4e-3  DDCB/FDCB compound (bit/rotate/shift on (IX+d), incl. the undoc "store-copy" forms)
