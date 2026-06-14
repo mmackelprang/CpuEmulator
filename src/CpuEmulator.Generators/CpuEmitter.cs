@@ -366,7 +366,10 @@ internal static class CpuEmitter
         // Every Z80 op BODY falls through to here (no generated body emits an early return), so this
         // Q-write is always reached on every exit path — incl. the conditional flow forms (JP/JR/CALL/RET
         // cc), whose generated bodies use `if (...) { ... }` then fall through, never `return`.
-        if (isZ80)
+        // M3.4c (Piece A): the Q lifecycle is UNIVERSAL on a structured (Z80) CPU — every op sets Q,
+        // including the shared 6502-shaped classes the base plane reuses (LD r,r' = Register → Q=0).
+        // `structured` is Z80-only (model.Decode is not null), so the 6502 (Decode null) never sets Q.
+        if (structured)
             sb.AppendLine(Z80WritesFlags(opClass, instruction)
                 ? $"        Q = {statusReg ?? "F"};"
                 : "        Q = 0;");
@@ -512,6 +515,13 @@ internal static class CpuEmitter
         // First op is Load(target) — use shared operand resolution, then assign
         string target = instruction.Ops[0].Args[0]; // register name
         EmitOperandResolution(sb, instruction, pc, pcType);
+        // M3.4c (Piece A): the Z80 LD A,(rp)/(nn) MEMPTR writes. ONLY LD A,(BC) (0x0A) / LD A,(DE)
+        // (0x1A) → WZ = rp+1; LD A,(nn) (0x3A) → WZ = nn+1. LD r,(HL) leaves WZ UNCHANGED (vector-
+        // confirmed: 46/7E keep init.wz). Guarded by `structured` (Z80-only); the 6502 never writes WZ.
+        if (structured && instruction.Mode == "RegisterIndirect" && instruction.Opcode is 0x0A or 0x1A)
+            EmitWz(sb, $"{Z80IndirectPair(instruction.Opcode)} + 1");
+        else if (structured && instruction.Mode == "ExtendedAddress")
+            EmitWz(sb, "(al | (ah << 8)) + 1");
         sb.AppendLine($"        {target} = data;");
 
         // Apply remaining register ops (SetNZ etc.)
@@ -730,17 +740,28 @@ internal static class CpuEmitter
         {
             // ── M3.4a Z80 register-shape store modes ──
             case "RegisterIndirect":
+            {
                 // LD (HL),r / LD (BC),A / LD (DE),A — write the source byte at the pair-view EA.
-                sb.AppendLine($"        WriteBus({Z80IndirectPair(instruction.Opcode)}, {source});");
+                // M3.4c (Piece A): ONLY LD (BC),A (0x02) / LD (DE),A (0x12) write WZ = (A<<8) |
+                // ((rp+1)&0xFF) — vector-confirmed. LD (HL),r (0x70-0x77) leaves WZ UNCHANGED (also
+                // vector-confirmed: 70/36/77 keep init.wz). These store modes are Z80-only, so no
+                // `structured` guard is needed.
+                string spair = Z80IndirectPair(instruction.Opcode);
+                if (instruction.Opcode is 0x02 or 0x12)
+                    EmitWz(sb, $"((uint)A << 8) | ((({spair} + 1u) & 0xFFu))");
+                sb.AppendLine($"        WriteBus({spair}, {source});");
                 sb.AppendLine($"        _cycles += {7 - 1 - 1};   // Z80 RegisterIndirect store = 7 T-states");
                 return;
+            }
             case "ExtendedAddress":
                 // LD (nn),A — fetch the 16-bit address, write the source byte there.
                 sb.AppendLine($"        byte al = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte ah = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        WriteBus((uint)(al | (ah << 8)), {source});");
+                sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+                EmitWz(sb, "((uint)A << 8) | ((ea + 1u) & 0xFFu)");   // LD (nn),A → WZ = (A<<8) | ((nn+1)&0xFF)
+                sb.AppendLine($"        WriteBus(ea, {source});");
                 sb.AppendLine($"        _cycles += {13 - 1 - 3};   // Z80 ExtendedAddress byte store = 13 T-states");
                 return;
             case "ZeroPage":
@@ -1443,6 +1464,13 @@ internal static class CpuEmitter
                     $"emitter has no port template for op '{op.Kind}' (opcode 0x{instruction.Opcode:X2})");
         }
 
+        // M3.4c (Piece A): the Z80 IN A,(n)/OUT (n),A MEMPTR write — WZ = (A<<8) | ((n+1)&0xFF)
+        // (vector-confirmed db/d3; A is the high byte, the operand n+1 the low byte). Derived from
+        // `port` (= (A_pre<<8)|n) so the IN form uses the PRE-read A (the read above overwrote A).
+        // `pn` is the (n) operand local. Z80-only (`structured`).
+        if (structured && instruction.Mode == "IoPortImmediate")
+            EmitWz(sb, "(port & 0xFF00u) | ((pn + 1u) & 0xFFu)");
+
         // M3.4a: the Z80 IN A,(n)/OUT (n),A are 11 T-states. Charged so far: Step fetch (1) + the (n)
         // operand read (1) + the Io access (ReadIo/WriteIo charge 1) = 3. Add the 8 internal T-states.
         if (structured && instruction.Mode == "IoPortImmediate")
@@ -1665,6 +1693,7 @@ internal static class CpuEmitter
         string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
         // S/Z/P-V preserved; H from bit 11; C from bit 15; N=0; X/Y from the high byte of the result.
         sb.AppendLine("        int hl = HL;");
+        EmitWz(sb, "hl + 1");   // ADD HL,rr → WZ = pre-op HL + 1 (vector-confirmed)
         sb.AppendLine($"        int rr = {src};");
         sb.AppendLine("        int sum16 = hl + rr;");
         sb.AppendLine("        int half16 = (hl & 0x0FFF) + (rr & 0x0FFF);");
@@ -1717,6 +1746,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte ah = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+                EmitWz(sb, "ea + 1");   // LD (nn),rr → WZ = nn + 1
                 sb.AppendLine($"        WriteBus(ea, unchecked((byte){source}));");
                 sb.AppendLine($"        WriteBus((ea + 1) & 0xFFFF, unchecked((byte)({source} >> 8)));");
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
@@ -1730,6 +1760,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte ah = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+                EmitWz(sb, "ea + 1");   // LD rr,(nn) → WZ = nn + 1
                 sb.AppendLine("        byte vlo = ReadBus(ea);");
                 sb.AppendLine("        byte vhi = ReadBus((ea + 1) & 0xFFFF);");
                 sb.AppendLine($"        {target} = unchecked((ushort)(vlo | (vhi << 8)));");
@@ -1812,6 +1843,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)(HL >> 8)));");
                 sb.AppendLine($"        WriteBus({sp}, unchecked((byte)HL));");
                 sb.AppendLine("        HL = unchecked((ushort)(slo | (shi << 8)));");
+                EmitWz(sb, "HL");   // EX (SP),HL → WZ = the new HL (post-exchange; vector-confirmed)
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
             default:

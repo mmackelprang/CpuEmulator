@@ -66,6 +66,7 @@ public class SyntheticDecodeStructureTests
         public sealed partial class DecodeTestCpu
         {
             private readonly IAddressSpace _bus;
+            public byte Q;   // M3.4c: every structured-CPU op now sets Q (Q=F / Q=0) — declare the field
             public DecodeTestCpu(IAddressSpace bus) => _bus = bus;
             public void Reset() { }
             public void SetIrqLine(bool asserted) { }
