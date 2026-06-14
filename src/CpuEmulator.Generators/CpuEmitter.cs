@@ -1580,11 +1580,19 @@ internal static class CpuEmitter
     }
 
     /// <summary>The 8-bit ALU register source named in the opcode's low 3 bits (B C D E H L _ A).
-    /// (HL) is opcode bits == 6 — handled by RegisterIndirect, not here.</summary>
+    /// (HL) is opcode bits == 6 — handled by RegisterIndirect, not here. M3.4e-2: a DD/FD-prefixed
+    /// ALU register row (e.g. DD 84 = ADD A,IXh) re-reads the H/L source slot as the index half
+    /// (IXh/IXl/IYh/IYl) — the undoc half ALU forms; the prefix is the OperationKey high byte.</summary>
     private static string SourceRegFromOpcode(InstructionModel insn)
     {
+        int slot = insn.Opcode & 0x07;
+        uint prefix = insn.OperationKey >> 8;
+        if (prefix is 0xDD or 0xFD && slot is 4 or 5)
+            return prefix == 0xDD
+                ? (slot == 4 ? "IXh" : "IXl")
+                : (slot == 4 ? "IYh" : "IYl");
         string[] regs = ["B", "C", "D", "E", "H", "L", "(HL)", "A"];
-        return regs[insn.Opcode & 0x07];
+        return regs[slot];
     }
 
     private static void EmitZ80Alu8(StringBuilder sb, string kind, string f, FlagBitMap flags)
@@ -1727,7 +1735,9 @@ internal static class CpuEmitter
 
     private static void EmitZ80Add16(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags, int total)
     {
-        // ADD HL,rr (0x09/19/29/39). Target is HL; source is the pair from the opcode bits 5-4.
+        // ADD HL,rr (0x09/19/29/39) ; M3.4e-2: ADD IX,rr / ADD IY,rr (DD/FD). Target = Args[0]
+        // (HL by default; IX/IY for the prefixed plane), source = Args[1].
+        string dst = insn.Ops[0].Args[0];
         string src = insn.Ops[0].Args[1];
         string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
         string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
@@ -1735,8 +1745,8 @@ internal static class CpuEmitter
         string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
         string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
         // S/Z/P-V preserved; H from bit 11; C from bit 15; N=0; X/Y from the high byte of the result.
-        sb.AppendLine("        int hl = HL;");
-        EmitWz(sb, "hl + 1");   // ADD HL,rr → WZ = pre-op HL + 1 (vector-confirmed)
+        sb.AppendLine($"        int hl = {dst};");
+        EmitWz(sb, "hl + 1");   // ADD dst,rr → WZ = pre-op dst + 1 (vector-confirmed; IX+1 for ADD IX,rr)
         sb.AppendLine($"        int rr = {src};");
         sb.AppendLine("        int sum16 = hl + rr;");
         sb.AppendLine("        int half16 = (hl & 0x0FFF) + (rr & 0x0FFF);");
@@ -1747,7 +1757,7 @@ internal static class CpuEmitter
         sb.AppendLine($"            | (sum16 > 0xFFFF ? {cMask} : 0x00)");
         sb.AppendLine($"            | (((res16 >> 8) & 0x20) != 0 ? {yMask} : 0x00)");
         sb.AppendLine($"            | (((res16 >> 8) & 0x08) != 0 ? {xMask} : 0x00)));");
-        sb.AppendLine("        HL = res16;");
+        sb.AppendLine($"        {dst} = res16;");
         int internalT = total - 1;   // no bus access beyond the fetch; the rest is internal
         if (internalT > 0) sb.AppendLine($"        _cycles += {internalT};");
     }
@@ -1881,14 +1891,21 @@ internal static class CpuEmitter
                 return;
             case "ExSpHl":  // EX (SP),HL — swap HL with the word at (SP). The Z80 reads (SP) then (SP+1),
                             // then writes (SP+1)=H BEFORE (SP)=L (the documented write order TomHarte checks).
+                            // M3.4e-2: EX (SP),IX / EX (SP),IY (DD/FD) — the pair is read from the prefix
+                            // (0xDD -> IX, else IY); a base (unprefixed) row uses HL (byte-identical output).
+            {
+                string pair = (insn.OperationKey >> 8) == 0xDD ? "IX"
+                            : (insn.OperationKey >> 8) == 0xFD ? "IY"
+                            : "HL";
                 sb.AppendLine($"        byte slo = ReadBus({sp});");
                 sb.AppendLine($"        byte shi = ReadBus((uint)(({sp} + 1) & 0xFFFF));");
-                sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)(HL >> 8)));");
-                sb.AppendLine($"        WriteBus({sp}, unchecked((byte)HL));");
-                sb.AppendLine("        HL = unchecked((ushort)(slo | (shi << 8)));");
-                EmitWz(sb, "HL");   // EX (SP),HL → WZ = the new HL (post-exchange; vector-confirmed)
+                sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)({pair} >> 8)));");
+                sb.AppendLine($"        WriteBus({sp}, unchecked((byte){pair}));");
+                sb.AppendLine($"        {pair} = unchecked((ushort)(slo | (shi << 8)));");
+                EmitWz(sb, pair);   // EX (SP),pair → WZ = the new pair value (post-exchange; vector-confirmed)
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
+            }
             default:
                 throw new System.InvalidOperationException($"Z80 exchange: no template for op '{kind}'");
         }
@@ -2023,10 +2040,16 @@ internal static class CpuEmitter
 
         switch (kind)
         {
-            case "JumpIndirect":  // JP (HL) — PC = HL (no memory read).
-                sb.AppendLine($"        {pc} = HL;");
+            case "JumpIndirect":  // JP (HL) — PC = HL (no memory read). M3.4e-2: JP (IX)/JP (IY) (DD/FD) —
+                                  // the pair is read from the prefix (0xDD -> IX, else IY); base uses HL.
+            {
+                string pair = (insn.OperationKey >> 8) == 0xDD ? "IX"
+                            : (insn.OperationKey >> 8) == 0xFD ? "IY"
+                            : "HL";
+                sb.AppendLine($"        {pc} = {pair};");
                 EmitInternal(sb, total, 0, 0);
                 return;
+            }
             case "JumpAbs":  // JP nn — read the 16-bit target, PC = nn. 10 T-states.
                 sb.AppendLine($"        byte jl = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
