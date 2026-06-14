@@ -2204,10 +2204,21 @@ internal static class CpuEmitter
         }
     }
 
-    // Task 3 fills this (ALU A,(IX+d)).
+    /// <summary>ALU A,(IX+d): data = ReadBus(__ea); run the 8-bit ALU op against A (reusing the base
+    /// EmitZ80Alu8 flag math). __ea + WZ are already emitted by EmitZ80IndexedBody. Cycles 19.</summary>
     private static void EmitZ80IndexedAlu(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
     {
-        sb.AppendLine("        _ = 0;   // TODO Task 3 (ALU A,(IX+d))");
+        // The op arg ("ADD".."CP") maps to the EmitZ80Alu8 kind ("Add8".."Cp8").
+        string kind = Unquote(insn.Ops[0].Args[0]) switch
+        {
+            "ADD" => "Add8", "ADC" => "Adc8", "SUB" => "Sub8", "SBC" => "Sbc8",
+            "AND" => "And8", "XOR" => "Xor8", "OR" => "Or8", "CP" => "Cp8",
+            var other => throw new System.InvalidOperationException($"Z80 indexed ALU: unknown op '{other}'"),
+        };
+        sb.AppendLine("        byte data = ReadBus(__ea);");
+        EmitZ80Alu8(sb, kind, f, flags);   // the EXISTING 8-bit ALU flag-word emitter (reads `data`, `A`)
+        // 19 T: -2 key bytes (Step), -1 disp read, -1 memory read.
+        sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1};");
     }
 
     // Task 4 fills this (INC/DEC (IX+d)).
