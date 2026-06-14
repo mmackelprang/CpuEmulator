@@ -28,5 +28,6 @@ The Z80 base-plane interpreter is the framework's first non-6502 execution; the 
 ## Quick links
 
 - Project README: [`../../README.md`](../../README.md)
+- License: [`../../LICENSE`](../../LICENSE) — MIT
 - Architecture spec: [`../superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`](../superpowers/specs/2026-06-11-cpu-emulator-framework-design.md)
 - Research notes: [`../research/emulation-framework-research.md`](../research/emulation-framework-research.md)
