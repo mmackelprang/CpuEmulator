@@ -634,22 +634,22 @@ public static class Z80Spec
         Insn(0xED, 0x6F, "RLD", AddrMode.RegisterIndirect, [EdRrdRld(true)]),
         Insn(0xED, 0x77, "NOP", AddrMode.Implied, [EdNop()]),
         Insn(0xED, 0x7F, "NOP", AddrMode.Implied, [EdNop()]),
-        // TODO(semantics): 0xED:0xA0 LDI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xA1 CPI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xA2 INI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xA3 OUTI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xA8 LDD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xA9 CPD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xAA IND Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xAB OUTD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xB0 LDIR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xB1 CPIR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xB2 INIR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xB3 OTIR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xB8 LDDR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xB9 CPDR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xBA INDR Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0xBB OTDR Implied — awaiting micro-op vocabulary
+        Insn(0xED, 0xA0, "LDI", AddrMode.Implied, [EdBlock("LDI")]),
+        Insn(0xED, 0xA1, "CPI", AddrMode.Implied, [EdBlock("CPI")]),
+        Insn(0xED, 0xA2, "INI", AddrMode.Implied, [EdBlock("INI")]),
+        Insn(0xED, 0xA3, "OUTI", AddrMode.Implied, [EdBlock("OUTI")]),
+        Insn(0xED, 0xA8, "LDD", AddrMode.Implied, [EdBlock("LDD")]),
+        Insn(0xED, 0xA9, "CPD", AddrMode.Implied, [EdBlock("CPD")]),
+        Insn(0xED, 0xAA, "IND", AddrMode.Implied, [EdBlock("IND")]),
+        Insn(0xED, 0xAB, "OUTD", AddrMode.Implied, [EdBlock("OUTD")]),
+        Insn(0xED, 0xB0, "LDIR", AddrMode.Implied, [EdBlock("LDIR")]),
+        Insn(0xED, 0xB1, "CPIR", AddrMode.Implied, [EdBlock("CPIR")]),
+        Insn(0xED, 0xB2, "INIR", AddrMode.Implied, [EdBlock("INIR")]),
+        Insn(0xED, 0xB3, "OTIR", AddrMode.Implied, [EdBlock("OTIR")]),
+        Insn(0xED, 0xB8, "LDDR", AddrMode.Implied, [EdBlock("LDDR")]),
+        Insn(0xED, 0xB9, "CPDR", AddrMode.Implied, [EdBlock("CPDR")]),
+        Insn(0xED, 0xBA, "INDR", AddrMode.Implied, [EdBlock("INDR")]),
+        Insn(0xED, 0xBB, "OTDR", AddrMode.Implied, [EdBlock("OTDR")]),
         // TODO(semantics): 0xDD:0x09 ADD Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x19 ADD Register — awaiting micro-op vocabulary
         // TODO(semantics): 0xDD:0x29 ADD Register — awaiting micro-op vocabulary
