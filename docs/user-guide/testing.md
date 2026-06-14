@@ -139,11 +139,11 @@ Integration-level correctness: all ALU operations, addressing modes, branch take
 
 The Z80 is the framework's second architecture. It uses a **separate** vector corpus — [SingleStepTests/z80](https://github.com/SingleStepTests/z80) — with a distinct schema from the 6502 set: 1000 cases per file, packed alt-register pairs (`af_`/`bc_`/`de_`/`hl_`), the `i`/`r`/`wz`/`iff1`/`iff2`/`im`/`p`/`q` state, a separate `ports` array for I/O, and per-T-state (not per-machine-cycle) bus signals.
 
-**Current coverage — base plane only.** As of M3.4a, the **248 covered base-plane opcodes** (the un-prefixed instructions, excluding the four rotate-accumulators 07/0F/17/1F and the CB/ED/DD/FD prefix bytes) pass the full sweep:
+**Current coverage — base plane + CB plane.** As of M3.4b, the **252 covered base-plane opcodes** (the un-prefixed instructions, now including the four rotate-accumulators 07/0F/17/1F) **and all 256 0xCB-prefix opcodes** (RLC/RRC/RL/RR/SLA/SRA/SLL/SRL, BIT, RES, SET — on registers and (HL)) pass the full sweep:
 
-> 248 opcodes × 1000 cases = **248,000 cases, zero failures** — including F's undocumented X/Y bits (3 and 5), the per-T-state bus-trace ordering, and the ports array.
+> base 252 × 1000 + CB 256 × 1000 = **508,000 cases, zero failures** — including F's undocumented X/Y bits (3 and 5, W-sourced for `BIT n,(HL)`), the WZ/MEMPTR and Q internal registers, the per-T-state bus-trace ordering, and (for base I/O ops) the ports array.
 
-Not yet implemented (tracked on the genericity ladder): the **CB/ED/DD/FD/DDCB/FDCB prefix planes** (M3.4b/c), the **Z80 JIT tier** (M3.5), and a **Z80 monitor host** (no Z80 REPL machine ships yet — the host boots the Breadboard6502).
+Not yet implemented (tracked on the genericity ladder): the **ED prefix plane** (block ops, 16-bit ADC/SBC, IM 0/1/2, NMI/IFF, RETI/RETN, RRD/RLD, (C) I/O — M3.4c), the **DD/FD/DDCB/FDCB planes** (IX/IY indexing — M3.4d), the **Z80 JIT tier** (M3.5), and a **Z80 monitor host** (no Z80 REPL machine ships yet — the host boots the Breadboard6502).
 
 #### Fetch Z80 vectors
 
@@ -163,7 +163,7 @@ They cache under `$TESTVECTORS/z80/v1/`.
 # Sampled (default)
 dotnet test --filter "FullyQualifiedName~Z80TomHarte"
 
-# Full base-plane sweep (1000/opcode = 248,000 cases)
+# Full base + CB sweep (1000/opcode = 508,000 cases)
 #   Windows PowerShell
 $env:CPUEMULATOR_UAT = "full"; dotnet test --filter "FullyQualifiedName~Z80TomHarte"; Remove-Item Env:\CPUEMULATOR_UAT
 #   Linux/macOS bash

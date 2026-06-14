@@ -104,12 +104,14 @@ decoder, bus I/O, flags) is being re-validated against a genuinely different pro
 layout coexists with the 6502's, no renumber), **bidirectional register-pair aliasing** (8-bit
 halves are storage, 16-bit pairs are computed views), **composable flag micro-ops**
 (`SetSZ`/`SetParity`/`SetXY`/`SetAddSub` — general, proven non-6502-specific via a synthetic CPU),
-and the **Z80 base-plane interpreter**: all **248 covered base-plane opcodes pass the Z80 TomHarte
-sweep (248,000 cases, zero failures)** — including F's undocumented X/Y bits, the per-T-state bus
-trace, and the ports array, and including the SCF/CCF NMOS X/Y quirk (via a Q pseudo-register). The
-6502 is provably un-regressed (empty source diff, full both-tier sweep, Klaus cycle-exact). Still
-ahead on the ladder: the **CB/ED/DD/FD prefix planes** (M3.4b/c), the **Z80 through the JIT** (M3.5),
-then **68000** (M4) and **8086** (M5) before a cross-architecture JIT-optimization pass (M6). See
+the **Z80 base-plane interpreter**, and (M3.4b) the **0xCB prefix plane + the four rotate-accumulators**:
+all **252 base-plane + 256 CB opcodes pass the Z80 TomHarte sweep (508,000 cases, zero failures)** —
+including F's undocumented X/Y bits (W-sourced for `BIT n,(HL)`), the WZ/MEMPTR and Q internal
+registers, the per-T-state bus trace, the ports array, and the SCF/CCF NMOS X/Y quirk. The 6502 is
+provably un-regressed (empty source diff, full both-tier sweep, Klaus cycle-exact). Still ahead on the
+ladder: the **ED prefix plane** (block ops, 16-bit ADC/SBC, interrupt modes — M3.4c), the **DD/FD
+planes** (IX/IY — M3.4d), the **Z80 through the JIT** (M3.5), then **68000** (M4) and **8086** (M5)
+before a cross-architecture JIT-optimization pass (M6). See
 [Testing](docs/user-guide/testing.md#z80-tomharte-single-step-vectors) for exactly what executes today.
 
 For full detail see the [User Guide](docs/user-guide/README.md).

@@ -21,9 +21,9 @@ Welcome to the CpuEmulator user guide. Use these pages to get the emulator runni
 | CPU | Interpreter (Tier 0) | JIT (Tier 1) | Monitor host | Validation |
 |---|---|---|---|---|
 | **MOS 6502** | ✅ full ISA | ✅ full ISA | ✅ Breadboard6502 | TomHarte 1,510,000 cases + Klaus (96,241,367 cycles), both tiers |
-| **Zilog Z80** | 🟡 base plane (248 opcodes) | ⬜ planned (M3.5) | ⬜ not yet | TomHarte 248,000 cases (base plane), interpreter |
+| **Zilog Z80** | 🟡 base + CB planes (508 opcodes) | ⬜ planned (M3.5) | ⬜ not yet | TomHarte 508,000 cases (base + CB), interpreter |
 
-The Z80 base-plane interpreter is the framework's first non-6502 execution. The CB/ED/DD/FD prefix planes (bit/shift/block ops, IX/IY indexing, the remaining interrupt modes) are in progress; see [Testing](testing.md#z80-tomharte-single-step-vectors) for exactly what is covered today.
+The Z80 base-plane interpreter is the framework's first non-6502 execution; the 0xCB prefix plane (rotates/shifts, BIT/RES/SET) and the four rotate-accumulators are now live too. The ED/DD/FD prefix planes (block ops, 16-bit ADC/SBC, IX/IY indexing, the interrupt modes) are in progress; see [Testing](testing.md#z80-tomharte-single-step-vectors) for exactly what is covered today.
 
 ## Quick links
 
