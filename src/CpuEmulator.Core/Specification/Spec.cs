@@ -156,4 +156,10 @@ public static class Spec
 
     // ── M3.4d ED block ops (additive) ──
     public static Op EdBlock(string mnemonic) => new EdBlockOp(mnemonic);
+
+    // ── M3.4e-2 DD/FD indexed plane (additive) ──
+    public static Op DdFdLdIndexed(string op, string reg) => new DdFdLdIndexedOp(op, reg);
+    public static Op DdFdStoreImmIndexed() => new DdFdStoreImmIndexedOp();
+    public static Op DdFdAluIndexed(string op) => new DdFdAluIndexedOp(op);
+    public static Op DdFdIncDecIndexed(bool isDec) => new DdFdIncDecIndexedOp(isDec);
 }

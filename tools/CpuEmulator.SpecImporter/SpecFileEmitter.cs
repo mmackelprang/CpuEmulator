@@ -173,6 +173,10 @@ public static class SpecFileEmitter
                     ? Z80CbSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16))
                 : isZ80 && entry.Prefix == "0xED"
                     ? Z80EdSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16))
+                : isZ80 && entry.Prefix == "0xDD"
+                    ? Z80DdFdSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16), entry.Mnemonic, entry.Mode, isIy: false)
+                : isZ80 && entry.Prefix == "0xFD"
+                    ? Z80DdFdSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16), entry.Mnemonic, entry.Mode, isIy: true)
                 : null;
 
             string? opsText;

@@ -120,6 +120,11 @@ public sealed class SemanticsMap
         ["EdNop"]       = 0,
         // M3.4d: the ED block ops.
         ["EdBlock"]     = 1,
+        // M3.4e-2: the DD/FD indexed ops.
+        ["DdFdLdIndexed"]       = 2,
+        ["DdFdStoreImmIndexed"] = 0,
+        ["DdFdAluIndexed"]      = 1,
+        ["DdFdIncDecIndexed"]   = 1,
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────

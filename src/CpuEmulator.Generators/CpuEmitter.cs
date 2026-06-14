@@ -280,7 +280,7 @@ internal static class CpuEmitter
             or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock;
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -298,6 +298,16 @@ internal static class CpuEmitter
         sb.AppendLine($"    /// <summary>0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode} — {cycleStr}.</summary>");
         sb.AppendLine($"    private void Op{instruction.OperationKey:X2}()");
         sb.AppendLine("    {");
+
+        // M3.4e-2: a DD/FD prefix is a non-flag-writing M1 fetch, so by the documented Q lifecycle it
+        // sets Q = 0 BEFORE the inner opcode runs. Only SCF/CCF READ Q mid-body (the X/Y quirk uses
+        // (Q ^ F) | A) — for a DD/FD-prefixed SCF/CCF (e.g. DD 37 / DD 3F, inert) the prefix has already
+        // zeroed Q, so the seeded q is ignored. Reset Q = 0 up front for every prefixed row; non-Q
+        // ops are unaffected (they overwrite Q at the body's end). Vector-confirmed against dd/fd 37/3f.
+        bool ddFdPrefixed = instruction.OperationKey is >= 0xDD00 and <= 0xDDFF
+                         or (>= 0xFD00 and <= 0xFDFF);
+        if (structured && ddFdPrefixed)
+            sb.AppendLine("        Q = 0;   // DD/FD prefix M1 zeroes Q before the inner opcode (SCF/CCF quirk)");
 
         switch (opClass)
         {
@@ -367,10 +377,24 @@ internal static class CpuEmitter
             case InstructionClass.Z80EdBlock:
                 EmitZ80EdBlockBody(sb, instruction, pc, pcType, statusReg, flags);
                 break;
+            // ── M3.4e-2 DD/FD indexed plane ──
+            case InstructionClass.Z80Indexed:
+                EmitZ80IndexedBody(sb, instruction, pc, pcType, statusReg, flags);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
         }
+
+        // M3.4e-2: the DD/FD INERT/half/16-bit ops REUSE the base emit arms (G6), which compute their
+        // T-state total from the BASE op (Z80Cycles) and balance against a 1-byte opcode fetch. But a
+        // DD/FD-prefixed op pays an EXTRA M1 (the prefix fetch = +4 T) and Step charges 2 key bytes
+        // (prefix + opcode) rather than 1. Net surcharge = +4 (prefix M1) − 1 (the extra key byte Step
+        // already charged) = +3 internal T-states. The Z80Indexed arms compute their own vector-pinned
+        // totals (already accounting for the 2-byte key fetch), so they are EXCLUDED. Confirmed against
+        // the vectors: DD 04 = 8 T (base 4 + 4), DD 09 = 15 T (base 11 + 4), DD EA = 14 T (base 10 + 4).
+        if (ddFdPrefixed && opClass != InstructionClass.Z80Indexed)
+            sb.AppendLine("        _cycles += 3;   // DD/FD prefix M1 surcharge (+4 prefix − 1 extra key byte)");
 
         // M3.4b: the cross-instruction Q lifecycle. Every Z80 op sets Q at the end: Q = F if it wrote
         // flags, else Q = 0. SCF/CCF read the PREVIOUS Q (seeded as pre-state by the harness / the prior
@@ -410,6 +434,8 @@ internal static class CpuEmitter
                 _ => false,   // EdLdNnRp / EdRetn / EdIm / EdNop write no flags
             },
             InstructionClass.Z80EdBlock => true,   // every block op writes F
+            // M3.4e-2: ALU + INC/DEC (IX+d) write F; LD r,(IX+d) / (IX+d),r / (IX+d),n do not.
+            InstructionClass.Z80Indexed => kind is "DdFdAluIndexed" or "DdFdIncDecIndexed",
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -528,6 +554,9 @@ internal static class CpuEmitter
         (InstructionClass.Z80EdOp, "EdRrdRld", _) => 18,
         (InstructionClass.Z80EdOp, "EdNop", _) => 8,
         (InstructionClass.Z80EdBlock, _, _) => 16,   // placeholder — base/final cycles; +5 on repeat in body
+        // ── M3.4e-2 DD/FD indexed plane (vector-pinned totals) ──
+        (InstructionClass.Z80Indexed, "DdFdIncDecIndexed", _) => 23,   // INC/DEC (IX+d)
+        (InstructionClass.Z80Indexed, _, _) => 19,                     // LD r,(IX+d)/(IX+d),r/(IX+d),n ; ALU A,(IX+d)
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -1571,11 +1600,19 @@ internal static class CpuEmitter
     }
 
     /// <summary>The 8-bit ALU register source named in the opcode's low 3 bits (B C D E H L _ A).
-    /// (HL) is opcode bits == 6 — handled by RegisterIndirect, not here.</summary>
+    /// (HL) is opcode bits == 6 — handled by RegisterIndirect, not here. M3.4e-2: a DD/FD-prefixed
+    /// ALU register row (e.g. DD 84 = ADD A,IXh) re-reads the H/L source slot as the index half
+    /// (IXh/IXl/IYh/IYl) — the undoc half ALU forms; the prefix is the OperationKey high byte.</summary>
     private static string SourceRegFromOpcode(InstructionModel insn)
     {
+        int slot = insn.Opcode & 0x07;
+        uint prefix = insn.OperationKey >> 8;
+        if (prefix is 0xDD or 0xFD && slot is 4 or 5)
+            return prefix == 0xDD
+                ? (slot == 4 ? "IXh" : "IXl")
+                : (slot == 4 ? "IYh" : "IYl");
         string[] regs = ["B", "C", "D", "E", "H", "L", "(HL)", "A"];
-        return regs[insn.Opcode & 0x07];
+        return regs[slot];
     }
 
     private static void EmitZ80Alu8(StringBuilder sb, string kind, string f, FlagBitMap flags)
@@ -1718,7 +1755,9 @@ internal static class CpuEmitter
 
     private static void EmitZ80Add16(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags, int total)
     {
-        // ADD HL,rr (0x09/19/29/39). Target is HL; source is the pair from the opcode bits 5-4.
+        // ADD HL,rr (0x09/19/29/39) ; M3.4e-2: ADD IX,rr / ADD IY,rr (DD/FD). Target = Args[0]
+        // (HL by default; IX/IY for the prefixed plane), source = Args[1].
+        string dst = insn.Ops[0].Args[0];
         string src = insn.Ops[0].Args[1];
         string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
         string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
@@ -1726,8 +1765,8 @@ internal static class CpuEmitter
         string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
         string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
         // S/Z/P-V preserved; H from bit 11; C from bit 15; N=0; X/Y from the high byte of the result.
-        sb.AppendLine("        int hl = HL;");
-        EmitWz(sb, "hl + 1");   // ADD HL,rr → WZ = pre-op HL + 1 (vector-confirmed)
+        sb.AppendLine($"        int hl = {dst};");
+        EmitWz(sb, "hl + 1");   // ADD dst,rr → WZ = pre-op dst + 1 (vector-confirmed; IX+1 for ADD IX,rr)
         sb.AppendLine($"        int rr = {src};");
         sb.AppendLine("        int sum16 = hl + rr;");
         sb.AppendLine("        int half16 = (hl & 0x0FFF) + (rr & 0x0FFF);");
@@ -1738,7 +1777,7 @@ internal static class CpuEmitter
         sb.AppendLine($"            | (sum16 > 0xFFFF ? {cMask} : 0x00)");
         sb.AppendLine($"            | (((res16 >> 8) & 0x20) != 0 ? {yMask} : 0x00)");
         sb.AppendLine($"            | (((res16 >> 8) & 0x08) != 0 ? {xMask} : 0x00)));");
-        sb.AppendLine("        HL = res16;");
+        sb.AppendLine($"        {dst} = res16;");
         int internalT = total - 1;   // no bus access beyond the fetch; the rest is internal
         if (internalT > 0) sb.AppendLine($"        _cycles += {internalT};");
     }
@@ -1872,14 +1911,21 @@ internal static class CpuEmitter
                 return;
             case "ExSpHl":  // EX (SP),HL — swap HL with the word at (SP). The Z80 reads (SP) then (SP+1),
                             // then writes (SP+1)=H BEFORE (SP)=L (the documented write order TomHarte checks).
+                            // M3.4e-2: EX (SP),IX / EX (SP),IY (DD/FD) — the pair is read from the prefix
+                            // (0xDD -> IX, else IY); a base (unprefixed) row uses HL (byte-identical output).
+            {
+                string pair = (insn.OperationKey >> 8) == 0xDD ? "IX"
+                            : (insn.OperationKey >> 8) == 0xFD ? "IY"
+                            : "HL";
                 sb.AppendLine($"        byte slo = ReadBus({sp});");
                 sb.AppendLine($"        byte shi = ReadBus((uint)(({sp} + 1) & 0xFFFF));");
-                sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)(HL >> 8)));");
-                sb.AppendLine($"        WriteBus({sp}, unchecked((byte)HL));");
-                sb.AppendLine("        HL = unchecked((ushort)(slo | (shi << 8)));");
-                EmitWz(sb, "HL");   // EX (SP),HL → WZ = the new HL (post-exchange; vector-confirmed)
+                sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)({pair} >> 8)));");
+                sb.AppendLine($"        WriteBus({sp}, unchecked((byte){pair}));");
+                sb.AppendLine($"        {pair} = unchecked((ushort)(slo | (shi << 8)));");
+                EmitWz(sb, pair);   // EX (SP),pair → WZ = the new pair value (post-exchange; vector-confirmed)
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
+            }
             default:
                 throw new System.InvalidOperationException($"Z80 exchange: no template for op '{kind}'");
         }
@@ -2014,10 +2060,16 @@ internal static class CpuEmitter
 
         switch (kind)
         {
-            case "JumpIndirect":  // JP (HL) — PC = HL (no memory read).
-                sb.AppendLine($"        {pc} = HL;");
+            case "JumpIndirect":  // JP (HL) — PC = HL (no memory read). M3.4e-2: JP (IX)/JP (IY) (DD/FD) —
+                                  // the pair is read from the prefix (0xDD -> IX, else IY); base uses HL.
+            {
+                string pair = (insn.OperationKey >> 8) == 0xDD ? "IX"
+                            : (insn.OperationKey >> 8) == 0xFD ? "IY"
+                            : "HL";
+                sb.AppendLine($"        {pc} = {pair};");
                 EmitInternal(sb, total, 0, 0);
                 return;
+            }
             case "JumpAbs":  // JP nn — read the 16-bit target, PC = nn. 10 T-states.
                 sb.AppendLine($"        byte jl = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
@@ -2145,6 +2197,106 @@ internal static class CpuEmitter
     {
         int internalT = total - 1 - busReads - busWrites;
         if (internalT > 0) sb.AppendLine($"        _cycles += {internalT};");
+    }
+
+    // ── M3.4e-2 DD/FD indexed plane: LD/ALU/INC-DEC on the (IX+d)/(IY+d) effective address ──
+    // Every form: read the displacement byte (the byte after the opcode), compute the signed EA via
+    // EmitZ80IndexedEa, set WZ = EA (the (IX+d) MEMPTR rule), then operate on __ea. The index register
+    // (IX vs IY) is read from the OperationKey prefix high byte (0xDD -> IX, else IY). Step charges the
+    // 2 key bytes (prefix + opcode); the body charges (total - 2 - <body bus accesses>), the ED
+    // precedent's cycle balance. The disp/imm reads and the memory access each charge 1 via ReadBus/
+    // WriteBus on the real Z80Cpu.
+    private static void EmitZ80IndexedBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        string ix = (insn.OperationKey >> 8) == 0xDD ? "IX" : "IY";   // the index register (G1 / Task 1)
+        // Read the displacement byte and compute the signed EA, then publish WZ = EA.
+        sb.AppendLine($"        byte d = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        EmitZ80IndexedEa(sb, ix, "d");   // -> ushort __ea = unchecked((ushort)(IX + (sbyte)(d)));
+        EmitWz(sb, "__ea");              // WZ = the computed EA
+
+        switch (insn.Ops[0].Kind)
+        {
+            case "DdFdLdIndexed":
+            {
+                string op = Unquote(insn.Ops[0].Args[0]);    // LOAD / STORE
+                string reg = Unquote(insn.Ops[0].Args[1]);   // B..A
+                if (op == "LOAD")
+                    sb.AppendLine($"        {reg} = ReadBus(__ea);");
+                else
+                    sb.AppendLine($"        WriteBus(__ea, {reg});");
+                // 19 T: -2 key bytes (Step), -1 disp read, -1 memory access.
+                sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1};");
+                return;
+            }
+            case "DdFdStoreImmIndexed":
+            {
+                sb.AppendLine($"        byte n = ReadBus({pc});");
+                sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                sb.AppendLine("        WriteBus(__ea, n);");
+                // 19 T: -2 key, -1 disp, -1 imm, -1 write.
+                sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1 - 1};");
+                return;
+            }
+            case "DdFdAluIndexed":    EmitZ80IndexedAlu(sb, insn, f, flags); return;     // Task 3
+            case "DdFdIncDecIndexed": EmitZ80IndexedIncDec(sb, insn, f, flags); return;  // Task 4
+            default:
+                throw new System.InvalidOperationException($"Z80Indexed: no template for '{insn.Ops[0].Kind}'");
+        }
+    }
+
+    /// <summary>ALU A,(IX+d): data = ReadBus(__ea); run the 8-bit ALU op against A (reusing the base
+    /// EmitZ80Alu8 flag math). __ea + WZ are already emitted by EmitZ80IndexedBody. Cycles 19.</summary>
+    private static void EmitZ80IndexedAlu(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        // The op arg ("ADD".."CP") maps to the EmitZ80Alu8 kind ("Add8".."Cp8").
+        string kind = Unquote(insn.Ops[0].Args[0]) switch
+        {
+            "ADD" => "Add8", "ADC" => "Adc8", "SUB" => "Sub8", "SBC" => "Sbc8",
+            "AND" => "And8", "XOR" => "Xor8", "OR" => "Or8", "CP" => "Cp8",
+            var other => throw new System.InvalidOperationException($"Z80 indexed ALU: unknown op '{other}'"),
+        };
+        sb.AppendLine("        byte data = ReadBus(__ea);");
+        EmitZ80Alu8(sb, kind, f, flags);   // the EXISTING 8-bit ALU flag-word emitter (reads `data`, `A`)
+        // 19 T: -2 key bytes (Step), -1 disp read, -1 memory read.
+        sb.AppendLine($"        _cycles += {19 - 2 - 1 - 1};");
+    }
+
+    /// <summary>INC/DEC (IX+d): RMW on the indexed EA with full INC/DEC flags (S/Z/Y/H/X/P-V from
+    /// before/res, N per op, C preserved) — the SAME flag word EmitZ80IncDec8 computes for the (HL)
+    /// form, differing only in the address (__ea). __ea + WZ are already emitted by EmitZ80IndexedBody.
+    /// Cycles 23.</summary>
+    private static void EmitZ80IndexedIncDec(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        bool dec = insn.Ops[0].Args[0] == "true";   // IsDec — bool args stored as the bare word (M3.4c)
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        string delta = dec ? "- 1" : "+ 1";
+        sb.AppendLine("        byte before = ReadBus(__ea);");
+        sb.AppendLine($"        byte res = unchecked((byte)(before {delta}));");
+        // H: INC = (before&0xF)==0xF; DEC = (before&0xF)==0. P/V: INC overflow at 0x7F->0x80; DEC at 0x80->0x7F.
+        string halfExpr = dec ? "((before & 0x0F) == 0x00)" : "((before & 0x0F) == 0x0F)";
+        string ovExpr = dec ? "(before == 0x80)" : "(before == 0x7F)";
+        // C is PRESERVED — start from the old C bit only.
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");
+        sb.AppendLine($"            | ((res & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (res == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ({halfExpr} ? {hMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ({ovExpr} ? {pMask} : 0x00)");
+        sb.AppendLine($"            | {(dec ? nMask : "0x00")}));");
+        sb.AppendLine("        WriteBus(__ea, res);");
+        // 23 T: -2 key bytes (Step), -1 disp read, -1 memory read, -1 memory write.
+        sb.AppendLine($"        _cycles += {23 - 2 - 1 - 1 - 1};");
     }
 
     // ── M3.4b CB plane + rotate-accumulators ──
@@ -3147,6 +3299,11 @@ internal static class CpuEmitter
                 // operandLo/Hi), so the disassembly shows the mnemonic only.
                 "Bit" =>
                     $"            0x{instruction.OperationKey:X2} => \"{m}\",",
+                // M3.4e-2 (IX+d)/(IY+d): the index register is the prefix in the OperationKey high byte
+                // (0xDD -> IX, else IY); the displacement is the first operand byte (operandLo). The
+                // disassembly string is NOT vector-gated — it need only be well-formed + not throw.
+                "Indexed" =>
+                    $"            0x{instruction.OperationKey:X} => $\"{m} ({((instruction.OperationKey >> 8) == 0xDD ? "IX" : "IY")}+${{operandLo:X2}})\",",
                 _ => throw new System.InvalidOperationException(
                     $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
             };
@@ -3288,7 +3445,7 @@ internal static class CpuEmitter
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock)
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -3340,7 +3497,7 @@ internal static class CpuEmitter
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
             or InstructionClass.Z80Rot or InstructionClass.Z80Bit
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-            or InstructionClass.Z80EdBlock;
+            or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -3366,7 +3523,7 @@ internal static class CpuEmitter
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
-                or InstructionClass.Z80EdBlock => "Register",
+                or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -3450,6 +3607,11 @@ internal static class CpuEmitter
             case "EdRrdRld":
             case "EdNop":
             case "EdBlock":   // M3.4d ED block op — JIT fallback; slots unused
+            // M3.4e-2 DD/FD indexed ops — JIT fallback (D4: DD/FD JIT-IL deferred to M3.5); slots unused.
+            case "DdFdLdIndexed":
+            case "DdFdStoreImmIndexed":
+            case "DdFdAluIndexed":
+            case "DdFdIncDecIndexed":
                 break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,

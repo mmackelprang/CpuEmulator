@@ -159,6 +159,11 @@ internal static class SpecParser
         ["EdNop"]      = System.Array.Empty<ArgKind>(),
         // M3.4d: the ED block ops.
         ["EdBlock"]    = new[] { ArgKind.Str },                 // EdBlock("LDIR")
+        // M3.4e-2: the DD/FD indexed ops.
+        ["DdFdLdIndexed"]       = new[] { ArgKind.Str, ArgKind.Str },   // DdFdLdIndexed("LOAD", "A")
+        ["DdFdStoreImmIndexed"] = System.Array.Empty<ArgKind>(),
+        ["DdFdAluIndexed"]      = new[] { ArgKind.Str },               // DdFdAluIndexed("ADD")
+        ["DdFdIncDecIndexed"]   = new[] { ArgKind.Bool },              // DdFdIncDecIndexed(true)
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -296,6 +301,12 @@ internal static class SpecParser
     private static readonly HashSet<string> s_z80EdBlockOpKinds = new(System.StringComparer.Ordinal)
     {
         "EdBlock",
+    };
+
+    // ── M3.4e-2 DD/FD indexed op-kind class set (additive) ──
+    private static readonly HashSet<string> s_z80IndexedOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "DdFdLdIndexed", "DdFdStoreImmIndexed", "DdFdAluIndexed", "DdFdIncDecIndexed",
     };
 
     // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
@@ -991,6 +1002,7 @@ internal static class SpecParser
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
                 or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
                 or InstructionClass.Z80EdBlock
+                or InstructionClass.Z80Indexed
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -1170,6 +1182,11 @@ internal static class SpecParser
             if (ops.Length != 1) { error = "Z80 ED block class must contain exactly one op"; return null; }
             return InstructionClass.Z80EdBlock;
         }
+        if (s_z80IndexedOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 indexed class must contain exactly one op"; return null; }
+            return InstructionClass.Z80Indexed;
+        }
 
         // All must be register ops
         foreach (var op in ops)
@@ -1296,6 +1313,10 @@ internal static class SpecParser
             // M3.4d: the block ops are all Implied (operands are the implicit BC/DE/HL/A/C registers).
             InstructionClass.Z80EdBlock =>
                 mode == "Implied" ? null : "Z80 ED block class requires Implied mode",
+
+            // M3.4e-2: the indexed (IX+d)/(IY+d) memory ops are all Indexed mode.
+            InstructionClass.Z80Indexed =>
+                mode == "Indexed" ? null : "Z80 indexed class ((IX+d)/(IY+d)) requires Indexed mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

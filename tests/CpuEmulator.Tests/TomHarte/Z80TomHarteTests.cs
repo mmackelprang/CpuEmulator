@@ -165,4 +165,104 @@ public class Z80TomHarteTests(ITestOutputHelper output)
             Assert.Fail($"{failures.Count} failing case(s) shown of {run} run:\n\n" +
                         string.Join("\n---\n", failures));
     }
+
+    /// <summary>The covered DD-core opcodes (0x00–0xFF minus the prefix bytes cb/dd/ed/fd) — present in
+    /// the generated dispatch (Disassemble != "???"). Probed via the prefixed key (0xDD00 | op). The DDCB
+    /// compound forms (0xDDCB__) are M3.4e-3, NOT in this core key range. A probe of fewer than 252
+    /// opcodes means a derived row failed to emit.</summary>
+    public static TheoryData<byte> CoveredDdPlaneOpcodes()
+    {
+        var data = new TheoryData<byte>();
+        for (int op = 0x00; op <= 0xFF; op++)
+        {
+            if (op is 0xCB or 0xDD or 0xED or 0xFD) continue;   // prefix bytes — no standalone core vector
+            if (Z80Cpu.Disassemble((uint)(0xDD00 | op), 0, 0) != "???")
+                data.Add((byte)op);
+        }
+        return data;
+    }
+
+    [Z80TomHarteTheory]
+    [MemberData(nameof(CoveredDdPlaneOpcodes))]
+    public void Dd_opcode_matches_TomHarte_vectors(byte opcode)
+    {
+        string dir = Z80TomHarteVectors.TryGetVectorDirectory()!;
+        string path = Path.Combine(dir, $"dd {opcode:x2}.json");   // 3 tokens — NOT "dd cb __"
+        Assert.True(File.Exists(path), $"vector file missing: {path}");
+        var cases = Z80TomHarteLoader.LoadFile(path);
+
+        bool uatFull = Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full";
+        int sampleSize = uatFull ? int.MaxValue
+            : int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
+                           out int parsed) && parsed > 0 ? parsed : 200;
+        bool registersOnly = Environment.GetEnvironmentVariable("CPUEMULATOR_Z80_REGS_ONLY") == "1";
+
+        int run = 0;
+        var failures = new List<string>();
+        foreach (var testCase in cases)
+        {
+            if (run >= sampleSize) break;
+            run++;
+            if (Z80TomHarteRunner.RunCase(testCase, registersOnly) is { } failure)
+            {
+                failures.Add(failure);
+                if (failures.Count >= 3) break;
+            }
+        }
+
+        output.WriteLine($"dd {opcode:x2}: ran {run}");
+        Assert.True(run > 0, "no cases ran — sampling/skip logic is broken");
+        if (failures.Count > 0)
+            Assert.Fail($"{failures.Count} failing case(s) shown of {run} run:\n\n" +
+                        string.Join("\n---\n", failures));
+    }
+
+    /// <summary>The covered FD-core opcodes — the IY analogue of <see cref="CoveredDdPlaneOpcodes"/>.
+    /// Probed via the prefixed key (0xFD00 | op); the FDCB compound forms are M3.4e-3.</summary>
+    public static TheoryData<byte> CoveredFdPlaneOpcodes()
+    {
+        var data = new TheoryData<byte>();
+        for (int op = 0x00; op <= 0xFF; op++)
+        {
+            if (op is 0xCB or 0xDD or 0xED or 0xFD) continue;
+            if (Z80Cpu.Disassemble((uint)(0xFD00 | op), 0, 0) != "???")
+                data.Add((byte)op);
+        }
+        return data;
+    }
+
+    [Z80TomHarteTheory]
+    [MemberData(nameof(CoveredFdPlaneOpcodes))]
+    public void Fd_opcode_matches_TomHarte_vectors(byte opcode)
+    {
+        string dir = Z80TomHarteVectors.TryGetVectorDirectory()!;
+        string path = Path.Combine(dir, $"fd {opcode:x2}.json");
+        Assert.True(File.Exists(path), $"vector file missing: {path}");
+        var cases = Z80TomHarteLoader.LoadFile(path);
+
+        bool uatFull = Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full";
+        int sampleSize = uatFull ? int.MaxValue
+            : int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
+                           out int parsed) && parsed > 0 ? parsed : 200;
+        bool registersOnly = Environment.GetEnvironmentVariable("CPUEMULATOR_Z80_REGS_ONLY") == "1";
+
+        int run = 0;
+        var failures = new List<string>();
+        foreach (var testCase in cases)
+        {
+            if (run >= sampleSize) break;
+            run++;
+            if (Z80TomHarteRunner.RunCase(testCase, registersOnly) is { } failure)
+            {
+                failures.Add(failure);
+                if (failures.Count >= 3) break;
+            }
+        }
+
+        output.WriteLine($"fd {opcode:x2}: ran {run}");
+        Assert.True(run > 0, "no cases ran — sampling/skip logic is broken");
+        if (failures.Count > 0)
+            Assert.Fail($"{failures.Count} failing case(s) shown of {run} run:\n\n" +
+                        string.Join("\n---\n", failures));
+    }
 }
