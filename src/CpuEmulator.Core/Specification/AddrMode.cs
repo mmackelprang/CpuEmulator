@@ -19,4 +19,8 @@ public enum AddrMode
     ExtendedAddress,   // (nn) 16-bit absolute, byte AND word (LD (nn),A ; LD HL,(nn) ; JP nn ; CALL nn)
     RelativeJump,      // PC + signed displacement (JR d ; JR cc,d ; DJNZ d)
     Bit,               // CB-plane bit/rotate/shift (BIT/RES/SET n,r ; RLC/RR/SLA/… r). 2 bytes: 0xCB + op
+    // M3.4e-1a (Z80 IX/IY): the indexed effective address (IX+d)/(IY+d). The DD/FD-core forms are 3
+    // bytes (prefix + opcode + signed displacement); the DDCB/FDCB compound forms put the displacement
+    // BEFORE the opcode (4 bytes) and decode via the compound-prefix walk (M3.4e-1b), not ModeLength.
+    Indexed,
 }

@@ -298,15 +298,17 @@ public class SemanticsMapTests
     [Fact]
     public void Z80_registers_load_as_declared()
     {
-        // The 31 Z80 register configs: 18 8-bit STORAGE (main A F B C D E H L + alternate A_..L_ +
-        // I R) + 5 16-bit storage (WZ IX IY SP PC) + 8 16-bit pair VIEWS (AF/BC/DE/HL + the alt pairs,
-        // M3.4a). M3.4b adds WZ/MEMPTR (read by BIT y,(HL) for its X/Y). F is Status; SP StackPointer;
-        // PC ProgramCounter.
+        // The 35 Z80 register configs: 22 8-bit STORAGE (main A F B C D E H L + alternate A_..L_ +
+        // I R + the M3.4e-1a index halves IXh IXl IYh IYl) + 3 16-bit storage (WZ SP PC) + 10 16-bit
+        // pair VIEWS (AF/BC/DE/HL + the alt pairs + IX/IY). M3.4b adds WZ/MEMPTR (read by BIT y,(HL)
+        // for its X/Y). M3.4e-1a (D2 storage inversion): IX/IY become computed pair-views over the new
+        // 8-bit halves (storage moved off the IX/IY fields onto IXh/IXl/IYh/IYl). F is Status;
+        // SP StackPointer; PC ProgramCounter.
         var map = SemanticsMap.Load(Z80SemanticsPath);
         Assert.Equal("z80", map.Architecture);
         Assert.Equal("CpuEmulator.Cpus.Z80", map.Namespace);
         Assert.Equal("Z80Spec", map.SpecClassName);
-        Assert.Equal(31, map.Registers.Length);
+        Assert.Equal(35, map.Registers.Length);
 
         var byName = map.Registers.ToDictionary(r => r.Name);
         Assert.Equal("Status", byName["F"].Role);
@@ -315,11 +317,18 @@ public class SemanticsMapTests
         // the alternate set is declared as eight more 8-bit generals
         foreach (var alt in new[] { "A_", "F_", "B_", "C_", "D_", "E_", "H_", "L_" })
             Assert.True(byName.ContainsKey(alt), $"alternate register {alt} missing");
-        // I/R 8-bit; IX/IY/SP/PC 16-bit
+        // I/R 8-bit; SP/PC 16-bit
         Assert.Equal(8, byName["I"].Bits);
         Assert.Equal(8, byName["R"].Bits);
+        // M3.4e-1a (D2): the index halves are 8-bit STORAGE; IX/IY are 16-bit VIEWS over them.
+        foreach (var half in new[] { "IXh", "IXl", "IYh", "IYl" })
+            Assert.Equal(8, byName[half].Bits);
         Assert.Equal(16, byName["IX"].Bits);
         Assert.Equal(16, byName["IY"].Bits);
+        Assert.Equal("IXh", byName["IX"].HighHalf);
+        Assert.Equal("IXl", byName["IX"].LowHalf);
+        Assert.Equal("IYh", byName["IY"].HighHalf);
+        Assert.Equal("IYl", byName["IY"].LowHalf);
         // M3.4a: the 8 pair VIEWS carry HighHalf/LowHalf over the 8-bit halves (bidirectional aliasing).
         Assert.Equal("B", byName["BC"].HighHalf);
         Assert.Equal("C", byName["BC"].LowHalf);

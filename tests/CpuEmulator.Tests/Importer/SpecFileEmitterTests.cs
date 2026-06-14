@@ -229,6 +229,7 @@ public class SpecFileEmitterTests
         // M3.4a: the Z80 register-shape modes (the base plane is now live).
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
         "Bit",   // M3.4b: the CB plane is now emittable.
+        "Indexed",   // M3.4e-1a: the (IX+d)/(IY+d) mode is now a SupportedModes member (no DD/FD row live yet).
     ];
 
     private static bool IsSingleBytePrefix(string? prefix) =>
@@ -293,9 +294,10 @@ public class SpecFileEmitterTests
     [Fact]
     public void DDCB_compound_rows_emit_as_TODO_not_prefixed_Insn()
     {
-        // The enumerated M3.4 finding: a DDCB/FDCB compound-prefix row is NEVER emitted as a prefixed
-        // Insn (its Indexed mode is not emittable AND the compound prefix is not a single PrefixByte).
-        // It appears only as a TODO comment with its compound plane-qualified Key.
+        // A DDCB/FDCB compound-prefix row is NEVER emitted as a prefixed Insn: the compound prefix
+        // (0xDDCB) is not a single PrefixByte, so the importer cannot key it. (M3.4e-1a made the Indexed
+        // MODE emittable, but the compound DECODER is M3.4e-1b; until then these rows stay TODO.) The row
+        // appears only as a TODO comment with its compound plane-qualified Key.
         var (source, _) = RunZ80Engine();
         Assert.Contains("0xDDCB:0x06", source);   // RLC (IX+d) — present as a TODO key
         // No Insn row should ever carry a compound prefix literal (there is no 0xDDCB Insn overload arg).

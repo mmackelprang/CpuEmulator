@@ -42,10 +42,12 @@ public static class SpecFileEmitter
     // AddrMode enum member or the generated source will not compile. SYNC HAZARD: if AddrMode gains
     // new members this set must expand in concert. See the MIRROR TABLES block in SpecParser.cs.
     //
-    // M3.3 (Z80): the Z80 register-shape modes (Register/RegisterIndirect/Indexed/ImmediateExtended/
-    // ExtendedAddress/RelativeJump/Bit) are NOT AddrMode members — a Z80 row in one of those modes
-    // emits `// TODO(mode):` (ENUMERATED FINDING for M3.4: the AddrMode vocabulary must grow to express
-    // them). The shared Implied/Immediate + the M3.2 IoPort* are the Z80's emittable modes today.
+    // M3.4 (Z80): the Z80 register-shape modes (Register/RegisterIndirect/ImmediateExtended/
+    // ExtendedAddress/RelativeJump — M3.4a), the CB-plane Bit mode (M3.4b), and the indexed
+    // (IX+d)/(IY+d) Indexed mode (M3.4e-1a) are now AddrMode members and SupportedModes here. The M3.3
+    // enumerated finding (the AddrMode vocabulary must grow to express the Z80 modes) is resolved. A row
+    // in a mode NOT listed here still emits `// TODO(mode):`. NOTE: a SupportedModes member must also be
+    // a JitMode member — the emitter writes `JitMode.{mode}` literally, so the two move together.
     private static readonly HashSet<string> SupportedModes =
     [
         "Implied", "Accumulator", "Immediate",
@@ -53,10 +55,12 @@ public static class SpecFileEmitter
         "Absolute", "AbsoluteX", "AbsoluteY",
         "IndirectX", "IndirectY", "Indirect", "Relative",
         "IoPortImmediate", "IoPortIndirect",   // M3.2 (additive): the Z80 IN/OUT port-operand modes.
-        // M3.4a (additive): the Z80 register-shape modes the base plane needs. Indexed (IX+d, M3.4c)
-        // stays OUT — its rows keep emitting // TODO(mode).
+        // M3.4a (additive): the Z80 register-shape modes the base plane needs.
         "Register", "RegisterIndirect", "ImmediateExtended", "ExtendedAddress", "RelativeJump",
         "Bit",   // M3.4b (CB plane): BIT/RES/SET + rotate/shift
+        // M3.4e-1a (additive): the indexed (IX+d)/(IY+d) mode. The DD/FD-core indexed rows emit as
+        // Indexed; the DDCB/FDCB compound rows decode via the compound-prefix walk (M3.4e-1b).
+        "Indexed",
     ];
 
     /// <summary>
