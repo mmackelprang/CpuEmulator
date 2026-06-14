@@ -3412,11 +3412,13 @@ internal static class CpuEmitter
                 // operandLo/Hi), so the disassembly shows the mnemonic only.
                 "Bit" =>
                     $"            0x{instruction.OperationKey:X2} => \"{m}\",",
-                // M3.4e-2 (IX+d)/(IY+d): the index register is the prefix in the OperationKey high byte
-                // (0xDD -> IX, else IY); the displacement is the first operand byte (operandLo). The
-                // disassembly string is NOT vector-gated — it need only be well-formed + not throw.
+                // M3.4e-2 (IX+d)/(IY+d): the index register is the prefix byte in the OperationKey
+                // (0xDD -> IX, else IY); the displacement is the first operand byte (operandLo). For a
+                // plain prefixed key (0xDD7E) the prefix is >> 8; for a 24-bit COMPOUND key (0xDDCB46,
+                // M3.4e-3) it is >> 16 — using >> 8 there would yield 0xDDCB and mis-render IX as IY (H1/
+                // D11). The disassembly string is NOT vector-gated — it need only be well-formed + not throw.
                 "Indexed" =>
-                    $"            0x{instruction.OperationKey:X} => $\"{m} ({((instruction.OperationKey >> 8) == 0xDD ? "IX" : "IY")}+${{operandLo:X2}})\",",
+                    $"            0x{instruction.OperationKey:X} => $\"{m} ({((instruction.OperationKey > 0xFFFF ? instruction.OperationKey >> 16 : instruction.OperationKey >> 8) == 0xDD ? "IX" : "IY")}+${{operandLo:X2}})\",",
                 _ => throw new System.InvalidOperationException(
                     $"emitter has no disassembler format for mode '{instruction.Mode}' (opcode 0x{instruction.Opcode:X2})"),
             };
