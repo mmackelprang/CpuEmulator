@@ -1983,6 +1983,18 @@ internal static class CpuEmitter
     private static void EmitWzIndented(StringBuilder sb, string expr) =>
         sb.AppendLine($"            WZ = unchecked((ushort)({expr}));");
 
+    /// <summary>M3.4e-1a (Z80 IX/IY): emit the indexed effective-address computation
+    /// <c>ushort __ea = unchecked((ushort)(&lt;indexReg&gt; + (sbyte)(&lt;dispExpr&gt;)));</c>. The
+    /// displacement is SIGNED (the (IX+d) range is IX-128..IX+127). <paramref name="indexReg"/> is the
+    /// 16-bit index register NAME ("IX"/"IY"); <paramref name="dispExpr"/> is the displacement-byte
+    /// expression — for the DD/FD-core forms the decode walk's first operand byte (the byte after the
+    /// opcode); for the DDCB/FDCB compound forms the byte the compound walk surfaces (M3.4e-1b). Every
+    /// indexed emit arm (M3.4e-2/3) calls this so the EA is computed identically and lives in a known
+    /// local (__ea). e-1a ships the helper; no live opcode calls it yet. Marked internal so the test
+    /// assembly unit-tests it directly (InternalsVisibleTo("CpuEmulator.Tests")).</summary>
+    internal static void EmitZ80IndexedEa(StringBuilder sb, string indexReg, string dispExpr) =>
+        sb.AppendLine($"        ushort __ea = unchecked((ushort)({indexReg} + (sbyte)({dispExpr})));");
+
     private static void EmitZ80FlowBody(
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, string? spReg, FlagBitMap flags)
     {
