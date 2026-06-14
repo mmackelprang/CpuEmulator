@@ -1298,32 +1298,85 @@ EOF
 
 | Commit | Content | Suite |
 |---|---|---|
-| (Task 1) | EdBlock vocabulary + Z80EdBlock class | green |
-| (Task 2) | LDI/LDD/LDIR/LDDR + repeat + A+n X/Y; Z80EdSemantics block arm | green |
-| (Task 3) | CPI/CPD/CPIR/CPDR + match-or-exhaust repeat + WZ±1 | green |
-| (Task 4) | INI/IND/OUTI/OUTD (+repeats) + the k quirk + WZ=BC±1 | green |
-| (Task 5) | importer semantics test (16 -> EdBlock) | green |
-| (Task 6) | 16 rows live + spec regen | green |
-| (Task 7) | ED block ops TomHarte-green + universal regression + closeout | green |
+| `ff3adfe` (Task 1) | EdBlock vocabulary + Z80EdBlock class | green (2254) |
+| `6a8c1da` (Task 2) | LDI/LDD/LDIR/LDDR + repeat + A+n X/Y; Z80EdSemantics block arm | green (2259) |
+| `0503078` (Task 3) | CPI/CPD/CPIR/CPDR + match-or-exhaust repeat + WZ±1 | green (2264) |
+| `2a29a7b` (Task 4) | INI/IND/OUTI/OUTD (+repeats) + the k quirk + WZ=BC±1 | green (2270) |
+| `46e833f` (Task 5) | importer semantics test (16 -> EdBlock) | green (2290) |
+| `46401f5` (Task 6) | 16 rows live + spec regen | green (2290) |
+| (Task 7) | ED block ops TomHarte-green + universal regression + closeout | green (2306) |
 
 | Closeout metric | Value |
 |---|---|
 | Baseline test count (Task 0) | 2252 passed / 0 failed / 0 skipped |
-| Final test count | (fill: 2252 + ~33 new) |
-| ED block opcodes made live | 16 (0xA0–0xBB); probe == emitted == covered == 16 |
+| Final test count | 2306 passed / 0 failed / 0 skipped (+54 new) |
+| ED block opcodes made live | 16 (0xA0–0xBB); probe == emitted == covered == 16 (the ED theory now finds 80) |
 | ED block TomHarte (full UAT) | 16 × 1000 = 16,000 cases, 0 failures (registers incl. F's X/Y, I/R, IM, IFF1/IFF2, WZ, Q, RAM, ports, per-T-state trace, repeat PC-rewind) |
-| ED total now green | 80 opcodes (64 core + 16 block), 80,000 cases |
-| WZ/MEMPTR modeled? | YES — incl. the per-family block-op rules + the repeat WZ=PC+1 |
-| Q lifecycle | every block op sets Q=F |
+| ED total now green | 80 opcodes (64 core + 16 block), 80,000 cases, 0 failures (full UAT) |
+| Whole-Z80 UAT (full) | base 252 + CB 256 + ED 80 = 588 opcodes; ~252k + 256k + 80k cases; 0 failures with final Q/WZ/IM on every case |
+| WZ/MEMPTR modeled? | YES — LD unchanged; CP ±1; IN = orig-BC±1 (before B--); OUT = dec-BC±1 (after B--); repeat WZ=PC+1 |
+| Q lifecycle | every block op sets Q=F (Z80WritesFlags → Z80EdBlock = true) |
 | Base + CB + ED re-validated? | YES — full Z80 UAT 0 failures with final Q/WZ/IM on every case |
-| 6502 un-regressed? | (fill: YES — both tiers + Klaus, byte-identity guard green) |
+| 6502 un-regressed? | YES — both tiers + Klaus (155 tests, 0 skipped) + RegeneratedSpecTests byte-identity guard green |
 | Any 6502 file changed? | NONE (additive) |
-| `-warnaserror` | clean |
+| `-warnaserror` | clean (0 warnings, 0 errors) |
 | Still deferred | DD/FD/DDCB/FDCB = next slice (M3.4e); interrupt SERVICING + ZEXALL + JIT = M3.5 |
 | Recommended next chunk | DD/FD/DDCB/FDCB IX/IY prefixes (M3.4e) — see the overview doc §4 |
 
-### Deviations from the plan's literal code (fill at completion; all gates green)
+### Deviations from the plan's literal code (all gates green; every deviation vector-forced)
 
-1. (record any WZ/flag-rule corrections forced by the vectors — esp. the X/Y bit mapping, the IN/OUT `k`
-   operand, and the CP-repeat WZ ordering, since these were flagged as re-derive-from-vector.)
-2. (record any cycle-padding adjustments.)
+1. **IN-family WZ uses the ORIGINAL BC (before B−−), not the decremented BC.** The plan's Task 4 IN arm
+   (and RECON FINDING F6) computed `WZ = BC ± 1` AFTER `B = B − 1`. The vectors prove this is wrong for
+   the IN family: across all 1000 cases of `ed a2` (INI) and `ed aa` (IND), `WZ == original-BC ± 1` (B
+   BEFORE the decrement), e.g. INI B=0x66 C=0x62 → WZ=0x6663 = 0x6662+1, NOT 0x6562+1. So the IN arm now
+   computes `WZ = BC ± 1` BEFORE `B = B − 1`. The OUT family is unchanged from the plan: `ed a3` (OUTI) /
+   `ed ab` (OUTD) confirm `WZ == decremented-BC ± 1` (B AFTER the decrement), so the OUT arm keeps the
+   `B = B − 1; … WZ = BC ± 1` order. (The plan's prose "WZ = BC(after B−1) + 1 (=26211)" was internally
+   inconsistent — 0x6562+1 ≠ 26211 — confirming the vector-derived original-BC rule.)
+
+2. **The repeating block ops' undocumented X/Y (F3/F5) come from the instruction PC, not the per-family
+   transfer byte.** The plan computed X/Y from `(A+n)` (LD), `(A−(HL)−H)` (CP), or the decremented B
+   (IN/OUT) for ALL iterations. The vectors (`ed b0`..`ed bb`) prove that on a REPEAT (PC rewound), X/Y
+   are overwritten: F3 = bit 3 of PCH, F5 = bit 5 of PCH (PCH = high byte of the instruction PC = PC.11
+   and PC.13). The shared `EmitBlockRepeatTail` now patches F3/F5 from `(PC >> 8)` inside the repeat
+   guard. The non-repeat / final-iteration forms keep the per-family X/Y (verified: single A0–AB all
+   green with the original rule).
+
+3. **The repeating IN/OUT ops get the documented "interrupted INxR/OTxR" H + P/V correction.** This was
+   NOT in the plan at all — the plan's `EmitBlockIoFlags` computed H/C/P-V once and the repeat tail only
+   touched PC/WZ/cycles/X-Y. The vectors (`ed b2`/`ba`/`b3`/`bb`) showed H and P/V differing on the
+   repeat cases. The exact rule (Patrik Rak / hoglet67 Z80Decoder, the "interrupted INxR/OTxR" formula,
+   which is what a single-step vector of a repeating block-IO op models) was re-derived and verified to 0
+   failures across all 8 IO families × 1000 cases: on repeat, with B already decremented and CF = (k >
+   0xFF) — if CF and (data & 0x80): `PF ^= parity((B−1)&7) ^ 1; HF = ((B & 0x0F) == 0x00)`; if CF and
+   !(data & 0x80): `PF ^= parity((B+1)&7) ^ 1; HF = ((B & 0x0F) == 0x0F)`; if !CF: `PF ^= parity(B&7) ^
+   1`. Emitted as an `ioRepeatFix` branch in `EmitBlockRepeatTail`.
+
+4. **Cycle internal-padding added per family (the plan deferred this to "re-derive from the cycles
+   array").** The dataset records `cycles: 16`; the body charges the residual `_cycles += N` after Step's
+   fetch (2) and the per-bus-access charges. Re-derived from the vector cycle-array lengths (16
+   non-repeat/final, 21 repeat): LD `+12` (16 − 2 fetch − 2 bus: ReadBus+WriteBus); CP `+13` (16 − 2 − 1:
+   ReadBus only); IN `+12` (16 − 2 − 2: ReadIo+WriteBus); OUT `+12` (16 − 2 − 2: ReadBus+WriteIo); the
+   repeat adds `+5` in the shared tail (21 = 16 + 5). All confirmed against the per-T-state UAT trace.
+
+5. **`EmitBlockRepeatTail` was generalized with the `condition` parameter in Task 2 (not Task 3).** The
+   plan deferred the signature change to Task 3; doing it in Task 2 avoided a throwaway refactor. Tasks
+   3/4 then added the X/Y masks and (for IO) the `ioRepeatFix`/H/P masks — a superset of the plan's
+   signature, forced by deviations 2 and 3.
+
+6. **Test-harness fix (not a CPU behavior): the synthetic `Build()` helpers map memory into the
+   AddressSpace.** The plan's `Z80EdBlockLoadTests.Build()` omitted `bus.MapMemory(...)`, so the decode
+   walk fetched 0xFF (unmapped) instead of the real ED-prefixed opcode and PC advanced by 1, failing
+   every assertion. Added `bus.MapMemory(0x0000, new byte[0x10000], writable: true)` to match the working
+   M3.4c `Z80EdIoTests` fixture. Applied to all three new synthetic test files (Load/Cp/Io). A few unit
+   test EXPECTATIONS were also corrected to the vector truth (esp. INI WZ = orig-BC+1 = 0x0563, not the
+   plan's hand-computed 0x0463) per deviation 1.
+
+7. **Importer-fixture updates landed in Task 2 (the plan scheduled them for Task 6).** Because the Task 2
+   Step 1 `Z80EdSemantics` block arm makes 0xA0–0xBB resolve immediately, the importer's emitted count
+   rose 572 → 588 and the per-row TODO expectations flipped. Four pre-existing importer tests
+   (`SpecFileEmitterTests.Z80_covered_vs_TODO_counts` + `…TODO_row_carries_plane_qualified_key`,
+   `Z80EdSemanticsTests.OpsFor_returns_null_outside_the_core`,
+   `Z80SkeletonEndToEndTests.Z80_base_plane_is_live_prefixed_planes_deferred`) were updated to the
+   now-live mapping (LDIR/etc. carry `[EdBlock(...)]`; a DD-plane row demonstrates the still-TODO
+   plane-qualified key). Necessary to keep the Task 2 gate (`dotnet test`) green.

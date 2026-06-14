@@ -2449,7 +2449,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"            | ((__xy & 0x02) != 0 ? {yM} : 0x00)));");
                 // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus + WriteBus charged 2. +12 internal.
                 sb.AppendLine("        _cycles += 12;   // LDI/LDD = 16 T (16 - 2 fetch - 2 bus)");
-                EmitBlockRepeatTail(sb, repeat, f, "BC != 0");   // WZ unchanged unless repeating
+                EmitBlockRepeatTail(sb, repeat, f, "BC != 0", xM, yM);   // WZ unchanged unless repeating
                 break;
             }
             case "CPI":  case "CPD":  case "CPIR": case "CPDR":
@@ -2478,7 +2478,7 @@ internal static class CpuEmitter
                 sb.AppendLine("        _cycles += 13;   // CPI/CPD = 16 T (16 - 2 fetch - 1 bus)");
                 // Repeat while BC != 0 AND not matched (Z == 0). The tail (after WZ +/- 1) overrides
                 // WZ to instruction-PC+1 on repeat; on the final/match iteration WZ stays at WZ +/- 1.
-                EmitBlockRepeatTail(sb, repeat, f, "BC != 0 && __r != 0");
+                EmitBlockRepeatTail(sb, repeat, f, "BC != 0 && __r != 0", xM, yM);
                 break;
             }
             case "INI":  case "IND":  case "INIR": case "INDR":
@@ -2497,7 +2497,7 @@ internal static class CpuEmitter
                 EmitBlockIoFlags(sb, f, sM, zM, yM, hM, xM, pM, nM, cM, transferredByte: "__v");
                 // Cycles: 16 T base. Step charged 2 (key bytes); ReadIo + WriteBus charged 2. +12 internal.
                 sb.AppendLine("        _cycles += 12;   // INI/IND = 16 T (16 - 2 fetch - 2 bus)");
-                EmitBlockRepeatTail(sb, repeat, f, "B != 0");
+                EmitBlockRepeatTail(sb, repeat, f, "B != 0", xM, yM, ioRepeatFix: true, hM: hM, pM: pM);
                 break;
             }
             case "OUTI": case "OUTD": case "OTIR": case "OTDR":
@@ -2516,7 +2516,7 @@ internal static class CpuEmitter
                 EmitBlockIoFlags(sb, f, sM, zM, yM, hM, xM, pM, nM, cM, transferredByte: "__v");
                 // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus + WriteIo charged 2. +12 internal.
                 sb.AppendLine("        _cycles += 12;   // OUTI/OUTD = 16 T (16 - 2 fetch - 2 bus)");
-                EmitBlockRepeatTail(sb, repeat, f, "B != 0");
+                EmitBlockRepeatTail(sb, repeat, f, "B != 0", xM, yM, ioRepeatFix: true, hM: hM, pM: pM);
                 break;
             }
             default:
@@ -2545,8 +2545,15 @@ internal static class CpuEmitter
     /// caller passes the family-specific condition — "BC != 0" for LD; "BC != 0 &amp;&amp; __r != 0" for CP;
     /// "B != 0" for IN/OUT), rewind PC by the 2 key bytes and set WZ = instruction-PC + 1 (Step has
     /// already advanced PC by 2, so the rewound PC + 1 = the original instruction PC + 1) and charge the
-    /// +5 repeat T-states (21 - 16). Non-repeating ops leave PC + WZ as the body set them.</summary>
-    private static void EmitBlockRepeatTail(StringBuilder sb, bool repeat, string f, string condition)
+    /// +5 repeat T-states (21 - 16). Non-repeating ops leave PC + WZ as the body set them.
+    /// <para>The repeat ALSO overrides the undocumented F3/F5 (X/Y) flags: on a repeating block op, X/Y
+    /// come from bits 3/5 of the HIGH byte of the (rewound) instruction PC — NOT from the per-family
+    /// transfer-byte value the body computed. Re-derived from the SingleStepTests vectors (ed b0..bb):
+    /// across all 8 repeating families, F3=bit3 of PCH and F5=bit5 of PCH (PCH = high byte of the
+    /// instruction PC) match every repeating case.</para></summary>
+    private static void EmitBlockRepeatTail(
+        StringBuilder sb, bool repeat, string f, string condition, string xM, string yM,
+        bool ioRepeatFix = false, string hM = "", string pM = "")
     {
         if (!repeat)
             return;   // single ops: PC advances (Step did it); WZ rule is per-family (handled in-body).
@@ -2555,6 +2562,40 @@ internal static class CpuEmitter
         sb.AppendLine("            PC = unchecked((ushort)(PC - 2));");          // rewind to re-execute
         sb.AppendLine("            WZ = unchecked((ushort)(PC + 1));");          // MEMPTR = instr PC + 1
         sb.AppendLine("            _cycles += 5;");                              // 21 - 16 = +5 on repeat
+        // The repeating IN/OUT ops get the documented "interrupted INxR/OTxR" H/P-V correction (Patrik
+        // Rak / hoglet67 Z80Decoder). __k carries (k > 0xFF) = CF; __v is the data byte; B is decremented.
+        // PF/HF on the left are the standard values already in F. Re-derived: 0 fails across ed b2/ba/b3/bb.
+        if (ioRepeatFix)
+        {
+            sb.AppendLine("            if (__k > 0xFF)");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                bool __pfold = (({f} & {pM}) != 0);");
+            sb.AppendLine("                if ((__v & 0x80) != 0)");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    bool __pf = __pfold ^ ((System.Numerics.BitOperations.PopCount((uint)((B - 1) & 7)) & 1) == 0) ^ true;");
+            sb.AppendLine($"                    {f} = unchecked((byte)(({f} & ~({pM} | {hM}))");
+            sb.AppendLine($"                        | (__pf ? {pM} : 0x00)");
+            sb.AppendLine($"                        | ((B & 0x0F) == 0x00 ? {hM} : 0x00)));");
+            sb.AppendLine("                }");
+            sb.AppendLine("                else");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    bool __pf = __pfold ^ ((System.Numerics.BitOperations.PopCount((uint)((B + 1) & 7)) & 1) == 0) ^ true;");
+            sb.AppendLine($"                    {f} = unchecked((byte)(({f} & ~({pM} | {hM}))");
+            sb.AppendLine($"                        | (__pf ? {pM} : 0x00)");
+            sb.AppendLine($"                        | ((B & 0x0F) == 0x0F ? {hM} : 0x00)));");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                bool __pf = (({f} & {pM}) != 0) ^ ((System.Numerics.BitOperations.PopCount((uint)(B & 7)) & 1) == 0) ^ true;");
+            sb.AppendLine($"                {f} = unchecked((byte)(({f} & ~{pM}) | (__pf ? {pM} : 0x00)));");
+            sb.AppendLine("            }");
+        }
+        // Repeat X/Y quirk: F3/F5 come from bits 3/5 of the high byte of the instruction PC (= rewound PC).
+        sb.AppendLine("            int __pch = (PC >> 8) & 0xFF;");
+        sb.AppendLine($"            {f} = unchecked((byte)(({f} & ~({xM} | {yM}))");
+        sb.AppendLine($"                | ((__pch & 0x08) != 0 ? {xM} : 0x00)");
+        sb.AppendLine($"                | ((__pch & 0x20) != 0 ? {yM} : 0x00)));");
         sb.AppendLine("        }");
     }
 

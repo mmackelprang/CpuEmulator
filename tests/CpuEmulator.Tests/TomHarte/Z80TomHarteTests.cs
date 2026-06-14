@@ -113,13 +113,18 @@ public class Z80TomHarteTests(ITestOutputHelper output)
                         string.Join("\n---\n", failures));
     }
 
-    /// <summary>The covered ED-core opcodes (0x40–0x7F) — present in the generated dispatch (Disassemble
-    /// != "???"). The block ops (0xA0–0xBB) are a later PR and are NOT covered yet, so the probe range is
-    /// restricted to the core. Probed via the prefixed disassembler key (0xED00 | op).</summary>
+    /// <summary>The covered ED opcodes — present in the generated dispatch (Disassemble != "???").
+    /// M3.4c covered the ED core (0x40–0x7F); M3.4d adds the ED block ops (0xA0–0xBB): LDI/LDD/LDIR/LDDR,
+    /// CPI/CPD/CPIR/CPDR, INI/IND/INIR/INDR, OUTI/OUTD/OTIR/OTDR. Probed via the prefixed disassembler key
+    /// (0xED00 | op). A probe of fewer than 64 + 16 = 80 opcodes means a row failed to emit.</summary>
     public static TheoryData<byte> CoveredEdPlaneOpcodes()
     {
         var data = new TheoryData<byte>();
+        // ED core (M3.4c) + ED block ops (M3.4d). Probed via the prefixed key (0xED00 | op).
         for (int op = 0x40; op <= 0x7F; op++)
+            if (Z80Cpu.Disassemble((uint)(0xED00 | op), 0, 0) != "???")
+                data.Add((byte)op);
+        for (int op = 0xA0; op <= 0xBB; op++)
             if (Z80Cpu.Disassemble((uint)(0xED00 | op), 0, 0) != "???")
                 data.Add((byte)op);
         return data;
