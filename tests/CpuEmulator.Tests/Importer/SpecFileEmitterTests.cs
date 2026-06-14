@@ -299,13 +299,15 @@ public class SpecFileEmitterTests
     {
         // M3.4e-3: a DDCB/FDCB compound row emits the Insn(p1, p2, finalOp, …) overload (the two prefix
         // bytes split apart — 0xDD, 0xCB — NOT a single 0xDDCB literal, which has no Insn overload). The
-        // ops are derived by Z80DdCbSemantics. The current dataset has the 31 documented z=6 forms; the
-        // undocumented store-copy forms (e.g. 0x00 LD B,RLC) land with the Task 6 dataset rows. Assert the
-        // documented forms across the families: RLC (0x06), BIT 0 (0x46), RES 0 (0x86), SET 0 (0xC6).
+        // ops are derived by Z80DdCbSemantics. M3.4e-3 added the undocumented store-copy forms, so the
+        // documented z=6 forms AND the undoc store-copy forms (z != 6) are all present.
         var (source, _) = RunZ80Engine();
         Assert.Contains("Insn(0xDD, 0xCB, 0x06, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"-\")]),", source);
+        Assert.Contains("Insn(0xDD, 0xCB, 0x00, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"B\")]),", source);   // undoc store-copy B
+        Assert.Contains("Insn(0xDD, 0xCB, 0x04, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"H\")]),", source);   // undoc store-copy plain H
         Assert.Contains("Insn(0xDD, 0xCB, 0x46, \"BIT\", AddrMode.Indexed, [DdCb(\"BIT\",0,\"-\")]),", source);
         Assert.Contains("Insn(0xDD, 0xCB, 0x86, \"RES\", AddrMode.Indexed, [DdCb(\"RES\",0,\"-\")]),", source);
+        Assert.Contains("Insn(0xDD, 0xCB, 0xFF, \"SET\", AddrMode.Indexed, [DdCb(\"SET\",7,\"A\")]),", source);   // y=7,z=7 -> copy A
         Assert.Contains("Insn(0xFD, 0xCB, 0x06, \"RLC\", AddrMode.Indexed, [DdCb(\"RLC\",0,\"-\")]),", source);
         // There is no single-literal 0xDDCB Insn overload — the prefix is always split.
         Assert.DoesNotContain("Insn(0xDDCB", source);
@@ -357,15 +359,15 @@ public class SpecFileEmitterTests
 
         var (_, report) = SpecImportEngine.Run(dataset, map, "z80-opcodes.json", "z80-semantics.json");
 
-        Assert.Equal(1154, report.Total);   // dataset still 1154 (the 450 derived rows land in Task 6)
+        Assert.Equal(1604, report.Total);   // M3.4e-3: 1154 + the 225 DDCB + 225 FDCB derived rows
         Assert.Equal(derivedEmitted, report.Emitted);
         Assert.Equal(derivedTodoMode, report.TodoMode);
         Assert.Equal(derivedTodoSemantics, report.TodoSemantics);
         Assert.Equal(report.Total, report.Emitted + report.TodoMode + report.TodoSemantics);
-        // M3.4a-d: 588 base + CB + ED-core + ED-block rows LIVE. M3.4e-2: + 252 DD-core + 252 FD-core →
-        // 1092. M3.4e-3: the 31 DDCB + 31 FDCB compound rows now route through Z80DdCbSemantics → 1154,
-        // zero TODO. (Task 6 adds the 225 + 225 derived rows; the count grows then.)
-        Assert.Equal(1154, report.Emitted);
+        // M3.4a-d: base + CB + ED-core + ED-block LIVE. M3.4e-2: + 252 DD-core + 252 FD-core → 1092.
+        // M3.4e-3: + the 256 DDCB + 256 FDCB compound rows via Z80DdCbSemantics → 1604, ZERO TODO. With
+        // this the ENTIRE documented + undocumented Z80 instruction set emits.
+        Assert.Equal(1604, report.Emitted);
         Assert.Equal(0, report.TodoSemantics);
     }
 

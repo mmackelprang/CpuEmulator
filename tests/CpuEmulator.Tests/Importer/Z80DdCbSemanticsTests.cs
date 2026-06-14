@@ -1,3 +1,4 @@
+using System.Linq;
 using CpuEmulator.SpecImporter;
 using Xunit;
 
@@ -5,6 +6,25 @@ namespace CpuEmulator.Tests.Importer;
 
 public class Z80DdCbSemanticsTests
 {
+    [Fact]
+    public void Dataset_has_256_DDCB_and_256_FDCB_compound_rows()
+    {
+        // M3.4e-3 (the F1 cross-check): the 31 documented + the 225 derived = 256 per plane (no holes —
+        // the compound page's final-opcode space is the full 0x00..0xFF, H6). This guards the gate: a
+        // missing dataset row -> Disassemble == "???" -> the opcode is silently uncovered.
+        var dataset = OpcodeDataset.Load(DataPath.Get("z80-opcodes.json"));
+        Assert.Equal(256, dataset.Count(e => e.Prefix == "0xDDCB"));
+        Assert.Equal(256, dataset.Count(e => e.Prefix == "0xFDCB"));
+        // All 256 final opcodes present (0x00..0xFF) for each plane.
+        var ddcbOps = dataset.Where(e => e.Prefix == "0xDDCB").Select(e => System.Convert.ToInt32(e.Opcode, 16)).ToHashSet();
+        var fdcbOps = dataset.Where(e => e.Prefix == "0xFDCB").Select(e => System.Convert.ToInt32(e.Opcode, 16)).ToHashSet();
+        for (int op = 0; op <= 0xFF; op++)
+        {
+            Assert.Contains(op, ddcbOps);
+            Assert.Contains(op, fdcbOps);
+        }
+    }
+
     [Theory]
     // x=0 rotate/shift: rot[y] (IX+d), copy = reg[z] (z=6 -> "-").
     [InlineData(0x00, "[DdCb(\"RLC\",0,\"B\")]")]    // z=0 -> copy B
