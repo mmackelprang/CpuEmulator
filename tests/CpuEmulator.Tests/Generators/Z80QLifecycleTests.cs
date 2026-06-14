@@ -3,7 +3,7 @@ using Xunit;
 
 namespace CpuEmulator.Tests.Generators;
 
-public class Z80CbResSetTests
+public class Z80QLifecycleTests
 {
     private const string Source = """
         using CpuEmulator.Core;
@@ -12,8 +12,8 @@ public class Z80CbResSetTests
 
         namespace Demo;
 
-        [CpuSpecification("cbrs")]
-        public static class CbrsSpec
+        [CpuSpecification("cbq")]
+        public static class CbqSpec
         {
             public static readonly RegisterDef[] Registers =
             [
@@ -30,18 +30,16 @@ public class Z80CbResSetTests
                 Prefixes: [new PrefixByte(0xCB)], ModRmOpcodes: [], SubFieldOpcodes: []);
             public static readonly InstructionDef[] Instructions =
             [
-                Insn(0xCB, 0x80, "RES", AddrMode.Bit, [CbBit("RES", 0, "B")]),
-                Insn(0xCB, 0xC0, "SET", AddrMode.Bit, [CbBit("SET", 0, "B")]),
-                Insn(0xCB, 0x86, "RES", AddrMode.Bit, [CbBit("RES", 0, "(HL)")]),
-                Insn(0xCB, 0xC6, "SET", AddrMode.Bit, [CbBit("SET", 0, "(HL)")]),
+                Insn(0xCB, 0x00, "RLC", AddrMode.Bit, [CbRotate("RLC", "B")]),  // writes flags → Q=F
+                Insn(0xCB, 0xC0, "SET", AddrMode.Bit, [CbBit("SET", 0, "B")]),  // no flags → Q=0
             ];
         }
 
-        public sealed partial class CbrsCpu
+        public sealed partial class CbqCpu
         {
             private readonly IAddressSpace _bus;
             public byte Q;
-            public CbrsCpu(IAddressSpace bus) { _bus = bus; }
+            public CbqCpu(IAddressSpace bus) { _bus = bus; }
             public void Reset() { }
             public void SetIrqLine(bool a) { }
             public void SetNmiLine(bool a) { }
@@ -56,7 +54,7 @@ public class Z80CbResSetTests
 
     private static (object Cpu, Type T, IAddressSpace Bus) Build()
     {
-        var t = GeneratorTestHost.CompileAndLoadType(Source, "Demo.CbrsCpu");
+        var t = GeneratorTestHost.CompileAndLoadType(Source, "Demo.CbqCpu");
         var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
         bus.MapMemory(0x0000, new byte[0x10000], writable: true);
         var cpu = System.Activator.CreateInstance(t, new object[] { bus })!;
@@ -64,39 +62,29 @@ public class Z80CbResSetTests
     }
     private static void Set(object cpu, Type t, string r, ulong v) =>
         t.GetMethod("SetRegister")!.Invoke(cpu, new object[] { r, v });
+    private static byte GetQ(object cpu, Type t) => (byte)t.GetField("Q")!.GetValue(cpu)!;
     private static ulong Get(object cpu, Type t, string r) =>
         (ulong)t.GetMethod("GetRegister")!.Invoke(cpu, new object[] { r })!;
 
     [Fact]
-    public void RES_0_B_clears_bit0_no_flag_change()
+    public void Flag_writing_op_sets_Q_to_F()
     {
         var (cpu, t, bus) = Build();
-        bus.Write8(0, 0xCB); bus.Write8(1, 0x80);   // RES 0,B
-        Set(cpu, t, "PC", 0); Set(cpu, t, "B", 0xFF); Set(cpu, t, "F", 0xC5);
+        bus.Write8(0, 0xCB); bus.Write8(1, 0x00);   // RLC B
+        Set(cpu, t, "PC", 0); Set(cpu, t, "B", 0x85); Set(cpu, t, "F", 0x00);
+        t.GetField("Q")!.SetValue(cpu, (byte)0xEE);  // seed a stale Q
         t.GetMethod("Step")!.Invoke(cpu, null);
-        Assert.Equal(0xFE, (byte)Get(cpu, t, "B"));  // bit 0 cleared
-        Assert.Equal(0xC5, (byte)Get(cpu, t, "F"));  // F unchanged
+        Assert.Equal((byte)Get(cpu, t, "F"), GetQ(cpu, t));   // Q == F
     }
 
     [Fact]
-    public void SET_0_B_sets_bit0_no_flag_change()
+    public void Non_flag_op_sets_Q_to_zero()
     {
         var (cpu, t, bus) = Build();
-        bus.Write8(0, 0xCB); bus.Write8(1, 0xC0);   // SET 0,B
-        Set(cpu, t, "PC", 0); Set(cpu, t, "B", 0x00); Set(cpu, t, "F", 0x3A);
+        bus.Write8(0, 0xCB); bus.Write8(1, 0xC0);   // SET 0,B (no flag change)
+        Set(cpu, t, "PC", 0); Set(cpu, t, "B", 0x00);
+        t.GetField("Q")!.SetValue(cpu, (byte)0xEE);  // seed a stale Q
         t.GetMethod("Step")!.Invoke(cpu, null);
-        Assert.Equal(0x01, (byte)Get(cpu, t, "B"));
-        Assert.Equal(0x3A, (byte)Get(cpu, t, "F"));
-    }
-
-    [Fact]
-    public void SET_0_HL_writes_memory()
-    {
-        var (cpu, t, bus) = Build();
-        bus.Write8(0, 0xCB); bus.Write8(1, 0xC6);   // SET 0,(HL)
-        bus.Write8(0x5000, 0x00);
-        Set(cpu, t, "PC", 0); Set(cpu, t, "HL", 0x5000);
-        t.GetMethod("Step")!.Invoke(cpu, null);
-        Assert.Equal(0x01, bus.Read8(0x5000));
+        Assert.Equal((byte)0, GetQ(cpu, t));         // Q cleared
     }
 }

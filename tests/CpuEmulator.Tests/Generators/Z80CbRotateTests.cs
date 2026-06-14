@@ -39,6 +39,7 @@ public class Z80CbRotateTests
         public sealed partial class CbrotCpu
         {
             private readonly IAddressSpace _bus;
+            public byte Q;
             public CbrotCpu(IAddressSpace bus) { _bus = bus; }
             public void Reset() { }
             public void SetIrqLine(bool a) { }

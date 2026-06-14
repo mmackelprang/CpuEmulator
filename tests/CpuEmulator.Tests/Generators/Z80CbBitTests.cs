@@ -39,6 +39,7 @@ public class Z80CbBitTests
         public sealed partial class CbbitCpu
         {
             private readonly IAddressSpace _bus;
+            public byte Q;
             public CbbitCpu(IAddressSpace bus) { _bus = bus; }
             public void Reset() { }
             public void SetIrqLine(bool a) { }

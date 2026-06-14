@@ -37,6 +37,7 @@ public class Z80RotateAccTests
         {
             private readonly byte[] _mem;
             private long _x;
+            public byte Q;
             public RotaCpu(byte[] mem) { _mem = mem; }
             public void Reset() { }
             public void SetIrqLine(bool a) { }

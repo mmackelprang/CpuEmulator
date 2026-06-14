@@ -360,7 +360,34 @@ internal static class CpuEmitter
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
         }
 
+        // M3.4b: the cross-instruction Q lifecycle. Every Z80 op sets Q at the end: Q = F if it wrote
+        // flags, else Q = 0. SCF/CCF read the PREVIOUS Q (seeded as pre-state by the harness / the prior
+        // instruction). The 6502 has no Z80 class, so this never fires for it (Q is undeclared there).
+        // Every Z80 op BODY falls through to here (no generated body emits an early return), so this
+        // Q-write is always reached on every exit path — incl. the conditional flow forms (JP/JR/CALL/RET
+        // cc), whose generated bodies use `if (...) { ... }` then fall through, never `return`.
+        if (isZ80)
+            sb.AppendLine(Z80WritesFlags(opClass, instruction)
+                ? $"        Q = {statusReg ?? "F"};"
+                : "        Q = 0;");
+
         sb.AppendLine("    }");
+    }
+
+    /// <summary>Does this Z80 instruction WRITE the flag word (→ Q = F) or not (→ Q = 0)? Z80Alu writes
+    /// flags EXCEPT Inc16/Dec16 (the 16-bit INC/DEC set none); Z80Misc writes EXCEPT Di/Ei; Z80Rot
+    /// always writes; Z80Bit writes only for BIT (RES/SET set none); Z80Ld/Stack/Exchange/Flow never.</summary>
+    private static bool Z80WritesFlags(InstructionClass cls, InstructionModel insn)
+    {
+        string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : "";
+        return cls switch
+        {
+            InstructionClass.Z80Alu => kind is not ("Inc16" or "Dec16"),
+            InstructionClass.Z80Misc => kind is not ("Di" or "Ei"),
+            InstructionClass.Z80Rot => true,
+            InstructionClass.Z80Bit => Unquote(insn.Ops[0].Args[0]) == "BIT",
+            _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
+        };
     }
 
     private static int ComputeCycles(string mode, InstructionClass opClass) => (mode, opClass) switch
