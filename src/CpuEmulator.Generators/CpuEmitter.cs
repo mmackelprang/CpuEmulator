@@ -2452,9 +2452,38 @@ internal static class CpuEmitter
                 EmitBlockRepeatTail(sb, repeat, f, "BC != 0");   // WZ unchanged unless repeating
                 break;
             }
-            // CP / IN / OUT arms are added in Tasks 3-4.
+            case "CPI":  case "CPD":  case "CPIR": case "CPDR":
+            {
+                bool inc = mn is "CPI" or "CPIR";
+                bool repeat = mn is "CPIR" or "CPDR";
+                string delta = inc ? "+ 1" : "- 1";
+                sb.AppendLine("        byte __m = ReadBus(HL);");
+                sb.AppendLine("        int __r = (A - __m) & 0xFF;");
+                sb.AppendLine("        int __hc = ((A & 0x0F) - (__m & 0x0F)) < 0 ? 1 : 0;");  // half-borrow
+                sb.AppendLine($"        HL = unchecked((ushort)(HL {delta}));");
+                sb.AppendLine("        BC = unchecked((ushort)(BC - 1));");
+                sb.AppendLine($"        WZ = unchecked((ushort)(WZ {(inc ? "+ 1" : "- 1")}));");
+                // n_xy = (A - (HL) - H) for the X/Y quirk.
+                sb.AppendLine("        int __xy = (__r - __hc) & 0xFF;");
+                // S/Z from __r; H from __hc; N=1; P/V=(BC!=0); C preserved; X=bit3, Y=bit1 of __xy.
+                sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cM})");
+                sb.AppendLine($"            | ((__r & 0x80) != 0 ? {sM} : 0x00)");
+                sb.AppendLine($"            | (__r == 0 ? {zM} : 0x00)");
+                sb.AppendLine($"            | (__hc != 0 ? {hM} : 0x00)");
+                sb.AppendLine($"            | {nM}");
+                sb.AppendLine($"            | (BC != 0 ? {pM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x08) != 0 ? {xM} : 0x00)");
+                sb.AppendLine($"            | ((__xy & 0x02) != 0 ? {yM} : 0x00)));");
+                // Cycles: 16 T base. Step charged 2 (key bytes); ReadBus charged 1. +13 internal.
+                sb.AppendLine("        _cycles += 13;   // CPI/CPD = 16 T (16 - 2 fetch - 1 bus)");
+                // Repeat while BC != 0 AND not matched (Z == 0). The tail (after WZ +/- 1) overrides
+                // WZ to instruction-PC+1 on repeat; on the final/match iteration WZ stays at WZ +/- 1.
+                EmitBlockRepeatTail(sb, repeat, f, "BC != 0 && __r != 0");
+                break;
+            }
+            // IN / OUT arms are added in Task 4.
             default:
-                sb.AppendLine("        _ = 0;   // TODO Tasks 3-4 (CP/IN/OUT block ops)");
+                sb.AppendLine("        _ = 0;   // TODO Task 4 (IN/OUT block ops)");
                 break;
         }
     }
