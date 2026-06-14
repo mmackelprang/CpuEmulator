@@ -747,26 +747,54 @@ EOF
   explicit overload (safer/unambiguous); the implementer confirms at Task 0 and adjusts if the codebase's
   `Insn`/parser conventions favor the inference shape. The ASSERTIONS are invariant to the choice.
 
-## Closeout (filled at completion)
+## Closeout (filled at completion — M3.4e-1b SHIPPED)
+
+> **Branch:** `feat/m3-z80-ixiy-e1b` (off `main` @ `2393fd2`, the PR #24 / e-1a merge).
+> **Close-state (honest):** `DD`/`FD` are spec-DECLARABLE compound prefixes
+> (`PrefixByte.CompoundWith`/`DisplacementBeforeOpcode`, D1); `EmitStructuredDecodeWalk` routes the
+> compound `DD CB d op` form GENERICALLY (declarative — driven by emitted `s_compoundWith`/
+> `s_dispBeforeOpcode` tables, NOT a hardcoded `0xDD/0xCB` branch), surfacing the displacement +
+> a distinct 24-bit compound key (`0xDDCB__`) that round-trips parser == walk == dispatch ==
+> descriptor (length 4). A SYNTHETIC `DD CB d op` decode-walk test proves dispatch reaches a stub
+> with the right key + displacement + length. **NO DD/FD/DDCB opcode is live**; no `dd *.json` /
+> `dd cb __ *.json` vector is asserted green (that is M3.4e-2/3). The whole Z80 (base + CB + ED +
+> block) stays TomHarte-green at the universal Q/WZ/IM bar; every 6502 artifact byte-identical.
 
 | Commit | Content | Suite |
 |---|---|---|
-| (Task 1) | PrefixByte CompoundWith/DisplacementBeforeOpcode (D1) | green |
-| (Task 2) | parser carries compound prefix + computes the compound key | green |
-| (Task 3) | EmitStructuredDecodeWalk compound routing + descriptor length 4 | green |
+| `703114e` (Task 1) | PrefixByte CompoundWith/DisplacementBeforeOpcode (D1) | green (2319) |
+| `7855d84` (Task 2) | parser carries compound prefix + computes the compound key | green (2320) |
+| `e137199` (Task 2 review) | fix orphaned DecodeStructureModel doc comment | green |
+| `794f65b` (Task 3) | EmitStructuredDecodeWalk compound routing + descriptor length 4 | green (2321) |
 | (Task 4) | whole-Z80 re-green + close-state doc | green |
+
+**Task 0 decisions (resolved against `main` post-#24):**
+- **B5 — authoring shape:** the explicit 2-prefix overload `Insn(byte prefix1, byte prefix2, byte
+  finalOpcode, …)` (6 args → `KeyShape.Compound`). Chosen over the single-prefix + declared-compound
+  inference because a DD-core `Indexed` row (e-2) shares prefix `0xDD` + `AddrMode.Indexed`, making
+  the inference ambiguous; the 6-arg overload names both prefix bytes unambiguously.
+- **CPUGEN012 (declared-prefix-must-back-a-row, `SpecParser.cs`):** it DOES fire for a declared
+  prefix with no backing row — so declaring DD/FD on the REAL `Z80Spec.cs` now (with no live DD/FD
+  row) would trip it. The cross-check was extended to accept a `KeyShape.Compound` row (first prefix
+  == p) as backing a declared prefix, so the SYNTHETIC spec's `PrefixByte(0xDD, CompoundWith: 0xCB)`
+  is satisfied by its compound row. The real-spec DD/FD declaration is **DEFERRED to e-2** (when the
+  first DD/FD row goes live) — confirmed correct, not churn.
+- **Disassembler tolerance:** `EmitDisassembler` has no `Indexed` arm (it would throw at generation).
+  The synthetic compound stub row therefore uses `AddrMode.Bit` (mnemonic-only disassembly) — the
+  24-bit-key + length + displacement assertions are invariant to the row's mode. Adding an `Indexed`
+  disassembler arm is e-2/e-3 work (when an `(IX+d)` row goes live); not added here.
 
 | Closeout metric | Value |
 |---|---|
-| Baseline test count (Task 0) | _fill_ |
-| Final test count | _fill_ |
+| Baseline test count (Task 0) | 2317 passed / 0 failed / 0 skipped |
+| Final test count | 2321 passed / 0 failed / 0 skipped (+4: 2 vocabulary + 2 compound-decode) |
 | `DD`/`FD` declarable as compound prefixes? | YES — PrefixByte.CompoundWith/DisplacementBeforeOpcode |
 | Compound `DD CB d op` decodes correctly? | YES (synthetic) — key 0xDDCB__, displacement surfaced, length 4 |
 | Compound key round-trips (parser == walk == dispatch == descriptor)? | YES (B1) |
 | Any DD/FD/DDCB opcode live? | NO — e-1b is decoder-only; no `dd *.json` / `dd cb __ *.json` asserted green |
 | Redundant-prefix chains modeled? | NO — D5/B4; not declared; unverified-pending (no vectors) |
 | Real-spec DD/FD declaration? | DEFERRED to e-2 (Task 4 decision) |
-| Whole-Z80 UAT (full) | base + CB + ED re-green, 0 failures with final Q/WZ/IM on every case |
+| Whole-Z80 UAT (full) | 588/588 green (`CPUEMULATOR_UAT=full`) — base + CB + ED-core + ED-block, 0 failures with final Q/WZ/IM on every case; regs-only sweep 588/588 green too |
 | 6502 un-regressed? | YES — RegeneratedSpecTests byte-identity green |
 | Any 6502 file changed? | NONE (additive) |
 | `-warnaserror` | clean |
