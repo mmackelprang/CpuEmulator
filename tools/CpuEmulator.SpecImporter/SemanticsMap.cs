@@ -107,6 +107,17 @@ public sealed class SemanticsMap
         ["Rra"]           = 0,
         ["CbRotate"]      = 2,  // CbRotate("RLC", "B")
         ["CbBit"]         = 3,  // CbBit("BIT", 7, "(HL)")
+        // M3.4c: the ED-core ops.
+        ["EdIn"]        = 1,
+        ["EdOut"]       = 1,
+        ["EdAdcSbc16"]  = 2,
+        ["EdLdNnRp"]    = 2,
+        ["EdNeg"]       = 0,
+        ["EdRetn"]      = 1,
+        ["EdIm"]        = 1,
+        ["EdLdIaRa"]    = 1,
+        ["EdRrdRld"]    = 1,
+        ["EdNop"]       = 0,
     };
 
     // ─── ops-text argument acceptance pattern ───────────────────────────

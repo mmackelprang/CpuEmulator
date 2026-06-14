@@ -159,12 +159,16 @@ public static class SpecFileEmitter
 
         foreach (var entry in dataset)
         {
-            // The Z80 base-plane (null prefix) AND CB-plane (0xCB prefix) algorithmic ops.
+            // The Z80 base-plane (null prefix), CB-plane (0xCB prefix), AND ED-core (0xED prefix,
+            // 0x40–0x7F) algorithmic ops. Z80EdSemantics.OpsFor returns null for ED opcodes OUTSIDE
+            // the core (the block ops 0xA0–0xBB) so those rows stay // TODO(semantics) (out of scope).
             string? z80Ops =
                 isZ80 && entry.Prefix is null
                     ? Z80BaseSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16), entry.Mnemonic, entry.Mode)
                 : isZ80 && entry.Prefix == "0xCB"
                     ? Z80CbSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16))
+                : isZ80 && entry.Prefix == "0xED"
+                    ? Z80EdSemantics.OpsFor(System.Convert.ToInt32(entry.Opcode, 16))
                 : null;
 
             string? opsText;

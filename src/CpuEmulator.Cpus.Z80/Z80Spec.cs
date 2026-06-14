@@ -2,7 +2,7 @@
 //   Tool    : CpuEmulator.SpecImporter
 //   Dataset : tools/CpuEmulator.SpecImporter/data/z80-opcodes.json
 //   Semantics: tools/CpuEmulator.SpecImporter/data/z80-semantics.json
-//   Total rows : 706
+//   Total rows : 728
 //   Regenerate :
 //     dotnet run --project tools/CpuEmulator.SpecImporter -- \
 //       --dataset tools/CpuEmulator.SpecImporter/data/z80-opcodes.json \
@@ -570,48 +570,70 @@ public static class Z80Spec
         Insn(0xCB, 0xFD, "SET", AddrMode.Bit, [CbBit("SET",7,"L")]),
         Insn(0xCB, 0xFE, "SET", AddrMode.Bit, [CbBit("SET",7,"(HL)")]),
         Insn(0xCB, 0xFF, "SET", AddrMode.Bit, [CbBit("SET",7,"A")]),
-        // TODO(semantics): 0xED:0x40 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x48 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x50 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x58 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x60 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x68 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x78 IN Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x41 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x49 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x51 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x59 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x61 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x69 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x79 OUT Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x42 SBC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x52 SBC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x62 SBC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x72 SBC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x4A ADC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x5A ADC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x6A ADC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x7A ADC Register — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x43 LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x53 LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x63 LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x73 LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x4B LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x5B LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x6B LD ExtendedAddress — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x7B LD ExtendedAddress — awaiting micro-op vocabulary
-        Insn(0xED, 0x44, "NEG", AddrMode.Implied, []),
-        // TODO(semantics): 0xED:0x45 RETN Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x4D RETI Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x46 IM Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x56 IM Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x5E IM Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x47 LD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x4F LD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x57 LD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x5F LD Implied — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x67 RRD RegisterIndirect — awaiting micro-op vocabulary
-        // TODO(semantics): 0xED:0x6F RLD RegisterIndirect — awaiting micro-op vocabulary
+        Insn(0xED, 0x40, "IN", AddrMode.Register, [EdIn("B")]),
+        Insn(0xED, 0x48, "IN", AddrMode.Register, [EdIn("C")]),
+        Insn(0xED, 0x50, "IN", AddrMode.Register, [EdIn("D")]),
+        Insn(0xED, 0x58, "IN", AddrMode.Register, [EdIn("E")]),
+        Insn(0xED, 0x60, "IN", AddrMode.Register, [EdIn("H")]),
+        Insn(0xED, 0x68, "IN", AddrMode.Register, [EdIn("L")]),
+        Insn(0xED, 0x78, "IN", AddrMode.Register, [EdIn("A")]),
+        Insn(0xED, 0x70, "IN", AddrMode.Register, [EdIn("none")]),
+        Insn(0xED, 0x41, "OUT", AddrMode.Register, [EdOut("B")]),
+        Insn(0xED, 0x49, "OUT", AddrMode.Register, [EdOut("C")]),
+        Insn(0xED, 0x51, "OUT", AddrMode.Register, [EdOut("D")]),
+        Insn(0xED, 0x59, "OUT", AddrMode.Register, [EdOut("E")]),
+        Insn(0xED, 0x61, "OUT", AddrMode.Register, [EdOut("H")]),
+        Insn(0xED, 0x69, "OUT", AddrMode.Register, [EdOut("L")]),
+        Insn(0xED, 0x79, "OUT", AddrMode.Register, [EdOut("A")]),
+        Insn(0xED, 0x71, "OUT", AddrMode.Register, [EdOut("zero")]),
+        Insn(0xED, 0x42, "SBC", AddrMode.Register, [EdAdcSbc16("SBC","BC")]),
+        Insn(0xED, 0x52, "SBC", AddrMode.Register, [EdAdcSbc16("SBC","DE")]),
+        Insn(0xED, 0x62, "SBC", AddrMode.Register, [EdAdcSbc16("SBC","HL")]),
+        Insn(0xED, 0x72, "SBC", AddrMode.Register, [EdAdcSbc16("SBC","SP")]),
+        Insn(0xED, 0x4A, "ADC", AddrMode.Register, [EdAdcSbc16("ADC","BC")]),
+        Insn(0xED, 0x5A, "ADC", AddrMode.Register, [EdAdcSbc16("ADC","DE")]),
+        Insn(0xED, 0x6A, "ADC", AddrMode.Register, [EdAdcSbc16("ADC","HL")]),
+        Insn(0xED, 0x7A, "ADC", AddrMode.Register, [EdAdcSbc16("ADC","SP")]),
+        Insn(0xED, 0x43, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("STORE","BC")]),
+        Insn(0xED, 0x53, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("STORE","DE")]),
+        Insn(0xED, 0x63, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("STORE","HL")]),
+        Insn(0xED, 0x73, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("STORE","SP")]),
+        Insn(0xED, 0x4B, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("LOAD","BC")]),
+        Insn(0xED, 0x5B, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("LOAD","DE")]),
+        Insn(0xED, 0x6B, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("LOAD","HL")]),
+        Insn(0xED, 0x7B, "LD", AddrMode.ExtendedAddress, [EdLdNnRp("LOAD","SP")]),
+        Insn(0xED, 0x44, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x4C, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x54, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x5C, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x64, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x6C, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x74, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x7C, "NEG", AddrMode.Implied, [EdNeg()]),
+        Insn(0xED, 0x45, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x55, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x5D, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x65, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x6D, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x75, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x7D, "RETN", AddrMode.Implied, [EdRetn(false)]),
+        Insn(0xED, 0x4D, "RETI", AddrMode.Implied, [EdRetn(true)]),
+        Insn(0xED, 0x46, "IM", AddrMode.Implied, [EdIm(0)]),
+        Insn(0xED, 0x56, "IM", AddrMode.Implied, [EdIm(1)]),
+        Insn(0xED, 0x5E, "IM", AddrMode.Implied, [EdIm(2)]),
+        Insn(0xED, 0x4E, "IM", AddrMode.Implied, [EdIm(0)]),
+        Insn(0xED, 0x66, "IM", AddrMode.Implied, [EdIm(0)]),
+        Insn(0xED, 0x6E, "IM", AddrMode.Implied, [EdIm(0)]),
+        Insn(0xED, 0x76, "IM", AddrMode.Implied, [EdIm(1)]),
+        Insn(0xED, 0x7E, "IM", AddrMode.Implied, [EdIm(2)]),
+        Insn(0xED, 0x47, "LD", AddrMode.Implied, [EdLdIaRa("I_A")]),
+        Insn(0xED, 0x4F, "LD", AddrMode.Implied, [EdLdIaRa("R_A")]),
+        Insn(0xED, 0x57, "LD", AddrMode.Implied, [EdLdIaRa("A_I")]),
+        Insn(0xED, 0x5F, "LD", AddrMode.Implied, [EdLdIaRa("A_R")]),
+        Insn(0xED, 0x67, "RRD", AddrMode.RegisterIndirect, [EdRrdRld(false)]),
+        Insn(0xED, 0x6F, "RLD", AddrMode.RegisterIndirect, [EdRrdRld(true)]),
+        Insn(0xED, 0x77, "NOP", AddrMode.Implied, [EdNop()]),
+        Insn(0xED, 0x7F, "NOP", AddrMode.Implied, [EdNop()]),
         // TODO(semantics): 0xED:0xA0 LDI Implied — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0xA1 CPI Implied — awaiting micro-op vocabulary
         // TODO(semantics): 0xED:0xA2 INI Implied — awaiting micro-op vocabulary

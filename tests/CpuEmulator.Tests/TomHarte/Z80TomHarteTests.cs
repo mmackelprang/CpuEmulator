@@ -41,10 +41,9 @@ public class Z80TomHarteTests(ITestOutputHelper output)
                            out int parsed) && parsed > 0 ? parsed : 200;
         // Staged gate (Ground truth G): registers-only unless the FULL trace is requested.
         bool registersOnly = Environment.GetEnvironmentVariable("CPUEMULATOR_Z80_REGS_ONLY") == "1";
-        // M3.4b: the 4 rotate-accumulators (0x07/0x0F/0x17/0x1F) maintain Q and leave WZ invariant, so
-        // they ride the full Q/WZ check; the rest of the base plane keeps the M3.4a posture (no Q/WZ —
-        // its shared-class ops do not maintain Q and CALL/JP/… write WZ, which is M3.4c).
-        bool checkInternal = opcode is 0x07 or 0x0F or 0x17 or 0x1F;
+        // M3.4c (Piece A): the WZ/MEMPTR model is complete and every Z80 op maintains Q + the IM ops set
+        // the mode, so the runner checks final Q AND WZ AND IM universally — the M3.4b checkInternal
+        // scoping is retired. Every base-plane row's WZ writes are now gated here.
 
         int run = 0;
         var failures = new List<string>();
@@ -52,7 +51,7 @@ public class Z80TomHarteTests(ITestOutputHelper output)
         {
             if (run >= sampleSize) break;
             run++;
-            if (Z80TomHarteRunner.RunCase(testCase, registersOnly, checkInternal) is { } failure)
+            if (Z80TomHarteRunner.RunCase(testCase, registersOnly) is { } failure)
             {
                 failures.Add(failure);
                 if (failures.Count >= 3) break;
@@ -99,8 +98,8 @@ public class Z80TomHarteTests(ITestOutputHelper output)
         {
             if (run >= sampleSize) break;
             run++;
-            // CB ops maintain Q and leave WZ invariant — the full M3.4b check.
-            if (Z80TomHarteRunner.RunCase(testCase, registersOnly, checkInternal: true) is { } failure)
+            // M3.4c: the universal final Q/WZ/IM check (checkInternal retired).
+            if (Z80TomHarteRunner.RunCase(testCase, registersOnly) is { } failure)
             {
                 failures.Add(failure);
                 if (failures.Count >= 3) break;
@@ -108,6 +107,54 @@ public class Z80TomHarteTests(ITestOutputHelper output)
         }
 
         output.WriteLine($"cb {opcode:x2}: ran {run}");
+        Assert.True(run > 0, "no cases ran — sampling/skip logic is broken");
+        if (failures.Count > 0)
+            Assert.Fail($"{failures.Count} failing case(s) shown of {run} run:\n\n" +
+                        string.Join("\n---\n", failures));
+    }
+
+    /// <summary>The covered ED-core opcodes (0x40–0x7F) — present in the generated dispatch (Disassemble
+    /// != "???"). The block ops (0xA0–0xBB) are a later PR and are NOT covered yet, so the probe range is
+    /// restricted to the core. Probed via the prefixed disassembler key (0xED00 | op).</summary>
+    public static TheoryData<byte> CoveredEdPlaneOpcodes()
+    {
+        var data = new TheoryData<byte>();
+        for (int op = 0x40; op <= 0x7F; op++)
+            if (Z80Cpu.Disassemble((uint)(0xED00 | op), 0, 0) != "???")
+                data.Add((byte)op);
+        return data;
+    }
+
+    [Z80TomHarteTheory]
+    [MemberData(nameof(CoveredEdPlaneOpcodes))]
+    public void Ed_opcode_matches_TomHarte_vectors(byte opcode)
+    {
+        string dir = Z80TomHarteVectors.TryGetVectorDirectory()!;
+        string path = Path.Combine(dir, $"ed {opcode:x2}.json");   // NOTE the space in the filename
+        Assert.True(File.Exists(path), $"vector file missing: {path}");
+        var cases = Z80TomHarteLoader.LoadFile(path);
+
+        bool uatFull = Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full";
+        int sampleSize = uatFull ? int.MaxValue
+            : int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
+                           out int parsed) && parsed > 0 ? parsed : 200;
+        bool registersOnly = Environment.GetEnvironmentVariable("CPUEMULATOR_Z80_REGS_ONLY") == "1";
+
+        int run = 0;
+        var failures = new List<string>();
+        foreach (var testCase in cases)
+        {
+            if (run >= sampleSize) break;
+            run++;
+            // M3.4c: the universal final Q/WZ/IM check (checkInternal retired).
+            if (Z80TomHarteRunner.RunCase(testCase, registersOnly) is { } failure)
+            {
+                failures.Add(failure);
+                if (failures.Count >= 3) break;
+            }
+        }
+
+        output.WriteLine($"ed {opcode:x2}: ran {run}");
         Assert.True(run > 0, "no cases ran — sampling/skip logic is broken");
         if (failures.Count > 0)
             Assert.Fail($"{failures.Count} failing case(s) shown of {run} run:\n\n" +

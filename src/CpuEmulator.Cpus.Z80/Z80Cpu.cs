@@ -41,6 +41,11 @@ public sealed partial class Z80Cpu
     /// across instructions lands with the block ops, M3.4b.)</summary>
     public byte Q;
 
+    /// <summary>The interrupt mode (M3.4c) — 0, 1, or 2, set by the ED <c>IM 0/1/2</c> ops. Observable in
+    /// the TomHarte final state's <c>im</c>. Interrupt SERVICING (vectoring per this mode) is M3.5; this
+    /// field is the mode STATE only. Settable so the harness can establish the initial mode.</summary>
+    public int Im;
+
     /// <summary>The M3.2 two-bus ctor: the program/data bus + the I/O AddressSpace(Io, 16). A null
     /// I/O bus defaults to a fresh 16-bit Io space (the Z80 port range).</summary>
     public Z80Cpu(IAddressSpace bus, IAddressSpace? io = null)

@@ -66,7 +66,7 @@ public class Z80TomHarteRunnerSelfTests
               "final":   { "pc": 1, "sp": 0, "a": 40, "b": 0, "c": 0, "d": 0, "e": 0, "f": 41,
                            "h": 0, "l": 0, "i": 0, "r": 1, "wz": 0, "ix": 0, "iy": 0,
                            "af_": 0, "bc_": 0, "de_": 0, "hl_": 0,
-                           "im": 0, "iff1": 0, "iff2": 0, "ei": 0, "p": 0, "q": 0,
+                           "im": 0, "iff1": 0, "iff2": 0, "ei": 0, "p": 0, "q": 41,
                            "ram": [[0, 55]] },
               "cycles":  [ [0, null, "----"], [0, 55, "r-m-"], [0, null, "----"], [0, null, "----"] ] }
             """;
@@ -89,7 +89,7 @@ public class Z80TomHarteRunnerSelfTests
                            "im": 0, "iff1": 0, "iff2": 0, "ei": 0, "p": 0, "q": 0,
                            "ram": [[0, 211], [1, 52]] },
               "final":   { "pc": 2, "sp": 0, "a": 18, "b": 0, "c": 0, "d": 0, "e": 0, "f": 0,
-                           "h": 0, "l": 0, "i": 0, "r": 1, "wz": 0, "ix": 0, "iy": 0,
+                           "h": 0, "l": 0, "i": 0, "r": 1, "wz": 4661, "ix": 0, "iy": 0,
                            "af_": 0, "bc_": 0, "de_": 0, "hl_": 0,
                            "im": 0, "iff1": 0, "iff2": 0, "ei": 0, "p": 0, "q": 0,
                            "ram": [[0, 211], [1, 52]] },
@@ -105,6 +105,35 @@ public class Z80TomHarteRunnerSelfTests
         Assert.False(c.Ports[0].IsRead);
         // Registers-only gate (ports + cycle count); the bus-trace order of the (n) read is exercised.
         Assert.Null(Z80TomHarteRunner.RunCase(c, registersOnly: true));
+    }
+
+    [Fact]
+    public void Runner_reports_a_wrong_final_WZ_and_Q_and_IM_universally()
+    {
+        // M3.4c (Piece A): the universal Q/WZ/IM check. A NOP leaves WZ/Q/IM as the initial state; here
+        // the final state DELIBERATELY mismatches each, so the runner must report all three (proving the
+        // checkInternal scoping is retired and the check fires on EVERY case, not just the CB plane).
+        const string badCase = """
+            { "name": "00 bad-internal",
+              "initial": { "pc": 0, "sp": 0, "a": 0, "b": 0, "c": 0, "d": 0, "e": 0, "f": 0,
+                           "h": 0, "l": 0, "i": 0, "r": 0, "wz": 4660, "ix": 0, "iy": 0,
+                           "af_": 0, "bc_": 0, "de_": 0, "hl_": 0,
+                           "im": 1, "iff1": 0, "iff2": 0, "ei": 0, "p": 0, "q": 0,
+                           "ram": [[0, 0]] },
+              "final":   { "pc": 1, "sp": 0, "a": 0, "b": 0, "c": 0, "d": 0, "e": 0, "f": 0,
+                           "h": 0, "l": 0, "i": 0, "r": 1, "wz": 9999, "ix": 0, "iy": 0,
+                           "af_": 0, "bc_": 0, "de_": 0, "hl_": 0,
+                           "im": 2, "iff1": 0, "iff2": 0, "ei": 0, "p": 0, "q": 255,
+                           "ram": [[0, 0]] },
+              "cycles":  [ [0, null, "----"], [0, 0, "r-m-"], [0, null, "----"], [0, null, "----"] ] }
+            """;
+        using var doc = JsonDocument.Parse(badCase);
+        var c = Z80TomHarteLoader.Parse(doc.RootElement);
+        string? failure = Z80TomHarteRunner.RunCase(c, registersOnly: true);
+        Assert.NotNull(failure);
+        Assert.Contains("WZ:", failure);   // NOP keeps WZ = 4660, expected 9999
+        Assert.Contains("Q:", failure);    // NOP sets Q = 0, expected 255
+        Assert.Contains("IM:", failure);   // NOP keeps IM = 1, expected 2
     }
 
     [Fact]

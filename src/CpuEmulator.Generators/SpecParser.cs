@@ -146,6 +146,17 @@ internal static class SpecParser
         ["Rra"] = System.Array.Empty<ArgKind>(),
         ["CbRotate"] = new[] { ArgKind.Str, ArgKind.Str },  // CbRotate("RLC", "B")  (op name, target)
         ["CbBit"] = new[] { ArgKind.Str, ArgKind.Int, ArgKind.Str },  // CbBit("BIT", 7, "(HL)")
+        // M3.4c: the ED-core ops.
+        ["EdIn"]       = new[] { ArgKind.Str },                 // EdIn("B")
+        ["EdOut"]      = new[] { ArgKind.Str },                 // EdOut("C")
+        ["EdAdcSbc16"] = new[] { ArgKind.Str, ArgKind.Str },    // EdAdcSbc16("ADC", "HL")
+        ["EdLdNnRp"]   = new[] { ArgKind.Str, ArgKind.Str },    // EdLdNnRp("STORE", "BC")
+        ["EdNeg"]      = System.Array.Empty<ArgKind>(),
+        ["EdRetn"]     = new[] { ArgKind.Bool },                // EdRetn(true)  (IsReti)
+        ["EdIm"]       = new[] { ArgKind.Int },                 // EdIm(2)
+        ["EdLdIaRa"]   = new[] { ArgKind.Str },                 // EdLdIaRa("A_I")
+        ["EdRrdRld"]   = new[] { ArgKind.Bool },                // EdRrdRld(true) (IsRld)
+        ["EdNop"]      = System.Array.Empty<ArgKind>(),
     };
 
     private static readonly HashSet<string> s_addrModes = new(System.StringComparer.Ordinal)
@@ -265,6 +276,17 @@ internal static class SpecParser
     private static readonly HashSet<string> s_z80BitOpKinds = new(System.StringComparer.Ordinal)
     {
         "CbBit",   // CB BIT/RES/SET (Bit mode)
+    };
+
+    // ── M3.4c ED-core op-kind class sets (additive) ──
+    private static readonly HashSet<string> s_z80EdIoOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "EdIn", "EdOut",
+    };
+
+    private static readonly HashSet<string> s_z80EdOpKinds = new(System.StringComparer.Ordinal)
+    {
+        "EdAdcSbc16", "EdLdNnRp", "EdNeg", "EdRetn", "EdIm", "EdLdIaRa", "EdRrdRld", "EdNop",
     };
 
     // Legal modes per Z80 class (additive). The 8-bit ALU source is a register/(HL)/immediate; the
@@ -905,6 +927,7 @@ internal static class SpecParser
         if ((instructionClass is InstructionClass.Alu or InstructionClass.Rmw or InstructionClass.Stack
                 or InstructionClass.Z80Alu or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
+                or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
                 || flowTouchesStatus)
             && !hasStatus)
         {
@@ -1069,6 +1092,16 @@ internal static class SpecParser
             if (ops.Length != 1) { error = "Z80 bit class (CbBit) must contain exactly one op"; return null; }
             return InstructionClass.Z80Bit;
         }
+        if (s_z80EdIoOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 ED I/O class must contain exactly one op"; return null; }
+            return InstructionClass.Z80EdIo;
+        }
+        if (s_z80EdOpKinds.Contains(first))
+        {
+            if (ops.Length != 1) { error = "Z80 ED-op class must contain exactly one op"; return null; }
+            return InstructionClass.Z80EdOp;
+        }
 
         // All must be register ops
         foreach (var op in ops)
@@ -1184,6 +1217,13 @@ internal static class SpecParser
             InstructionClass.Z80Bit =>
                 mode == "Bit" ? null
                 : "Z80 bit class (CbBit) requires Bit mode",
+
+            // ── M3.4c ED-core classes ──
+            InstructionClass.Z80EdIo =>
+                mode == "Register" ? null : "Z80 ED I/O class (IN/OUT (C)) requires Register mode",
+            InstructionClass.Z80EdOp =>
+                mode is "Register" or "ExtendedAddress" or "RegisterIndirect" or "Implied" ? null
+                : "Z80 ED-op class requires Register/ExtendedAddress/RegisterIndirect/Implied mode",
 
             _ => $"unrecognised op class '{opClass}'",
         };

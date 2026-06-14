@@ -278,7 +278,8 @@ internal static class CpuEmitter
         bool isZ80 = opClass is InstructionClass.Z80Alu or InstructionClass.Z80Ld
             or InstructionClass.Z80Stack or InstructionClass.Z80Exchange
             or InstructionClass.Z80Flow or InstructionClass.Z80Misc
-            or InstructionClass.Z80Rot or InstructionClass.Z80Bit;
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp;
         int cycleCount = isZ80
             ? Z80Cycles(instruction.Mode, opClass, instruction.Ops.Length > 0 ? instruction.Ops[0].Kind : "")
             : ComputeCycles(instruction.Mode, opClass);
@@ -355,6 +356,13 @@ internal static class CpuEmitter
             case InstructionClass.Z80Bit:
                 EmitZ80BitBody(sb, instruction, pc, statusReg, flags);
                 break;
+            // ── M3.4c ED-core classes (classification only — STUB bodies, real behavior in B-Tasks 2-7) ──
+            case InstructionClass.Z80EdIo:
+                EmitZ80EdIoBody(sb, instruction, pc, statusReg, flags);
+                break;
+            case InstructionClass.Z80EdOp:
+                EmitZ80EdOpBody(sb, instruction, pc, pcType, statusReg, spReg, flags);
+                break;
             default:
                 throw new System.InvalidOperationException(
                     $"emitter has no body template for class '{opClass}' (opcode 0x{instruction.Opcode:X2})");
@@ -366,7 +374,10 @@ internal static class CpuEmitter
         // Every Z80 op BODY falls through to here (no generated body emits an early return), so this
         // Q-write is always reached on every exit path — incl. the conditional flow forms (JP/JR/CALL/RET
         // cc), whose generated bodies use `if (...) { ... }` then fall through, never `return`.
-        if (isZ80)
+        // M3.4c (Piece A): the Q lifecycle is UNIVERSAL on a structured (Z80) CPU — every op sets Q,
+        // including the shared 6502-shaped classes the base plane reuses (LD r,r' = Register → Q=0).
+        // `structured` is Z80-only (model.Decode is not null), so the 6502 (Decode null) never sets Q.
+        if (structured)
             sb.AppendLine(Z80WritesFlags(opClass, instruction)
                 ? $"        Q = {statusReg ?? "F"};"
                 : "        Q = 0;");
@@ -376,7 +387,8 @@ internal static class CpuEmitter
 
     /// <summary>Does this Z80 instruction WRITE the flag word (→ Q = F) or not (→ Q = 0)? Z80Alu writes
     /// flags EXCEPT Inc16/Dec16 (the 16-bit INC/DEC set none); Z80Misc writes EXCEPT Di/Ei; Z80Rot
-    /// always writes; Z80Bit writes only for BIT (RES/SET set none); Z80Ld/Stack/Exchange/Flow never.</summary>
+    /// always writes; Z80Bit writes only for BIT (RES/SET set none); Z80EdIo writes only for EdIn (IN
+    /// r,(C) sets S/Z/Y/X/P; OUT (C),r sets none); Z80Ld/Stack/Exchange/Flow never.</summary>
     private static bool Z80WritesFlags(InstructionClass cls, InstructionModel insn)
     {
         string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : "";
@@ -386,6 +398,13 @@ internal static class CpuEmitter
             InstructionClass.Z80Misc => kind is not ("Di" or "Ei"),
             InstructionClass.Z80Rot => true,
             InstructionClass.Z80Bit => Unquote(insn.Ops[0].Args[0]) == "BIT",
+            InstructionClass.Z80EdIo => kind == "EdIn",   // IN sets flags; OUT does not
+            InstructionClass.Z80EdOp => kind switch
+            {
+                "EdAdcSbc16" or "EdNeg" or "EdRrdRld" => true,
+                "EdLdIaRa" => Unquote(insn.Ops[0].Args[0]) is "A_I" or "A_R",  // LD A,I/A,R set flags; I,A/R,A don't
+                _ => false,   // EdLdNnRp / EdRetn / EdIm / EdNop write no flags
+            },
             _ => false,   // Z80Ld / Z80Stack / Z80Exchange / Z80Flow
         };
     }
@@ -494,6 +513,15 @@ internal static class CpuEmitter
         (InstructionClass.Z80Rot, "Rra", _) => 4,
         (InstructionClass.Z80Rot, "CbRotate", "Bit") => 8,   // base; the (HL) form overrides to 15 in-body
         (InstructionClass.Z80Bit, _, _) => 8,    // placeholder — real cycles in Task 6/7
+        (InstructionClass.Z80EdIo, _, _) => 12,   // placeholder — real cycles in B-Task 2
+        (InstructionClass.Z80EdOp, "EdAdcSbc16", _) => 15,
+        (InstructionClass.Z80EdOp, "EdLdNnRp", _) => 20,
+        (InstructionClass.Z80EdOp, "EdNeg", _) => 8,
+        (InstructionClass.Z80EdOp, "EdRetn", _) => 14,
+        (InstructionClass.Z80EdOp, "EdIm", _) => 8,
+        (InstructionClass.Z80EdOp, "EdLdIaRa", _) => 9,
+        (InstructionClass.Z80EdOp, "EdRrdRld", _) => 18,
+        (InstructionClass.Z80EdOp, "EdNop", _) => 8,
         _ => throw new System.InvalidOperationException(
             $"emitter has no Z80 cycle count for class '{cls}' op '{opKind}' mode '{mode}'"),
     };
@@ -512,6 +540,13 @@ internal static class CpuEmitter
         // First op is Load(target) — use shared operand resolution, then assign
         string target = instruction.Ops[0].Args[0]; // register name
         EmitOperandResolution(sb, instruction, pc, pcType);
+        // M3.4c (Piece A): the Z80 LD A,(rp)/(nn) MEMPTR writes. ONLY LD A,(BC) (0x0A) / LD A,(DE)
+        // (0x1A) → WZ = rp+1; LD A,(nn) (0x3A) → WZ = nn+1. LD r,(HL) leaves WZ UNCHANGED (vector-
+        // confirmed: 46/7E keep init.wz). Guarded by `structured` (Z80-only); the 6502 never writes WZ.
+        if (structured && instruction.Mode == "RegisterIndirect" && instruction.Opcode is 0x0A or 0x1A)
+            EmitWz(sb, $"{Z80IndirectPair(instruction.Opcode)} + 1");
+        else if (structured && instruction.Mode == "ExtendedAddress")
+            EmitWz(sb, "(al | (ah << 8)) + 1");
         sb.AppendLine($"        {target} = data;");
 
         // Apply remaining register ops (SetNZ etc.)
@@ -730,17 +765,28 @@ internal static class CpuEmitter
         {
             // ── M3.4a Z80 register-shape store modes ──
             case "RegisterIndirect":
+            {
                 // LD (HL),r / LD (BC),A / LD (DE),A — write the source byte at the pair-view EA.
-                sb.AppendLine($"        WriteBus({Z80IndirectPair(instruction.Opcode)}, {source});");
+                // M3.4c (Piece A): ONLY LD (BC),A (0x02) / LD (DE),A (0x12) write WZ = (A<<8) |
+                // ((rp+1)&0xFF) — vector-confirmed. LD (HL),r (0x70-0x77) leaves WZ UNCHANGED (also
+                // vector-confirmed: 70/36/77 keep init.wz). These store modes are Z80-only, so no
+                // `structured` guard is needed.
+                string spair = Z80IndirectPair(instruction.Opcode);
+                if (instruction.Opcode is 0x02 or 0x12)
+                    EmitWz(sb, $"((uint)A << 8) | ((({spair} + 1u) & 0xFFu))");
+                sb.AppendLine($"        WriteBus({spair}, {source});");
                 sb.AppendLine($"        _cycles += {7 - 1 - 1};   // Z80 RegisterIndirect store = 7 T-states");
                 return;
+            }
             case "ExtendedAddress":
                 // LD (nn),A — fetch the 16-bit address, write the source byte there.
                 sb.AppendLine($"        byte al = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte ah = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
-                sb.AppendLine($"        WriteBus((uint)(al | (ah << 8)), {source});");
+                sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+                EmitWz(sb, "((uint)A << 8) | ((ea + 1u) & 0xFFu)");   // LD (nn),A → WZ = (A<<8) | ((nn+1)&0xFF)
+                sb.AppendLine($"        WriteBus(ea, {source});");
                 sb.AppendLine($"        _cycles += {13 - 1 - 3};   // Z80 ExtendedAddress byte store = 13 T-states");
                 return;
             case "ZeroPage":
@@ -1443,6 +1489,16 @@ internal static class CpuEmitter
                     $"emitter has no port template for op '{op.Kind}' (opcode 0x{instruction.Opcode:X2})");
         }
 
+        // M3.4c (Piece A): the Z80 IN A,(n)/OUT (n),A MEMPTR write — the two forms DIFFER (vector-
+        // confirmed). IN A,(n): WZ = port + 1 = ((A<<8)|n)+1, the FULL 16-bit increment, so the n=0xFF
+        // carry propagates into the high byte (`db 0066`: A=0x3E,n=0xFF → WZ=0x3F00). OUT (n),A: WZ =
+        // (A<<8) | ((n+1)&0xFF), the A-high quirk — NO carry (`d3 00BC`: A=0x9A,n=0xFF → WZ=0x9A00).
+        // Derived from `port` (= (A_pre<<8)|n) so IN uses the PRE-read A. Z80-only (`structured`).
+        if (structured && instruction.Mode == "IoPortImmediate")
+            EmitWz(sb, op.Kind == "PortIn"
+                ? "port + 1u"
+                : "(port & 0xFF00u) | ((pn + 1u) & 0xFFu)");
+
         // M3.4a: the Z80 IN A,(n)/OUT (n),A are 11 T-states. Charged so far: Step fetch (1) + the (n)
         // operand read (1) + the Io access (ReadIo/WriteIo charge 1) = 3. Add the 8 internal T-states.
         if (structured && instruction.Mode == "IoPortImmediate")
@@ -1665,6 +1721,7 @@ internal static class CpuEmitter
         string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
         // S/Z/P-V preserved; H from bit 11; C from bit 15; N=0; X/Y from the high byte of the result.
         sb.AppendLine("        int hl = HL;");
+        EmitWz(sb, "hl + 1");   // ADD HL,rr → WZ = pre-op HL + 1 (vector-confirmed)
         sb.AppendLine($"        int rr = {src};");
         sb.AppendLine("        int sum16 = hl + rr;");
         sb.AppendLine("        int half16 = (hl & 0x0FFF) + (rr & 0x0FFF);");
@@ -1717,6 +1774,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte ah = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+                EmitWz(sb, "ea + 1");   // LD (nn),rr → WZ = nn + 1
                 sb.AppendLine($"        WriteBus(ea, unchecked((byte){source}));");
                 sb.AppendLine($"        WriteBus((ea + 1) & 0xFFFF, unchecked((byte)({source} >> 8)));");
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
@@ -1730,6 +1788,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte ah = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+                EmitWz(sb, "ea + 1");   // LD rr,(nn) → WZ = nn + 1
                 sb.AppendLine("        byte vlo = ReadBus(ea);");
                 sb.AppendLine("        byte vhi = ReadBus((ea + 1) & 0xFFFF);");
                 sb.AppendLine($"        {target} = unchecked((ushort)(vlo | (vhi << 8)));");
@@ -1812,6 +1871,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        WriteBus((uint)(({sp} + 1) & 0xFFFF), unchecked((byte)(HL >> 8)));");
                 sb.AppendLine($"        WriteBus({sp}, unchecked((byte)HL));");
                 sb.AppendLine("        HL = unchecked((ushort)(slo | (shi << 8)));");
+                EmitWz(sb, "HL");   // EX (SP),HL → WZ = the new HL (post-exchange; vector-confirmed)
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
             default:
@@ -1905,6 +1965,18 @@ internal static class CpuEmitter
 
     // ---- Z80 flow (JP/CALL/RET/RST/JR/DJNZ — conditional + relative) ----
 
+    /// <summary>M3.4c (Piece A): emit the WZ/MEMPTR write <c>WZ = unchecked((ushort)(&lt;expr&gt;));</c>. The
+    /// MEMPTR rules are per-op (the documented Z80 internal pointer); each Z80 emit arm appends the
+    /// right WZ assignment so the runner's universal final-WZ check (A-Task 3) passes. WZ is a declared
+    /// register (Z80Spec.cs), so this compiles on the real spec + every WZ-declaring synthetic spec.</summary>
+    private static void EmitWz(StringBuilder sb, string expr) =>
+        sb.AppendLine($"        WZ = unchecked((ushort)({expr}));");
+
+    /// <summary>The 12-space-indented variant of <see cref="EmitWz"/>, for a WZ write INSIDE an
+    /// <c>if (taken) {{ … }}</c> block (JR cc / DJNZ / RET cc — WZ is written only when taken).</summary>
+    private static void EmitWzIndented(StringBuilder sb, string expr) =>
+        sb.AppendLine($"            WZ = unchecked((ushort)({expr}));");
+
     private static void EmitZ80FlowBody(
         StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg, string? spReg, FlagBitMap flags)
     {
@@ -1933,6 +2005,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte jh = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(jl | (jh << 8)));");
+                EmitWz(sb, pc);   // WZ = nn (the new PC)
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
             case "CallAbs":  // CALL nn — read nn, push PC, PC = nn. 17 T-states.
@@ -1945,6 +2018,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {sp} = unchecked((ushort)({sp} - 1));");
                 sb.AppendLine($"        WriteBus({sp}, unchecked((byte){pc}));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(cl | (ch << 8)));");
+                EmitWz(sb, pc);   // WZ = nn (the new PC)
                 EmitInternal(sb, total, busReads: 2, busWrites: 2);
                 return;
             case "Ret":  // RET — pop PC. 10 T-states.
@@ -1953,12 +2027,14 @@ internal static class CpuEmitter
                 sb.AppendLine($"        byte rh = ReadBus({sp});");
                 sb.AppendLine($"        {sp} = unchecked((ushort)({sp} + 1));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})(rl | (rh << 8)));");
+                EmitWz(sb, pc);   // WZ = popped PC
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
             case "RelJump":  // JR d — read signed d, PC += d.
                 sb.AppendLine($"        sbyte d = unchecked((sbyte)ReadBus({pc}));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + d));");
+                EmitWz(sb, pc);   // WZ = dest (the new PC)
                 EmitInternal(sb, total, busReads: 1, busWrites: 0);
                 return;
             case "RelJumpIf":  // JR cc,d — always reads d; if taken, PC += d (taken adds 5 T-states).
@@ -1968,6 +2044,7 @@ internal static class CpuEmitter
                 sb.AppendLine("        {");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})({pc} + d));");
                 sb.AppendLine("            _cycles += 5;   // taken penalty (7 → 12)");
+                EmitWzIndented(sb, pc);   // WZ = dest ONLY when taken (vector-confirmed: JR cc not-taken leaves WZ)
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 1, busWrites: 0);
                 return;
@@ -1981,6 +2058,7 @@ internal static class CpuEmitter
                 sb.AppendLine("        {");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})({pc} + d));");
                 sb.AppendLine("            _cycles += 5;   // taken penalty (8 → 13)");
+                EmitWzIndented(sb, pc);   // WZ = dest ONLY when taken
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 1, busWrites: 0);
                 return;
@@ -1990,6 +2068,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte jh = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                EmitWz(sb, "jl | (jh << 8)");   // WZ = nn UNCONDITIONALLY (operand always fetched; vector-confirmed)
                 sb.AppendLine($"        if ({CondExpr()}) {pc} = unchecked(({pcType})(jl | (jh << 8)));");
                 EmitInternal(sb, total, busReads: 2, busWrites: 0);
                 return;
@@ -1998,6 +2077,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
                 sb.AppendLine($"        byte ch = ReadBus({pc});");
                 sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+                EmitWz(sb, "cl | (ch << 8)");   // WZ = nn UNCONDITIONALLY (operand always fetched; vector-confirmed)
                 sb.AppendLine($"        if ({CondExpr()})");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            {sp} = unchecked((ushort)({sp} - 1));");
@@ -2018,6 +2098,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"            {sp} = unchecked((ushort)({sp} + 1));");
                 sb.AppendLine($"            {pc} = unchecked(({pcType})(rl | (rh << 8)));");
                 sb.AppendLine("            _cycles += 4;   // taken penalty: 5 → 11, minus the 2 pop reads charged inline");
+                EmitWzIndented(sb, pc);   // WZ = popped PC ONLY when taken (vector-confirmed)
                 sb.AppendLine("        }");
                 EmitInternal(sb, total, busReads: 0, busWrites: 0);
                 return;
@@ -2029,6 +2110,7 @@ internal static class CpuEmitter
                 sb.AppendLine($"        {sp} = unchecked((ushort)({sp} - 1));");
                 sb.AppendLine($"        WriteBus({sp}, unchecked((byte){pc}));");
                 sb.AppendLine($"        {pc} = 0x{vec:X2};");
+                EmitWz(sb, $"0x{vec:X2}");   // WZ = the RST vector n
                 EmitInternal(sb, total, busReads: 0, busWrites: 2);
                 return;
             }
@@ -2260,6 +2342,275 @@ internal static class CpuEmitter
             sb.AppendLine($"        {target} = unchecked((byte){expr});");
             sb.AppendLine($"        _cycles += {8 - 2};   // RES/SET y,r = 8 T-states");
         }
+    }
+
+    // ---- M3.4c ED-core classes (classification-only STUB bodies — real behavior in B-Tasks 2-7) ----
+
+    /// <summary>ED IN r,(C) / OUT (C),r (+ the undoc IN (C) discard / OUT (C),0). The port is BC and
+    /// both forms write WZ = BC+1 (MEMPTR). IN reads the Io bus, optionally stores it into r[y], and
+    /// recomputes S/Z/Y/X/P from the input (H=0, N=0, C preserved); OUT writes r[y] (or 0) to the Io
+    /// bus and touches NO flags. Cycles: 12 T — Step charges the 2 key bytes, ReadIo/WriteIo charge 1,
+    /// the body adds the remaining 9 internal.</summary>
+    private static void EmitZ80EdIoBody(
+        StringBuilder sb, InstructionModel insn, string pc, string? statusReg, FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        string kind = insn.Ops[0].Kind;
+        string operand = Unquote(insn.Ops[0].Args[0]);   // "B".."A" / "none" / "zero"
+        sb.AppendLine("        WZ = unchecked((ushort)(BC + 1));");   // both IN and OUT: WZ = BC+1
+
+        if (kind == "EdIn")
+        {
+            string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+            string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+            string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+            string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+            string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+            string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+            sb.AppendLine("        byte inp = ReadIo(BC);");
+            if (operand != "none")
+                sb.AppendLine($"        {operand} = inp;");          // y!=6: store into r[y]
+            sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");
+            sb.AppendLine($"            | ((inp & 0x80) != 0 ? {sMask} : 0x00)");
+            sb.AppendLine($"            | (inp == 0 ? {zMask} : 0x00)");
+            sb.AppendLine($"            | ((inp & 0x20) != 0 ? {yMask} : 0x00)");
+            sb.AppendLine($"            | ((inp & 0x08) != 0 ? {xMask} : 0x00)");
+            sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)inp) & 1) == 0 ? {pMask} : 0x00)));");
+        }
+        else // EdOut
+        {
+            string value = operand == "zero" ? "0" : operand;  // y=6: OUT (C),0
+            sb.AppendLine($"        WriteIo(BC, unchecked((byte)({value})));");
+        }
+        // Cycles: 12 T. Step charged 2 (key bytes); the ReadIo/WriteIo charges 1. +9 internal.
+        sb.AppendLine($"        _cycles += {12 - 2 - 1};   // IN/OUT (C) = 12 T-states");
+    }
+
+    private static void EmitZ80EdOpBody(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? statusReg,
+        string? spReg, FlagBitMap flags)
+    {
+        string f = statusReg ?? "F";
+        switch (insn.Ops[0].Kind)
+        {
+            case "EdAdcSbc16": EmitZ80EdAdcSbc16(sb, insn, f, flags); return;
+            case "EdLdNnRp":   EmitZ80EdLdNnRp(sb, insn, pc, pcType, flags); return;   // B-Task 4
+            case "EdNeg":      EmitZ80EdNeg(sb, f, flags); return;                     // B-Task 5
+            case "EdRetn":     EmitZ80EdRetn(sb, insn, pc, pcType, spReg); return;     // B-Task 6
+            case "EdIm":       EmitZ80EdIm(sb, insn); return;                          // B-Task 6
+            case "EdLdIaRa":   EmitZ80EdLdIaRa(sb, insn, f, flags); return;            // B-Task 7
+            case "EdRrdRld":   EmitZ80EdRrdRld(sb, insn, f, flags); return;            // B-Task 7
+            case "EdNop":      sb.AppendLine($"        _cycles += {8 - 2};   // ED NOP = 8 T"); return;
+            default:
+                throw new System.InvalidOperationException($"Z80 EdOp: no template for '{insn.Ops[0].Kind}'");
+        }
+    }
+
+    /// <summary>ED ADC/SBC HL,rp (16-bit). S/Z from the 16-bit result; H from bit 11; P/V overflow;
+    /// N=1(SBC)/0(ADC); C from bit 16; X/Y from the result high byte. WZ = HL+1 (pre-op). Cycles 15.</summary>
+    private static void EmitZ80EdAdcSbc16(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        bool sub = Unquote(insn.Ops[0].Args[0]) == "SBC";
+        string pair = Unquote(insn.Ops[0].Args[1]);
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+
+        sb.AppendLine("        WZ = unchecked((ushort)(HL + 1));");   // pre-op HL
+        sb.AppendLine("        int hl = HL;");
+        sb.AppendLine($"        int rr = {pair};");
+        sb.AppendLine($"        int cin = (({f} & {cMask}) != 0 ? 1 : 0);");
+        if (sub)
+        {
+            sb.AppendLine("        int full = hl - rr - cin;");
+            sb.AppendLine("        int half = (hl & 0x0FFF) - (rr & 0x0FFF) - cin;");
+            sb.AppendLine("        ushort res16 = unchecked((ushort)full);");
+            sb.AppendLine("        int ov = ((hl ^ rr) & (hl ^ full) & 0x8000);");
+            EmitZ80Ed16FlagWord(sb, f, sMask, zMask, yMask, hMask, xMask, pMask, nMask, cMask,
+                subtract: true, halfBit: "((half & 0x1000) != 0)", carry: "(full < 0)", ov: "(ov != 0)");
+        }
+        else
+        {
+            sb.AppendLine("        int full = hl + rr + cin;");
+            sb.AppendLine("        int half = (hl & 0x0FFF) + (rr & 0x0FFF) + cin;");
+            sb.AppendLine("        ushort res16 = unchecked((ushort)full);");
+            sb.AppendLine("        int ov = (~(hl ^ rr) & (hl ^ full) & 0x8000);");
+            EmitZ80Ed16FlagWord(sb, f, sMask, zMask, yMask, hMask, xMask, pMask, nMask, cMask,
+                subtract: false, halfBit: "((half & 0x1000) != 0)", carry: "(full > 0xFFFF)", ov: "(ov != 0)");
+        }
+        sb.AppendLine("        HL = res16;");
+        sb.AppendLine($"        _cycles += {15 - 2};   // ADC/SBC HL,rp = 15 T-states");
+    }
+
+    /// <summary>The 16-bit ED ADC/SBC flag word: S=bit15, Z=(res==0), Y/X from the high byte, H from
+    /// bit 11 carry, P/V overflow, N per op, C from bit 16.</summary>
+    private static void EmitZ80Ed16FlagWord(
+        StringBuilder sb, string f, string sMask, string zMask, string yMask, string hMask, string xMask,
+        string pMask, string nMask, string cMask, bool subtract, string halfBit, string carry, string ov)
+    {
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((res16 & 0x8000) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (res16 == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | (((res16 >> 8) & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ({halfBit} ? {hMask} : 0x00)");
+        sb.AppendLine($"            | (((res16 >> 8) & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ({ov} ? {pMask} : 0x00)");
+        sb.AppendLine($"            | {(subtract ? nMask : "0x00")}");
+        sb.AppendLine($"            | ({carry} ? {cMask} : 0x00)));");
+    }
+
+    private static void EmitZ80EdLdNnRp(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, FlagBitMap flags)
+    {
+        bool store = Unquote(insn.Ops[0].Args[0]) == "STORE";
+        string pair = Unquote(insn.Ops[0].Args[1]);
+        sb.AppendLine($"        byte al = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        sb.AppendLine($"        byte ah = ReadBus({pc});");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + 1));");
+        sb.AppendLine("        uint ea = (uint)(al | (ah << 8));");
+        EmitWz(sb, "ea + 1");
+        if (store)
+        {
+            sb.AppendLine($"        WriteBus(ea, unchecked((byte){pair}));");
+            sb.AppendLine($"        WriteBus((ea + 1) & 0xFFFF, unchecked((byte)({pair} >> 8)));");
+            sb.AppendLine($"        _cycles += {20 - 2 - 2 - 2};   // LD (nn),rp = 20 T (2 key + 2 addr reads + 2 writes)");
+        }
+        else
+        {
+            sb.AppendLine("        byte vlo = ReadBus(ea);");
+            sb.AppendLine("        byte vhi = ReadBus((ea + 1) & 0xFFFF);");
+            sb.AppendLine($"        {pair} = unchecked((ushort)(vlo | (vhi << 8)));");
+            sb.AppendLine($"        _cycles += {20 - 2 - 2 - 2};   // LD rp,(nn) = 20 T (2 key + 2 addr + 2 data reads)");
+        }
+    }
+
+    /// <summary>ED NEG: A = 0 − A. Flags as SUB(0,A): S/Z/X/Y from result, H = borrow from bit 4,
+    /// P/V = (A==0x80), N=1, C = (A!=0). No WZ write. Cycles 8.</summary>
+    private static void EmitZ80EdNeg(StringBuilder sb, string f, FlagBitMap flags)
+    {
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string hMask = $"0x{(byte)(1 << flags.BitOf("H")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string nMask = $"0x{(byte)(1 << flags.BitOf("N")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine("        int a0 = A;");
+        sb.AppendLine("        int diff = 0 - a0;");
+        sb.AppendLine("        int half = 0 - (a0 & 0x0F);");
+        sb.AppendLine("        byte res = unchecked((byte)diff);");
+        sb.AppendLine($"        {f} = unchecked((byte)(");
+        sb.AppendLine($"              ((res & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (res == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((half & 0x10) != 0 ? {hMask} : 0x00)");
+        sb.AppendLine($"            | ((res & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | (a0 == 0x80 ? {pMask} : 0x00)");
+        sb.AppendLine($"            | {nMask}");
+        sb.AppendLine($"            | (a0 != 0 ? {cMask} : 0x00)));");
+        sb.AppendLine("        A = res;");
+        sb.AppendLine($"        _cycles += {8 - 2};   // NEG = 8 T-states");
+    }
+
+    /// <summary>ED RETN/RETI: pop PC, IFF1 = IFF2, WZ = popped PC. No flags. Cycles 14. (RETI vs RETN
+    /// differ only in disassembly/the device daisy-chain ack, which is out of scope here — both restore
+    /// IFF1 from IFF2; CONFIRMED against ed 45/ed 4d.)</summary>
+    private static void EmitZ80EdRetn(
+        StringBuilder sb, InstructionModel insn, string pc, string pcType, string? spReg)
+    {
+        string sp = spReg ?? "SP";
+        sb.AppendLine($"        byte rl = ReadBus({sp});");
+        sb.AppendLine($"        {sp} = unchecked((ushort)({sp} + 1));");
+        sb.AppendLine($"        byte rh = ReadBus({sp});");
+        sb.AppendLine($"        {sp} = unchecked((ushort)({sp} + 1));");
+        sb.AppendLine($"        {pc} = unchecked(({pcType})(rl | (rh << 8)));");
+        sb.AppendLine($"        WZ = unchecked((ushort)({pc}));");   // WZ = popped PC
+        sb.AppendLine("        _iff1 = _iff2;");                      // IFF1 = IFF2
+        sb.AppendLine($"        _cycles += {14 - 2 - 2};   // RETN/RETI = 14 T (2 key + 2 pop reads)");
+    }
+
+    /// <summary>ED IM n: set the interrupt mode. No flags, no WZ. Cycles 8.</summary>
+    private static void EmitZ80EdIm(StringBuilder sb, InstructionModel insn)
+    {
+        int mode = int.Parse(insn.Ops[0].Args[0], System.Globalization.CultureInfo.InvariantCulture);
+        sb.AppendLine($"        Im = {mode};");
+        sb.AppendLine($"        _cycles += {8 - 2};   // IM n = 8 T-states");
+    }
+
+    /// <summary>ED LD I,A / R,A / A,I / A,R. I,A/R,A: copy A→I/R, no flags. A,I/A,R: copy I/R→A, S/Z
+    /// from value, H=0, N=0, P/V = IFF2, X/Y from value, C preserved. Cycles 9. No WZ write.</summary>
+    private static void EmitZ80EdLdIaRa(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        string op = Unquote(insn.Ops[0].Args[0]);   // "I_A"/"R_A"/"A_I"/"A_R"
+        switch (op)
+        {
+            case "I_A": sb.AppendLine("        I = A;"); break;
+            case "R_A": sb.AppendLine("        R = A;"); break;
+            case "A_I":
+            case "A_R":
+            {
+                string src = op == "A_I" ? "I" : "R";
+                string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+                string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+                string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+                string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+                string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+                string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+                sb.AppendLine($"        byte v = {src};");
+                sb.AppendLine("        A = v;");
+                sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");   // C preserved
+                sb.AppendLine($"            | ((v & 0x80) != 0 ? {sMask} : 0x00)");
+                sb.AppendLine($"            | (v == 0 ? {zMask} : 0x00)");
+                sb.AppendLine($"            | ((v & 0x20) != 0 ? {yMask} : 0x00)");
+                sb.AppendLine($"            | ((v & 0x08) != 0 ? {xMask} : 0x00)");
+                sb.AppendLine($"            | (_iff2 ? {pMask} : 0x00)));");          // P/V = IFF2
+                break;
+            }
+            default:
+                throw new System.InvalidOperationException($"EdLdIaRa: unknown op '{op}'");
+        }
+        sb.AppendLine($"        _cycles += {9 - 2};   // LD I,A/R,A/A,I/A,R = 9 T-states");
+    }
+
+    /// <summary>ED RRD/RLD: nibble rotate between A's low nibble and (HL). S/Z/P from A, H=0, N=0,
+    /// C preserved, X/Y from A. WZ = HL+1. Cycles 18.</summary>
+    private static void EmitZ80EdRrdRld(StringBuilder sb, InstructionModel insn, string f, FlagBitMap flags)
+    {
+        bool rld = insn.Ops[0].Args[0] == "true";   // EdRrdRld(IsRld) -- Bool args stored raw "true"/"false"
+        string sMask = $"0x{(byte)(1 << flags.BitOf("S")):X2}";
+        string zMask = $"0x{(byte)(1 << flags.BitOf("Z")):X2}";
+        string yMask = $"0x{(byte)(1 << flags.BitOf("Y")):X2}";
+        string xMask = $"0x{(byte)(1 << flags.BitOf("X")):X2}";
+        string pMask = $"0x{(byte)(1 << flags.BitOf("P")):X2}";
+        string cMask = $"0x{(byte)(1 << flags.BitOf("C")):X2}";
+        sb.AppendLine("        byte m = ReadBus(HL);");
+        sb.AppendLine("        int alo = A & 0x0F;");
+        if (rld)
+        {
+            sb.AppendLine("        byte newM = unchecked((byte)((m << 4) | alo));");
+            sb.AppendLine("        A = unchecked((byte)((A & 0xF0) | (m >> 4)));");
+        }
+        else
+        {
+            sb.AppendLine("        byte newM = unchecked((byte)((alo << 4) | (m >> 4)));");
+            sb.AppendLine("        A = unchecked((byte)((A & 0xF0) | (m & 0x0F)));");
+        }
+        sb.AppendLine("        WriteBus(HL, newM);");
+        sb.AppendLine("        WZ = unchecked((ushort)(HL + 1));");
+        sb.AppendLine($"        {f} = unchecked((byte)(({f} & {cMask})");
+        sb.AppendLine($"            | ((A & 0x80) != 0 ? {sMask} : 0x00)");
+        sb.AppendLine($"            | (A == 0 ? {zMask} : 0x00)");
+        sb.AppendLine($"            | ((A & 0x20) != 0 ? {yMask} : 0x00)");
+        sb.AppendLine($"            | ((A & 0x08) != 0 ? {xMask} : 0x00)");
+        sb.AppendLine($"            | ((System.Numerics.BitOperations.PopCount((uint)A) & 1) == 0 ? {pMask} : 0x00)));");
+        sb.AppendLine($"        _cycles += {18 - 2 - 1 - 1};   // RRD/RLD = 18 T (2 key + 1 read + 1 write)");
     }
 
     // ---- Monitor support (IMonitorSupport implementation) ----
@@ -2728,7 +3079,8 @@ internal static class CpuEmitter
         // base for conditional flow; the body adds the taken penalty — parallel to the 6502 branch).
         if (cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
-            or InstructionClass.Z80Rot or InstructionClass.Z80Bit)
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp)
             return Z80Cycles(insn.Mode, cls, firstKind);
 
         if (cls == InstructionClass.Stack)
@@ -2778,7 +3130,8 @@ internal static class CpuEmitter
         // names none of these classes) is unchanged. Z80 control-flow classes also end the block.
         bool z80 = cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
             or InstructionClass.Z80Exchange or InstructionClass.Z80Flow or InstructionClass.Z80Misc
-            or InstructionClass.Z80Rot or InstructionClass.Z80Bit;
+            or InstructionClass.Z80Rot or InstructionClass.Z80Bit
+            or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
@@ -2802,7 +3155,8 @@ internal static class CpuEmitter
             InstructionClass.Z80Flow => "Flow",
             InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
-                or InstructionClass.Z80Rot or InstructionClass.Z80Bit => "Register",
+                or InstructionClass.Z80Rot or InstructionClass.Z80Bit
+                or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp => "Register",
             _ => throw new System.InvalidOperationException(
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
@@ -2874,6 +3228,17 @@ internal static class CpuEmitter
                 break;
             case "CbRotate":   // (string op, string target) — JIT fallback; slots unused
             case "CbBit":      // (string op, int bit, string target) — JIT fallback; slots unused
+            // M3.4c ED-core ops — JIT fallback; slots unused (same treatment as CbRotate/CbBit).
+            case "EdIn":
+            case "EdOut":
+            case "EdAdcSbc16":
+            case "EdLdNnRp":
+            case "EdNeg":
+            case "EdRetn":
+            case "EdIm":
+            case "EdLdIaRa":
+            case "EdRrdRld":
+            case "EdNop":
                 break;         // leave regA/regB empty; the Z80 op never emits IL
             // Zero-arg op kinds (Jump, Adc, Sbc, And, Ora, Eor, Bit, ShiftLeft, ShiftRight,
             // RotateLeft, RotateRight, IncrementMem, DecrementMem, PushP, PullP, Jsr, Rts,

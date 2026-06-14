@@ -17,13 +17,11 @@ namespace CpuEmulator.Tests.TomHarte;
 /// </summary>
 internal static class Z80TomHarteRunner
 {
-    /// <summary>Run one case. <paramref name="checkInternal"/> additionally diffs the final Q and WZ —
-    /// enforced for the M3.4b-implemented surface (the CB plane + the 4 rotate-accumulators), whose ops
-    /// maintain Q and leave WZ invariant. The general base plane does NOT model WZ writes (CALL/JP/RET/…
-    /// update WZ — M3.4c) nor maintain Q on the shared 6502-class ops (LD r,r' etc.), so it keeps the
-    /// M3.4a posture (registers/RAM/ports/cycles/trace, no Q/WZ); enabling those checks for it would
-    /// require out-of-scope base-plane WZ + shared-class-Q modeling.</summary>
-    public static string? RunCase(Z80TomHarteCase c, bool registersOnly = false, bool checkInternal = false)
+    /// <summary>Run one case. The WZ/MEMPTR model is COMPLETE (M3.4c, Piece A): every Z80 op models its
+    /// WZ writes and maintains Q (the shared 6502-class ops set Q=0; the flag-writing ops set Q=F), and
+    /// the IM ops set the interrupt mode. So the final Q AND WZ AND IM are checked on EVERY case (the
+    /// M3.4b <c>checkInternal</c> scoping is retired). Iff1/Iff2 were already checked universally.</summary>
+    public static string? RunCase(Z80TomHarteCase c, bool registersOnly = false)
     {
         var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
         inner.MapMemory(0x0000, new byte[0x10000], writable: true);
@@ -50,6 +48,7 @@ internal static class Z80TomHarteRunner
         cpu.SetRegister("AF_", s.Af_); cpu.SetRegister("BC_", s.Bc_);  // pair-view set of the alt set
         cpu.SetRegister("DE_", s.De_); cpu.SetRegister("HL_", s.Hl_);
         cpu.Iff1 = s.Iff1; cpu.Iff2 = s.Iff2;
+        cpu.Im = s.Im;   // M3.4c: the interrupt mode (set by the ED IM ops)
         cpu.Q = (byte)s.Q;   // the q-pseudo-register drives the SCF/CCF X/Y quirk
 
         cpu.Step();
@@ -65,12 +64,11 @@ internal static class Z80TomHarteRunner
         Check(problems, cpu, "IX", f.Ix, 4); Check(problems, cpu, "IY", f.Iy, 4);
         Check(problems, cpu, "AF_", f.Af_, 4); Check(problems, cpu, "BC_", f.Bc_, 4);
         Check(problems, cpu, "DE_", f.De_, 4); Check(problems, cpu, "HL_", f.Hl_, 4);
-        if (checkInternal)
-        {
-            // M3.4b: the CB plane + rotate-accumulators maintain Q and leave WZ invariant.
-            Check(problems, cpu, "WZ", f.Wz, 4);
-            if (cpu.Q != f.Q) problems.Add($"Q: expected {f.Q:X2}, got {cpu.Q:X2}");
-        }
+        // M3.4c (Piece A): the WZ/MEMPTR model is complete and every Z80 op maintains Q, so the final
+        // Q AND WZ AND IM are checked on EVERY case (the M3.4b checkInternal scoping is retired).
+        Check(problems, cpu, "WZ", f.Wz, 4);
+        if (cpu.Q != f.Q) problems.Add($"Q: expected {f.Q:X2}, got {cpu.Q:X2}");
+        if (cpu.Im != f.Im) problems.Add($"IM: expected {f.Im}, got {cpu.Im}");
         if (cpu.Iff1 != f.Iff1) problems.Add($"IFF1: expected {f.Iff1}, got {cpu.Iff1}");
         if (cpu.Iff2 != f.Iff2) problems.Add($"IFF2: expected {f.Iff2}, got {cpu.Iff2}");
 

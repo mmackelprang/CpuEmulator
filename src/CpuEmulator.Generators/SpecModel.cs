@@ -23,6 +23,8 @@ internal enum InstructionClass
     Z80Misc,      // DAA/CPL/SCF/CCF/DI/EI — Implied register-class ops with bespoke flag effects
     Z80Rot,       // M3.4b: rotate-accumulators (RLCA/RRCA/RLA/RRA) + CB rotate/shift (CbRotate)
     Z80Bit,       // M3.4b: CB BIT/RES/SET (CbBit)
+    Z80EdIo,      // M3.4c: ED IN r,(C) / OUT (C),r (touches the I/O bus + the ports array)
+    Z80EdOp,      // M3.4c: the rest of the ED-core (ADC/SBC HL,rp; LD (nn),rp; NEG; RETN/RETI; IM; LD I/R/A; RRD/RLD; NOP)
 }
 
 /// <summary>The operation-key packing a row declared (Ground truth C). OpcodeByte is the 6502

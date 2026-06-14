@@ -26,6 +26,7 @@ public class Z80AddrModeParserTests
             [
                 new("A", 8), new("F", 8, RegisterRole.Status),
                 new("B", 8), new("C", 8), new("D", 8), new("E", 8), new("H", 8), new("L", 8),
+                new("WZ", 16),   // M3.4c: the MEMPTR register every Z80 flow/LD/EX op writes
                 new("SP", 16, RegisterRole.StackPointer),
                 new("PC", 16, RegisterRole.ProgramCounter),
                 new("BC", 16, HighHalf: "B", LowHalf: "C"),

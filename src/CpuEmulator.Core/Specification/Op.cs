@@ -118,3 +118,24 @@ public sealed record RraOp : Op;
 public sealed record CbRotateOp(string Op, string Target) : Op;
 // CB BIT/RES/SET — Op ∈ BIT/RES/SET, Bit = 0..7, Target = "B".."A" or "(HL)".
 public sealed record CbBitOp(string Op, int Bit, string Target) : Op;
+
+// ── M3.4c ED-core plane (additive; the 6502 + base + CB name none) ──
+// IN r,(C) / OUT (C),r. Target/Source ∈ "B".."A"; "(none)"/"(zero)" for the y=6 IN (C)/OUT (C),0 forms.
+public sealed record EdInOp(string Target) : Op;
+public sealed record EdOutOp(string Source) : Op;
+// 16-bit ADC/SBC HL,rp. Op ∈ "ADC"/"SBC"; Pair ∈ "BC"/"DE"/"HL"/"SP".
+public sealed record EdAdcSbc16Op(string Op, string Pair) : Op;
+// LD (nn),rp / LD rp,(nn). Op ∈ "STORE"/"LOAD"; Pair ∈ "BC"/"DE"/"HL"/"SP".
+public sealed record EdLdNnRpOp(string Op, string Pair) : Op;
+// NEG (A = 0 - A; canonical 0x44 + the undoc duplicates).
+public sealed record EdNegOp : Op;
+// RETN/RETI — pop PC, IFF1 = IFF2. IsReti distinguishes the disassembly/cycle (both do IFF1←IFF2).
+public sealed record EdRetnOp(bool IsReti) : Op;
+// IM 0/1/2 — set the interrupt mode.
+public sealed record EdImOp(int Mode) : Op;
+// LD I,A / R,A / A,I / A,R. Op ∈ "I_A"/"R_A"/"A_I"/"A_R" (A,I and A,R set P/V from IFF2).
+public sealed record EdLdIaRaOp(string Op) : Op;
+// RRD/RLD — nibble rotate between A's low nibble and (HL).
+public sealed record EdRrdRldOp(bool IsRld) : Op;
+// The undocumented ED NOP (0x77/0x7F) — no effect.
+public sealed record EdNopOp : Op;
