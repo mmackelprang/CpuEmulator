@@ -125,6 +125,19 @@ internal static class CpuEmitter
         foreach (var instruction in model.Instructions)
             sb.AppendLine($"    //   0x{instruction.Opcode:X2} {instruction.Mnemonic} {instruction.Mode}");
 
+        // M3.4e-3: a structured (multi-byte) CPU stashes the decode walk's low operand byte here so a
+        // parameterless Op{key}() body (the DDCB/FDCB compound forms) can read the displacement the walk
+        // already consumed WITHOUT a second bus access. The 6502 (Decode null) takes the degenerate Step
+        // and never references this field, so it is emitted only for structured CPUs (byte-identity guard).
+        if (model.Decode is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>The low operand byte the decode walk consumed last (M3.4e-3): the");
+            sb.AppendLine("    /// DDCB/FDCB compound displacement, surfaced to the parameterless compound body so it");
+            sb.AppendLine("    /// need not re-read the bus (which would add a spurious traced access).</summary>");
+            sb.AppendLine("    private byte _decodeOperandLo;");
+        }
+
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Execute one instruction — or service one pending interrupt at this");
         sb.AppendLine("    /// instruction boundary (the hook runs before the opcode fetch). Always advances");
@@ -163,6 +176,11 @@ internal static class CpuEmitter
             // exercises the DECODE walk; this keeps Step compiling key-based for a multi-byte CPU.
             sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}));");
             sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + __r.Length));");
+            // M3.4e-3: surface the walk's decoded low operand byte (the DDCB/FDCB compound displacement,
+            // packed by the compound decode walk) to the parameterless body via a field — the body must
+            // NOT re-read it from the bus (that would add a spurious traced bus access the per-T-state
+            // TomHarte trace does not record; the d byte was already fetched once by the walk above).
+            sb.AppendLine("        _decodeOperandLo = __r.Operands.Lo;");
             // M3.4a: charge the opcode-fetch T-state(s) — the decode walk reads them via the fetch
             // stream (which does NOT charge), so Step charges one cycle per consumed key byte. The
             // per-op body charges the remaining T-states (Ground truth G). The fetch-side hook lets a
@@ -170,7 +188,13 @@ internal static class CpuEmitter
             // the synthetic decode CPU is unaffected. The 6502 takes the degenerate branch above and
             // never sees this code (its generated Step is byte-identical).
             sb.AppendLine("        _cycles += __r.Length;");
-            sb.AppendLine("        OnInstructionFetched(__r.Length);");
+            // The R-refresh bumps once per M1 (opcode-fetch) cycle, NOT per byte. For a base op (length 1)
+            // or a plain prefixed op (length 2 = prefix + opcode, the displacement is read in-body) the M1
+            // count equals __r.Length. But a 24-bit COMPOUND key (DDCB/FDCB, M3.4e-3) consumes 4 bytes
+            // (DD CB d op) yet has only 2 M1 fetches — the two PREFIX bytes; the displacement + final
+            // opcode are not M1 cycles. So R bumps by 2 there (vector-confirmed: dd cb __ NN.json R+2),
+            // while _cycles still charges all 4 fetch cycles above.
+            sb.AppendLine("        OnInstructionFetched(__r.OperationKey > 0xFFFF ? 2 : __r.Length);");
             sb.AppendLine("        Execute(__r.OperationKey);");
         }
         sb.AppendLine("    }");
@@ -398,9 +422,11 @@ internal static class CpuEmitter
         // DD/FD-prefixed op pays an EXTRA M1 (the prefix fetch = +4 T) and Step charges 2 key bytes
         // (prefix + opcode) rather than 1. Net surcharge = +4 (prefix M1) − 1 (the extra key byte Step
         // already charged) = +3 internal T-states. The Z80Indexed arms compute their own vector-pinned
-        // totals (already accounting for the 2-byte key fetch), so they are EXCLUDED. Confirmed against
-        // the vectors: DD 04 = 8 T (base 4 + 4), DD 09 = 15 T (base 11 + 4), DD EA = 14 T (base 10 + 4).
-        if (ddFdPrefixed && opClass != InstructionClass.Z80Indexed)
+        // totals (already accounting for the 2-byte key fetch), so they are EXCLUDED. M3.4e-3: the Z80DdCb
+        // compound arms likewise self-account their full T-state total (subtracting Step's 4 key bytes),
+        // so they are EXCLUDED too. Confirmed against the vectors: DD 04 = 8 T (base 4 + 4), DD 09 = 15 T,
+        // DD EA = 14 T; the compound DD CB d 06 = 23 T (self-accounted, no surcharge).
+        if (ddFdPrefixed && opClass is not (InstructionClass.Z80Indexed or InstructionClass.Z80DdCb))
             sb.AppendLine("        _cycles += 3;   // DD/FD prefix M1 surcharge (+4 prefix − 1 extra key byte)");
 
         // M3.4b: the cross-instruction Q lifecycle. Every Z80 op sets Q at the end: Q = F if it wrote
@@ -2549,9 +2575,11 @@ internal static class CpuEmitter
         int index = int.Parse(insn.Ops[0].Args[1], System.Globalization.CultureInfo.InvariantCulture);
         string copyReg = Unquote(insn.Ops[0].Args[2]);                 // "B".."A" | "-" (no copy)
 
-        // D10: re-read the displacement via the non-charging raw bus read at (PC - 2) (the d fetch is
-        // already charged in Step's _cycles += __r.Length = 4).
-        sb.AppendLine($"        byte d = _bus.Read8(unchecked((ushort)({pc} - 2)));");
+        // The displacement was consumed by the compound decode walk and stashed into _decodeOperandLo by
+        // Step (M3.4e-3) — read it from there, NOT from the bus: a second bus read would add a spurious
+        // traced access the per-T-state TomHarte trace does not record (the d fetch is already counted in
+        // Step's _cycles += __r.Length = 4 and recorded once by the walk's fetch stream).
+        sb.AppendLine("        byte d = _decodeOperandLo;");
         EmitZ80IndexedEa(sb, ix, "d");   // -> ushort __ea = unchecked((ushort)(IX + (sbyte)(d)));
         EmitWz(sb, "__ea");              // WZ = the computed EA (the (IX+d) MEMPTR — all compound forms)
 
