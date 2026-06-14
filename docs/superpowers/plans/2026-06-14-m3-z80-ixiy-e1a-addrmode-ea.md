@@ -810,26 +810,52 @@ EOF
 
 | Commit | Content | Suite |
 |---|---|---|
-| (Task 1) | Indexed AddrMode + JitMode.Indexed + ModeLength arm | green |
-| (Task 2) | EmitZ80IndexedEa signed-EA helper (uncalled) | green |
-| (Task 3) | IXh/IXl half-view shape proof (synthetic) | green |
-| (Task 4) | IXh/IXl/IYh/IYl declared; IX/IY views; regen; whole-Z80 re-green | green |
+| d93d399 (Task 1) | Indexed AddrMode + JitMode.Indexed + ModeLength arm | green (2309) |
+| 4c8484c (Task 2) | EmitZ80IndexedEa signed-EA helper (uncalled) | green (2311) |
+| f13ba4f (Task 3) | IXh/IXl/IYh/IYl half-view shape proof (synthetic) | green (2315) |
+| (Task 4) | IXh/IXl/IYh/IYl declared; IX/IY views; regen; whole-Z80 re-green | green (2317) |
 
 | Closeout metric | Value |
 |---|---|
-| Baseline test count (Task 0) | _fill_ |
-| Final test count | _fill_ |
+| Baseline test count (Task 0) | 2306 (0 failed, 0 skipped) |
+| Final test count | 2317 (0 failed, 0 skipped) — +11 (1 existing register-count test updated, not added) |
 | `Indexed` mode declarable? | YES — AddrMode + JitMode + s_addrModes + SupportedModes + ModeLength(=3) |
 | IXh/IXl/IYh/IYl present? | YES — 8-bit half-views; IX/IY now computed pair-views (storage = halves) |
 | `(IX+d)` EA helper present? | YES — `EmitZ80IndexedEa`; UNCALLED (M3.4e-2 wires it) |
 | Any DD/FD opcode live? | NO — e-1a is framework-only; no `dd *.json` asserted green |
-| Whole-Z80 UAT (full) | base + CB + ED re-green, 0 failures with final Q/WZ/IM on every case |
+| Whole-Z80 UAT (full) | base + CB + ED re-green — `CPUEMULATOR_UAT=full` 588/0/0; regs-only (588/0/0) + standard sample (588/0/0) tiers also 0 failures, final Q/WZ/IM on every case. The D2 storage inversion is transparent. |
 | Runner IX/IY change needed? | NO — already set/checked (RECON-FINDING A3) |
 | 6502 un-regressed? | YES — RegeneratedSpecTests byte-identity green |
 | Any 6502 file changed? | NONE (additive) |
 | `-warnaserror` | clean |
 | Still deferred | the compound decoder (M3.4e-1b); DD/FD opcodes live (M3.4e-2/3); servicing + ZEXALL + JIT (M3.5) |
 | Recommended next chunk | M3.4e-1b — the compound-prefix decoder |
+
+### Deviations from the plan (honest record)
+
+- **Task 1 proof vehicle.** The plan's Step-1 snippet ran a synthetic `Indexed`-mode probe row through
+  `GeneratorTestHost.Run` and asserted `JitMode.Indexed` in the descriptor text. In practice no op-class
+  accepts `Indexed` yet (RECON-FINDING A4 — the class-widening is M3.4e-2), so a live `Indexed`-mode row is
+  (correctly) rejected at the class/mode legality check (CPUGEN010) and never reaches descriptor emission.
+  Following the plan's stated fallback AND the M3.4b precedent (`Z80CbModeTests` proved the `Bit` mode by
+  enum-membership, not a live row), Task 1's test asserts: (a) `AddrMode.Indexed`/`JitMode.Indexed`
+  enum-membership, and (b) an `Indexed`-mode row PARSES past the `s_addrModes.Contains` gate (no "unknown
+  AddrMode member" diagnostic — the membership gate e-1a opens) and is then rejected ONLY at the class/mode
+  check. This is the precise, honest statement of e-1a's scope: `Indexed` is a declarable mode; no opcode is
+  live. `ModeLength("Indexed")=3` and the `SupportedModes` mirror are proven structurally by the whole-suite
+  green gate (the importer emits `JitMode.{Mode}` literally; a mismatched mirror would not compile).
+- **Task 3 fixture shape.** The plan's synthetic fixture declared a `DecodeStructure` with a `0xDD` prefix
+  but no prefixed `Insn` row, which trips CPUGEN012 ("prefix 0xDD has no prefixed Insn row") → `model.Decode`
+  drops → the structured partials are not emitted → the hand-written partials cascade CS-errors. Debugged in
+  the synthetic exactly as the plan intended (de-risking Task 4); the fix was to use the degenerate
+  (no-`DecodeStructure`) register-file fixture shape from `RegisterPairAliasingTests` — a pure register-file
+  half-view proof needs no structured decoder. The IX/IY round-trip + view-property assertions are unchanged
+  (extended to cover IY as well as IX). The real spec (Task 4) carries the prefixed rows, so its regen is
+  validated by the whole-Z80 re-green, not this synthetic.
+- **Existing test updated (not added).** `SemanticsMapTests.Z80_registers_load_as_declared` asserted the Z80
+  register count (31). The D2 storage inversion adds 4 half-views (IXh/IXl/IYh/IYl), so the count is now 35;
+  the test's count, taxonomy comment, and IX/IY half-view assertions were updated to match. This is a
+  legitimate consequence of the slice, not a regression.
 
 ## Slice docs index
 
