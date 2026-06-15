@@ -10,6 +10,30 @@
 passing, interrupt SERVICING implemented, and the Z80 driven through the JIT — in a dependency-ordered set
 of reviewable PRs.
 
+> ## ✅ M3.5 COMPLETE — the Z80 is finished (D9 boundary, 2026-06-15)
+>
+> **The Z80 is DONE as an architecture.** Full ISA TomHarte-green across all 7 planes (1604 opcodes; base +
+> CB + ED + DD + FD + DDCB + FDCB; every documented + undocumented op, per-T-state, incl. F's X/Y, WZ/MEMPTR,
+> Q, IM, IFF1/IFF2) + interrupt servicing for IM 0/1/2 + NMI with a dedicated UAT (M3.5-1, PR #29) + ZEXDOC/
+> ZEXALL passing (M3.5-2, PR #30) + the Z80 running through the now-**generic** JIT with byte-identical tier
+> parity (M3.5-3a, PR #31, merge `6a8139c`).
+>
+> **The JIT is now generic over the CPU type** — `BlockCompiler<TCpu>`/`JittedCpu<TCpu>` + the per-CPU
+> `IJitTarget` seam; the `CpuEmulator.Jit` assembly no longer references any concrete CPU assembly (the J1/
+> J2/J3 deliverable; the ADR Decision-7 findings). **Only the JIT SPEED-UP remains** — and **5-3b (emitting
+> real IL for the hot Z80 ops) is DEFERRED to the post-8086 cross-architecture JIT-optimization phase**, so
+> the hot-op emitter is built ONCE for all three ISAs (Z80 + 68000 + 8086) rather than Z80-specifically now.
+> The Z80 is correct-through-the-JIT today (all-fallback tier parity); it is only not-yet-faster.
+>
+> **The findings:** `docs/superpowers/plans/2026-06-14-m3-z80-m35-3c-jit-genericity-findings.md` (the D9
+> boundary record — the filled ADR Decision-7 J1–J10 table + the hot-op/fallback emit spec for the
+> optimization phase).
+>
+> **Next milestone = M4 (68000)** — the register-width + big-endian + word/long-bus + 24-bit-address half of
+> the genericity proof (ADR §3 verdict + the 2026-06-13 three-arch checkpoint). The generic JIT seam is
+> structurally ready to accept the 68000 as all-fallback with no JIT change; the 68000's real pressure lands
+> on `Core` (the 32-bit `RegisterDef.Bits` cap) and the eventual emit layer (see the findings doc §7).
+
 **Where we are (PR #23, merged):** the Z80 **base + CB + ED-core (0x40–0x7F) + ED block ops (0xA0–0xBB)**
 planes are TomHarte-green — **588 covered opcodes** (252 base + 256 CB + 80 ED), full-sweep cases incl. F's
 X/Y, I/R, IM, IFF1/IFF2, WZ, Q, RAM, ports, the per-T-state bus trace, AND the block-op repeat PC-rewind.
@@ -29,14 +53,17 @@ The WZ/MEMPTR model is COMPLETE with a universal final Q/WZ/IM check (`checkInte
 | CB (0x00–0xFF) | TomHarte-green | done (M3.4b) |
 | ED core (0x40–0x7F, 64) | TomHarte-green | done (M3.4c, PR #22) |
 | ED block ops (0xA0–0xBB, 16) | TomHarte-green | done (M3.4d, PR #23) |
-| **DD / FD prefixes ((IX/IY) + (IX+d))** | `// TODO(mode)` (Indexed mode unsupported) | **M3.4e — the NEXT PR; scoped, likely 2–3 PRs** |
-| **DDCB / FDCB compound prefixes** | not decodable (compound key unsupported) | **part of M3.4e** |
-| **Interrupt SERVICING (IM 0/1/2 + NMI vectoring)** | serviced (IM 0/1/2 + NMI + IFF1/IFF2 + EI-delay + HALT-wake); interrupt UAT green | **M3.5-1 — plan detailed + implemented; PR pending** |
-| **ZEXALL / ZEXDOC exerciser** | GREEN — ZEXDOC + ZEXALL 67 sub-tests each, zero ERROR (CP/M BDOS host) | **M3.5-2 — detailed + implemented; PR pending** |
-| **Z80 through the JIT** | interpreter-only (ED/CB rows are JIT fallbacks) | **M3.5** |
+| DD / FD prefixes ((IX/IY) + (IX+d)) | TomHarte-green | done (M3.4e-2, PRs #24/#25/#27) |
+| DDCB / FDCB compound prefixes | TomHarte-green | done (M3.4e-3, PR #28) |
+| Interrupt SERVICING (IM 0/1/2 + NMI vectoring) | serviced (IM 0/1/2 + NMI + IFF1/IFF2 + EI-delay + HALT-wake); interrupt UAT green | done (M3.5-1, PR #29) |
+| ZEXALL / ZEXDOC exerciser | GREEN — ZEXDOC + ZEXALL 67 sub-tests each, zero ERROR (CP/M BDOS host) | done (M3.5-2, PR #30) |
+| Z80 through the JIT (generic compiler + tier parity) | the JIT is generic over the CPU type; the complete Z80 runs through `JittedCpu<Z80Cpu>` all-fallback with byte-identical tier parity (1604 opcodes, all 7 planes, + ZEXDOC/ZEXALL) | done (M3.5-3a, PR #31) |
+| The genericity findings doc | the D9 boundary record — the filled ADR Decision-7 J1–J10 table + the hot-op/fallback emit spec | done (M3.5-3c) |
+| Z80 hot-op IL emission (the JIT speed-up) | DEFERRED — folded into the post-8086 cross-arch JIT-optimization phase (build the hot-op emitter once for Z80 + 68000 + 8086) | post-M5 (was 5-3b) |
 
-Total remaining decodable opcodes: **16 ED block + ~252 DD + ~252 FD + 256 DDCB + 256 FDCB ≈ 1,032**, plus
-the cross-cutting interrupt-servicing + JIT-genericity work.
+**M3.5 is COMPLETE at the D9 boundary** (2026-06-15): the JIT compiler is generic, the Z80 achieves tier
+parity, the findings are documented. The only remaining Z80 JIT work is the SPEED-UP (5-3b), gated behind
+M4 (68000) + M5 (8086) and built once across all three ISAs in the optimization phase. **Next = M4 (68000).**
 
 ---
 
@@ -55,11 +82,20 @@ M3.4e  DD/FD/DDCB/FDCB IX/IY prefixes  ← DONE: the ENTIRE Z80 ISA is TomHarte-
    │      M3.4e-2  DD/FD core (the (IX+d)/(IY+d) re-interpretation of the base + the IX/IY 16-bit ops)  ← DONE (#27)
    │      M3.4e-3  DDCB/FDCB compound (bit/rotate/shift on (IX+d), incl. the undoc "store-copy" forms)  ← DONE (#28)
    ▼
-M3.5   ZEXALL + interrupt servicing + Z80-through-JIT  ← NEXT; scoped; SPLITS into sub-PRs (see §5)
-   │      M3.5-1  interrupt SERVICING (IM 0/1/2 + NMI, IFF1/IFF2, EI-delay, HALT wake)
-   │      M3.5-2  ZEXALL/ZEXDOC integration harness (the CP/M BDOS stub + the CRC gate)
-   │      M3.5-3  Z80 through the JIT (the J1/J2/J3 generic-compiler work + tier parity) + the findings doc
+M3.5   ZEXALL + interrupt servicing + Z80-through-JIT  ← DONE (D9 boundary): M3.5 COMPLETE
+   │      M3.5-1  interrupt SERVICING (IM 0/1/2 + NMI, IFF1/IFF2, EI-delay, HALT wake)  ← DONE (PR #29)
+   │      M3.5-2  ZEXALL/ZEXDOC integration harness (the CP/M BDOS stub + the CRC gate)  ← DONE (PR #30)
+   │      M3.5-3a Z80 through the generic JIT (J1/J2/J3 + all-fallback tier parity)  ← DONE (PR #31)
+   │      M3.5-3c the genericity-findings doc (the D9 boundary record)  ← DONE
+   │      M3.5-3b hot-op IL emission (the SPEED-UP)  ← DEFERRED to the post-8086 cross-arch optimization phase
    ▼
+M4     68000  ← NEXT (the register-width + big-endian + word/long-bus + 24-bit-addr half of the genericity proof)
+   ▼
+M5     8086   (segmentation + variable-length decode)
+   ▼
+M6     cross-architecture JIT optimization  ── build the hot-op emitter ONCE for all 3 ISAs (folds in 5-3b);
+          register allocation, block chaining, the cycle-model abstraction — arch-valid by construction
+   ─ ─ ─
 M3.6 (optional)  Z80 host/monitor demo  ── per ADR 0001 Decision 8; not part of "finish the ISA"
 ```
 
