@@ -288,5 +288,7 @@ M4 68000 + M5 8086 — NOT part of this finish-line).
 - **M3.4d (NEXT, fully planned):** `docs/superpowers/plans/2026-06-14-m3-z80-ed-block-ops.md`
 - **M3.4e (scoped):** `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-prefixes.md`
 - **M3.5 (scoped):** `docs/superpowers/plans/2026-06-14-m3-z80-zexall-jit-m35.md`
+- **M3.5-1 (detailed + implemented):** `docs/superpowers/plans/2026-06-14-m3-z80-m35-1-interrupt-servicing.md`
+- **M3.5-2 (detailed — ZEXALL/ZEXDOC harness):** `docs/superpowers/plans/2026-06-14-m3-z80-m35-2-zexall.md`
 - **Predecessor (the depth template):** `docs/superpowers/plans/2026-06-14-m3-z80-ed-core.md`
 - **Architecture record:** `docs/architecture/0001-z80-second-architecture.md`
