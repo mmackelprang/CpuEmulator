@@ -494,10 +494,13 @@ internal static class SpecParser
                 continue;
             }
 
-            if (bits is not (8 or 16))
+            // M4.1 (ADR 0003 Decision 1): widen the register-width cap to admit 32-bit registers (the
+            // 68000's D0–D7/A0–A6/USP/SSP/PC). 8/16 are unchanged, so the 6502/Z80 emit byte-identically
+            // (the field-type selection's 8/16 arms are untouched — CpuEmitter FieldType()).
+            if (bits is not (8 or 16 or 32))
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
-                    element.GetLocation(), name, "register width must be 8 or 16 bits"));
+                    element.GetLocation(), name, "register width must be 8, 16, or 32 bits"));
                 continue;
             }
 
@@ -862,8 +865,9 @@ internal static class SpecParser
     /// <summary>Parse the optional <c>Flags</c> field (M3.4a Ground truth B). ABSENT ⇒ empty (the
     /// 6502 FlagBit enum-fallback). Present ⇒ a <c>new([ new("S", 7), new("Z", 6), … ])</c> /
     /// <c>new FlagLayout([...])</c> creation whose collection of <c>FlagBitDef("NAME", bit)</c>
-    /// entries is parsed into the model. A malformed structure or a bit outside 0–7 reports
-    /// CPUGEN013. Each name must be a known Flag member (CPUGEN013 otherwise).</summary>
+    /// entries is parsed into the model. A malformed structure or a bit outside 0–15 reports
+    /// CPUGEN013 (M4.1 widened the cap from 0–7 to 0–15 for the 68000's 16-bit SR). Each name must
+    /// be a known Flag member (CPUGEN013 otherwise).</summary>
     private static ImmutableArray<FlagBitModel> ParseFlagLayout(
         ClassDeclarationSyntax classDecl,
         ImmutableArray<DiagnosticInfo>.Builder diagnostics)
@@ -901,10 +905,13 @@ internal static class SpecParser
                     element.GetLocation(), $"'{name}' is not a known Flag member"));
                 return ImmutableArray<FlagBitModel>.Empty;
             }
-            if (bit is < 0 or > 7)
+            // M4.1 (ADR 0003 Decision 1): the 68000's SR is 16-bit (CCR bits 0–4, system byte 8–15), so a
+            // flag bit position may be 0–15 (was 0–7 for a byte status register). The Z80's 0–7 layout is
+            // unchanged.
+            if (bit is < 0 or > 15)
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
-                    element.GetLocation(), $"bit {bit} for flag '{name}' is outside 0–7"));
+                    element.GetLocation(), $"bit {bit} for flag '{name}' is outside 0–15"));
                 return ImmutableArray<FlagBitModel>.Empty;
             }
             if (!seen.Add(name))

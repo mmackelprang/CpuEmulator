@@ -25,7 +25,8 @@ internal sealed class FlagBitMap
         return new FlagBitMap(dict);
     }
 
-    /// <summary>Resolve a flag NAME to its hardware bit position (0–7).</summary>
+    /// <summary>Resolve a flag NAME to its hardware bit position (0–15; 0–7 for a byte status
+    /// register, 0–15 for the 68000's 16-bit SR — M4.1).</summary>
     public int BitOf(string flagName)
     {
         if (_declared is not null && _declared.TryGetValue(flagName, out int bit))

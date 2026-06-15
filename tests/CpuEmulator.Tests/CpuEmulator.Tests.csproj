@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\src\CpuEmulator.Generators\CpuEmulator.Generators.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.M68000\CpuEmulator.Cpus.M68000.csproj" />
     <ProjectReference Include="..\..\tools\CpuEmulator.SpecImporter\CpuEmulator.SpecImporter.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Monitor\CpuEmulator.Monitor.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />

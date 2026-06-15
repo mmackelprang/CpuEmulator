@@ -55,6 +55,14 @@ internal static class CpuEmitter
         return sb.ToString();
     }
 
+    /// <summary>M4.1 (ADR 0003 Decision 1): the register backing-field C# type as a function of width.
+    /// 8 → byte, 16 → ushort, 32 → uint. The 8/16 arms are UNCHANGED from the prior two-case ternary, so
+    /// every 6502/Z80 register (all 8/16-bit) emits byte-identically (RegeneratedSpecTests guards it). The
+    /// uint arm is the only new output and is reached ONLY by a register declaring Bits == 32 — a
+    /// construct the 6502/Z80 specs never use. The parser caps Bits at {8,16,32}, so no other width
+    /// reaches here.</summary>
+    private static string FieldType(int bits) => bits <= 8 ? "byte" : bits <= 16 ? "ushort" : "uint";
+
     private static void EmitBody(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
         sb.AppendLine();
@@ -68,7 +76,7 @@ internal static class CpuEmitter
                     $"    public ushort {register.Name} {{ get => (ushort)(({high} << 8) | {low}); " +
                     $"set {{ {high} = (byte)(value >> 8); {low} = (byte)value; }} }}");
             else
-                sb.AppendLine($"    public {(register.Bits == 8 ? "byte" : "ushort")} {register.Name};");
+                sb.AppendLine($"    public {FieldType(register.Bits)} {register.Name};");
         }
 
         string nameList = string.Join(", ", model.Registers.Select(r => $"\"{r.Name}\""));
@@ -91,7 +99,7 @@ internal static class CpuEmitter
         sb.AppendLine("        {");
         foreach (var register in model.Registers)
         {
-            string cast = register.Bits == 8 ? "byte" : "ushort";
+            string cast = FieldType(register.Bits);
             sb.AppendLine($"            case \"{register.Name}\": {register.Name} = unchecked(({cast})value); break;");
         }
         sb.AppendLine("            default: throw new System.ArgumentException($\"Unknown register '{name}'.\", nameof(name));");
@@ -156,7 +164,7 @@ internal static class CpuEmitter
     {
         var pcRegister = model.Registers.First(r => r.Role == "ProgramCounter");
         string pc = pcRegister.Name;
-        string pcType = pcRegister.Bits == 8 ? "byte" : "ushort";
+        string pcType = FieldType(pcRegister.Bits);
 
         // Status register (for SetNZ emission)
         var statusRegister = model.Registers.FirstOrDefault(r => r.Role == "Status");
@@ -3276,7 +3284,11 @@ internal static class CpuEmitter
         sb.AppendLine();
         sb.AppendLine("    private static bool KnownMnemonic(string mnemonic) => mnemonic switch");
         sb.AppendLine("    {");
-        sb.AppendLine($"        {string.Join(" or ", mnemonics.Select(m => $"\"{m}\""))} => true,");
+        // M4.1: a register-only CPU (the 68000 in M4.1) has zero instruction rows, so there are no
+        // mnemonics — emit only the `_ => false` arm. A spec with mnemonics (6502/Z80) is unchanged
+        // (the joined-name arm is emitted exactly as before), so their .g.cs is byte-identical.
+        if (mnemonics.Length > 0)
+            sb.AppendLine($"        {string.Join(" or ", mnemonics.Select(m => $"\"{m}\""))} => true,");
         sb.AppendLine("        _ => false,");
         sb.AppendLine("    };");
 
