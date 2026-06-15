@@ -4106,10 +4106,16 @@ internal static class CpuEmitter
         sb.AppendLine("            uint eaReg  = ea & 7;");
         sb.AppendLine("            // The opaque (operation, size) descriptor key (Ground truth C — opaque to consumers).");
         sb.AppendLine("            uint key = (1u << 24) | (f.OpIndex << 8) | size;   // high tag keeps it distinct from byte/prefix keys");
+        sb.AppendLine("            ushort e0 = 0, e1 = 0, e2 = 0, e3 = 0;                     // M4.3b: capture the extension-word VALUES (D2)");
         sb.AppendLine("            int extWords = ExtensionWordCount(eaMode, eaReg, size);   // M4.3a Task 4: operand-computed");
-        sb.AppendLine("            for (int w = 0; w < extWords; w++) stream.NextUnit();      // consume the extension words (length only)");
+        sb.AppendLine("            for (int w = 0; w < extWords; w++)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                ushort ew = (ushort)stream.NextUnit();   // big-endian word (the stream composes BE)");
+        sb.AppendLine("                switch (w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
+        sb.AppendLine("            }");
         sb.AppendLine("            int len = stream.UnitsConsumed * stream.UnitBytes;        // COMPUTED — words × 2");
-        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None);");
+        sb.AppendLine("            var ext = new CpuEmulator.Core.Jit.ExtensionWords(e0, e1, e2, e3, extWords);");
+        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext);");
         sb.AppendLine("        }");
         sb.AppendLine("        // No field op matched ⇒ the illegal-instruction path (the Undefined sentinel; M4.5 vectors it).");
         sb.AppendLine("        int illegalLen = stream.UnitsConsumed * stream.UnitBytes;     // 2 (the operword) — the illegal op is one word");
@@ -4118,6 +4124,7 @@ internal static class CpuEmitter
 
         EmitSizeMapHelper(sb);            // MapSize(sizeBits, enc) — Standard vs Move (C4)
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
+        EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
         // DescriptorFor reuses the keyed dictionary (emitted by EmitKeyedDescriptorTable); 0xFFFFFFFF →
         // Undefined sentinel. (For M4.3a the grammar CPU has no descriptor rows yet — every matched key
@@ -4164,5 +4171,77 @@ internal static class CpuEmitter
         sb.AppendLine("        },");
         sb.AppendLine("        _ => 0,");
         sb.AppendLine("    };");
+    }
+
+    /// <summary>M4.3b (ADR 0004 Decision 2): emit the 68000 EA-compute. Given eaMode (bits 5-3), eaReg
+    /// (2-0), the size index (0/1/2 = b/w/l), the extension words, and a pureEa flag (LEA/PEA — compute the
+    /// address, do NOT perform the (An)+/-(An) write-back), compute the 32-bit EA into __ea. For (An)+
+    /// (mode 3) and -(An) (mode 4) mutate the address register by the size magnitude (.b→1/.w→2/.l→4) with
+    /// the A7 ±2 special case (register 7 moves by 2 even for .b — D4), in the correct order: PostInc reads
+    /// An THEN adds; PreDec subtracts THEN reads (D3). Reuses the EmitZ80IndexedEa displacement shape for
+    /// d16(An)/d8(An,Xn)/d16(PC)/d8(PC,Xn). Address registers are read/written via Areg(reg)/SetAreg(reg,v)
+    /// (the An fields by name — A7 is a plain register on the synthetic spec; the real banking is M4.5).
+    /// Emitted ONLY on the field-grammar path (called from EmitFieldDecodeWalk), so 6502/Z80 never get it
+    /// (byte-identity, D5). Marked internal so the test assembly could unit-test it (mirrors
+    /// EmitZ80IndexedEa; InternalsVisibleTo("CpuEmulator.Tests")).</summary>
+    internal static void EmitM68kEa(StringBuilder sb)
+    {
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Compute the 68000 effective address (M4.3b, ADR 0004 Decision 2).</summary>");
+        sb.AppendLine("    private uint ComputeEa(uint eaMode, uint eaReg, uint size, CpuEmulator.Core.Jit.ExtensionWords ext, bool pureEa)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        uint mag = size == 0u ? 1u : size == 1u ? 2u : 4u;            // .b/.w/.l magnitude");
+        sb.AppendLine("        if (eaReg == 7u && eaMode is 3u or 4u && mag == 1u) mag = 2u; // A7 ±2 (stack word-align — D4)");
+        sb.AppendLine("        switch (eaMode)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            case 0u: return 0u;                                        // Dn — register direct (no memory EA)");
+        sb.AppendLine("            case 1u: return Areg(eaReg);                               // An — register direct");
+        sb.AppendLine("            case 2u: return Areg(eaReg);                               // (An)");
+        sb.AppendLine("            case 3u:                                                   // (An)+ : read An, THEN An += mag (D3)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                uint ea = Areg(eaReg);");
+        sb.AppendLine("                if (!pureEa) SetAreg(eaReg, ea + mag);");
+        sb.AppendLine("                return ea;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            case 4u:                                                   // -(An) : An -= mag FIRST, THEN read (D3)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                uint ea = Areg(eaReg) - mag;");
+        sb.AppendLine("                if (!pureEa) SetAreg(eaReg, ea);");
+        sb.AppendLine("                return ea;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            case 5u: return unchecked(Areg(eaReg) + (uint)(short)ext[0]);   // d16(An) — signed 16-bit disp");
+        sb.AppendLine("            case 6u: return ComputeBriefIndex(Areg(eaReg), ext[0]);    // d8(An,Xn) — brief extension word");
+        sb.AppendLine("            case 7u: return eaReg switch                               // mode 7 — register selects the form");
+        sb.AppendLine("            {");
+        sb.AppendLine("                0u => (uint)(short)ext[0],                             // abs.w — sign-extended 16-bit");
+        sb.AppendLine("                1u => ((uint)ext[0] << 16) | ext[1],                   // abs.l — two words, high first");
+        sb.AppendLine("                2u => unchecked(PcForEa + (uint)(short)ext[0]),        // d16(PC)");
+        sb.AppendLine("                3u => ComputeBriefIndex(PcForEa, ext[0]),             // d8(PC,Xn)");
+        sb.AppendLine("                4u => 0u,                                              // #imm — no address (the value is the ext words)");
+        sb.AppendLine("                _ => 0u,                                               // illegal mode-7 reg (M4.5 vectors)");
+        sb.AppendLine("            };");
+        sb.AppendLine("            default: return 0u;");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Read address register An by index (0-7 → A0..A7). A7 is a plain register on the");
+        sb.AppendLine("    /// synthetic spec; the real SR-S-bit banking over USP/SSP is M68000Cpu's (M4.5).</summary>");
+        sb.AppendLine("    private uint Areg(uint reg) => reg switch { 0u=>A0,1u=>A1,2u=>A2,3u=>A3,4u=>A4,5u=>A5,6u=>A6,_=>A7 };");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Write address register An by index (0-7 → A0..A7) — the (An)+/-(An) write-back (D3/D4).</summary>");
+        sb.AppendLine("    private void SetAreg(uint reg, uint v) { switch(reg){ case 0u: A0=v; break; case 1u: A1=v; break; case 2u: A2=v; break; case 3u: A3=v; break; case 4u: A4=v; break; case 5u: A5=v; break; case 6u: A6=v; break; default: A7=v; break; } }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The PC the PC-relative EA is computed from (the synthetic probe reads the PC field;");
+        sb.AppendLine("    /// the live extension-word address is M4.5's).</summary>");
+        sb.AppendLine("    private uint PcForEa => PC;");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Decode the brief extension word (d8(An,Xn)/d8(PC,Xn)). M4.3b's synthetic proof uses the");
+        sb.AppendLine("    /// displacement-only contribution (the low 8 bits are the signed displacement); the index-register");
+        sb.AppendLine("    /// decode (the register the brief word names — NOT a fixed X/Y) is an M4.5 detail (D5).</summary>");
+        sb.AppendLine("    private uint ComputeBriefIndex(uint baseAddr, ushort ext) => unchecked(baseAddr + (uint)(sbyte)(byte)ext);");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>A thin public wrapper over ComputeEa so the synthetic EA-compute proof can drive each");
+        sb.AppendLine("    /// mode and read back __ea + the mutated An (M4.3b, D6).</summary>");
+        sb.AppendLine("    public uint ComputeEaProbe(uint eaMode, uint eaReg, uint size, CpuEmulator.Core.Jit.ExtensionWords ext, bool pureEa) => ComputeEa(eaMode, eaReg, size, ext, pureEa);");
     }
 }

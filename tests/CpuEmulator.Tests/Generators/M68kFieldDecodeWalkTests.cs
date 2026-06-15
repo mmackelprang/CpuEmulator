@@ -7,47 +7,10 @@ public class M68kFieldDecodeWalkTests
 {
     // A synthetic field-grammar CPU: ONE op "ADD" (mask 0xF100, match 0xD000), size in bits 7-6 (standard),
     // EA 6 bits in 5-0. The walk fetches a BIG-ENDIAN operword and packs the opaque (operation, size) key.
-    private const string Source = """
-        using CpuEmulator.Core;
-        using CpuEmulator.Core.Specification;
-        using static CpuEmulator.Core.Specification.Spec;
-
-        namespace Demo;
-
-        [CpuSpecification("fgw")]
-        public static class FgwSpec
-        {
-            public static readonly RegisterDef[] Registers =
-            [
-                new("D0", 32), new("A0", 32),
-                new("SP", 32, RegisterRole.StackPointer), new("PC", 32, RegisterRole.ProgramCounter),
-                new("SR", 16, RegisterRole.Status),
-            ];
-            public static readonly FlagLayout Flags = new([
-                new("C", 0), new("V", 1), new("Z", 2), new("N", 3), new("X", 4), new("S", 13)]);
-            public static readonly FieldGrammar Decode68k = new(
-                FetchUnit.Word,
-                [ FieldOp(Mask: 0xF100, Match: 0xD000, Operation: "ADD",
-                          SizeShift: 6, SizeWidth: 2, SizeEncoding: SizeEncoding.Standard,
-                          EaShift: 0, LegalEa: EaCategory.DataAddressing) ]);
-            public static readonly InstructionDef[] Instructions = [];
-        }
-
-        public sealed partial class FgwCpu
-        {
-            private readonly IAddressSpace _bus;
-            public FgwCpu(IAddressSpace bus) { _bus = bus; }
-            public void Reset() { }
-            public void SetIrqLine(bool a) { }
-            public void SetNmiLine(bool a) { }
-            public partial bool InterruptPending => false;
-            private partial bool TryServiceInterrupt() => false;
-            partial void OnInstructionFetched(int keyBytes) { }
-            private byte ReadBus(uint a) => _bus.Read8(a);
-            private void WriteBus(uint a, byte v) => _bus.Write8(a, v);
-            private void HandleUndefinedOpcode(byte op) { }
-        }
-        """;
+    // Shared with the M4.3b EA tests (M68kEaTestSpecs) — that spec is a strict superset (A0-A7 + D0-D7 vs the
+    // original D0/A0), so these M4.3a assertions (key shape, undefined sentinel, length-per-EA-mode) hold
+    // identically while the emitted M4.3b ComputeEa/Areg helpers (which name A0..A7) compile.
+    private const string Source = M68kEaTestSpecs.AddGrammarCpu;
 
     [Fact]
     public void Operword_decodes_to_the_opaque_operation_size_key()
