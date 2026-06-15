@@ -2026,8 +2026,13 @@ internal static class CpuEmitter
             case "Ei":
                 // M3.5-1: EI has a one-instruction delay (interrupts enable only AFTER the next
                 // instruction). The partial owns the delay latch via OnInterruptEnable(); the generated
-                // body delegates to it rather than writing _iff1/_iff2 directly. A structured CPU that
-                // does not implement the partial gets a no-op (the delay is a Z80 detail).
+                // body delegates to it rather than writing _iff1/_iff2 directly.
+                // CONTRACT: a structured CPU that declares an `Ei` op MUST implement the
+                // `partial void OnInterruptEnable()` hook to set its IFF latches — because it is a
+                // `partial void`, an UNIMPLEMENTED hook makes the C# compiler ELIDE this call entirely,
+                // so EI would silently do NOTHING (not merely "no delay" — no enable at all). The Z80
+                // partial implements it (sets IFF1/IFF2 + the delay window). The 6502 has no `Ei` op and
+                // never reaches this arm, so its generated body is byte-identical.
                 sb.AppendLine("        OnInterruptEnable();");
                 break;
             default:

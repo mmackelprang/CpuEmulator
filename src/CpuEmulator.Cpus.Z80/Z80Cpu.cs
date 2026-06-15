@@ -176,8 +176,15 @@ public sealed partial class Z80Cpu
             return false;
         }
 
-        // A serviced boundary closes any open EI window too (it cannot be open here for a maskable INT —
-        // the eligibility check above required _eiPending == 0 — but an NMI may interrupt the EI-delay).
+        // Servicing closes the EI window. For a maskable ack this is a no-op (the eligibility check above
+        // already required _eiPending == 0). For an NMI taken INSIDE the EI shadow (EI; <NMI here>), our
+        // coarse one-instruction-counter model cancels the pending EI deferral: after the NMI/RETN
+        // round-trip the maskable IRQ becomes eligible on the next boundary rather than waiting the
+        // remaining shadowed instruction. This is a RECORDED DEVIATION — the exact silicon behavior of an
+        // NMI landing in the single-instruction EI shadow is contested across references, has no TomHarte
+        // oracle (servicing is not vectored) and is not exercised by ZEXALL; the plan scopes the finer
+        // EI-race edges OUT (see the plan's OUT-of-scope §"Mid-instruction interrupt sampling"). The
+        // common path (EI; instr; service) and a plain NMI are exact.
         _eiPending = 0;
 
         _halted = false;        // the HALT wake — resume fetch on the next Step

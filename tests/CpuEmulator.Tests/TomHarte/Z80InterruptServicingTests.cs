@@ -306,5 +306,72 @@ public class Z80InterruptServicingTests
         Assert.Equal(0x0066u, (uint)cpu.GetRegister("PC"));   // NMI wins → 0x0066, not 0x0038
         // IFF1 cleared by NMI; the IRQ remains pending (line still high) for the next boundary.
         Assert.False(cpu.Iff1);
+        Assert.True(cpu.Iff2);   // NMI saved the pre-NMI IFF1 (true) into IFF2 (RETN restores it)
+    }
+
+    [Fact]
+    public void EI_then_DI_leaves_interrupts_disabled_inside_the_delay_window()
+    {
+        // EI arms the one-instruction delay (and sets IFF immediately); DI immediately after must clear
+        // IFF with NO delay — so the asymmetry (delayed EI vs immediate DI) leaves interrupts OFF.
+        var (cpu, mem) = BuildCpu();
+        mem.Write8(0x0000, 0xFB);   // EI
+        mem.Write8(0x0001, 0xF3);   // DI (the instruction inside the EI shadow)
+        mem.Write8(0x0002, 0x00);   // NOP
+        cpu.SetRegister("PC", 0x0000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 1;
+        cpu.Iff1 = false; cpu.Iff2 = false;
+        cpu.SetIrqLine(true);       // IRQ asserted throughout
+
+        cpu.Step();   // EI — IFF set, window open; no service
+        Assert.True(cpu.Iff1);
+        Assert.False(cpu.InterruptPending);   // window open
+
+        cpu.Step();   // DI inside the shadow — clears IFF immediately; still no service
+        Assert.Equal(0x0002u, (uint)cpu.GetRegister("PC"));   // DI ran (PC advanced), no service
+        Assert.False(cpu.Iff1);
+        Assert.False(cpu.InterruptPending);   // IFF clear → masked
+
+        cpu.Step();   // next boundary: IRQ asserted but IFF clear → masked; the NOP runs
+        Assert.NotEqual(0x0038u, (uint)cpu.GetRegister("PC"));
+    }
+
+    [Fact]
+    public void NMI_during_the_EI_shadow_services_and_RETN_round_trips_IFF()
+    {
+        // EI; <NMI taken inside the one-instruction shadow>; RETN. This pins the NMI path's correctness
+        // (NMI ignores the EI window, vectors to 0x0066, saves IFF1→IFF2, and RETN restores IFF1). It
+        // ALSO documents our coarse model's recorded deviation: the NMI service cancels the pending EI
+        // one-instruction deferral, so after RETN the maskable IRQ is eligible on the next boundary
+        // (rather than waiting the remaining shadowed instruction). The exact silicon behavior of an NMI
+        // inside the EI shadow is contested and un-oracled (no servicing vector; ZEXALL does not exercise
+        // it); the plan scopes the finer EI-race edges OUT. The common EI;instr;service path stays exact.
+        var (cpu, mem) = BuildCpu();
+        mem.Write8(0x0000, 0xFB); mem.Write8(0x0001, 0x00);   // EI, then NOP
+        mem.Write8(0x0066, 0xED); mem.Write8(0x0067, 0x45);   // NMI handler: RETN (ED 45)
+        cpu.SetRegister("PC", 0x0000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 1;
+        cpu.Iff1 = false; cpu.Iff2 = false;
+        cpu.SetIrqLine(true);       // maskable IRQ asserted the whole time
+
+        cpu.Step();   // EI — IFF set, shadow armed; IRQ not serviced (window open).
+        Assert.Equal(0x0001u, (uint)cpu.GetRegister("PC"));
+        Assert.True(cpu.Iff1);
+        Assert.False(cpu.InterruptPending);   // shadow open → not eligible despite IRQ + IFF1
+
+        cpu.SetNmiLine(true);   // assert NMI INSIDE the shadow
+        cpu.Step();             // NMI services (non-maskable, ignores the window) → 0x0066
+        Assert.Equal(0x0066u, (uint)cpu.GetRegister("PC"));
+        Assert.False(cpu.Iff1);   // NMI cleared IFF1
+        Assert.True(cpu.Iff2);    // ...saving the pre-NMI IFF1 (true) so RETN can restore it
+
+        cpu.Step();   // RETN → IFF1 restored from IFF2 (true), PC popped back to 0x0001
+        Assert.True(cpu.Iff1);
+        Assert.Equal(0x0001u, (uint)cpu.GetRegister("PC"));
+        // Recorded deviation: the NMI consumed the EI shadow, so the IRQ is now eligible immediately.
+        Assert.True(cpu.InterruptPending);
+
+        cpu.Step();   // the maskable IRQ services (IM1 → 0x0038)
+        Assert.Equal(0x0038u, (uint)cpu.GetRegister("PC"));
     }
 }
