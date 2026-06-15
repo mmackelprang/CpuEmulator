@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using CpuEmulator.Core;
 using Xunit;
 
@@ -132,4 +133,70 @@ public class AddressSpaceWideAccessTests
         Assert.Equal(0x55, space.Read8(0xFFFF));   // high byte at 0xFFFF (BE)
         Assert.Equal(0xAA, space.Read8(0x0000));   // low byte wrapped to 0x0000
     }
+
+    [Fact]
+    public void Wide_read_from_ROM_returns_the_image_big_endian()
+    {
+        var space = new AddressSpace(AddressSpaceKind.Program, 16, endianness: Endianness.BigEndian);
+        var rom = new byte[0x100];
+        rom[0x10] = 0xCA; rom[0x11] = 0xFE;            // big-endian: high byte at the lower address
+        space.MapMemory(0xFF00, rom, writable: false);
+        Assert.Equal((ushort)0xCAFE, space.Read16(0xFF10));
+    }
+
+    [Fact]
+    public void Wide_write_to_ROM_is_silently_ignored()
+    {
+        var space = new AddressSpace(AddressSpaceKind.Program, 16, endianness: Endianness.BigEndian);
+        var rom = new byte[0x100];
+        rom[0x10] = 0xCA; rom[0x11] = 0xFE;
+        space.MapMemory(0xFF00, rom, writable: false);
+        space.Write16(0xFF10, 0x0000);                 // authentic: write to ROM does nothing
+        Assert.Equal((ushort)0xCAFE, space.Read16(0xFF10));
+    }
+
+    [Fact]
+    public void Wide_access_on_an_MMIO_page_decomposes_into_per_byte_peripheral_callouts()
+    {
+        // Decision D5: M4.2 composes wide accesses over Read8/Write8 uniformly, so a wide MMIO access is N
+        // byte callouts each with AccessWidth.Byte (the byte path's behaviour). A 16-bit-aware peripheral
+        // is a device-modelling concern for when such a board exists; M4.2 keeps the wide path uniform.
+        var space = new AddressSpace(AddressSpaceKind.Program, 16, endianness: Endianness.BigEndian);
+        var dev = new CapturingPeripheral();
+        space.MapPeripheral(0xD000, 0x100, dev);
+
+        space.Write16(0xD002, 0xBEEF);
+        // Two byte WRITES, high byte first (BE), each AccessWidth.Byte, offsets relative to 0xD000:
+        Assert.Equal(
+            new[] { (offset: 0x02u, width: AccessWidth.Byte, value: 0xBEu),
+                    (offset: 0x03u, width: AccessWidth.Byte, value: 0xEFu) },
+            dev.Writes.ToArray());
+
+        dev.Reads.Clear();
+        _ = space.Read16(0xD004);
+        // Two byte READS, in ascending-address order, each AccessWidth.Byte:
+        Assert.Equal(
+            new[] { (offset: 0x04u, width: AccessWidth.Byte),
+                    (offset: 0x05u, width: AccessWidth.Byte) },
+            dev.Reads.ToArray());
+    }
+}
+
+/// <summary>A test peripheral that records every Read/Write (offset + width [+ value]) so the M4.2 wide
+/// path's per-byte MMIO decomposition (Decision D5) can be asserted.</summary>
+internal sealed class CapturingPeripheral : IPeripheral
+{
+    public string Name => "capture";
+    public List<(uint offset, AccessWidth width)> Reads { get; } = [];
+    public List<(uint offset, AccessWidth width, uint value)> Writes { get; } = [];
+
+    public void Realize(IMachineContext context) { }
+
+    public uint Read(uint offset, AccessWidth width)
+    {
+        Reads.Add((offset, width));
+        return 0;
+    }
+
+    public void Write(uint offset, AccessWidth width, uint value) => Writes.Add((offset, width, value));
 }
