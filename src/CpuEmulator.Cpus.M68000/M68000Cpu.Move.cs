@@ -109,4 +109,45 @@ public sealed partial class M68000Cpu
         7u => reg switch { 0u => 1, 1u => 2, 2u => 1, 3u => 1, 4u => size == 2u ? 2 : 1, _ => 0 },
         _ => 0,
     };
+
+    partial void MoveAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size,
+        uint srcMode, uint srcReg)
+    {
+        uint dstReg = (operword >> 9) & 7u;                       // dest An register (bits 11-9)
+        uint value = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);
+        uint extended = size == 1u ? unchecked((uint)(int)(short)(ushort)value) : value;   // .w sign-extends to 32
+        SetAreg(dstReg, extended);                                // WHOLE An write; MOVEA sets NO CCR
+    }
+
+    partial void MoveToSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r,
+        uint srcMode, uint srcReg)
+    {
+        // PRIVILEGED: a user-mode MOVE to SR is a privilege violation (vector 8) — that EXCEPTION is M4.5d.
+        // M4.5a honors the bit but does NOT vector (the MOVEtoSR vectors are supervisor-mode cases). If a
+        // user-mode case appears, Task 8 flags it; the privilege vector lands in M4.5d.
+        uint value = ReadEaOperand(srcMode, srcReg, size: 1u, r.ExtensionWords);   // .w source
+        SR = (ushort)value;                                       // full 16-bit SR (system byte + CCR)
+    }
+
+    partial void MoveToCcrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r,
+        uint srcMode, uint srcReg)
+    {
+        uint value = ReadEaOperand(srcMode, srcReg, size: 1u, r.ExtensionWords);   // .w source, low byte → CCR
+        Ccr = (byte)(value & 0x1F);                               // only bits 0-4 are CCR; high bits ignored
+    }
+
+    partial void MoveFromSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r,
+        uint srcMode, uint srcReg)
+    {
+        // dest EA is the operword's low 6 bits (mode = srcMode, reg = srcReg here — MOVE from SR's single EA).
+        WriteEaOperand(srcMode, srcReg, size: 1u, value: SR, ext: r.ExtensionWords);   // SR.w → dest
+    }
+
+    partial void MoveUspExecute(uint operword)
+    {
+        // PRIVILEGED. bit 3 = direction: 1 = USP → An; 0 = An → USP. reg = bits 2-0.
+        uint reg = operword & 7u;
+        if ((operword & 0x8u) != 0) SetAreg(reg, USP);            // MOVE USP,An (from USP)
+        else USP = Areg(reg);                                     // MOVE An,USP (to USP)
+    }
 }
