@@ -37,37 +37,41 @@ big-endian `AddressSpace`, the M4.3b `ComputeEa`/`ExtensionWords` substrate, the
 
 ---
 
-## ⚠️ DECISION FOR COORDINATOR (resolve before Builder starts — 1 item)
+## Decisions (RESOLVED by Coordinator, 2026-06-15)
 
-> **D1 — The immediate forms (ADDI/SUBI/ANDI/ORI/EORI/CMPI) and quick forms (ADDQ/SUBQ) are IN the
-> ADR 0007 §1 scope table + the resume-doc family list, but the SingleStepTests 68000 v1 vector set has NO
-> standalone files for them.** Recon against the live `68000/v1` tree (124 files, full list confirmed) found
-> NO `ADDI.*` / `SUBI.*` / `ANDI.json.gz` / `ORI.json.gz` / `EORI.json.gz` / `CMPI.*` / `ADDQ.*` / `SUBQ.*` /
-> `CMPM.*` files. The only `*I*` files are `ANDItoCCR`/`ANDItoSR`/`ORItoCCR`/`ORItoSR`/`EORItoCCR`/`EORItoSR` —
-> those are the ANDI/ORI/EORI **to CCR/SR** system forms, which belong to **M4.5c system-misc** (OUT of M4.5b
-> scope per the brief). So the immediate/quick instruction OPCODES have **no TomHarte file to gate them green**
-> in M4.5b. (`CMPM` is also absent from BOTH the vector set AND the FieldGrammar dataset — it is genuinely
-> unimplementable this PR.)
->
-> **This plan's resolution (the recommended path; tasks already reflect it):** **implement** the immediate +
-> quick forms (Tasks 6 + 7) — they ride the SAME `BinaryAluExecute` driver via the `ImmEa`/`QuickEa` shapes and
-> the SAME `Ccr.Arith`/`Ccr.Logic`/`Ccr.Cmp` rules that ARE gated green by the reg↔EA families' 8065-case
-> sweeps, plus additive dispatch arms — and verify them with **synthetic unit tests only** (no sweep). The
-> shared driver + CCR layer being TomHarte-green via ADD/SUB/AND/OR/EOR/CMP is the strongest available evidence
-> that the imm/quick forms (which differ ONLY in where operand B comes from) are correct. **`CMPM` is dropped**
-> from M4.5b (absent from the dataset; would need a dataset edit → out of scope).
->
-> **Coordinator must confirm ONE of:**
-> - **(D1-A, recommended)** Ship imm/quick with synthetic-unit-test coverage only; the gate (Task 14) asserts
->   the 51 reg↔EA/unary/EXT/X/mul-div files green, and the PR body states plainly that imm/quick execute but are
->   NOT TomHarte-gated (no vectors exist). CMPM dropped.
-> - **(D1-B)** DEFER imm/quick entirely to a later PR (do NOT wire opIndices 15-20, 55-56). M4.5b ships only the
->   families with vector files. (Smaller PR; leaves the §1 table partly unaddressed until the to-CCR/SR work in
->   M4.5c.)
->
-> Nothing else in this plan is blocked on D1 — the reg↔EA core, the unary core, EXT, the X-ops, and mul/div all
-> have vector files and proceed regardless. Tasks 6-7 are the only imm/quick tasks; if Coordinator picks D1-B,
-> skip Tasks 6-7 and drop their dispatch arms.
+> The one decision M4.5b could not settle from ADR 0007/0004 + the recon is RESOLVED below. This plan is an
+> unambiguous spec — Builder implements to this resolution with NO open questions. The tasks reflect it.
+
+**D1 (RESOLVED) — The immediate forms (ADDI/SUBI/ANDI/ORI/EORI/CMPI) and quick forms (ADDQ/SUBQ) ARE
+IMPLEMENTED (Tasks 6 + 7), with hardening, because the SingleStepTests 68000 v1 set has NO vector files for
+them.** Recon against the live `68000/v1` tree (124 files) confirmed NO `ADDI.*` / `SUBI.*` / `ANDI.json.gz` /
+`ORI.json.gz` / `EORI.json.gz` / `CMPI.*` / `ADDQ.*` / `SUBQ.*` / `CMPM.*` files exist (the only `*I*` files —
+`ANDItoCCR`/`ANDItoSR`/`ORItoCCR`/`ORItoSR`/`EORItoCCR`/`EORItoSR` — are the ANDI/ORI/EORI **to CCR/SR** system
+forms, which are **M4.5c system-misc**, out of scope). So the immediate/quick OPCODES have no TomHarte file to
+gate them green. They ride the SAME `BinaryAluExecute` driver (the `ImmEa`/`QuickEa` shapes) and the SAME
+`Ccr.Arith`/`Ccr.Logic`/`Ccr.Cmp` rules that ARE gated green against silicon by the reg↔EA families' 8065-case
+sweeps.
+
+**Hardening (the load-bearing mitigation — this is what makes shipping them consistent with the anti-drift
+directive; Tasks 6 & 7 implement it):**
+1. **Differential-equivalence tests.** For a representative sample of `(a, b, size)`, assert each imm/quick form
+   produces an IDENTICAL `(result, CCR)` to its vector-PROVEN reg↔EA counterpart — `ADDI≡ADD`, `SUBI≡SUB`,
+   `ANDI≡AND`, `ORI≡OR`, `EORI≡EOR`, `CMPI≡CMP`, `ADDQ≡ADD`, `SUBQ≡SUB` — feeding the same operands into the same
+   `BinaryAluExecute` driver. Because the reg↔EA forms are TomHarte-green against silicon, this transitively
+   inherits the silicon proof for the imm/quick forms' ALU function + CCR rule (the high-bug-density core).
+2. **Synthetic immediate/quick FETCH tests.** Assert the immediate operand is read correctly from the extension
+   word(s) per size (`.b`/`.w`/`.l`), and the quick 3-bit field (bits 11-9) maps correctly with the `0→8` special
+   case. This covers the only surface the differential test does not (operand fetch, not driver routing) and is
+   simple/low-risk.
+
+**Honesty (non-negotiable):** ADDI/SUBI/ANDI/ORI/EORI/CMPI/ADDQ/SUBQ **EXECUTE but are NOT TomHarte-gated** (no
+v1 vectors exist) — covered by differential-equivalence + synthetic fetch tests only. The plan's gate section,
+the PR body, and the status/resume doc state this PLAINLY and never claim or imply these forms are vector-green.
+The 51-file TomHarte sweep (the reg↔EA / unary / EXT / X-ops / mul-div families) remains the un-fakeable gate;
+the imm/quick forms are an explicitly, honestly-disclosed exception.
+
+**`CMPM` is DROPPED** from M4.5b — absent from BOTH the v1 vector set AND the FieldGrammar dataset (no
+`"operation":"CMPM"` row), so it is not decodable without a dataset edit (out of scope).
 
 ---
 
@@ -168,7 +172,7 @@ transformation) — so the dispatch `op switch` matches these exact uppercase st
 | `"DIVU"` | 77 | 0xF1C0 / 0x80C0 | 0 / 1 | DataAddressing | bespoke (32÷16; ÷0 → defer) |
 | `"DIVS"` | 78 | 0xF1C0 / 0x81C0 | 0 / 1 | DataAddressing | bespoke (32÷16 signed; ÷0 → defer) |
 
-> **`CMPM` is ABSENT from the dataset** (no `"operation":"CMPM"` row) — dropped from M4.5b (see ⚠️ D1).
+> **`CMPM` is ABSENT from the dataset** (no `"operation":"CMPM"` row) — dropped from M4.5b (D1 RESOLVED).
 > **opIndices** (from the generated `s_fieldOps` table; e.g. ADD≈76, SUB≈65, AND≈73, OR≈62, EOR≈67, CMP≈68,
 > ADDA≈74, SUBA≈63, CMPA≈66, ADDI≈15…CMPI≈20, ADDQ≈55, SUBQ≈56, NEG≈50, NEGX≈49, NOT≈51, CLR≈48, TST≈52,
 > EXT≈44, ADDX≈75, SUBX≈64, MULU≈69, MULS≈70, DIVU≈59, DIVS≈60) are CONFIRMATION-ONLY — the dispatch is
@@ -189,7 +193,8 @@ TST.b  TST.w  TST.l        EXT.w   EXT.l
 MULU   MULS   DIVU   DIVS
 ```
 = **51 files** (the Task-14 sweep enumerates exactly these). **No standalone immediate/quick/CMPM files exist**
-(⚠️ D1). An ALU case's schema matches MOVE's exactly: the operword is in `initial.prefetch[0]` (e.g. `ADD.w`
+(D1 RESOLVED — imm/quick execute but are not vector-gated; CMPM dropped). An ALU case's schema matches MOVE's
+exactly: the operword is in `initial.prefetch[0]` (e.g. `ADD.w`
 case `5e4a` → `prefetch:[24138,…]`, `24138 = 0x5E4A` = the case name), `final.prefetch` shifts (timing axis —
 defer), first transaction is the operword fetch. ADDX has real `-(An),-(An)` cases (e.g. `d909
 [ADDX.b -(A1),-(A4)]`, operword `0xD909`, bit 3 set).
@@ -230,7 +235,9 @@ defer), first transaction is the operword fetch. ADDX has real `-(An),-(An)` cas
 2. The regular RegEa families as one-line registrations: `ADD`/`SUB`/`AND`/`OR`/`EOR`/`CMP` (Task 3); the
    address-reg variants `ADDA`/`SUBA`/`CMPA` (Task 4); the unary core `NEG`/`NOT`/`TST` (Task 5).
 3. The immediate forms `ADDI`/`SUBI`/`ANDI`/`ORI`/`EORI`/`CMPI` (Task 6); the quick forms `ADDQ`/`SUBQ`
-   (Task 7). **(Conditional on ⚠️ D1-A; synthetic-test-only — no vector files.)**
+   (Task 7). **These EXECUTE but are NOT TomHarte-gated — no v1 vector files exist (D1 RESOLVED); they are
+   covered by differential-equivalence (imm/quick ≡ their vector-proven reg↔EA counterpart) + synthetic fetch
+   tests only. The plan never claims they are vector-green.**
 4. The bespoke tail: `EXT` (Task 8); `CLR` (Task 9, with the dummy read); `ADDX`/`SUBX`/`NEGX` (Task 10, the
    `Ccr.ArithX` sticky-Z + the `-(An)`/`-(An)` pairing); `MULU`/`MULS` (Task 11); `DIVU`/`DIVS` (Task 12, ÷0
    detect-and-defer).
@@ -244,7 +251,7 @@ defer), first transaction is the operword fetch. ADDX has real `-(An),-(An)` cas
 - **Exceptions/branches/IPL/prefetch-final-assertion** = **M4.5d**: the timing axis (`final.pc`, `final.prefetch`,
   per-transaction trace, cycle count); the **DIVU/DIVS divide-by-zero exception (vector 5)**; address-error /
   privilege cases. M4.5b detects-and-defers these (ADR 0007 §6), never asserts them.
-- **`CMPM`** (absent from the dataset; ⚠️ D1). **The 68000 through the JIT** = M4.6. **The (B) generated op-table
+- **`CMPM`** (absent from the dataset; dropped — D1 RESOLVED). **The 68000 through the JIT** = M4.6. **The (B) generated op-table
   promotion** = M4.5c/d (ADR 0007 §5.5 — watched via Open Question #1; NOT resolved here). **Descriptor
   generalization across shift/rotate/bit** = M4.5c (ADR 0007 §7.1 — empirical, do not pre-commit).
 
@@ -1044,10 +1051,14 @@ EOF
 
 ---
 
-### Task 6: The immediate forms — ADDI/SUBI/ANDI/ORI/EORI/CMPI (TDD) — ⚠️ conditional on D1-A
+### Task 6: The immediate forms — ADDI/SUBI/ANDI/ORI/EORI/CMPI (TDD)
 
-> The immediate forms ride the `ImmEa` shape: a leading `#imm` extension word(s) then the EA. No vector files
-> exist (⚠️ D1) — verified by synthetic unit tests ONLY. **Skip this whole task if Coordinator chose D1-B.**
+> The immediate forms ride the `ImmEa` shape: a leading `#imm` extension word(s) then the EA. **No v1 vector
+> files exist for them (D1 RESOLVED) — so they are NOT TomHarte-gated.** Per D1, they are hardened by (a)
+> **differential-equivalence** tests proving each produces an IDENTICAL `(result, CCR)` to its vector-proven
+> reg↔EA counterpart through the same `BinaryAluExecute` driver (transitively inheriting the silicon proof of the
+> ALU function + CCR rule), and (b) **synthetic fetch** tests proving the immediate operand is read correctly per
+> size. The plan, the PR body, and the status doc state PLAINLY these forms execute but are not vector-green.
 
 **Files:**
 - Modify: `src/CpuEmulator.Cpus.M68000/M68000Cpu.Alu.cs`
@@ -1128,30 +1139,136 @@ EOF
         => BinaryAluExecute(Alu.Sub, Ccr.Cmp,      AluShape.ImmEa, writesResult: false, ow, r, sz, sm, sr);
 ```
 
-- [ ] **Step 4:** (After Task 13) un-skip + run → PASS.
-- [ ] **Step 5: Full gate** — all green.
-- [ ] **Step 6: Commit.**
+- [ ] **Step 4 (HARDENING — differential-equivalence, the load-bearing D1 mitigation): add the imm≡reg tests.**
+  These prove each immediate form produces an IDENTICAL `(result, CCR)` to its vector-PROVEN reg↔EA counterpart
+  for the same `(a, b, size)` — `ADDI≡ADD`, `SUBI≡SUB`, `ANDI≡AND`, `ORI≡OR`, `EORI≡EOR`, `CMPI≡CMP`. Because the
+  reg↔EA forms are TomHarte-green against silicon (Task 14), this transitively inherits the silicon proof for the
+  imm forms' ALU function + CCR rule (the high-bug-density core). Add to `M68000AluExecuteTests.cs` (NOT skipped —
+  these run two `Step`s on independent CPUs and compare; they go green once Task 13 + the reg/imm bodies exist,
+  so run them after Task 13):
+
+```csharp
+    // Each row: (a in Dn, b operand, size, immOperword, immImmWord(s), regOperword) for an imm/reg pair on D0.
+    // The imm form: <immOperword> then the immediate word(s) #b ; D0 = a. The reg form: <regOperword> reads b
+    // from D1 ; D0 = a, D1 = b. Both target D0 (dir=0). The (result, CCR) MUST match bit-for-bit.
+    private static (uint Result, uint Ccr) RunImm(uint a, uint bImm, uint size,
+        byte ow0, byte ow1, byte[] immBytes)
+    {
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+        bus.MapMemory(0x000000, new byte[0x10000], writable: true);
+        bus.Write8(0x1000, ow0); bus.Write8(0x1001, ow1);
+        for (int i = 0; i < immBytes.Length; i++) bus.Write8((uint)(0x1002 + i), immBytes[i]);
+        var cpu = new M68000Cpu(bus);
+        cpu.SetRegister("PC", 0x1000); cpu.SetRegister("D0", a); cpu.SetRegister("SR", 0);
+        cpu.Step();
+        return ((uint)cpu.GetRegister("D0"), (uint)cpu.GetRegister("SR") & 0x1F);
+    }
+    private static (uint Result, uint Ccr) RunReg(uint a, uint b, byte ow0, byte ow1)
+    {
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+        bus.MapMemory(0x000000, new byte[0x10000], writable: true);
+        bus.Write8(0x1000, ow0); bus.Write8(0x1001, ow1);
+        var cpu = new M68000Cpu(bus);
+        cpu.SetRegister("PC", 0x1000); cpu.SetRegister("D0", a); cpu.SetRegister("D1", b); cpu.SetRegister("SR", 0);
+        cpu.Step();
+        return ((uint)cpu.GetRegister("D0"), (uint)cpu.GetRegister("SR") & 0x1F);
+    }
+
+    [Theory]
+    // (a, b, size, immOw0, immOw1, immBytes, regOw0, regOw1) — .w forms (size 1).
+    // ADDI.w #b,D0 = 0x0640 + #b ; ADD.w D1,D0 = 0xD041.  SUBI.w = 0x0440 ; SUB.w = 0x9041.
+    // ANDI.w = 0x0240 ; AND.w = 0xC041.  ORI.w = 0x0040 ; OR.w = 0x8041.  EORI.w = 0x0A40 ; EOR.w(D0,D1->D1) — use
+    // EOR's only form (Dn->EA): match via a reg pair that lands on D0 by feeding b in D0... EOR has no <ea>->Dn
+    // form, so the EORI≡EOR row compares EORI.w #b,D0 to EOR.w D1,D0 written as 0xB141 (Dn=D1 ^ D0 -> D0? No:
+    // EOR is Dn ^ <ea> -> <ea>; to land on D0 use Dn=any, ea=D0). Builder picks operwords that put BOTH results
+    // in D0 with the SAME (a,b); the asserted invariant is identical (result,CCR), not a specific encoding.
+    [InlineData(0x00000005u, 0x0010u, 0x06, 0x40, new byte[]{0x00,0x10}, 0xD0, 0x41)] // ADDI.w ≡ ADD.w
+    [InlineData(0x00000030u, 0x0010u, 0x04, 0x40, new byte[]{0x00,0x10}, 0x90, 0x41)] // SUBI.w ≡ SUB.w
+    [InlineData(0x0000FF00u, 0x0FF0u, 0x02, 0x40, new byte[]{0x0F,0xF0}, 0xC0, 0x41)] // ANDI.w ≡ AND.w
+    [InlineData(0x0000FF00u, 0x0FF0u, 0x00, 0x40, new byte[]{0x0F,0xF0}, 0x80, 0x41)] // ORI.w  ≡ OR.w
+    public void Immediate_form_matches_its_reg_form_result_and_ccr(
+        uint a, uint b, byte immOw0, byte immOw1, byte[] immBytes, byte regOw0, byte regOw1)
+    {
+        var imm = RunImm(a, b, size: 1u, immOw0, immOw1, immBytes);
+        var reg = RunReg(a, b, regOw0, regOw1);
+        Assert.Equal(reg.Result, imm.Result);
+        Assert.Equal(reg.Ccr, imm.Ccr);
+    }
+
+    [Fact]
+    public void Cmpi_matches_cmp_result_and_ccr()
+    {
+        // CMPI.w #b,D0 (0x0C40 + #b) ≡ CMP.w D1,D0 (0xB041): same (no-write result, CCR).
+        var imm = RunImm(0x00005000u, 0x5000u, 1u, 0x0C, 0x40, new byte[]{0x50,0x00});
+        var reg = RunReg(0x00005000u, 0x5000u, 0xB0, 0x41);
+        Assert.Equal(reg.Result, imm.Result);   // both leave D0 unchanged
+        Assert.Equal(reg.Ccr, imm.Ccr);         // Z set, etc.
+    }
+```
+
+  > **EOR/EORI differential.** EOR has ONLY the `Dn ^ <ea> -> <ea>` form, so there is no `<ea> ^ Dn -> Dn`
+  > encoding that lands the result in D0 from a D1 source the way ADD does. Builder writes the `EORI≡EOR` row by
+  > choosing the EOR operword whose `<ea>` IS D0 (so EOR's result lands in D0) with the Dn source carrying `b`,
+  > matched against `EORI.w #b,D0`. The asserted invariant is the identical `(result, CCR)` for the same `(a,b)`
+  > — NOT a specific encoding. If a clean same-target EOR encoding is awkward, compare `Alu.Eor` + `Ccr.Logic`
+  > directly (call `M68000Cpu.Alu.Eor` and `M68000Cpu.Ccr.LogicProbe`) for the EOR row instead of two `Step`s —
+  > either proves the equivalence. The four `[InlineData]` rows above cover ADDI/SUBI/ANDI/ORI; add the
+  > EORI row in whichever of the two styles is cleanest.
+
+- [ ] **Step 5 (HARDENING — synthetic immediate FETCH): add the per-size immediate-read tests.** These cover the
+  ONLY surface the differential test does not (operand fetch, not driver routing): the immediate is read from the
+  correct extension word(s) for `.b`/`.w`/`.l`. Add to `M68000AluExecuteTests.cs`:
+
+```csharp
+    [Fact(Skip = "dispatch wired in Task 13")]
+    public void Addi_b_reads_one_immediate_word_low_byte()
+    {
+        // ADDI.b #$12,D0 = 0x0600 + imm word 0x0012 (the .b immediate is in the LOW byte of one ext word).
+        var (cpu, _) = Build((0x1000, 0x06), (0x1001, 0x00), (0x1002, 0x00), (0x1003, 0x12));
+        cpu.SetRegister("PC", 0x1000); cpu.SetRegister("D0", 0x11223303);
+        cpu.Step();
+        Assert.Equal(0x11223315u, (uint)cpu.GetRegister("D0"));   // 0x03 + 0x12 = 0x15, partial .b
+    }
+
+    [Fact(Skip = "dispatch wired in Task 13")]
+    public void Addi_l_reads_two_immediate_words()
+    {
+        // ADDI.l #$00010002,D0 = 0x0680 + imm long 0x0001 0x0002 (two ext words).
+        var (cpu, _) = Build((0x1000, 0x06), (0x1001, 0x80),
+                             (0x1002, 0x00), (0x1003, 0x01), (0x1004, 0x00), (0x1005, 0x02));
+        cpu.SetRegister("PC", 0x1000); cpu.SetRegister("D0", 0x00000003);
+        cpu.Step();
+        Assert.Equal(0x00010005u, (uint)cpu.GetRegister("D0"));   // 0x00010002 + 3 = 0x00010005
+    }
+```
+
+- [ ] **Step 6:** (After Task 13) un-skip the `[Fact(Skip=…)]`s and run → PASS.
+- [ ] **Step 7: Full gate** — `dotnet test` green; `-warnaserror` clean; `RegeneratedSpecTests` green.
+- [ ] **Step 8: Commit.**
 
 ```bash
 git add src/CpuEmulator.Cpus.M68000/M68000Cpu.Alu.cs src/CpuEmulator.Generators/CpuEmitter.cs \
         tests/CpuEmulator.Tests/Generators/M68000AluExecuteTests.cs
 git commit -m "$(cat <<'EOF'
-feat(m68000): ADDI/SUBI/ANDI/ORI/EORI/CMPI via the ImmEa shape (no vector files — synthetic-tested; ADR 0007 D1)
+feat(m68000): ADDI/SUBI/ANDI/ORI/EORI/CMPI via ImmEa (NOT TomHarte-gated — no v1 vectors; imm≡reg differential + fetch tests; ADR 0007 D1)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
 
-**New-test estimate:** ~3.
+**New-test estimate:** ~10.
 
 ---
 
-### Task 7: The quick forms — ADDQ / SUBQ (TDD) — ⚠️ conditional on D1-A
+### Task 7: The quick forms — ADDQ / SUBQ (TDD)
 
 > ADDQ/SUBQ: a 3-bit immediate (bits 11-9, `0`→`8`) op the EA. An-dest = NO CCR and the op is on the full 32
-> bits (the quick-to-An quirk); all other dests behave like the imm form. No vector files (⚠️ D1) — synthetic
-> tests only. **Skip if Coordinator chose D1-B.**
+> bits (the quick-to-An quirk); all other dests behave like the imm form. **No v1 vector files exist (D1
+> RESOLVED) — so they are NOT TomHarte-gated.** Per D1, hardened by (a) **differential-equivalence** tests
+> (`ADDQ≡ADD`, `SUBQ≡SUB` through the same `BinaryAluExecute` driver — inheriting the silicon proof) and (b) a
+> **synthetic fetch** test of the quick 3-bit field mapping incl. the `0→8` special case. The plan, the PR body,
+> and the status doc state PLAINLY these forms execute but are not vector-green.
 
 **Files:**
 - Modify: `src/CpuEmulator.Cpus.M68000/M68000Cpu.Alu.cs`
@@ -1222,21 +1339,65 @@ EOF
     }
 ```
 
-- [ ] **Step 4:** (After Task 13) un-skip + run → PASS.
-- [ ] **Step 5: Full gate** — all green.
-- [ ] **Step 6: Commit.**
+- [ ] **Step 4 (HARDENING — differential-equivalence): add the quick≡reg tests.** Prove `ADDQ #n,D0` and
+  `SUBQ #n,D0` (Dn-dest, not An) produce IDENTICAL `(result, CCR)` to `ADD.w D1,D0` / `SUB.w D1,D0` with the same
+  `(a, n)` — reusing the `RunImm`/`RunReg` helpers from Task 6 (quick has no immediate word, so `immBytes` is
+  empty). Add to `M68000AluExecuteTests.cs` (NOT skipped — run after Task 13):
+
+```csharp
+    [Theory]
+    // (a, n, quickOw0, quickOw1, regOw0, regOw1). ADDQ.w #n,D0 = 0x5n40 (n@11-9, opmode 0, size .w, ea D0);
+    // ADD.w D1,D0 = 0xD041 with D1 = n. SUBQ.w #n,D0 = 0x5n40|0x0100 ; SUB.w D1,D0 = 0x9041.
+    [InlineData(0x00000005u, 3u, 0x56, 0x40, 0xD0, 0x41)]   // ADDQ #3 ≡ ADD with D1=3
+    [InlineData(0x0000000Au, 8u, 0x51, 0x40, 0x90, 0x41)]   // SUBQ #8 (data 000 -> 8) ≡ SUB with D1=8
+    public void Quick_form_matches_its_reg_form_result_and_ccr(
+        uint a, uint n, byte quickOw0, byte quickOw1, byte regOw0, byte regOw1)
+    {
+        var quick = RunImm(a, n, size: 1u, quickOw0, quickOw1, immBytes: new byte[0]);  // no imm word for quick
+        var reg   = RunReg(a, n, regOw0, regOw1);
+        Assert.Equal(reg.Result, quick.Result);
+        Assert.Equal(reg.Ccr, quick.Ccr);
+    }
+```
+
+  > **`RunImm` with `immBytes = []` works for the quick form** because the quick operand is in the operword (bits
+  > 11-9), not an extension word — `RunImm` just sets PC/D0/SR and Steps; the `QuickEa` body reads `imm3` from the
+  > operword. The `(a, n)` pair feeds `n` as D1 in `RunReg`. The asserted invariant is the identical
+  > `(result, CCR)`.
+
+- [ ] **Step 5 (HARDENING — synthetic quick FETCH): the 3-bit field incl. 0→8.** Add to
+  `M68000AluExecuteTests.cs` (the `0→8` case is the `Subq_quick_zero_means_eight` test already in Step 1 — keep
+  it; ADD an explicit non-zero-field mapping assertion):
+
+```csharp
+    [Fact(Skip = "dispatch wired in Task 13")]
+    public void Addq_quick_field_seven_maps_to_seven()
+    {
+        // ADDQ.w #7,D0 = 0x5E40 (data 111 = 7 @11-9, opmode 0, size .w, ea D0).
+        var (cpu, _) = Build((0x1000, 0x5E), (0x1001, 0x40));
+        cpu.SetRegister("PC", 0x1000); cpu.SetRegister("D0", 0x00000001);
+        cpu.Step();
+        Assert.Equal(0x00000008u, (uint)cpu.GetRegister("D0"));   // 1 + 7 = 8 (field 7 -> 7, NOT 8)
+    }
+```
+  (The `0→8` special case is covered by `Subq_quick_zero_means_eight` in Step 1; together they pin both ends of
+  the 3-bit-field mapping.)
+
+- [ ] **Step 6:** (After Task 13) un-skip the `[Fact(Skip=…)]`s and run → PASS.
+- [ ] **Step 7: Full gate** — `dotnet test` green; `-warnaserror` clean; `RegeneratedSpecTests` green.
+- [ ] **Step 8: Commit.**
 
 ```bash
 git add src/CpuEmulator.Cpus.M68000/M68000Cpu.Alu.cs tests/CpuEmulator.Tests/Generators/M68000AluExecuteTests.cs
 git commit -m "$(cat <<'EOF'
-feat(m68000): ADDQ/SUBQ via QuickEa (0->8 immediate; An-dest full-32-bit no-CCR quirk)
+feat(m68000): ADDQ/SUBQ via QuickEa (NOT TomHarte-gated — no v1 vectors; quick≡reg differential + 0->8 field fetch tests; ADR 0007 D1)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
 
-**New-test estimate:** ~3.
+**New-test estimate:** ~5.
 
 ---
 
@@ -1823,8 +1984,9 @@ EOF
             };
 ```
 
-  > **If Coordinator chose D1-B (defer imm/quick):** drop the `ADDI`/`SUBI`/`ANDI`/`ORI`/`EORI`/`CMPI`/`ADDQ`/
-  > `SUBQ` arms above and skip Tasks 6-7. Everything else is unchanged.
+  > **D1 RESOLVED — the imm/quick arms (`ADDI`/`SUBI`/`ANDI`/`ORI`/`EORI`/`CMPI`/`ADDQ`/`SUBQ`) ARE wired here**
+  > (they execute; Tasks 6-7 implement + harden them). They are NOT TomHarte-gated (no v1 vectors) — that
+  > limitation is disclosed in the gate + PR body, not encoded in the dispatch (the dispatch is uniform).
 
 - [ ] **Step 2: Add the partial-hook declarations** to the FieldGrammar-gated emit (`CpuEmitter.cs:307-318`,
   right after the MOVE declarations):
@@ -2050,6 +2212,10 @@ EOF
 >    (not a skip). The DIVU/DIVS ÷0 + any address-error/privilege cases are DEFERRED (M4.5d) via
 >    `IsExceptionCase`, counted as deferred — NOT asserted (asserting would be a drift false-positive). The
 >    timing axis (`final.pc`/`final.prefetch`/per-transaction trace/cycle count) is M4.5d (`timingAxis: false`).
+>    **The immediate forms (ADDI/SUBI/ANDI/ORI/EORI/CMPI) and quick forms (ADDQ/SUBQ) are NOT part of this sweep
+>    — no v1 vector files exist for them (D1 RESOLVED). They EXECUTE, covered by differential-equivalence (each ≡
+>    its vector-proven reg↔EA counterpart) + synthetic fetch tests (Tasks 6-7), and are an explicitly,
+>    honestly-disclosed exception to the vector gate. Builder must NOT claim or imply they are vector-green.**
 > 3. **A pre-merge code-review pass.** A focused review of the diff — the `BinaryAluExecute` driver, the four CCR
 >    rules, the regular registrations, the bespoke tail (esp. ADDX/SUBX pairing + sticky-Z, DIVU/DIVS ÷0 +
 >    overflow, the CLR address-once dummy read), and the generator dispatch arms — to catch drift/hallucination
@@ -2059,7 +2225,10 @@ EOF
 > **Plainly: no merge unless (1) the full suite is green + 6502/Z80 byte-identical + the seam files unchanged,
 > (2) the 51-file ALU TomHarte sweep has ACTUALLY RUN GREEN on the data axis with vectors present (not skipped,
 > non-zero executed count), and (3) a pre-merge code review has passed.** The green TomHarte sweep is the gate
-> that cannot be faked.
+> that cannot be faked. The immediate/quick forms (ADDI…CMPI, ADDQ/SUBQ) are the one honestly-disclosed gap: they
+> execute and are hardened by differential-equivalence to the gated reg↔EA forms + synthetic fetch tests, but the
+> sweep does not cover them (no v1 vectors). Nowhere in the PR, the gate, or the status doc are they claimed
+> vector-green.
 
 - [ ] **(Gate 2) The ALU TomHarte sweep is green under `-c Release` with the vectors PRESENT.** Run the gate-2
   invocation. The vectors MUST be fetched first (without them the theory SKIPS — not a pass, not mergeable). Run
@@ -2084,17 +2253,21 @@ EOF
 - [ ] **Docs:** update `docs/user-guide/testing.md` (the 680x0 ALU gate is now executable — `-c Release` +
   fetch-first + coarse-monitor; note the 51 files); update the M4 status/resume doc
   (`docs/superpowers/plans/2026-06-15-m4-status-and-resume.md`) "What is NEXT" item 2 to mark M4.5b done + point
-  at M4.5c. Carry the ⚠️ D1 resolution into the PR body.
+  at M4.5c. **The status-doc update MUST state PLAINLY that the immediate (ADDI…CMPI) + quick (ADDQ/SUBQ) forms
+  execute but are NOT TomHarte-gated (no v1 vectors; differential-equivalence + synthetic-fetch tested only) —
+  do NOT imply they are vector-green.** Carry the D1 resolution into the PR body.
 - [ ] **PR:** open against `main`. Body claims EXACTLY: the 68000 EXECUTES the integer-ALU families (ADD/SUB/AND/
-  OR/EOR/CMP reg↔EA; ADDA/SUBA/CMPA; NEG/NEGX/NOT/CLR/TST; EXT; ADDX/SUBX; MULU/MULS/DIVU/DIVS [+ ADDI…CMPI,
-  ADDQ/SUBQ if D1-A]) via the table-driven ALU layer (ADR 0007 option C), TomHarte-green on the DATA axis across
-  the 51 ALU-family vector files under `-c Release`. Name what is STILL deferred: shift/rotate/bit/BCD/Scc/
-  system-misc (incl. ANDI/ORI/EORI-to-CCR/SR, MOVEM, LEA/PEA) = M4.5c; exceptions/branches/IPL + the DIVU/DIVS
-  ÷0 vector-5 + address-error/privilege + the timing axis (final.pc/prefetch/trace/cycle) = M4.5d; the 68000
-  through the JIT = M4.6. NEVER overstate — **only the ALU families execute; immediate/quick forms execute but
-  are NOT TomHarte-gated (no vectors exist); CMPM is dropped (absent from the dataset); the seam (fetch/bus/
-  runner) is unchanged; the timing axis + ÷0 vectoring are deferred.** Include a **Docs Impact** section
-  (testing.md + the M4 status doc) and the ⚠️ D1 resolution.
+  OR/EOR/CMP reg↔EA; ADDA/SUBA/CMPA; NEG/NEGX/NOT/CLR/TST; EXT; ADDX/SUBX; MULU/MULS/DIVU/DIVS) TomHarte-green on
+  the DATA axis across the 51 ALU-family vector files under `-c Release`, via the table-driven ALU layer (ADR
+  0007 option C); AND the immediate (ADDI/SUBI/ANDI/ORI/EORI/CMPI) + quick (ADDQ/SUBQ) forms EXECUTE but are
+  **NOT TomHarte-gated — no v1 vectors exist; covered by differential-equivalence (each ≡ its vector-proven
+  reg↔EA form) + synthetic fetch tests only.** Name what is STILL deferred: shift/rotate/bit/BCD/Scc/system-misc
+  (incl. ANDI/ORI/EORI-to-CCR/SR, MOVEM, LEA/PEA) = M4.5c; exceptions/branches/IPL + the DIVU/DIVS ÷0 vector-5 +
+  address-error/privilege + the timing axis (final.pc/prefetch/trace/cycle) = M4.5d; the 68000 through the JIT =
+  M4.6. NEVER overstate — **the reg↔EA/unary/EXT/X-ops/mul-div families are vector-green; the immediate/quick
+  forms execute but are NOT vector-gated (honestly-disclosed gap); CMPM is dropped (absent from the dataset); the
+  seam (fetch/bus/runner) is unchanged; the timing axis + ÷0 vectoring are deferred.** Include a **Docs Impact**
+  section (testing.md + the M4 status doc) and the D1 resolution.
 
 ---
 
@@ -2105,6 +2278,9 @@ EOF
   - The `Ccr.Arith`/`Logic`/`Cmp`/`ArithX` rule set, written + tested ONCE → Task 2. ✓
   - Regular RegEa registrations (ADD/SUB/AND/OR/EOR/CMP) → Task 3; ADDA/SUBA/CMPA → Task 4; NEG/NOT/TST → Task
     5; immediate forms → Task 6; quick forms → Task 7. ✓
+  - **D1 RESOLVED (D1-A): imm/quick implemented + hardened.** Tasks 6-7 carry the differential-equivalence tests
+    (imm/quick ≡ vector-proven reg↔EA form) + synthetic fetch tests; the gate + PR body + status doc state
+    plainly they execute but are NOT TomHarte-gated (no v1 vectors). CMPM dropped (absent from the dataset). ✓
   - The bespoke tail: EXT → Task 8; CLR (dummy read) → Task 9; ADDX/SUBX/NEGX (sticky-Z + pairing) → Task 10;
     MULU/MULS → Task 11; DIVU/DIVS (÷0 detect-and-defer) → Task 12. ✓
   - Extend `EmitMoveDispatchArms` + the partial-hook declarations → Task 13. ✓
@@ -2132,9 +2308,9 @@ EOF
   across their tasks. ✓
 - **Code/recon contradictions surfaced (the code wins):** the dispatch is name-driven (opIndices track
   automatically — recon confirmed the `op switch` at `:4209`); `Alu.Add`/`Sub` are NO-X (the X-ops use the `*X`
-  variants — Task 1 note); immediate/quick have NO vector files (⚠️ D1; the brief's §1 table listed them but the
-  v1 set does not); CMPM is absent from the dataset (dropped); the operword is in `initial.prefetch[0]` (runner
-  already seeds it). ✓
+  variants — Task 1 note); immediate/quick have NO vector files (D1 RESOLVED — implemented + hardened, not
+  vector-gated; the brief's §1 table listed them but the v1 set does not); CMPM is absent from the dataset
+  (dropped); the operword is in `initial.prefetch[0]` (runner already seeds it). ✓
 - **Build-green-after-every-task:** Task 13 lands right after Task 2 (the `partial void` declarations precede the
   bodies); Tasks 1-2 are additive; Tasks 3-12 fill bodies whose declarations exist (no-op until filled) +
   un-skip tests; Task 14 is the heavy gate. The 6502/Z80 byte-identity guard gates every task. ✓
@@ -2158,7 +2334,8 @@ EOF
 | Final test count | _(fill)_ |
 | ALU families TomHarte-green on the data axis (51 files)? | _(fill — ADD/SUB/AND/OR/EOR/CMP, ADDA/SUBA/CMPA, ADDX/SUBX, NEG/NEGX/NOT/CLR/TST, EXT, MULU/MULS/DIVU/DIVS)_ |
 | Per-file executed vs deferred counts | _(fill — DIVU/DIVS show non-zero deferred = the ÷0 cases)_ |
-| ⚠️ D1 resolution (imm/quick) | _(fill — D1-A shipped-synthetic-only vs D1-B deferred)_ |
+| D1 resolution (imm/quick) | RESOLVED D1-A: ADDI…CMPI + ADDQ/SUBQ IMPLEMENTED + hardened (differential-equivalence ≡ reg↔EA + synthetic fetch); NOT TomHarte-gated (no v1 vectors) — disclosed in gate/PR/status doc. CMPM dropped (absent from dataset). |
+| imm/quick differential-equivalence + fetch tests green? | _(fill — imm≡reg / quick≡reg result+CCR identical; per-size imm fetch + quick 0→8 field)_ |
 | ADDX/SUBX sticky-Z + -(An),-(An) pairing green? | _(fill — vector-confirmed)_ |
 | DIVU/DIVS ÷0 detect-and-defer working? | _(fill — detection in body, IsExceptionCase deferral)_ |
 | Seam invariant held (fetch/bus/runner/Move unchanged)? | _(fill — git diff --stat)_ |
