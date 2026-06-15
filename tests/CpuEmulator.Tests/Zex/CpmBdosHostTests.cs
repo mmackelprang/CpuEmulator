@@ -34,4 +34,26 @@ public class CpmBdosHostTests
         Assert.Equal("Hi", transcript);
         Assert.True(host.Terminated, "the program should reach warm boot (PC == 0x0000)");
     }
+
+    [Fact]
+    public void Host_prints_a_dollar_terminated_string_via_BDOS_function_9()
+    {
+        // 0100: 11 0B 01  LD DE,0x010B (the string address)
+        // 0103: 0E 09     LD C,0x09 (BDOS fn 9 = print $-string)
+        // 0105: CD 05 00  CALL 0x0005
+        // 0108: C3 00 00  JP 0x0000 (warm boot)
+        // 010B: "OK" '$'  the $-terminated string
+        byte[] com =
+        {
+            0x11, 0x0B, 0x01, 0x0E, 0x09, 0xCD, 0x05, 0x00,
+            0xC3, 0x00, 0x00,
+            (byte)'O', (byte)'K', (byte)'$',
+        };
+
+        var host = new CpmBdosHost(com);
+        string transcript = host.Run(cycleBudget: 1_000_000);
+
+        Assert.Equal("OK", transcript);
+        Assert.True(host.Terminated);
+    }
 }
