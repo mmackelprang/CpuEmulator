@@ -31,7 +31,7 @@ The WZ/MEMPTR model is COMPLETE with a universal final Q/WZ/IM check (`checkInte
 | ED block ops (0xA0–0xBB, 16) | TomHarte-green | done (M3.4d, PR #23) |
 | **DD / FD prefixes ((IX/IY) + (IX+d))** | `// TODO(mode)` (Indexed mode unsupported) | **M3.4e — the NEXT PR; scoped, likely 2–3 PRs** |
 | **DDCB / FDCB compound prefixes** | not decodable (compound key unsupported) | **part of M3.4e** |
-| **Interrupt SERVICING (IM 0/1/2 + NMI vectoring)** | `TryServiceInterrupt() => false` | **M3.5** |
+| **Interrupt SERVICING (IM 0/1/2 + NMI vectoring)** | serviced (IM 0/1/2 + NMI + IFF1/IFF2 + EI-delay + HALT-wake); interrupt UAT green | **M3.5-1 — plan detailed + implemented; PR pending** |
 | **ZEXALL / ZEXDOC exerciser** | not wired | **M3.5** |
 | **Z80 through the JIT** | interpreter-only (ED/CB rows are JIT fallbacks) | **M3.5** |
 
