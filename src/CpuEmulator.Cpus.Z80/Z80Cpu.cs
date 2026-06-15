@@ -27,6 +27,15 @@ public sealed partial class Z80Cpu
     private bool _iff1;
     private bool _iff2;
 
+    /// <summary>The maskable INT line LEVEL (M3.5-1). Level-sensitive: serviced at any instruction
+    /// boundary while high AND IFF1 is set. Set by the host/peripheral via SetIrqLine.</summary>
+    private bool _irqLine;
+
+    /// <summary>The NMI line level (for edge detection) + the edge-latched pending flag (M3.5-1). NMI is
+    /// edge-triggered: a rising edge sets _nmiPending; the latch clears when serviced and on Reset.</summary>
+    private bool _nmiLine;
+    private bool _nmiPending;
+
     /// <summary>IFF1 — the master interrupt-enable latch (observable Z80 state; the TomHarte vectors
     /// check it for DI/EI). Settable so a harness can establish the initial state.</summary>
     public bool Iff1 { get => _iff1; set => _iff1 = value; }
@@ -67,15 +76,27 @@ public sealed partial class Z80Cpu
         _iff1 = false;
         _iff2 = false;
         _halted = false;
+        _nmiPending = false;
+        _nmiLine = false;
+        _irqLine = false;
     }
 
-    /// <summary>Interrupt-line setters — stubs. The Z80 interrupt policy (IM 0/1/2, NMI, IFF1/IFF2) is
-    /// M3.4; the skeleton wires the lines so ICpuCore is satisfied but services nothing.</summary>
-    public void SetIrqLine(bool asserted) { }
-    public void SetNmiLine(bool asserted) { }
+    /// <summary>The maskable INT line is level-sensitive: sampled at every instruction boundary and
+    /// serviced when high and IFF1 is set (M3.5-1).</summary>
+    public void SetIrqLine(bool asserted) => _irqLine = asserted;
 
-    /// <summary>No interrupt is ever pending in the skeleton (M3.4 owns the real policy).</summary>
-    public partial bool InterruptPending => false;
+    /// <summary>NMI is edge-triggered: a rising edge sets the pending latch; the latch clears when
+    /// serviced and on Reset. A held-high line never re-fires until released and re-asserted (M3.5-1).</summary>
+    public void SetNmiLine(bool asserted)
+    {
+        if (asserted && !_nmiLine)
+            _nmiPending = true;
+        _nmiLine = asserted;
+    }
+
+    /// <summary>True exactly when the next Step will service an interrupt — NMI (non-maskable, edge-
+    /// latched) or a maskable INT gated by IFF1 (M3.5-1). The JIT boundary-samples this policy-blind.</summary>
+    public partial bool InterruptPending => _nmiPending || (_irqLine && _iff1);
 
     /// <summary>The halted latch the generated Step consults (set by the Halt() micro-op via DoHalt).
     /// M3.4 owns the wake (clearing it on a serviced interrupt); the skeleton never wakes.</summary>
