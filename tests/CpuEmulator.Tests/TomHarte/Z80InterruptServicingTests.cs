@@ -91,4 +91,46 @@ public class Z80InterruptServicingTests
         Assert.Equal(0x11u, (uint)cpu.GetRegister("R"));      // R low-7 bumped by 1 (0x10 → 0x11)
         Assert.Equal(13L, cpu.CycleCount - before);           // IM1 = 13 T-states
     }
+
+    [Fact]
+    public void NMI_services_to_0x0066_saving_IFF1_into_IFF2_and_clearing_IFF1()
+    {
+        var (cpu, mem) = BuildCpu();
+        cpu.SetRegister("PC", 0x4000);
+        cpu.SetRegister("SP", 0xFFF0);
+        cpu.SetRegister("R", 0x00);
+        cpu.Iff1 = true; cpu.Iff2 = true;     // both enabled before NMI
+        cpu.SetNmiLine(true);                  // edge → pending (non-maskable)
+
+        long before = cpu.CycleCount;
+        cpu.Step();
+
+        Assert.Equal(0x0066u, (uint)cpu.GetRegister("PC"));   // NMI vector
+        Assert.Equal(0xFFEEu, (uint)cpu.GetRegister("SP"));
+        Assert.Equal(0x00, mem.Read8(0xFFEE));                // PCL
+        Assert.Equal(0x40, mem.Read8(0xFFEF));                // PCH
+        Assert.False(cpu.Iff1);                                // IFF1 cleared
+        Assert.True(cpu.Iff2);                                 // IFF2 = saved old IFF1 (was true)
+        Assert.Equal(0x0066u, (uint)cpu.GetRegister("WZ"));
+        Assert.Equal(0x01u, (uint)cpu.GetRegister("R"));      // R bumped by 1
+        Assert.Equal(11L, cpu.CycleCount - before);           // NMI = 11 T-states
+    }
+
+    [Fact]
+    public void NMI_then_RETN_restores_IFF1_from_saved_IFF2()
+    {
+        var (cpu, mem) = BuildCpu();
+        // Handler at 0x0066: RETN (ED 45).
+        mem.Write8(0x0066, 0xED); mem.Write8(0x0067, 0x45);
+        cpu.SetRegister("PC", 0x4000);
+        cpu.SetRegister("SP", 0xFFF0);
+        cpu.Iff1 = true; cpu.Iff2 = true;
+        cpu.SetNmiLine(true);
+
+        cpu.Step();                 // service NMI → IFF1=0, IFF2=1, PC=0x0066
+        Assert.False(cpu.Iff1);
+        cpu.Step();                 // execute RETN at 0x0066 → IFF1 = IFF2 = 1, PC = 0x4000 (popped)
+        Assert.True(cpu.Iff1);       // restored from the saved IFF2
+        Assert.Equal(0x4000u, (uint)cpu.GetRegister("PC"));
+    }
 }
