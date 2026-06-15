@@ -75,7 +75,7 @@ internal static class TierRunner
 
     private static long RunJit(Mos6502Cpu inner, AddressSpace space, JitOptions options, BenchWorkload w, long target)
     {
-        var jitCpu = new JittedCpu(inner, space, options);
+        var jitCpu = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: options);
         bool trap = w.FixedCycleCap is null;
         while (inner.CycleCount < target)
         {

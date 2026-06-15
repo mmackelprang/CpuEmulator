@@ -37,7 +37,7 @@ public class JitOptionsTests
         var tracing = new TracingAddressSpace(space);
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space, new JitOptions { DisableFastmem = true }, traceBus: tracing);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: new JitOptions { DisableFastmem = true }, traceBus: tracing);
 
         long budget = 3;
         jit.Run(ref budget);
@@ -58,7 +58,7 @@ public class JitOptionsTests
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
         // Default options (fastmem on): the traceBus is ignored, RAM goes direct to the backing.
-        var jit = new JittedCpu(inner, space, new JitOptions(), traceBus: tracing);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: new JitOptions(), traceBus: tracing);
 
         long budget = 3;
         jit.Run(ref budget);
@@ -89,7 +89,7 @@ public class JitOptionsTests
             Poke(jitSpace, 0x0200, 0xA9, 0xC6, 0x8D, 0x07, 0x02, 0xA9, 0x05, 0xE6, 0x30, 0x85, 0x31, 0x4C, 0x0B, 0x02);
             var inner = new Mos6502Cpu(jitSpace);
             inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-            var jit = new JittedCpu(inner, jitSpace, new JitOptions { DisableFastmem = true });
+            var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace, options: new JitOptions { DisableFastmem = true });
             long jb = 200; jit.Run(ref jb);
             for (uint a = 0; a <= 0xFFFF; a++)
                 Assert.Equal(refSpace.Read8(a), jitSpace.Read8(a));
@@ -112,7 +112,7 @@ public class JitOptionsTests
         Poke(space, 0x0200, nops);
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions { BlockLengthCap = 4 };
-        var compiler = new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
 
         var run = compiler.Discover(0x0200);
         Assert.Equal(4, run.Count); // capped at 4 instructions; the 5th NOP is a new block

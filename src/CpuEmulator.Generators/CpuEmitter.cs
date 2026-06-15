@@ -102,7 +102,54 @@ internal static class CpuEmitter
         EmitDisassembler(sb, model);
         EmitMonitorSupport(sb, model);
         EmitJitDescriptors(sb, model, flags);
+        EmitJitTarget(sb, model);
         EmitDecodeWalk(sb, model);
+    }
+
+    /// <summary>The generated per-CPU JIT seam (J1) — the data-driven replacement for the 6502's baked
+    /// FA/FP/FPC/MStep handles. Resolves the status/PC/accumulator fields by the SPEC's role-named
+    /// registers, so the generic BlockCompiler&lt;TCpu&gt; never names a concrete CPU type. AOT-clean
+    /// (reflection handles + delegate wraps, no Reflection.Emit). One per CPU, on the generated partial.</summary>
+    private static void EmitJitTarget(StringBuilder sb, SpecModel model)
+    {
+        // Resolve the role-named registers from the spec (NOT hardcoded): the Status-role reg, the
+        // ProgramCounter-role reg, and the accumulator (the first 8-bit general reg by convention — "A"
+        // on both the 6502 and Z80; falls back to the status reg if a future CPU lacks an "A").
+        // GUARD: the generic JIT requires BOTH a Status and a ProgramCounter register (the baked
+        // _fp/_fpc handles). A minimal synthetic spec (decode/flag/port fixtures) may declare neither
+        // — those CPUs are never driven through the generic JIT, so skip the JitTarget emission for
+        // them (no StatusField/ProgramCounterField to resolve). The 6502 + Z80 + any real CPU declare
+        // both, so they always get a JitTarget.
+        var statusRegister = model.Registers.FirstOrDefault(r => r.Role == "Status");
+        var pcRegisterModel = model.Registers.FirstOrDefault(r => r.Role == "ProgramCounter");
+        if (statusRegister is null || pcRegisterModel is null)
+            return;
+        string status = statusRegister.Name;
+        string pc = pcRegisterModel.Name;
+        string acc = model.Registers.Any(r => r.Name == "A") ? "A" : status;
+        string cpuType = model.CpuName;
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated per-CPU JIT seam (J1) — the data-driven replacement for the");
+        sb.AppendLine("    /// 6502's baked FA/FP/FPC/MStep handles. Resolves the status/PC/accumulator fields by the");
+        sb.AppendLine("    /// SPEC's role-named registers, so the generic BlockCompiler&lt;TCpu&gt; never names a");
+        sb.AppendLine("    /// concrete CPU type. AOT-clean (reflection handles + delegate wraps, no Reflection.Emit).</summary>");
+        sb.AppendLine("    public static readonly CpuEmulator.Core.Jit.IJitTarget JitTarget = new GeneratedJitTarget();");
+        sb.AppendLine();
+        sb.AppendLine("    private sealed class GeneratedJitTarget : CpuEmulator.Core.Jit.IJitTarget");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        public System.Type CpuType => typeof({cpuType});");
+        sb.AppendLine($"        public System.Reflection.FieldInfo StatusField => typeof({cpuType}).GetField(\"{status}\")!;");
+        sb.AppendLine($"        public System.Reflection.FieldInfo ProgramCounterField => typeof({cpuType}).GetField(\"{pc}\")!;");
+        sb.AppendLine($"        public System.Reflection.FieldInfo AccumulatorField => typeof({cpuType}).GetField(\"{acc}\")!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo StepMethod => typeof({cpuType}).GetMethod(\"Step\")!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo AdvanceCyclesMethod => typeof({cpuType}).GetMethod(\"AdvanceCycles\", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo CycleCountGetter => typeof({cpuType}).GetProperty(\"CycleCount\")!.GetGetMethod()!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo InterruptPendingGetter => typeof({cpuType}).GetProperty(\"InterruptPending\")!.GetGetMethod()!;");
+        sb.AppendLine($"        public CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream) => {cpuType}.Decode(stream);");
+        sb.AppendLine($"        public CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey) => {cpuType}.DescriptorFor(operationKey);");
+        sb.AppendLine($"        public System.Collections.Generic.IReadOnlyList<string> RegisterNames => s_registerNames;");
+        sb.AppendLine("    }");
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model, FlagBitMap flags)
@@ -242,14 +289,28 @@ internal static class CpuEmitter
         sb.AppendLine("    /// Step then ends without fetching an opcode.</summary>");
         sb.AppendLine("    private partial bool TryServiceInterrupt();");
 
+        // Halted is part of the IMonitorSupport surface (the JIT dispatcher's J6 halted fast path
+        // queries a uniform Halted on the inner CPU). A CPU that uses Halt() declares a
+        // `partial bool Halted` whose body the hand-written partial owns (the latch); a CPU with NO
+        // HALT op gets a generated constant-false Halted, so EVERY generated CPU satisfies the
+        // interface without a hand-written hook (the 6502's former hand-written `Halted => false` is
+        // now generated here — one less hand-written member, and synthetic CPUs compile uniformly).
         if (hasHaltOp)
         {
             sb.AppendLine();
             sb.AppendLine("    /// <summary>True while the halted latch is set (M3.2 Ground truth B). The hand-written");
             sb.AppendLine("    /// partial owns the latch (set by the Halt() micro-op's DoHalt(), cleared in");
             sb.AppendLine("    /// TryServiceInterrupt — the wake). Step consults this to idle a cycle instead of");
-            sb.AppendLine("    /// fetching. Emitted ONLY for a CPU that uses Halt() — the 6502 Step is byte-identical.</summary>");
+            sb.AppendLine("    /// fetching.</summary>");
             sb.AppendLine("    public partial bool Halted { get; }");
+        }
+        else
+        {
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>A CPU with no HALT instruction never enters the halted state (M3.2 Ground");
+            sb.AppendLine("    /// truth B), so Halted is a constant false — the JIT dispatcher's halted fast path branch");
+            sb.AppendLine("    /// is dead for it (byte-identical JIT). Generated so every CPU satisfies IMonitorSupport.</summary>");
+            sb.AppendLine("    public bool Halted => false;");
         }
 
         sb.AppendLine();
@@ -3562,6 +3623,20 @@ internal static class CpuEmitter
         InstructionClass cls = insn.Class;
         int baseCycles = JitBaseCycles(insn, cls);
         (string jitClass, bool endsBlock, bool fallback) = ClassifyForJit(insn, cls);
+
+        // M3.5-3a (J1/J3): a STRUCTURED CPU (one with a DecodeStructure — the Z80, and the synthetic
+        // decode fixtures) emits its keyed descriptors with NeedsFallback FORCED true. The generic JIT
+        // cannot yet emit correct IL for a structured CPU's ops (the Z80's flag model + M-cycle/T-state
+        // timing differ from the 6502 arms the JIT has), so EVERY structured-CPU op defers to the
+        // interpreter Step in 5-3a — the all-fallback bring-up the tier-parity gate proves. WITHOUT
+        // this, a Z80 op the importer mapped to a GENERIC class (e.g. NOP→Register, LD A,n→Load — not a
+        // Z80* class, so ClassifyForJit's z80 guard misses it) would be wrongly emitted via the 6502 arm
+        // with the 6502 cycle model (NOP=2T vs the Z80's 4T) — breaking tier parity. 5-3b flips the hot
+        // Z80 ops back to emitted IL one family at a time, each with its own correct cycle + flag model.
+        // A fallback op ENDS the block (one interpreter Step per block), matching ClassifyForJit's rule.
+        fallback = true;
+        endsBlock = true;
+
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
 
         int fixedLength = insn.KeyShape switch

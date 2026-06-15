@@ -10,7 +10,7 @@ namespace CpuEmulator.Jit;
 /// an InvalidProgramException) rather than silently. NO cycles are charged here: decimal ADC/SBC are
 /// the same cycle count as binary on the NMOS 6502, and the opcode-fetch + operand-resolution cycles
 /// already ran (EmitChargeOneCycle up-front + EmitOperandRead). The D-branch is pure compute.</summary>
-internal sealed partial class BlockCompiler
+internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 {
     /// <summary>Emit NMOS ADC (Ground truth E). 'data' is in ctx.DataLocal. Scratch:
     /// TmpInt='temp' (the binary sum, for the Z-from-binary quirk), NibLocal='before' (low nibble),
@@ -20,7 +20,7 @@ internal sealed partial class BlockCompiler
         ILGenerator il = ctx.Il;
 
         // int temp = A + data + (P & 0x01);
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, FA);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fa);
         il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Add);
         EmitCarryIn(ctx);                                   // + (P & 0x01)
         il.Emit(OpCodes.Add);
@@ -112,7 +112,7 @@ internal sealed partial class BlockCompiler
         ILGenerator il = ctx.Il;
 
         // int temp = A + (data ^ 0xFF) + (P & 0x01);
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, FA);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fa);
         il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.Xor);
         il.Emit(OpCodes.Add);
         EmitCarryIn(ctx); il.Emit(OpCodes.Add);
@@ -182,42 +182,42 @@ internal sealed partial class BlockCompiler
     // ── Shared decimal-arm IL fragments (each pushes/stores exactly its documented expression) ──
 
     /// <summary>Push (A &amp; mask) as int.</summary>
-    private static void EmitMaskedA(EmitContext ctx, int mask)
+    private void EmitMaskedA(EmitContext ctx, int mask)
     {
-        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, FA);
+        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, _fa);
         ctx.Il.Emit(OpCodes.Ldc_I4, mask); ctx.Il.Emit(OpCodes.And);
     }
 
     /// <summary>Push (data &amp; mask) as int.</summary>
-    private static void EmitMaskedData(EmitContext ctx, int mask)
+    private void EmitMaskedData(EmitContext ctx, int mask)
     {
         ctx.Il.Emit(OpCodes.Ldloc, ctx.DataLocal);
         ctx.Il.Emit(OpCodes.Ldc_I4, mask); ctx.Il.Emit(OpCodes.And);
     }
 
     /// <summary>Push (P &amp; mask) as int.</summary>
-    private static void EmitMaskedP(EmitContext ctx, int mask)
+    private void EmitMaskedP(EmitContext ctx, int mask)
     {
-        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, FP);
+        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, _fp);
         ctx.Il.Emit(OpCodes.Ldc_I4, mask); ctx.Il.Emit(OpCodes.And);
     }
 
     /// <summary>Push (P &amp; 0x01) — the carry-in.</summary>
-    private static void EmitCarryIn(EmitContext ctx)
+    private void EmitCarryIn(EmitContext ctx)
     {
-        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, FP);
+        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, _fp);
         ctx.Il.Emit(OpCodes.Ldc_I4_1); ctx.Il.Emit(OpCodes.And);
     }
 
     /// <summary>Push (P &amp; 0x08) — the decimal-flag test value (Brfalse selects the binary arm).</summary>
-    private static void EmitDecimalFlagSet(EmitContext ctx)
+    private void EmitDecimalFlagSet(EmitContext ctx)
     {
-        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, FP);
+        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, _fp);
         ctx.Il.Emit(OpCodes.Ldc_I4, 0x08); ctx.Il.Emit(OpCodes.And);
     }
 
     /// <summary>Push ((local &amp; 0xFF) == 0 ? 0x02 : 0x00) — the Z-from-binary term (reads TmpInt).</summary>
-    private static void EmitZeroFromTemp(EmitContext ctx)
+    private void EmitZeroFromTemp(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
         Label nz = il.DefineLabel(), zdone = il.DefineLabel();
@@ -231,7 +231,7 @@ internal sealed partial class BlockCompiler
     }
 
     /// <summary>Push (src &gt; threshold ? flag : 0).</summary>
-    private static void EmitGtFlag(EmitContext ctx, LocalBuilder src, int threshold, int flag)
+    private void EmitGtFlag(EmitContext ctx, LocalBuilder src, int threshold, int flag)
     {
         ILGenerator il = ctx.Il;
         Label yes = il.DefineLabel(), gdone = il.DefineLabel();
@@ -245,7 +245,7 @@ internal sealed partial class BlockCompiler
     }
 
     /// <summary>Push (src &gt;= threshold ? flag : 0).</summary>
-    private static void EmitGeFlag(EmitContext ctx, LocalBuilder src, int threshold, int flag)
+    private void EmitGeFlag(EmitContext ctx, LocalBuilder src, int threshold, int flag)
     {
         ILGenerator il = ctx.Il;
         Label yes = il.DefineLabel(), gdone = il.DefineLabel();
@@ -260,16 +260,16 @@ internal sealed partial class BlockCompiler
 
     /// <summary>Push the ADC overflow term: ((~(A ^ data) &amp; (A ^ res) &amp; 0x80) != 0 ? 0x40 : 0).
     /// <paramref name="res"/> is 'sum' (decimal, pre-correction) or 'temp' (binary).</summary>
-    private static void EmitAdcOverflow(EmitContext ctx, LocalBuilder res)
+    private void EmitAdcOverflow(EmitContext ctx, LocalBuilder res)
     {
         ILGenerator il = ctx.Il;
         Label yes = il.DefineLabel(), vdone = il.DefineLabel();
         // ~(A ^ data)
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, FA);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fa);
         il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Xor);
         il.Emit(OpCodes.Not);
         // & (A ^ res)
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, FA);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fa);
         il.Emit(OpCodes.Ldloc, res); il.Emit(OpCodes.Xor);
         il.Emit(OpCodes.And);
         // & 0x80
@@ -282,15 +282,15 @@ internal sealed partial class BlockCompiler
     }
 
     /// <summary>Push the SBC overflow term: (((A ^ data) &amp; (A ^ temp) &amp; 0x80) != 0 ? 0x40 : 0).</summary>
-    private static void EmitSbcOverflow(EmitContext ctx, LocalBuilder temp)
+    private void EmitSbcOverflow(EmitContext ctx, LocalBuilder temp)
     {
         ILGenerator il = ctx.Il;
         Label yes = il.DefineLabel(), vdone = il.DefineLabel();
         // (A ^ data)
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, FA);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fa);
         il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Xor);
         // & (A ^ temp)
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, FA);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fa);
         il.Emit(OpCodes.Ldloc, temp); il.Emit(OpCodes.Xor);
         il.Emit(OpCodes.And);
         // & 0x80
@@ -304,7 +304,7 @@ internal sealed partial class BlockCompiler
 
     /// <summary>Emit the SBC decimal flag store: P = (P &amp; mask) | C | V | Z | N, ALL from the
     /// binary temp (Ground truth E: decimal SBC's flags are the binary-path flags).</summary>
-    private static void EmitSbcFlagsFromTemp(EmitContext ctx, int mask)
+    private void EmitSbcFlagsFromTemp(EmitContext ctx, int mask)
     {
         ILGenerator il = ctx.Il;
         EmitStoreP(ctx, () =>
@@ -324,28 +324,28 @@ internal sealed partial class BlockCompiler
 
     /// <summary>Frame a P assignment: pushes cpu, runs <paramref name="pushValue"/> (which must leave
     /// the new P value on the stack), then <c>conv.u1; stfld P</c>.</summary>
-    private static void EmitStoreP(EmitContext ctx, System.Action pushValue)
+    private void EmitStoreP(EmitContext ctx, System.Action pushValue)
     {
         ctx.Il.Emit(OpCodes.Ldarg_0);   // cpu (for the trailing Stfld)
         pushValue();
         ctx.Il.Emit(OpCodes.Conv_U1);
-        ctx.Il.Emit(OpCodes.Stfld, FP);
+        ctx.Il.Emit(OpCodes.Stfld, _fp);
     }
 
     /// <summary>A = (byte)src.</summary>
-    private static void EmitStoreAFromInt(EmitContext ctx, LocalBuilder src)
+    private void EmitStoreAFromInt(EmitContext ctx, LocalBuilder src)
     {
         ctx.Il.Emit(OpCodes.Ldarg_0);
         ctx.Il.Emit(OpCodes.Ldloc, src);
         ctx.Il.Emit(OpCodes.Conv_U1);
-        ctx.Il.Emit(OpCodes.Stfld, FA);
+        ctx.Il.Emit(OpCodes.Stfld, _fa);
     }
 
     /// <summary>P = (P &amp; 0x7D) | (A == 0 ? 2 : 0) | (A &amp; 0x80) — the binary-arm trailing SetNZ
     /// computed from the freshly-stored A (matches the interpreter's <c>A == 0</c> / <c>A &amp; 0x80</c>).</summary>
-    private static void EmitSetNZFromA(EmitContext ctx)
+    private void EmitSetNZFromA(EmitContext ctx)
     {
-        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, FA);
+        ctx.Il.Emit(OpCodes.Ldarg_0); ctx.Il.Emit(OpCodes.Ldfld, _fa);
         EmitSetNZFromStack(ctx);
     }
 }

@@ -1,6 +1,7 @@
 using System.Text;
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Z80;
+using CpuEmulator.Jit;
 using CpuEmulator.Tests.Mos6502;
 
 namespace CpuEmulator.Tests.TomHarte;
@@ -86,6 +87,102 @@ internal static class Z80TomHarteRunner
             DiffBusTrace(problems, bus.Trace, c.Cycles);
 
         return problems.Count == 0 ? null : Format(c, bus, problems);
+    }
+
+    /// <summary>The JIT tier-parity sibling of <see cref="RunCase"/> (M3.5-3a): builds a fresh inner
+    /// Z80Cpu over the same program + Io spaces, sets the FULL Z80 state IDENTICALLY to RunCase, wraps it
+    /// in <see cref="JittedCpu{Z80Cpu}"/>, drives <c>jit.Run</c> with a one-instruction budget, and diffs
+    /// the SAME full state (PC/SP/A/F incl X/Y, B–L, the alt pairs, I/R, IX/IY, WZ, Q, IM, Iff1/Iff2) +
+    /// RAM + ports + cycle COUNT off the inner Z80. Every Z80 op falls back to inner.Step in 5-3a, so the
+    /// JIT result IS the interpreter result — a green sweep proves the GENERIC COMPILER runs the Z80
+    /// faithfully (the J1/J2/J3 deliverable). Fastmem-on means RAM/ROM bypass the bus, so the per-T-state
+    /// BUS TRACE is NOT asserted here (Ground truth E — the 6502 JIT sweep asserts state+RAM+cycles, not
+    /// the trace); the port ops go through the inner Z80's Io bus on the fallback Step, so the Io trace is
+    /// still exact.</summary>
+    public static string? RunCaseThroughJit(Z80TomHarteCase c)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return null;   // JIT-only proof; treat as pass where dynamic code is disabled (AOT)
+
+        var program = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+        program.MapMemory(0x0000, new byte[0x10000], writable: true);
+        foreach (var e in c.Initial.Ram) program.Write8(e.Address, e.Value);
+
+        var ioInner = new AddressSpace(AddressSpaceKind.Io, addressBits: 16);
+        ioInner.MapMemory(0x0000, new byte[0x10000], writable: true);
+        foreach (var port in c.Ports)
+            if (port.IsRead) ioInner.Write8(port.Address, port.Value);
+        var io = new TracingAddressSpace(ioInner);   // record the port trace on the fallback Step's IO
+
+        // Build the inner Z80 over the program + (tracing) Io space, set ALL state (incl. Iff1/Iff2/Q/Im
+        // which have no ICpuCore.SetRegister path), THEN wrap it in JittedCpu (the wrapper owns no state).
+        var inner = new Z80Cpu(program, io);
+        ApplyInitialState(inner, c.Initial);
+
+        // fastmem binds to the concrete program AddressSpace; the Io callout target is the same Io space
+        // the inner Z80 writes ports through on fallback. Every Z80 op falls back to inner.Step in 5-3a.
+        var jit = new JittedCpu<Z80Cpu>(inner, Z80Cpu.JitTarget, program, io);
+        long budget = c.Cycles.Length;   // one instruction's worth of T-states
+        jit.Run(ref budget);
+
+        return DiffFinalState(c, inner, program, io);
+    }
+
+    /// <summary>Set the full Z80 initial state on <paramref name="cpu"/> — the SAME assignments RunCase
+    /// makes inline, factored so RunCase and RunCaseThroughJit set state identically (DRY).</summary>
+    private static void ApplyInitialState(Z80Cpu cpu, Z80State s)
+    {
+        cpu.SetRegister("PC", s.Pc); cpu.SetRegister("SP", s.Sp);
+        cpu.SetRegister("A", s.A);   cpu.SetRegister("F", s.F);   // F carries the X(3)/Y(5) bits
+        cpu.SetRegister("B", s.B);   cpu.SetRegister("C", s.C);
+        cpu.SetRegister("D", s.D);   cpu.SetRegister("E", s.E);
+        cpu.SetRegister("H", s.H);   cpu.SetRegister("L", s.L);
+        cpu.SetRegister("I", s.I);   cpu.SetRegister("R", s.R);
+        cpu.SetRegister("IX", s.Ix); cpu.SetRegister("IY", s.Iy);
+        cpu.SetRegister("WZ", s.Wz);
+        cpu.SetRegister("AF_", s.Af_); cpu.SetRegister("BC_", s.Bc_);
+        cpu.SetRegister("DE_", s.De_); cpu.SetRegister("HL_", s.Hl_);
+        cpu.Iff1 = s.Iff1; cpu.Iff2 = s.Iff2;
+        cpu.Im = s.Im;
+        cpu.Q = (byte)s.Q;
+    }
+
+    /// <summary>Diff the full final Z80 state + RAM + ports + cycle COUNT off <paramref name="cpu"/> — the
+    /// SAME comparison RunCase makes inline (minus the per-T-state bus trace, which fastmem-on bypasses).
+    /// Returns null on pass, else the formatted report.</summary>
+    private static string? DiffFinalState(Z80TomHarteCase c, Z80Cpu cpu, AddressSpace program, TracingAddressSpace io)
+    {
+        var problems = new List<string>();
+        var f = c.Final;
+        Check(problems, cpu, "PC", f.Pc, 4); Check(problems, cpu, "SP", f.Sp, 4);
+        Check(problems, cpu, "A", f.A, 2);   Check(problems, cpu, "F", f.F, 2);
+        Check(problems, cpu, "B", f.B, 2);   Check(problems, cpu, "C", f.C, 2);
+        Check(problems, cpu, "D", f.D, 2);   Check(problems, cpu, "E", f.E, 2);
+        Check(problems, cpu, "H", f.H, 2);   Check(problems, cpu, "L", f.L, 2);
+        Check(problems, cpu, "I", f.I, 2);   Check(problems, cpu, "R", f.R, 2);
+        Check(problems, cpu, "IX", f.Ix, 4); Check(problems, cpu, "IY", f.Iy, 4);
+        Check(problems, cpu, "AF_", f.Af_, 4); Check(problems, cpu, "BC_", f.Bc_, 4);
+        Check(problems, cpu, "DE_", f.De_, 4); Check(problems, cpu, "HL_", f.Hl_, 4);
+        Check(problems, cpu, "WZ", f.Wz, 4);
+        if (cpu.Q != f.Q) problems.Add($"Q: expected {f.Q:X2}, got {cpu.Q:X2}");
+        if (cpu.Im != f.Im) problems.Add($"IM: expected {f.Im}, got {cpu.Im}");
+        if (cpu.Iff1 != f.Iff1) problems.Add($"IFF1: expected {f.Iff1}, got {cpu.Iff1}");
+        if (cpu.Iff2 != f.Iff2) problems.Add($"IFF2: expected {f.Iff2}, got {cpu.Iff2}");
+
+        foreach (var e in f.Ram)
+            if (program.Read8(e.Address) != e.Value)
+                problems.Add($"RAM[{e.Address:X4}]: expected {e.Value:X2}, got {program.Read8(e.Address):X2}");
+
+        DiffPorts(problems, io, c.Ports);
+
+        if (cpu.CycleCount != c.Cycles.Length)
+            problems.Add($"cycle count: expected {c.Cycles.Length}, got {cpu.CycleCount}");
+
+        if (problems.Count == 0) return null;
+        var sb = new StringBuilder();
+        sb.AppendLine($"[JIT] case '{c.Name}'");
+        foreach (string problem in problems) sb.AppendLine($"  {problem}");
+        return sb.ToString();
     }
 
     private static void Check(List<string> problems, Z80Cpu cpu, string name, ulong expected, int hex)

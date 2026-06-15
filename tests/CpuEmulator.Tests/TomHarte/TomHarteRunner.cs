@@ -98,7 +98,7 @@ internal static class TomHarteRunner
         inner.SetRegister("Y", testCase.Initial.Y);
         inner.SetRegister("P", testCase.Initial.P);
 
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = testCase.Cycles.Length; // one instruction's worth of cycles
         jit.Run(ref budget);
 

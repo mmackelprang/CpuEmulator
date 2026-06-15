@@ -74,7 +74,7 @@ public class ChainingSmcSafetyTests
         space.MapMemory(0x0000, ram, writable: true);
         var inner = new Mos6502Cpu(space, UndefinedOpcodePolicy.Nop)
             { PC = startPc, S = 0xFD, P = p, A = a, X = x, Y = y };
-        var jit = new JittedCpu(inner, space, opts);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: opts);
         while (inner.CycleCount < cycleCap)
         {
             ushort before = inner.PC;
@@ -218,7 +218,7 @@ public class ChainingSmcSafetyTests
         Poke(space, 0x0200, prog);
         space.Write8(0x30, 0x01);
         var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = 1;
         jit.Run(ref budget);
         Assert.Equal(0, jit.ChainStepCount);
@@ -256,10 +256,10 @@ public class ChainingSmcSafetyTests
         Poke(space, 0x0300, 0xE8, 0x4C, 0x00, 0x03);          // INX / JMP $0300     (S)
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
-        var compiler = new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
-        var cache = new BlockCache(space.PageCount);
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
+        var cache = new BlockCache<Mos6502Cpu>(space.PageCount);
 
-        CompiledBlock p = cache.GetOrCompile(0x0200, compiler);
+        CompiledBlock<Mos6502Cpu> p = cache.GetOrCompile(0x0200, compiler);
         cache.ResolveChain(0x0300, p, compiler);              // P chains into S; S compiled + linked
         Assert.Equal(2, compiler.CompileCount);
         Assert.Contains(p, cache.Chains.InboundTo(0x0300));   // inbound link recorded

@@ -1,28 +1,37 @@
 using CpuEmulator.Core;
-using CpuEmulator.Cpus.Mos6502;
+using CpuEmulator.Core.Jit;
 
 namespace CpuEmulator.Jit;
 
-/// <summary>Tier-1 IL-JIT CPU: wraps an interpreter Mos6502Cpu (the oracle + fallback +
-/// state owner) and runs cached, compiled blocks for Run. Step always delegates to the inner
-/// interpreter (per-instruction fidelity for the monitor + harness). Implements the same
-/// ICpuCore + IMonitorSupport surface, so a Machine, a MonitorEngine, and the TomHarte runner
-/// drive it identically to the interpreter.</summary>
-public sealed class JittedCpu : ICpuCore, IMonitorSupport
+/// <summary>Tier-1 IL-JIT CPU, generic over the interpreter CPU type (J1): wraps an interpreter
+/// TCpu (the oracle + fallback + state owner) and runs cached, compiled blocks for Run. Step always
+/// delegates to the inner interpreter (per-instruction fidelity for the monitor + harness).
+/// Implements the same ICpuCore + IMonitorSupport surface, so a Machine, a MonitorEngine, and the
+/// TomHarte runner drive it identically to the interpreter. The CPU-specific reflection + decode is
+/// resolved through the injected <see cref="IJitTarget"/> (the per-CPU seam) — the JIT assembly no
+/// longer references any concrete CPU assembly (a structural genericity proof).</summary>
+public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
+    where TCpu : class, ICpuCore, IMonitorSupport
 {
     /// <summary>The gate message — extracted to a const so the gate test references it directly
     /// (rather than re-typing the string). Names the interpreter fallback and the doc.</summary>
     internal const string DynamicCodeRequiredMessage =
         "The IL-JIT tier requires a runtime JIT. This process is NativeAOT or otherwise "
-      + "dynamic-code-disabled; use the interpreter (Mos6502Cpu) directly. See docs/user-guide/jit.md.";
+      + "dynamic-code-disabled; use the interpreter directly. See docs/user-guide/jit.md.";
 
-    private readonly Mos6502Cpu _inner;
+    private readonly TCpu _inner;
+    private readonly IJitTarget _target;
     private readonly AddressSpace _bus;
     private readonly IAddressSpace _calloutBus;
+    private readonly IAddressSpace _ioBus;          // the Port-op callout bus (the Z80's Io space; the
+                                                    // 6502 passes a harmless placeholder — no port op)
     private readonly Fastmem _fastmem;
-    private readonly BlockCache _cache;
-    private readonly BlockCompiler _compiler;
+    private readonly BlockCache<TCpu> _cache;
+    private readonly BlockCompiler<TCpu> _compiler;
     private readonly JitOptions _opts;
+    private readonly string _pcName;   // the ProgramCounter-role register name (the dispatcher reads
+                                       // the live PC via _inner.GetRegister(_pcName) — interface-only,
+                                       // no concrete CPU field; resolved once at construction)
     private long _chainStepCount;   // test seam: chain edges taken without a dispatcher round-trip
 
     // The chain-edge callback + its mutable scratch, allocated ONCE per JittedCpu (not per chain
@@ -30,8 +39,8 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
     // edge calls _chainDispatch, which stashes the resolved successor in _chainNext. Hoisting these
     // out of the RunChain loop avoids a per-chain-step delegate + display-class allocation (millions
     // of short-lived GC objects on a tight Klaus/loop run would partially undercut the speedup).
-    private CompiledBlock? _chainPredecessor;
-    private CompiledBlock? _chainNext;
+    private CompiledBlock<TCpu>? _chainPredecessor;
+    private CompiledBlock<TCpu>? _chainNext;
     private ChainDispatch? _chainDispatch;
 
     /// <summary>Construct a Tier-1 JIT over an interpreter and its concrete bus.</summary>
@@ -45,23 +54,29 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
     /// <paramref name="bus"/> then records an identical access trace to the interpreter's. Ignored
     /// when fastmem is on (RAM/ROM go direct to the backing array, bypassing any bus). Production
     /// code never sets this; it is the trace spot tests' wiring.</param>
-    public JittedCpu(Mos6502Cpu inner, AddressSpace bus, JitOptions? options = null,
-        IAddressSpace? traceBus = null)
+    public JittedCpu(TCpu inner, IJitTarget target, AddressSpace bus, IAddressSpace? ioBus = null,
+        JitOptions? options = null, IAddressSpace? traceBus = null)
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
             throw new System.PlatformNotSupportedException(DynamicCodeRequiredMessage);
         System.ArgumentNullException.ThrowIfNull(inner);
+        System.ArgumentNullException.ThrowIfNull(target);
         System.ArgumentNullException.ThrowIfNull(bus);
         _inner = inner;
+        _target = target;
         _bus = bus;
         var opts = options ?? new JitOptions();
         _opts = opts;
         // The bus the emitted callouts use: the trace bus when supplied with DisableFastmem
         // (so a TracingAddressSpace sees every access), else the concrete AddressSpace.
         _calloutBus = (opts.DisableFastmem && traceBus is not null) ? traceBus : bus;
+        // The Port-op callout target (the Z80's Io space). A CPU with no port op (the 6502) never
+        // references arg 7, so passing the memory bus is a harmless placeholder.
+        _ioBus = ioBus ?? bus;
         _fastmem = new Fastmem(bus, opts);
-        _cache = new BlockCache(bus.PageCount);
-        _compiler = new BlockCompiler(_inner, _bus, _fastmem, opts);
+        _cache = new BlockCache<TCpu>(bus.PageCount);
+        _compiler = new BlockCompiler<TCpu>(_inner, target, _bus, _fastmem, opts);
+        _pcName = ((IMonitorSupport)_inner).ProgramCounterName;
     }
 
     /// <summary>Test seam: how many blocks have been compiled (the cache-hit pin reads this).</summary>
@@ -107,7 +122,7 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
                 continue;
             }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
-            CompiledBlock block = _cache.GetOrCompile((ushort)_inner.PC, _compiler);
+            CompiledBlock<TCpu> block = _cache.GetOrCompile((ushort)_inner.GetRegister(_pcName), _compiler);
             RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
             // Normal/Budget/Recompile all return here for a dispatcher round-trip: the loop tops
             // back to InvalidateIfDirty (flushing a self-modified block on a Recompile/dirty exit)
@@ -121,21 +136,22 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
     /// block 'ret's; this loop runs the successor in the SAME frame, so host stack depth across an
     /// arbitrarily long chain is bounded. Returns when the chain breaks (no link / a dynamic exit /
     /// a chain-break gate) or must round-trip (Budget / Recompile).</summary>
-    private void RunChain(CompiledBlock block, ref long budget)
+    private void RunChain(CompiledBlock<TCpu> block, ref long budget)
     {
         // The chain callback is allocated once (lazily) and reused; it reads _chainPredecessor and
         // writes _chainNext, so no per-step allocation happens in this hot loop.
         ChainDispatch chain = _chainDispatch ??= ChainEdge;
-        CompiledBlock current = block;
+        CompiledBlock<TCpu> current = block;
         while (true)
         {
             _chainPredecessor = current;            // the inbound-link record (read by ChainEdge)
             _chainNext = null;
-            // The 6502 has no Io space, so its blocks never contain a Port op and never reference the
-            // ioBus arg (M3.2) — pass _calloutBus as a harmless placeholder. The live second-bus Io
-            // wiring for a port-using CPU is M3.5 (J1); M3.2 proves the EmitPort arm directly (F.1).
+            // The Port emit arm (5-3b) routes its callout to the SECOND IAddressSpace (arg 7 — the
+            // Z80's Io space). In 5-3a every Z80 op falls back to inner.Step (which writes the ports
+            // directly), but the dispatcher passes the real _ioBus so the arm 5-3b adds lands on it.
+            // The 6502 has no port op and never references arg 7 (6502 blocks are byte-identical).
             current.Run(_inner, _calloutBus, _fastmem, _cache.Dirty, chain, ref budget, out BlockExit exit,
-                _calloutBus);
+                _ioBus);
             if (exit is BlockExit.Budget or BlockExit.Recompile) return; // round-trip required
             if (_chainNext is null) return;         // chain broke (gates/flag) or a dynamic exit
             current = _chainNext;                   // continue the chain in THIS frame
@@ -169,6 +185,7 @@ public sealed class JittedCpu : ICpuCore, IMonitorSupport
     bool IMonitorSupport.TryAssemble(string m, string t, out byte[] b, out string? e)
         => ((IMonitorSupport)_inner).TryAssemble(m, t, out b, out e);
     public bool InterruptPending => ((IMonitorSupport)_inner).InterruptPending;
+    public bool Halted => ((IMonitorSupport)_inner).Halted;
     public string ProgramCounterName => ((IMonitorSupport)_inner).ProgramCounterName;
     public int RegisterBits(string n) => ((IMonitorSupport)_inner).RegisterBits(n);
 }

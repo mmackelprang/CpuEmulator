@@ -28,7 +28,7 @@ public class BlockCompilerTests
     /// run the given budget through each, and assert the JIT matches the interpreter on the
     /// public registers, the cycle count, and the RAM image. Returns the JittedCpu for cache
     /// introspection.</summary>
-    private static JittedCpu AssertJitMatchesInterpreter(
+    private static JittedCpu<Mos6502Cpu> AssertJitMatchesInterpreter(
         Action<AddressSpace> poke, ushort startPc, long budget, JitOptions? options = null)
     {
         // Interpreter oracle
@@ -44,7 +44,7 @@ public class BlockCompilerTests
         poke(jitSpace);
         var inner = new Mos6502Cpu(jitSpace);
         inner.PC = startPc; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, jitSpace, options);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace, options: options);
         long jitBudget = budget;
         jit.Run(ref jitBudget);
 
@@ -61,11 +61,11 @@ public class BlockCompilerTests
         return jit;
     }
 
-    private static BlockCompiler NewCompiler(AddressSpace space, JitOptions? options = null)
+    private static BlockCompiler<Mos6502Cpu> NewCompiler(AddressSpace space, JitOptions? options = null)
     {
         var opts = options ?? new JitOptions();
         var inner = new Mos6502Cpu(space);
-        return new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
+        return new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
     }
 
     // ── Discovery ─────────────────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ public class BlockCompilerTests
         Poke(space, 0x0200, 0xA5, 0x10, 0x4C, 0x02, 0x02);
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var j = new JittedCpu(inner, space);
+        var j = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = 3;
         j.Run(ref budget);
         Assert.Equal(0x42, inner.A);
@@ -179,7 +179,7 @@ public class BlockCompilerTests
         Poke(space, 0x0200, 0xEA, 0x4C, 0x00, 0x02);  // NOP / JMP $0200 (self-loop)
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
 
         // Run two full loop iterations' worth of budget. The self-looping block at $0200 is
         // compiled once and re-executed on every re-entry.
@@ -194,7 +194,7 @@ public class BlockCompilerTests
     {
         var space = NewRamSpace();
         var inner = new Mos6502Cpu(space);
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         jit.SetRegister("A", 0x5A);
         Assert.Equal(0x5A, inner.A);
         Assert.Equal(0x5Aul, jit.GetRegister("A"));

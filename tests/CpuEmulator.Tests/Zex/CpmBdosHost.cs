@@ -1,6 +1,7 @@
 using System.Text;
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Z80;
+using CpuEmulator.Jit;
 
 namespace CpuEmulator.Tests.Zex;
 
@@ -23,6 +24,7 @@ public sealed class CpmBdosHost
 
     private readonly Z80Cpu _cpu;
     private readonly AddressSpace _mem;
+    private readonly JittedCpu<Z80Cpu>? _jit;   // non-null when this host drives the CPU through the JIT
     private readonly StringBuilder _console = new();
 
     public bool Terminated { get; private set; }
@@ -31,7 +33,16 @@ public sealed class CpmBdosHost
     /// and for pinning the passing ZEX cycle counts in the close-state record.</summary>
     public long CycleCount => _cpu.CycleCount;
 
-    public CpmBdosHost(byte[] com)
+    /// <summary>True when this host advances the CPU through <see cref="JittedCpu{Z80Cpu}"/> (M3.5-3a)
+    /// rather than the interpreter Step. In 5-3a every Z80 op falls back to the inner Step, so the JIT
+    /// result is byte-identical to the interpreter run — the integration tier-parity proof.</summary>
+    public bool UsesJit => _jit is not null;
+
+    /// <param name="com">The CP/M .com image.</param>
+    /// <param name="useJit">When true, drive the CPU through JittedCpu&lt;Z80Cpu&gt; (the M3.5-3a tier-
+    /// parity proof) instead of the interpreter Step; the BDOS intercept + console capture are identical
+    /// (every Z80 op falls back to the inner Step, which mutates the SAME _cpu + _mem the host reads).</param>
+    public CpmBdosHost(byte[] com, bool useJit = false)
     {
         ArgumentNullException.ThrowIfNull(com);
         _mem = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
@@ -49,9 +60,15 @@ public sealed class CpmBdosHost
         _cpu = new Z80Cpu(_mem, io);
         _cpu.SetRegister("PC", Tpa);
         _cpu.SetRegister("SP", 0xFFFE); // a sane CP/M-ish stack; ZEX sets up its own early
+        if (useJit)
+            _jit = new JittedCpu<Z80Cpu>(_cpu, Z80Cpu.JitTarget, _mem, io);
     }
 
-    /// <summary>Run to warm boot or budget exhaustion. Returns the captured console transcript.</summary>
+    /// <summary>Run to warm boot or budget exhaustion. Returns the captured console transcript. The CPU
+    /// advances one instruction per iteration — via the interpreter Step, OR (when useJit) via
+    /// JittedCpu.Run with a one-instruction budget so PC surfaces at the BDOS-entry / warm-boot boundary
+    /// EXACTLY (in 5-3a every op falls back, so one JIT block == one op == one interpreter Step; the
+    /// budget-1 idiom mirrors KlausJitFunctionalTests' exact-trap-detection tail).</summary>
     public string Run(long cycleBudget)
     {
         while (_cpu.CycleCount < cycleBudget)
@@ -59,7 +76,15 @@ public sealed class CpmBdosHost
             ushort pc = (ushort)_cpu.GetRegister("PC");
             if (pc == WarmBoot) { Terminated = true; break; }
             if (pc == BdosEntry) { ServiceBdos(); continue; }
-            _cpu.Step();
+            if (_jit is not null)
+            {
+                long budget = 1;          // one instruction — exact PC surfacing at the BDOS boundary
+                _jit.Run(ref budget);     // a single fallback block (the all-fallback 5-3a invariant)
+            }
+            else
+            {
+                _cpu.Step();
+            }
         }
         return _console.ToString();
     }

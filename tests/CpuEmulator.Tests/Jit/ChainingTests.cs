@@ -23,11 +23,11 @@ public class ChainingTests
             space.Write8((uint)(at + i), bytes[i]);
     }
 
-    private static BlockCompiler NewCompiler(AddressSpace space, JitOptions? options = null)
+    private static BlockCompiler<Mos6502Cpu> NewCompiler(AddressSpace space, JitOptions? options = null)
     {
         var opts = options ?? new JitOptions();
         var inner = new Mos6502Cpu(space);
-        return new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
+        return new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
     }
 
     // ── Task 1: scaffolding — the enum, the table, the flag, the dispatcher ──────────────────────
@@ -45,7 +45,7 @@ public class ChainingTests
     [Fact]
     public void ChainTable_records_an_inbound_link()
     {
-        var chains = new ChainTable();
+        var chains = new ChainTable<Mos6502Cpu>();
         var pred = MakeStubBlock(0x0200);
         chains.Link(0x0300, pred);
         Assert.Contains(pred, chains.InboundTo(0x0300));
@@ -54,7 +54,7 @@ public class ChainingTests
     [Fact]
     public void ChainTable_sever_clears_inbound_links()
     {
-        var chains = new ChainTable();
+        var chains = new ChainTable<Mos6502Cpu>();
         chains.Link(0x0300, MakeStubBlock(0x0200));
         chains.Sever(0x0300);
         Assert.Empty(chains.InboundTo(0x0300));
@@ -63,7 +63,7 @@ public class ChainingTests
     [Fact]
     public void ChainTable_link_is_idempotent()
     {
-        var chains = new ChainTable();
+        var chains = new ChainTable<Mos6502Cpu>();
         var pred = MakeStubBlock(0x0200);
         chains.Link(0x0300, pred);
         chains.Link(0x0300, pred);
@@ -73,7 +73,7 @@ public class ChainingTests
     [Fact]
     public void ChainTable_forget_drops_a_predecessor_from_every_inbound_set()
     {
-        var chains = new ChainTable();
+        var chains = new ChainTable<Mos6502Cpu>();
         var pred = MakeStubBlock(0x0200);
         chains.Link(0x0300, pred);
         chains.Link(0x0400, pred);
@@ -116,7 +116,7 @@ public class ChainingTests
 
         poke(jitSpace);
         var inner = new Mos6502Cpu(jitSpace) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, jitSpace);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace);
         long jb = 200; jit.Run(ref jb);
 
         Assert.Equal(refCpu.A, inner.A);
@@ -128,7 +128,7 @@ public class ChainingTests
 
     /// <summary>A real compiled block keyed at <paramref name="pc"/> — the ChainTable stores
     /// CompiledBlock references, so the unlink-table tests use a genuine compiled block.</summary>
-    private static CompiledBlock MakeStubBlock(ushort pc)
+    private static CompiledBlock<Mos6502Cpu> MakeStubBlock(ushort pc)
     {
         var space = NewRamSpace();
         Poke(space, pc, 0x4C, (byte)(pc & 0xFF), (byte)(pc >> 8)); // JMP-self
@@ -136,7 +136,7 @@ public class ChainingTests
     }
 
     // ── Task 2: emitted chain-resolution at statically-known exits ───────────────────────────────
-    private static JittedCpu AssertJitMatchesInterpreter(
+    private static JittedCpu<Mos6502Cpu> AssertJitMatchesInterpreter(
         Action<AddressSpace> poke, ushort startPc, long budget,
         Action<Mos6502Cpu>? seedRegs = null, JitOptions? options = null)
     {
@@ -151,7 +151,7 @@ public class ChainingTests
         poke(jitSpace);
         var inner = new Mos6502Cpu(jitSpace) { PC = startPc, S = 0xFD, P = 0x24 };
         seedRegs?.Invoke(inner);
-        var jit = new JittedCpu(inner, jitSpace, options);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace, options: options);
         long jitBudget = budget;
         jit.Run(ref jitBudget);
 
@@ -177,7 +177,7 @@ public class ChainingTests
         Poke(space, 0x0200, 0xA9, 0x01, 0x4C, 0x00, 0x03);
         Poke(space, 0x0300, 0xA2, 0x02, 0x4C, 0x00, 0x03);
         var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = 200;
         jit.Run(ref budget);
 
@@ -250,7 +250,7 @@ public class ChainingTests
         Poke(space, 0x0200, 0x6C, 0x00, 0x03);    // JMP ($0300)
         Poke(space, 0x0400, 0xA9, 0x01, 0x00);    // LDA #$01 / BRK (fallback ends the $0400 block)
         var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = 1;                            // one block only — the JMP-(ind)
         jit.Run(ref budget);
         Assert.Equal(0x0400, inner.PC);             // the indirect jump landed
@@ -265,7 +265,7 @@ public class ChainingTests
         Poke(space, 0x0200, 0x20, 0x00, 0x03, 0x4C, 0x03, 0x02); // JSR $0300 / JMP $0203 (park)
         Poke(space, 0x0300, 0x60);                                // RTS
         var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = 1;        // run the JSR block — it chains to $0300 (static), then runs RTS
         jit.Run(ref budget);
         long afterJsrChains = jit.ChainStepCount;   // includes the JSR->$0300 chain
@@ -306,7 +306,7 @@ public class ChainingTests
                 0xA2, 0x05, 0xCA, 0x4C, 0x06, 0x02,
                 0xE0, 0x00, 0xD0, 0xF7, 0x4C, 0x0A, 0x02);
             var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24 };
-            var jit = new JittedCpu(inner, space, opts);
+            var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: opts);
             long budget = 500;
             jit.Run(ref budget);
             return inner.CycleCount;
@@ -323,7 +323,7 @@ public class ChainingTests
         var space = NewRamSpace();
         Poke(space, 0x0200, 0x4C, 0x00, 0x02);  // JMP $0200 (self-loop, 3 cycles each)
         var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         long budget = 5_000_000;
         jit.Run(ref budget);                     // no StackOverflowException
         Assert.True(jit.ChainStepCount > 1_000_000);

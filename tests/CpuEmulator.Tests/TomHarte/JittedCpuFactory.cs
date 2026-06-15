@@ -16,9 +16,9 @@ internal static class JittedCpuFactory
 {
     /// <summary>Wrap an interpreter over <paramref name="space"/> in a default-options JIT
     /// (fastmem on — state + cycle parity, not bus-trace; Ground truth E).</summary>
-    public static (JittedCpu Jit, Mos6502Cpu Inner) Create(AddressSpace space)
+    public static (JittedCpu<Mos6502Cpu> Jit, Mos6502Cpu Inner) Create(AddressSpace space)
     {
         var inner = new Mos6502Cpu(space);
-        return (new JittedCpu(inner, space), inner);
+        return (new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space), inner);
     }
 }

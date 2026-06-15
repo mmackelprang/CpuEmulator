@@ -25,12 +25,12 @@ public class PerPageInvalidationTests
             space.Write8((uint)(at + i), bytes[i]);
     }
 
-    private static (BlockCompiler Compiler, BlockCache Cache) NewCacheAndCompiler(AddressSpace space)
+    private static (BlockCompiler<Mos6502Cpu> Compiler, BlockCache<Mos6502Cpu> Cache) NewCacheAndCompiler(AddressSpace space)
     {
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
-        var compiler = new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
-        return (compiler, new BlockCache(space.PageCount));
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
+        return (compiler, new BlockCache<Mos6502Cpu>(space.PageCount));
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class PerPageInvalidationTests
         Poke(space, 0x0300, 0xE8, 0x4C, 0x00, 0x03); // S: INX / JMP $0300
         var (compiler, cache) = NewCacheAndCompiler(space);
 
-        CompiledBlock p = cache.GetOrCompile(0x0200, compiler);
+        CompiledBlock<Mos6502Cpu> p = cache.GetOrCompile(0x0200, compiler);
         cache.ResolveChain(0x0300, p, compiler);   // P chains into S
         Assert.Contains(p, cache.Chains.InboundTo(0x0300));
 
@@ -146,7 +146,7 @@ public class PerPageInvalidationTests
             // $0200 loop: STA $D000 / DEX / BNE $0200 / JMP $0206 (park)
             Poke(space, 0x0200, 0x8D, 0x00, 0xD0, 0xCA, 0xD0, 0xFA, 0x4C, 0x06, 0x02);
             var inner = new Mos6502Cpu(space) { PC = 0x0200, S = 0xFD, P = 0x24, X = iterations, A = 0x41 };
-            var jit = new JittedCpu(inner, space);
+            var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
             long budget = 500;
             jit.Run(ref budget);
             return jit.CompileCount;

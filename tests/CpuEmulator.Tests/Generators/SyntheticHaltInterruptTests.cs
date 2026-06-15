@@ -255,7 +255,7 @@ public class SyntheticHaltInterruptTests
         inner.PC = 0x0200;
         Assert.False(inner.Halted);     // the 6502 hand-written Halted hook is always false
 
-        var jit = new CpuEmulator.Jit.JittedCpu(inner, space);
+        var jit = new CpuEmulator.Jit.JittedCpu<CpuEmulator.Cpus.Mos6502.Mos6502Cpu>(inner, CpuEmulator.Cpus.Mos6502.Mos6502Cpu.JitTarget, space);
         long budget = 20;
         jit.Run(ref budget);            // does not hang on the JMP-self; the halted branch never fires
 

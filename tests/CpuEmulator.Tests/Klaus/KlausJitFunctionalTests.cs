@@ -98,7 +98,7 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
             var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
             space.MapMemory(0x0000, (byte[])image.Clone(), writable: true);
             var inner = new Mos6502Cpu(space) { PC = StartAddress, S = 0xFD, P = 0x34 };
-            var jit = new JittedCpu(inner, space, opts);
+            var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: opts);
             while (inner.CycleCount < Checkpoint)
             {
                 long budget = Math.Min(BulkSlice, Checkpoint - inner.CycleCount);
@@ -132,12 +132,12 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
         return -1; // unreachable
     }
 
-    private static (Mos6502Cpu Inner, JittedCpu Jit) NewKlausJit(byte[] image)
+    private static (Mos6502Cpu Inner, JittedCpu<Mos6502Cpu> Jit) NewKlausJit(byte[] image)
     {
         var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
         space.MapMemory(0x0000, image, writable: true); // the test self-modifies RAM
         var inner = new Mos6502Cpu(space) { PC = StartAddress, S = 0xFD, P = 0x34 };
-        return (inner, new JittedCpu(inner, space));
+        return (inner, new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space));
     }
 
     private static string TrapReport(Mos6502Cpu cpu, byte[] image, string phase)

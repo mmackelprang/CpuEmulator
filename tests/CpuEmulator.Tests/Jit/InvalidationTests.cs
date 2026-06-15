@@ -36,7 +36,7 @@ public class InvalidationTests
     /// <summary>Run the same program through a fresh interpreter and a JIT-wrapped interpreter
     /// (cache ON), then assert identical final registers, cycle count, and full RAM image.</summary>
     private static (Mos6502Cpu refCpu, Mos6502Cpu jitInner) AssertJitMatchesInterpreter(
-        Action<AddressSpace> poke, ushort startPc, long budget, out JittedCpu jit)
+        Action<AddressSpace> poke, ushort startPc, long budget, out JittedCpu<Mos6502Cpu> jit)
     {
         var refSpace = NewRamSpace();
         poke(refSpace);
@@ -49,7 +49,7 @@ public class InvalidationTests
         poke(jitSpace);
         var inner = new Mos6502Cpu(jitSpace);
         inner.PC = startPc; inner.S = 0xFD; inner.P = 0x24;
-        jit = new JittedCpu(inner, jitSpace);
+        jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace);
         long jitBudget = budget;
         jit.Run(ref jitBudget);
 
@@ -117,8 +117,8 @@ public class InvalidationTests
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
         var fastmem = new Fastmem(space, opts);
-        var compiler = new BlockCompiler(inner, space, fastmem, opts);
-        var cache = new BlockCache(space.PageCount);
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, fastmem, opts);
+        var cache = new BlockCache<Mos6502Cpu>(space.PageCount);
 
         // 1) Cache a block on page $03.
         cache.GetOrCompile(0x0300, compiler);
@@ -148,8 +148,8 @@ public class InvalidationTests
         Poke(space, 0x0300, 0xE6, 0x10, 0x60);
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
-        var compiler = new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
-        var cache = new BlockCache(space.PageCount);
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
+        var cache = new BlockCache<Mos6502Cpu>(space.PageCount);
 
         cache.Dirty.Mark(0x03);          // store to page $03 before any block is cached there
         cache.InvalidateIfDirty();        // no flush (page $03 owns no block); mark consumed harmlessly
@@ -179,7 +179,7 @@ public class InvalidationTests
             var inner = new Mos6502Cpu(space);
             inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
             inner.X = iterations; inner.A = 0x99;
-            var jit = new JittedCpu(inner, space);
+            var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
             long budget = 500;
             jit.Run(ref budget);
             Assert.Equal(0x99, space.Read8(0x4000)); // the store landed
@@ -202,7 +202,7 @@ public class InvalidationTests
         var opts = new JitOptions();
         var fastmem = new Fastmem(space, opts);
         var dirty = new DirtyMap(space.PageCount);
-        var compiler = new BlockCompiler(inner, space, fastmem, opts);
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, fastmem, opts);
         var block = compiler.Compile(0x0200);
         long budget = 4;
         block.Run(inner, space, fastmem, dirty, NoChain, ref budget, out _);
@@ -231,7 +231,7 @@ public class InvalidationTests
         var opts = new JitOptions();
         var fastmem = new Fastmem(space, opts);
         var dirty = new DirtyMap(space.PageCount);
-        var compiler = new BlockCompiler(inner, space, fastmem, opts);
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, fastmem, opts);
         var block = compiler.Compile(0x0200);
         long budget = 4;
         block.Run(inner, space, fastmem, dirty, NoChain, ref budget, out _);

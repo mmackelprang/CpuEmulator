@@ -23,7 +23,7 @@ public class JittedCpuGateTests
     {
         var space = NewSpace();
         var inner = new Mos6502Cpu(space);
-        var ex = Record.Exception(() => new JittedCpu(inner, space));
+        var ex = Record.Exception(() => new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space));
         Assert.Null(ex);   // the gate's negative branch: dynamic code IS supported here
     }
 
@@ -33,7 +33,7 @@ public class JittedCpuGateTests
         var space = NewSpace();
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x1234;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         Assert.Equal(0x1234ul, jit.GetRegister("PC"));   // the wrapper shares the inner's state
         Assert.Equal(inner.Architecture, jit.Architecture);
         Assert.Equal(inner.CycleCount, jit.CycleCount);
@@ -43,17 +43,17 @@ public class JittedCpuGateTests
     public void Gate_message_names_the_interpreter_fallback_and_the_doc()
     {
         // Reference the message constant directly (do not re-type it) and pin its guidance shape.
-        Assert.Contains("interpreter", JittedCpu.DynamicCodeRequiredMessage);
-        Assert.Contains("jit.md", JittedCpu.DynamicCodeRequiredMessage);
-        Assert.Contains("Mos6502Cpu", JittedCpu.DynamicCodeRequiredMessage);
+        Assert.Contains("interpreter", JittedCpu<Mos6502Cpu>.DynamicCodeRequiredMessage);
+        Assert.Contains("jit.md", JittedCpu<Mos6502Cpu>.DynamicCodeRequiredMessage);
+        Assert.Contains("dynamic-code-disabled", JittedCpu<Mos6502Cpu>.DynamicCodeRequiredMessage);
     }
 
     [Fact]
     public void Null_inner_or_bus_is_a_construction_error()
     {
         var space = NewSpace();
-        Assert.Throws<ArgumentNullException>(() => new JittedCpu(null!, space));
-        Assert.Throws<ArgumentNullException>(() => new JittedCpu(new Mos6502Cpu(space), null!));
+        Assert.Throws<ArgumentNullException>(() => new JittedCpu<Mos6502Cpu>(null!, Mos6502Cpu.JitTarget, space));
+        Assert.Throws<ArgumentNullException>(() => new JittedCpu<Mos6502Cpu>(new Mos6502Cpu(space), Mos6502Cpu.JitTarget, null!));
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class JittedCpuGateTests
         var space = NewSpace();
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
 
         // LDA #$5A / STA $40 / JMP $0204 — fastmem store, then read back through the shared bus.
         space.Write8(0x0200, 0xA9); space.Write8(0x0201, 0x5A);

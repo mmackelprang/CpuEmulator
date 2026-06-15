@@ -37,7 +37,7 @@ public class FastmemTests
             {
                 var space = (AddressSpace)ctx.Space(AddressSpaceKind.Program);
                 inner = new Mos6502Cpu(space);
-                return new JittedCpu(inner, space);
+                return new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
             })
             .Build();
         return (machine, uart, timer, inner);
@@ -59,7 +59,7 @@ public class FastmemTests
         Poke(space, 0x0200, 0xA9, 0x42, 0x85, 0x00, 0xA5, 0x00, 0x4C, 0x06, 0x02);
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
 
         long budget = 2 + 3 + 3; // LDA# (2) + STA zp (3) + LDA zp (3)
         jit.Run(ref budget);
@@ -120,7 +120,7 @@ public class FastmemTests
         Poke(space, 0x0200, 0xA9, 0x55, 0x8D, 0x00, 0xE0, 0x4C, 0x05, 0x02);
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
 
         long budget = 2 + 4;
         var ex = Record.Exception(() => jit.Run(ref budget));
@@ -142,7 +142,7 @@ public class FastmemTests
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24; // I clear (0x24 has I? 0x24 = 0010_0100 → I bit (0x04) set!)
         // 0x24 has bit2 (I) SET — clear it so the IRQ is serviceable.
         inner.P = 0x20;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
         jit.SetIrqLine(true); // assert IRQ before Run
 
         Assert.True(inner.InterruptPending);
@@ -165,7 +165,7 @@ public class FastmemTests
         Poke(space, 0x0200, prog);
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
 
         long startBudget = 7;       // lands mid-block (3 NOPs = 6, the 4th would overshoot to 8)
         long budget = startBudget;
@@ -216,7 +216,7 @@ public class FastmemTests
         Poke(space, 0x0200, prog);
         var inner = new Mos6502Cpu(space);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, space);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
 
         ushort pc0 = inner.PC;
         long budget = 1;

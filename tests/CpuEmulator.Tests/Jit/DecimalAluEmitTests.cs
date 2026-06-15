@@ -36,7 +36,7 @@ public class DecimalAluEmitTests
         var jitSpace = NewRamSpace();
         poke(jitSpace);
         var inner = new Mos6502Cpu(jitSpace) { PC = startPc, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, jitSpace);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace);
         long jitBudget = budget;
         jit.Run(ref jitBudget);
 

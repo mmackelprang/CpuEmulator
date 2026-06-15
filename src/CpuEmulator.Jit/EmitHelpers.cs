@@ -6,7 +6,7 @@ namespace CpuEmulator.Jit;
 /// arms share. Locals are typed to make the IL match the interpreter's C# (which works in
 /// <c>uint</c> for addresses and <c>byte</c>/<c>int</c> for data). The arg indices for the
 /// BlockDelegate signature are fixed (M2-ii, after inserting ChainDispatch as the 5th param):
-///   0 = cpu (Mos6502Cpu), 1 = bus (AddressSpace), 2 = fastmem (Fastmem),
+///   0 = cpu (TCpu — the concrete interpreter type), 1 = bus (AddressSpace), 2 = fastmem (Fastmem),
 ///   3 = dirty (DirtyMap), 4 = chain (ChainDispatch), 5 = ref long budget,
 ///   6 = out BlockExit exit. See BlockCompiler.ArgChain/ArgBudget/ArgExit.</summary>
 internal sealed class EmitContext

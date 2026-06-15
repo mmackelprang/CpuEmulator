@@ -78,7 +78,8 @@ public class JitTraceEquivalenceTests
         var jitTracing = new TracingAddressSpace(jitSpace);
         var inner = new Mos6502Cpu(jitSpace);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, jitSpace, new JitOptions { DisableFastmem = true },
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace,
+                                options: new JitOptions { DisableFastmem = true },
                                 traceBus: jitTracing);
         long jb = StraightLineCycles;
         jit.Run(ref jb);
@@ -127,7 +128,7 @@ public class JitTraceEquivalenceTests
         var jitTracing = new TracingAddressSpace(jitSpace);
         var inner = new Mos6502Cpu(jitSpace);
         inner.PC = 0x0200; inner.S = 0xFD; inner.P = 0x24;
-        var jit = new JittedCpu(inner, jitSpace, new JitOptions(), traceBus: jitTracing);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace, options: new JitOptions(), traceBus: jitTracing);
         long jb = StraightLineCycles;
         jit.Run(ref jb);
 

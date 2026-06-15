@@ -81,7 +81,7 @@ public class Mos6502JitTomHarteTests(ITestOutputHelper output)
     }
 
     // ── Task 6: ADC/SBC now run by EMIT, not fallback (the discovery/seam probe) ─────────────────
-    private static BlockCompiler NewCompiler(params (ushort At, byte[] Bytes)[] pokes)
+    private static BlockCompiler<Mos6502Cpu> NewCompiler(params (ushort At, byte[] Bytes)[] pokes)
     {
         var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
         space.MapMemory(0x0000, new byte[0x10000], writable: true);
@@ -89,7 +89,7 @@ public class Mos6502JitTomHarteTests(ITestOutputHelper output)
             for (int i = 0; i < bytes.Length; i++)
                 space.Write8((uint)(at + i), bytes[i]);
         var opts = new JitOptions();
-        return new BlockCompiler(new Mos6502Cpu(space), space, new Fastmem(space, opts), opts);
+        return new BlockCompiler<Mos6502Cpu>(new Mos6502Cpu(space), Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
     }
 
     [Fact]

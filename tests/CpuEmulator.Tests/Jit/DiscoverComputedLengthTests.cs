@@ -26,10 +26,10 @@ public class DiscoverComputedLengthTests
             space.Write8((uint)(at + i), bytes[i]);
     }
 
-    private static BlockCompiler NewCompiler(AddressSpace space)
+    private static BlockCompiler<Mos6502Cpu> NewCompiler(AddressSpace space)
     {
         var opts = new JitOptions();
-        return new BlockCompiler(new Mos6502Cpu(space), space, new Fastmem(space, opts), opts);
+        return new BlockCompiler<Mos6502Cpu>(new Mos6502Cpu(space), Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
     }
 
     [Fact]

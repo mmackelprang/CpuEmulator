@@ -68,12 +68,10 @@ public sealed partial class Mos6502Cpu
     /// step displays say "interrupt serviced", not the instruction that will not run).</summary>
     public partial bool InterruptPending => _nmiPending || (_irqLine && (P & 0x04) == 0);
 
-    /// <summary>The 6502 has no HALT instruction and never enters the generic halted state (M3.2
-    /// Ground truth B). This hand-written hook (a plain property — the generated half declares the
-    /// <c>partial bool Halted</c> ONLY for a CPU that uses Halt(), which the 6502 does not) lets the
-    /// JIT dispatcher's halted fast path query a uniform <c>Halted</c> on the inner CPU; for the 6502
-    /// it is always false, so that branch is dead and the 6502 JIT behavior is byte-identical.</summary>
-    public bool Halted => false;
+    // NOTE (M3.5-3a): the 6502's `Halted` is now GENERATED as a constant-false property (every CPU
+    // satisfies IMonitorSupport.Halted uniformly — the generator emits `public bool Halted => false;`
+    // for a no-HALT CPU). The former hand-written `Halted => false` hook was removed here to avoid a
+    // duplicate member; behavior is identical (the JIT halted branch stays dead for the 6502).
 
     /// <summary>Instruction-boundary interrupt service (generated Step calls this before
     /// the opcode fetch). NMI beats IRQ. The 7-cycle sequence mirrors 64doc: two dummy
