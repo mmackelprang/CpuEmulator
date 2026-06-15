@@ -519,6 +519,18 @@ hot, straight-line Z80 ops; leave the irregular ones as fallbacks (the proven sa
 output of this decision is the input to the post-M3 optimization milestone: a concrete list of "the
 JIT assumed 6502 here, the Z80 forced it to be data."
 
+> **OUTCOME (M3.5-3, 2026-06-15 — the J1–J10 table filled in).** The compiler is now generic
+> (J1/J2/J3 RESOLVED: `BlockCompiler<TCpu>`/`JittedCpu<TCpu>` + the per-CPU `IJitTarget` seam; the
+> JIT assembly no longer references a concrete CPU). J4/J6/J8 CONFIRMED GENERIC (the Z80 reused
+> fastmem/SMC unchanged; the interrupt seam survived per Decision 5; the HALT fast path went live).
+> J5 SURFACED (the all-fallback gate caught a Z80 op that would have emitted via the 6502 cycle
+> model — fixed by forcing `NeedsFallback` for all structured-CPU descriptors). J7 CONFIRMED
+> per-CPU. J9/J10 are the emit layer's concern (carried as data; not yet emitted). The Z80 runs
+> through the generic JIT as ALL FALLBACKS with byte-identical tier parity. **The hot-op IL emission
+> (the actual speed-up) is DEFERRED to M6 (the post-8086 cross-arch optimization), built once for all
+> three ISAs.** Full record + the hot-op/fallback emit spec:
+> `docs/superpowers/plans/2026-06-14-m3-z80-m35-3c-jit-genericity-findings.md`.
+
 **Genericity implication (the whole point).** Today the JIT is, by construction (J1/J2/J3), a
 *6502* JIT wearing a generic descriptor table. The descriptor *table* is CPU-agnostic; the
 *compiler that consumes it* is not. M3 is what turns the compiler generic. **The single most
