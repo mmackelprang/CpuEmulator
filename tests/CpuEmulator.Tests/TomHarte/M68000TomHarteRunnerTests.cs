@@ -29,7 +29,9 @@ public class M68000TomHarteRunnerTests
     {
         using var doc = JsonDocument.Parse(MoveCase);
         var c = M68000TomHarteLoader.Parse(doc.RootElement.EnumerateArray().First());
-        string? result = M68000TomHarteRunner.RunCase(c);
-        Assert.Null(result);   // null = pass (regs + RAM + trace + cycles all matched)
+        // Full-axis (timingAxis: true) — this synthetic case has a self-consistent prefetch/PC/trace/cycle, so
+        // it exercises BOTH the M4.5a data axis and the M4.5d timing axis the USP families also satisfy.
+        string? result = M68000TomHarteRunner.RunCase(c, timingAxis: true);
+        Assert.Null(result);   // null = pass (regs + RAM + PC + trace + cycles all matched)
     }
 }
