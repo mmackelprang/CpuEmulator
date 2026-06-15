@@ -165,4 +165,14 @@ public static class Spec
 
     // ── M3.4e-3 DDCB/FDCB compound plane (additive) ──
     public static Op DdCb(string op, int index, string copyReg) => new DdCbOp(op, index, copyReg);
+
+    // ── M4.3a (68000 word-granular field grammar; additive — the 6502/Z80 name none) ──
+    // The generator matches this factory BY NAME, literal/enum args only (the constrained-DSL contract).
+    // Parameter names are PascalCase to match the record property names so a spec may declare it with the
+    // same named-argument spelling whether it uses the factory or `new FieldOp(Mask: .., Match: ..)`.
+    public static FieldOp FieldOp(
+        ushort Mask, ushort Match, string Operation,
+        int SizeShift, int SizeWidth, SizeEncoding SizeEncoding,
+        int EaShift, EaCategory LegalEa)
+        => new(Mask, Match, Operation, SizeShift, SizeWidth, SizeEncoding, EaShift, LegalEa);
 }
