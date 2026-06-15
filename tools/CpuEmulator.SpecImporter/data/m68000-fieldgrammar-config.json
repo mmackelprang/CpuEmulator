@@ -1,0 +1,23 @@
+{
+  "architecture": "m68000",
+  "namespace": "CpuEmulator.Cpus.M68000",
+  "specClassName": "M68000Spec",
+  "registers": [
+    { "name": "D0", "bits": 32 }, { "name": "D1", "bits": 32 },
+    { "name": "D2", "bits": 32 }, { "name": "D3", "bits": 32 },
+    { "name": "D4", "bits": 32 }, { "name": "D5", "bits": 32 },
+    { "name": "D6", "bits": 32 }, { "name": "D7", "bits": 32 },
+    { "name": "A0", "bits": 32 }, { "name": "A1", "bits": 32 },
+    { "name": "A2", "bits": 32 }, { "name": "A3", "bits": 32 },
+    { "name": "A4", "bits": 32 }, { "name": "A5", "bits": 32 },
+    { "name": "A6", "bits": 32 },
+    { "name": "USP", "bits": 32 },
+    { "name": "SSP", "bits": 32, "role": "StackPointer" },
+    { "name": "PC",  "bits": 32, "role": "ProgramCounter" },
+    { "name": "SR",  "bits": 16, "role": "Status" }
+  ],
+  "flags": [
+    { "name": "C", "bit": 0 }, { "name": "V", "bit": 1 }, { "name": "Z", "bit": 2 },
+    { "name": "N", "bit": 3 }, { "name": "X", "bit": 4 }, { "name": "S", "bit": 13 }
+  ]
+}

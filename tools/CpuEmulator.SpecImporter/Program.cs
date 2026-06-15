@@ -9,6 +9,13 @@
 //   dotnet run --project tools/CpuEmulator.SpecImporter -- \
 //     --validate-only  --dataset <path>  --semantics <path> \
 //     --diff <other>  --review-report <path.md>
+//   dotnet run --project tools/CpuEmulator.SpecImporter -- \
+//     --field-grammar <dataset>  --config <config>  --out <spec>
+//
+// The --field-grammar arm is the disjoint 68000 field-pattern pipeline (M4.4a): it ingests a
+// per-family FieldGrammar dataset + a state-model config and emits a spec whose populated
+// Decode68k FieldGrammar makes the generator emit the word-granular decode walk. It NEVER touches
+// the opcode-row arm above (the 6502/Z80 specs stay byte-identical).
 //
 // Exit codes:
 //   0 = success
@@ -31,6 +38,8 @@ public static class Program
         string? reviewReportPath  = null;
         bool    report            = false;
         bool    validateOnly      = false;
+        string? fieldGrammarPath  = null;
+        string? configPath        = null;
 
         // Plain loop argument parsing — no external packages required.
         for (int i = 0; i < args.Length; i++)
@@ -63,10 +72,40 @@ public static class Program
                 case "--validate-only":
                     validateOnly = true;
                     break;
+                case "--field-grammar":
+                    if (++i >= args.Length) return Fail("--field-grammar requires a value.");
+                    fieldGrammarPath = args[i];
+                    break;
+                case "--config":
+                    if (++i >= args.Length) return Fail("--config requires a value.");
+                    configPath = args[i];
+                    break;
                 default:
                     return Fail($"Unknown argument: {args[i]}");
             }
         }
+
+        // ── FieldGrammar arm (the 68000 field-pattern pipeline; disjoint from the opcode-row arm) ──
+        if (fieldGrammarPath is not null)
+        {
+            if (configPath is null) return Fail("--field-grammar requires --config.");
+            if (outputPath is null) return Fail("--field-grammar requires --out.");
+            try
+            {
+                var fgReport = SpecImportEngine.RunFieldGrammarFromFiles(fieldGrammarPath, configPath, outputPath);
+                Console.WriteLine(fgReport.ToString());
+                return 0;
+            }
+            catch (FileNotFoundException ex) { return Fail($"File not found: {ex.FileName ?? ex.Message}"); }
+            catch (DirectoryNotFoundException) { return Fail("File not found."); }
+            catch (InvalidDataException ex) { return Fail($"Data error: {ex.Message}"); }
+        }
+
+        // --config is only meaningful in the FieldGrammar arm (handled above). If it reached here,
+        // --field-grammar was absent, so the flag has no effect — reject it rather than silently ignore
+        // (the arg loop's contract is that unrecognized flag combinations fail loudly).
+        if (configPath is not null)
+            return Fail("--config is only valid with --field-grammar.");
 
         // Mutual-exclusion check: --validate-only and --out are incompatible
         // (validate-only mode never writes a spec file by design).

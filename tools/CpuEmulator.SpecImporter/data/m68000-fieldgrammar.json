@@ -1,0 +1,105 @@
+[
+  { "operation": "ORI_CCR",  "mask": "0xFFFF", "match": "0x003C", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-153 (ORI to CCR): +1 imm word" },
+  { "operation": "ORI_SR",   "mask": "0xFFFF", "match": "0x007C", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-154 (ORI to SR): +1 imm word" },
+  { "operation": "ANDI_CCR", "mask": "0xFFFF", "match": "0x023C", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-18 (ANDI to CCR): +1 imm word" },
+  { "operation": "ANDI_SR",  "mask": "0xFFFF", "match": "0x027C", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-19 (ANDI to SR): +1 imm word" },
+  { "operation": "EORI_CCR", "mask": "0xFFFF", "match": "0x0A3C", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-105 (EORI to CCR): +1 imm word" },
+  { "operation": "EORI_SR",  "mask": "0xFFFF", "match": "0x0A7C", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-106 (EORI to SR): +1 imm word" },
+
+  { "operation": "MOVEP", "mask": "0xF038", "match": "0x0008", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-133 (MOVEP): +1 disp word" },
+
+  { "operation": "BTST_STATIC", "mask": "0xFFC0", "match": "0x0800", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-62 (BTST static, +1 bit-number word)" },
+  { "operation": "BCHG_STATIC", "mask": "0xFFC0", "match": "0x0840", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-30 (BCHG static, +1 bit-number word)" },
+  { "operation": "BCLR_STATIC", "mask": "0xFFC0", "match": "0x0880", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-32 (BCLR static, +1 bit-number word)" },
+  { "operation": "BSET_STATIC", "mask": "0xFFC0", "match": "0x08C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-58 (BSET static, +1 bit-number word)" },
+
+  { "operation": "BTST", "mask": "0xF1C0", "match": "0x0100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-62 (BTST Dn)" },
+  { "operation": "BCHG", "mask": "0xF1C0", "match": "0x0140", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-30 (BCHG Dn)" },
+  { "operation": "BCLR", "mask": "0xF1C0", "match": "0x0180", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-32 (BCLR Dn)" },
+  { "operation": "BSET", "mask": "0xF1C0", "match": "0x01C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-58 (BSET Dn)" },
+
+  { "operation": "ADDI", "mask": "0xFF00", "match": "0x0600", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-9 (ADDI): +imm word(s)" },
+  { "operation": "SUBI", "mask": "0xFF00", "match": "0x0400", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-179 (SUBI): +imm word(s)" },
+  { "operation": "ANDI", "mask": "0xFF00", "match": "0x0200", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-17 (ANDI): +imm word(s)" },
+  { "operation": "ORI",  "mask": "0xFF00", "match": "0x0000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-152 (ORI): +imm word(s)" },
+  { "operation": "EORI", "mask": "0xFF00", "match": "0x0A00", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-104 (EORI): +imm word(s)" },
+  { "operation": "CMPI", "mask": "0xFF00", "match": "0x0C00", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-81 (CMPI): +imm word(s)" },
+
+  { "operation": "MOVEA", "mask": "0xC1C0", "match": "0x0040", "sizeShift": 12, "sizeWidth": 2, "sizeEncoding": "Move", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-118 (MOVEA): dest mode field = 001" },
+  { "operation": "MOVE",  "mask": "0xC000", "match": "0x0000", "sizeShift": 12, "sizeWidth": 2, "sizeEncoding": "Move", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-116: bits 15-14 = 00, size 13-12 (01/11/10)" },
+
+  { "operation": "TRAPV",   "mask": "0xFFFF", "match": "0x4E76", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-191 (TRAPV)" },
+  { "operation": "RTE",     "mask": "0xFFFF", "match": "0x4E73", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-169 (RTE)" },
+  { "operation": "RTS",     "mask": "0xFFFF", "match": "0x4E75", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-171 (RTS)" },
+  { "operation": "RTR",     "mask": "0xFFFF", "match": "0x4E77", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-170 (RTR)" },
+  { "operation": "RESET",   "mask": "0xFFFF", "match": "0x4E70", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-165 (RESET)" },
+  { "operation": "NOP",     "mask": "0xFFFF", "match": "0x4E71", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-147 (NOP)" },
+  { "operation": "STOP",    "mask": "0xFFFF", "match": "0x4E72", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-172 (STOP): +1 imm word" },
+  { "operation": "ILLEGAL", "mask": "0xFFFF", "match": "0x4AFC", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-107 (ILLEGAL)" },
+
+  { "operation": "SWAP", "mask": "0xFFF8", "match": "0x4840", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-184 (SWAP Dn)" },
+  { "operation": "LINK", "mask": "0xFFF8", "match": "0x4E50", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-111 (LINK): +1 disp word" },
+  { "operation": "UNLK", "mask": "0xFFF8", "match": "0x4E58", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-194 (UNLK)" },
+
+  { "operation": "TRAP",     "mask": "0xFFF0", "match": "0x4E40", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-188 (TRAP #v)" },
+  { "operation": "MOVE_USP", "mask": "0xFFF0", "match": "0x4E60", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-126 (MOVE USP)" },
+
+  { "operation": "MOVE_FROM_SR", "mask": "0xFFC0", "match": "0x40C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-123 (MOVE from SR)" },
+  { "operation": "MOVE_TO_CCR",  "mask": "0xFFC0", "match": "0x44C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-120 (MOVE to CCR)" },
+  { "operation": "MOVE_TO_SR",   "mask": "0xFFC0", "match": "0x46C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-122 (MOVE to SR)" },
+  { "operation": "NBCD", "mask": "0xFFC0", "match": "0x4800", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-142 (NBCD)" },
+  { "operation": "PEA",  "mask": "0xFFC0", "match": "0x4840", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Control", "source": "M68000PRM 4-159 (PEA)" },
+  { "operation": "TAS",  "mask": "0xFFC0", "match": "0x4AC0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-185 (TAS)" },
+  { "operation": "JMP",  "mask": "0xFFC0", "match": "0x4EC0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Control", "source": "M68000PRM 4-108 (JMP)" },
+  { "operation": "JSR",  "mask": "0xFFC0", "match": "0x4E80", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Control", "source": "M68000PRM 4-109 (JSR)" },
+
+  { "operation": "EXT",  "mask": "0xFFB8", "match": "0x4880", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-106 (EXT)" },
+  { "operation": "MOVEM","mask": "0xFB80", "match": "0x4880", "sizeShift": 6, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Control", "source": "M68000PRM 4-128 (MOVEM): +1 mask word" },
+
+  { "operation": "CHK",  "mask": "0xF1C0", "match": "0x4180", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-69 (CHK)" },
+  { "operation": "LEA",  "mask": "0xF1C0", "match": "0x41C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Control", "source": "M68000PRM 4-110 (LEA)" },
+
+  { "operation": "CLR",  "mask": "0xFF00", "match": "0x4200", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-73 (CLR)" },
+  { "operation": "NEGX", "mask": "0xFF00", "match": "0x4000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-142 (NEGX)" },
+  { "operation": "NEG",  "mask": "0xFF00", "match": "0x4400", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-140 (NEG)" },
+  { "operation": "NOT",  "mask": "0xFF00", "match": "0x4600", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-148 (NOT)" },
+  { "operation": "TST",  "mask": "0xFF00", "match": "0x4A00", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-192 (TST)" },
+
+  { "operation": "DBcc", "mask": "0xF0F8", "match": "0x50C8", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-91 (DBcc): cond 11-8, Dn 2-0, +1 disp word" },
+  { "operation": "Scc",  "mask": "0xF0C0", "match": "0x50C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-170 (Scc)" },
+  { "operation": "ADDQ", "mask": "0xF100", "match": "0x5000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Alterable", "source": "M68000PRM 4-11 (ADDQ)" },
+  { "operation": "SUBQ", "mask": "0xF100", "match": "0x5100", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "Alterable", "source": "M68000PRM 4-181 (SUBQ)" },
+
+  { "operation": "Bcc", "mask": "0xF000", "match": "0x6000", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-25 (Bcc/BRA/BSR): cond 11-8, disp 7-0 (+disp word for .w)" },
+
+  { "operation": "MOVEQ", "mask": "0xF100", "match": "0x7000", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-134 (MOVEQ): always .l, data in 7-0" },
+
+  { "operation": "DIVU", "mask": "0xF1C0", "match": "0x80C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-97 (DIVU)" },
+  { "operation": "DIVS", "mask": "0xF1C0", "match": "0x81C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-93 (DIVS)" },
+  { "operation": "SBCD", "mask": "0xF1F0", "match": "0x8100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-168 (SBCD)" },
+  { "operation": "OR",   "mask": "0xF000", "match": "0x8000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-150 (OR)" },
+
+  { "operation": "SUBA", "mask": "0xF0C0", "match": "0x90C0", "sizeShift": 8, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-177 (SUBA): opmode 011=.w / 111=.l" },
+  { "operation": "SUBX", "mask": "0xF130", "match": "0x9100", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-183 (SUBX)" },
+  { "operation": "SUB",  "mask": "0xF000", "match": "0x9000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-174 (SUB)" },
+
+  { "operation": "CMPA", "mask": "0xF0C0", "match": "0xB0C0", "sizeShift": 8, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-79 (CMPA)" },
+  { "operation": "EOR",  "mask": "0xF100", "match": "0xB100", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-102 (EOR)" },
+  { "operation": "CMP",  "mask": "0xF100", "match": "0xB000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-75 (CMP)" },
+
+  { "operation": "MULU", "mask": "0xF1C0", "match": "0xC0C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-136 (MULU)" },
+  { "operation": "MULS", "mask": "0xF1C0", "match": "0xC1C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-138 (MULS)" },
+  { "operation": "ABCD", "mask": "0xF1F0", "match": "0xC100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-3 (ABCD)" },
+  { "operation": "EXG",  "mask": "0xF130", "match": "0xC100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-105 (EXG). ORDER: must follow ABCD (0xF1F0/0xC100, tighter mask) - every ABCD word also matches EXG's mask, so ABCD must fire first." },
+  { "operation": "AND",  "mask": "0xF000", "match": "0xC000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-15 (AND)" },
+
+  { "operation": "ADDA", "mask": "0xF0C0", "match": "0xD0C0", "sizeShift": 8, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-7 (ADDA): opmode 011=.w / 111=.l" },
+  { "operation": "ADDX", "mask": "0xF130", "match": "0xD100", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-13 (ADDX)" },
+  { "operation": "ADD",  "mask": "0xF000", "match": "0xD000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-4 (ADD)" },
+
+  { "operation": "SHIFT_MEM", "mask": "0xF8C0", "match": "0xE0C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "MemoryAlterable", "source": "M68000PRM 4-22+ (memory shift/rotate, .w only)" },
+  { "operation": "ASLR_REG",  "mask": "0xF018", "match": "0xE000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-22 (ASL/ASR register)" },
+  { "operation": "LSLR_REG",  "mask": "0xF018", "match": "0xE008", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-113 (LSL/LSR register)" },
+  { "operation": "ROXLR_REG", "mask": "0xF018", "match": "0xE010", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-166 (ROXL/ROXR register)" },
+  { "operation": "ROLR_REG",  "mask": "0xF018", "match": "0xE018", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-162 (ROL/ROR register)" }
+]
