@@ -43,4 +43,23 @@ public static class SpecImportEngine
         File.WriteAllText(outputPath, source);
         return report;
     }
+
+    /// <summary>Run the FieldGrammar arm on pre-loaded objects (the disjoint 68000 pipeline).</summary>
+    public static (string Source, FieldGrammarReport Report) RunFieldGrammar(
+        FieldGrammarFamily[] families,
+        FieldGrammarConfig   config,
+        string datasetPath = "data/m68000-fieldgrammar.json",
+        string outputPath  = "src/CpuEmulator.Cpus.M68000/M68000Spec.cs")
+        => FieldGrammarEmitter.Emit(families, config, datasetPath, outputPath);
+
+    /// <summary>Run the FieldGrammar arm from file paths; loads, validates, emits, writes.</summary>
+    public static FieldGrammarReport RunFieldGrammarFromFiles(
+        string datasetPath, string configPath, string outputPath)
+    {
+        var families = FieldGrammarDataset.Load(datasetPath);
+        var config   = FieldGrammarConfig.Load(configPath);
+        var (source, report) = FieldGrammarEmitter.Emit(families, config, datasetPath, outputPath);
+        File.WriteAllText(outputPath, source);
+        return report;
+    }
 }
