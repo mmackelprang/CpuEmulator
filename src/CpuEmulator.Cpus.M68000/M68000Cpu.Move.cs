@@ -126,7 +126,9 @@ public sealed partial class M68000Cpu
         // M4.5a honors the bit but does NOT vector (the MOVEtoSR vectors are supervisor-mode cases). If a
         // user-mode case appears, Task 8 flags it; the privilege vector lands in M4.5d.
         uint value = ReadEaOperand(srcMode, srcReg, size: 1u, r.ExtensionWords);   // .w source
-        SR = (ushort)value;                                       // full 16-bit SR (system byte + CCR)
+        // The 68000 SR has only T(15) S(13) I2..I0(10-8) X N Z V C(4-0) implemented; the unused bits
+        // (14, 11, 7-5) read as 0 and a load masks them off. SR_VALID = 0xA71F.
+        SR = (ushort)(value & 0xA71Fu);
     }
 
     partial void MoveToCcrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r,
