@@ -83,4 +83,42 @@ public class M68000TomHarteLoaderTests
         Assert.Equal(4, t1.Cycles);     // the bus slot's cycle count (Field 2)
         Assert.Equal(6, t1.FunctionCode);
     }
+
+    private static string FixturePath() =>
+        Path.Combine(AppContext.BaseDirectory, "TomHarte", "fixtures", "m68000-sample.json.gz");
+
+    [Fact]
+    public void Loads_the_committed_gzip_fixture()
+    {
+        var cases = M68000TomHarteLoader.LoadFile(FixturePath());   // exercises GZipStream (the gzip path)
+        Assert.Equal(2, cases.Count);
+        Assert.Equal("ADD.w fixture", cases[0].Name);
+        Assert.Equal(8, cases[0].Length);                          // the top-level total-cycle count
+        Assert.True(cases[0].Transactions[0].IsIdle);              // the leading ["n", cycles] idle slot
+        Assert.Equal(53328u, cases[0].Transactions[1].Value);
+        Assert.Equal(".b", cases[1].Transactions[0].SizeTag);      // the CLR.b case's byte transaction
+        // The prefetch queue parsed in both initial and final (the load-bearing new dimension).
+        Assert.Equal((ushort)53328, cases[0].Initial.Prefetch[0]);
+        Assert.Equal((ushort)1, cases[0].Final.Prefetch[1]);
+    }
+
+    [M68000TomHarteTheory]
+    [InlineData("ADD.b.json.gz")]   // a representative real file; skipped when vectors are absent
+    public void Loads_one_real_vector_file_when_present(string fileName)
+    {
+        string dir = M68000TomHarteVectors.TryGetVectorDirectory()!;   // non-null (the attribute gates it)
+        string path = Path.Combine(dir, fileName);
+        if (!File.Exists(path)) return;   // the exact filename may differ; the parse is the proof
+        var cases = M68000TomHarteLoader.LoadFile(path);
+        Assert.NotEmpty(cases);
+        var first = cases[0];
+        Assert.NotNull(first.Name);
+        Assert.Equal(2, first.Initial.Prefetch.Length);   // the 2-word prefetch queue
+        Assert.Equal(2, first.Final.Prefetch.Length);
+        Assert.Equal(8, first.Initial.D.Length);
+        Assert.Equal(7, first.Initial.A.Length);
+        Assert.NotEmpty(first.Transactions);
+        // Field 2 (cycles) is the per-slot cycle count: the case "length" == the sum across transactions.
+        Assert.Equal(first.Length, first.Transactions.Sum(t => t.Cycles));
+    }
 }
