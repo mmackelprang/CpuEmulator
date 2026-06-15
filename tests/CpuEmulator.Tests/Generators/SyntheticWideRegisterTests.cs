@@ -1,3 +1,4 @@
+using CpuEmulator.Core;
 using Xunit;
 
 namespace CpuEmulator.Tests.Generators;
@@ -56,5 +57,49 @@ public class SyntheticWideRegisterTests
             "generator diagnostics: " + string.Join("\n",
                 result.GeneratorDiagnostics.Select(d => d.Id + ": " + d.GetMessage())));
         Assert.Empty(result.AllErrors);
+        // The 32-bit register's backing field is typed `uint` (Task 3 makes this true).
+        Assert.Contains("public uint D0;", result.GeneratedText);
+        Assert.Contains("public uint PC;", result.GeneratedText);
+        // The 16-bit status stays `ushort` (the existing arm is unchanged).
+        Assert.Contains("public ushort SR;", result.GeneratedText);
+    }
+
+    private static readonly Lazy<Type> s_cpu =
+        new(() => GeneratorTestHost.CompileAndLoadType(WideSpec, "SyntheticCpu.WideTestCpu"));
+
+    private static object NewCpu()
+    {
+        var bus = new AddressSpace(AddressSpaceKind.Program, 24);
+        bus.MapMemory(0, new byte[0x1000], writable: true);
+        return Activator.CreateInstance(s_cpu.Value, bus)!;
+    }
+
+    private static ulong Get(object cpu, string r) =>
+        (ulong)s_cpu.Value.GetMethod("GetRegister")!.Invoke(cpu, new object[] { r })!;
+    private static void Set(object cpu, string r, ulong v) =>
+        s_cpu.Value.GetMethod("SetRegister")!.Invoke(cpu, new object[] { r, v });
+
+    [Fact]
+    public void D0_round_trips_a_full_32bit_value()
+    {
+        var cpu = NewCpu();
+        Set(cpu, "D0", 0xDEADBEEFul);
+        Assert.Equal(0xDEADBEEFul, Get(cpu, "D0"));   // a ushort field would give 0xBEEF
+    }
+
+    [Fact]
+    public void PC_round_trips_a_full_32bit_value()
+    {
+        var cpu = NewCpu();
+        Set(cpu, "PC", 0x00FF_FFFEul);                // a 24-bit-ish PC value, > 16 bits
+        Assert.Equal(0x00FF_FFFEul, Get(cpu, "PC"));
+    }
+
+    [Fact]
+    public void SetRegister_truncates_to_the_field_width_for_a_32bit_register()
+    {
+        var cpu = NewCpu();
+        Set(cpu, "D0", 0x1_2345_6789ul);              // 33 bits in; uint field keeps the low 32
+        Assert.Equal(0x2345_6789ul, Get(cpu, "D0"));
     }
 }
