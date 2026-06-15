@@ -2,7 +2,12 @@ using CpuEmulator.Core;
 
 namespace CpuEmulator.Tests.Mos6502;
 
-internal sealed record BusAccess(uint Address, byte Value, bool IsRead, AccessWidth Width = AccessWidth.Byte)
+/// <summary>One recorded bus transaction. <see cref="Value"/> is <c>uint</c> so a Word/Long wide access
+/// records its full value (the M4.5 TomHarte gate diffs word-granular transactions with their value);
+/// a byte access stores a byte (which widens implicitly). <see cref="ToString"/> renders two hex digits —
+/// the 8-bit CPUs (6502/Z80) only ever produce <see cref="AccessWidth.Byte"/> entries, so their trace
+/// strings are unchanged.</summary>
+internal sealed record BusAccess(uint Address, uint Value, bool IsRead, AccessWidth Width = AccessWidth.Byte)
 {
     public override string ToString() => $"{(IsRead ? "R" : "W")} {Address:X4}={Value:X2}";
 }
@@ -36,26 +41,26 @@ internal sealed class TracingAddressSpace(IAddressSpace inner) : IAddressSpace
     public ushort Read16(uint address)
     {
         ushort value = inner.Read16(address);
-        Trace.Add(new BusAccess(address, (byte)value, IsRead: true, AccessWidth.Word));
+        Trace.Add(new BusAccess(address, value, IsRead: true, AccessWidth.Word));
         return value;
     }
 
     public uint Read32(uint address)
     {
         uint value = inner.Read32(address);
-        Trace.Add(new BusAccess(address, (byte)value, IsRead: true, AccessWidth.Long));
+        Trace.Add(new BusAccess(address, value, IsRead: true, AccessWidth.Long));
         return value;
     }
 
     public void Write16(uint address, ushort value)
     {
-        Trace.Add(new BusAccess(address, (byte)value, IsRead: false, AccessWidth.Word));
+        Trace.Add(new BusAccess(address, value, IsRead: false, AccessWidth.Word));
         inner.Write16(address, value);
     }
 
     public void Write32(uint address, uint value)
     {
-        Trace.Add(new BusAccess(address, (byte)value, IsRead: false, AccessWidth.Long));
+        Trace.Add(new BusAccess(address, value, IsRead: false, AccessWidth.Long));
         inner.Write32(address, value);
     }
 

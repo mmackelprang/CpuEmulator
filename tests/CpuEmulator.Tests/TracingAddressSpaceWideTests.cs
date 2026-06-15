@@ -34,10 +34,11 @@ public class TracingAddressSpaceWideTests
         var (tracer, _) = NewTracer(Endianness.BigEndian);
         tracer.Write16(0x0020, 0xBEEF);
         _ = tracer.Read16(0x0020);
-        // ONE Word write + ONE Word read — NOT four byte entries.
+        // ONE Word write + ONE Word read — NOT four byte entries. The full 16-bit value is recorded
+        // (not truncated to a byte), so the M4.5 trace gate can diff the word value.
         Assert.Collection(tracer.Trace,
-            e => { Assert.Equal(0x0020u, e.Address); Assert.False(e.IsRead); Assert.Equal(AccessWidth.Word, e.Width); },
-            e => { Assert.Equal(0x0020u, e.Address); Assert.True(e.IsRead);  Assert.Equal(AccessWidth.Word, e.Width); });
+            e => { Assert.Equal(0x0020u, e.Address); Assert.False(e.IsRead); Assert.Equal(AccessWidth.Word, e.Width); Assert.Equal(0xBEEFu, e.Value); },
+            e => { Assert.Equal(0x0020u, e.Address); Assert.True(e.IsRead);  Assert.Equal(AccessWidth.Word, e.Width); Assert.Equal(0xBEEFu, e.Value); });
     }
 
     [Fact]
@@ -46,9 +47,10 @@ public class TracingAddressSpaceWideTests
         var (tracer, _) = NewTracer(Endianness.BigEndian);
         tracer.Write32(0x0040, 0xDEADBEEF);
         _ = tracer.Read32(0x0040);
+        // The full 32-bit value is recorded (not truncated to a byte).
         Assert.Collection(tracer.Trace,
-            e => { Assert.Equal(0x0040u, e.Address); Assert.False(e.IsRead); Assert.Equal(AccessWidth.Long, e.Width); },
-            e => { Assert.Equal(0x0040u, e.Address); Assert.True(e.IsRead);  Assert.Equal(AccessWidth.Long, e.Width); });
+            e => { Assert.Equal(0x0040u, e.Address); Assert.False(e.IsRead); Assert.Equal(AccessWidth.Long, e.Width); Assert.Equal(0xDEADBEEFu, e.Value); },
+            e => { Assert.Equal(0x0040u, e.Address); Assert.True(e.IsRead);  Assert.Equal(AccessWidth.Long, e.Width); Assert.Equal(0xDEADBEEFu, e.Value); });
     }
 
     [Fact]
