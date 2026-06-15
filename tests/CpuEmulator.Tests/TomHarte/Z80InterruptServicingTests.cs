@@ -293,4 +293,18 @@ public class Z80InterruptServicingTests
         Assert.Equal(pc, cpu.GetRegister("PC"));    // PC frozen while halted
         Assert.True(cpu.CycleCount > c0);           // cycles advanced (idle burns budget, no infinite loop)
     }
+
+    [Fact]
+    public void NMI_beats_a_maskable_IRQ_when_both_pending()
+    {
+        var (cpu, _) = BuildCpu();
+        cpu.SetRegister("PC", 0x5000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 1; cpu.Iff1 = true;
+        cpu.SetIrqLine(true);    // maskable pending
+        cpu.SetNmiLine(true);    // NMI also pending
+        cpu.Step();
+        Assert.Equal(0x0066u, (uint)cpu.GetRegister("PC"));   // NMI wins → 0x0066, not 0x0038
+        // IFF1 cleared by NMI; the IRQ remains pending (line still high) for the next boundary.
+        Assert.False(cpu.Iff1);
+    }
 }
