@@ -26,8 +26,10 @@ public sealed class AddressSpace : IAddressSpace
     public AddressSpaceKind Kind { get; }
     public int AddressBits { get; }
     public uint AddressMask { get; }
+    public Endianness Endianness { get; }
 
-    public AddressSpace(AddressSpaceKind kind, int addressBits, AddressSpaceOptions? options = null)
+    public AddressSpace(AddressSpaceKind kind, int addressBits, AddressSpaceOptions? options = null,
+        Endianness endianness = Endianness.LittleEndian)
     {
         // 32-bit spaces need a two-level table (a flat one would be ~16M entries);
         // out of scope until a 32-bit CPU exists.
@@ -38,6 +40,7 @@ public sealed class AddressSpace : IAddressSpace
         Kind = kind;
         AddressBits = addressBits;
         AddressMask = (1u << addressBits) - 1;
+        Endianness = endianness;
         _options = options ?? new AddressSpaceOptions();
         _pages = new PageEntry[(1 << addressBits) >> PageShift];
     }
@@ -121,6 +124,53 @@ public sealed class AddressSpace : IAddressSpace
         if (_options.Strict)
             throw new StrictBusViolationException($"Write to unmapped address 0x{address:X4}.");
         // unmapped write silently ignored
+    }
+
+    /// <summary>Read a 16-bit word — one transaction, composed over <see cref="Read8"/> per
+    /// <see cref="Endianness"/> (M4.2, ADR 0003 Decision 2). Big-endian: high byte at <paramref
+    /// name="address"/>. Inherits page resolution, MMIO callouts, and wrap-masking from Read8. The M4.2
+    /// bus does NOT fault on an odd address (the address-error exception is M4.5 —
+    /// see <see cref="BusAlignment.IsMisaligned"/>).</summary>
+    public ushort Read16(uint address) =>
+        Endianness == Endianness.BigEndian
+            ? (ushort)((Read8(address) << 8) | Read8(address + 1))
+            : (ushort)(Read8(address) | (Read8(address + 1) << 8));
+
+    /// <summary>Read a 32-bit long — two word transactions, HIGH WORD FIRST under big-endian.</summary>
+    public uint Read32(uint address) =>
+        Endianness == Endianness.BigEndian
+            ? ((uint)Read16(address) << 16) | Read16(address + 2)
+            : (uint)Read16(address) | ((uint)Read16(address + 2) << 16);
+
+    /// <summary>Write a 16-bit word — one transaction, composed over <see cref="Write8"/> per
+    /// <see cref="Endianness"/>. Big-endian: high byte written first at <paramref name="address"/>.</summary>
+    public void Write16(uint address, ushort value)
+    {
+        if (Endianness == Endianness.BigEndian)
+        {
+            Write8(address, (byte)(value >> 8));
+            Write8(address + 1, (byte)value);
+        }
+        else
+        {
+            Write8(address, (byte)value);
+            Write8(address + 1, (byte)(value >> 8));
+        }
+    }
+
+    /// <summary>Write a 32-bit long — two word transactions, HIGH WORD FIRST under big-endian.</summary>
+    public void Write32(uint address, uint value)
+    {
+        if (Endianness == Endianness.BigEndian)
+        {
+            Write16(address, (ushort)(value >> 16));
+            Write16(address + 2, (ushort)value);
+        }
+        else
+        {
+            Write16(address, (ushort)value);
+            Write16(address + 2, (ushort)(value >> 16));
+        }
     }
 
     /// <summary>JIT fastmem view (internal — CpuEmulator.Jit only). For a page-aligned address,
