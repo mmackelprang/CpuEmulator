@@ -57,8 +57,27 @@ dotnet run --project tools/CpuEmulator.SpecImporter -- \
   [--diff <opcodes-b.json>] --review-report <review.md>
 ```
 
+**FieldGrammar generation** (M4.4a — the disjoint 68000 field-pattern arm):
+
+```
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --field-grammar tools/CpuEmulator.SpecImporter/data/m68000-fieldgrammar.json \
+  --config        tools/CpuEmulator.SpecImporter/data/m68000-fieldgrammar-config.json \
+  --out           src/CpuEmulator.Cpus.M68000/M68000Spec.cs
+```
+
+The `--field-grammar` arm is a **second, disjoint pipeline** for field-encoded ISAs (the 68000) where the
+opcode is a bit-field word, not a flat byte table. It ingests a compact per-FAMILY dataset (`(mask, match,
+operation, size-field, ea-field, legal-EA)` rows) plus a state-model config (registers + flags) and emits a
+spec whose populated `Decode68k` `FieldGrammar` makes the Roslyn generator emit the word-granular decode walk
+(`Decode(IFetchStream)` → `(operation, size)` key + computed length). It NEVER touches the opcode-row arm
+above, so the 6502/Z80 specs stay byte-identical (their `RegeneratedSpecTests` are unaffected). The committed
+`M68000Spec.cs` is pinned to a fresh run by `M68000RegeneratedSpecTests`; edit the dataset/config and
+regenerate, never hand-edit the spec. See `data/m68000-fieldgrammar.json` below.
+
 The modes compose: `--diff` and `--review-report` work under both `--validate-only` and
-generation (`--out`); `--validate-only` + `--out` is a usage error. See the
+generation (`--out`); `--validate-only` + `--out` is a usage error. `--field-grammar` requires `--config`
+and `--out` (it does not compose with `--dataset`/`--semantics`/`--diff`). See the
 [extraction runbook](../../docs/user-guide/extraction-runbook.md) for the full Stage-1/2
 workflow. Composition notes: `--out --diff` with disagreements still writes the spec file
 (then exits 3); if a `--diff` dataset fails to load, the run exits 2 before any
@@ -193,3 +212,32 @@ The Z80 flag bit layout for M3.4: `S(7) Z(6) Y(5) H(4) X(3) P/V(2) N(1) C(0)`.
 
 `gen_z80_a.py` / `gen_z80_b.py` are the reproducible extraction generators (run `RAW=1 python
 gen_z80_b.py` to reproduce the un-reconciled clrhome extraction and re-observe the 25-cell diff).
+
+### `data/m68000-fieldgrammar.json` + `data/m68000-fieldgrammar-config.json` — M4.4a
+
+The compact **per-family FieldGrammar dataset** for the 68000 (the FIRST field-encoded ISA — the opcode is a
+16-bit big-endian bit-field word, not a flat byte table). **82 families**, each one `FieldOp` 8-tuple
+`(Mask, Match, Operation, SizeShift, SizeWidth, SizeEncoding, EaShift, LegalEa)` with a `source` PRM citation.
+The `(mask, match)` selects the family; the size/EA fields fan it out across sizes × EA-modes × registers at
+decode time (the generator's `ExtensionWordCount`/`MapSize` do the fan-out). Conditional groups (Bcc/BSR/BRA,
+Scc, DBcc) collapse 16 conditions into ONE `(mask, match)` family with the condition in a field.
+
+**Family ORDER is load-bearing (key identity).** The decode key packs the family's POSITION in the table
+(`opIndex`), and the decode walk takes the FIRST `(mask, match)` hit — so families are ordered
+**most-specific-mask first** where two could overlap one operword (e.g. `SWAP 0xFFF8/0x4840` before
+`PEA 0xFFC0/0x4840`; `MULS 0xF1C0/0xC1C0` before `AND 0xF000/0xC000`). The loader rejects an exact duplicate
+`(mask, match)`; first-hit order resolves the broader overlaps. `M68000RegeneratedSpecTests` pins both the
+byte-identical spec output and the family count (82); change the dataset and regenerate.
+
+**Honest close-state (M4.4a):** the 68000 now **DECODES real instructions** — `Decode` resolves real
+`(operation, size)` keys across MOVE / the ALU families / shift-rotate / bit / quick / program-control /
+system families — but **executes NOTHING**: `Instructions = []`, every descriptor is an `Undefined` stub, and
+NO 680x0 vector is asserted green. The op BODIES + descriptor rows are M4.5; the gzip mnemonic-keyed TomHarte
+loader is M4.4b. One recorded encoding note: the generator's analyzer requires `SizeWidth >= 1`, so the
+no-size families (MOVEQ/Bcc/the system ops/the bit ops/…) carry an inert 1-bit size field
+(`sizeShift: 0, sizeWidth: 1`) rather than a zero-width field — decode resolves correctly; the computed length
+for those (and the MOVE two-EA / branch-displacement length) defers to M4.5.
+
+The `-config.json` is the state-model half (architecture/namespace/specClassName + the register file + flag
+layout) — the 68000 has NO per-mnemonic semantics map (op bodies are M4.5), so the config carries only the
+state model the emitter writes verbatim (byte-identical to the M4.1 hand-write it retired).

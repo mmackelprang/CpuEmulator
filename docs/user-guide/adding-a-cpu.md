@@ -77,6 +77,22 @@ Add `--report` to print a summary of emitted rows, TODO semantics, and TODO mode
 
 The committed `Mos6502Spec.cs` is pinned to the tool output by the byte-equality test `RegeneratedSpecTests.Committed_Mos6502Spec_is_exactly_the_tool_output`. If the test fails, re-run the command above; do not hand-edit the spec file.
 
+### Field-encoded ISAs: the FieldGrammar arm (M4.4a)
+
+A **field-encoded** CPU (the 68000) does not have a flat byte-per-opcode table — the opcode is a 16-bit bit-field word where size and effective-address are sub-fields. For those, the importer has a **second, disjoint arm** selected by `--field-grammar` instead of `--dataset`/`--semantics`:
+
+```
+dotnet run --project tools/CpuEmulator.SpecImporter -- \
+  --field-grammar tools/CpuEmulator.SpecImporter/data/m68000-fieldgrammar.json \
+  --config        tools/CpuEmulator.SpecImporter/data/m68000-fieldgrammar-config.json \
+  --out           src/CpuEmulator.Cpus.M68000/M68000Spec.cs
+```
+
+- **`data/m68000-fieldgrammar.json`** — a compact per-FAMILY table (one `(Mask, Match, Operation, SizeShift, SizeWidth, SizeEncoding, EaShift, LegalEa)` row per instruction family, with a PRM `source` citation). The `(mask, match)` selects the family; the size/EA fields fan it out across sizes × EA-modes × registers at decode time. Family ORDER is load-bearing (it is the key identity and the first-hit tie-break), so families are authored most-specific-mask first.
+- **`data/m68000-fieldgrammar-config.json`** — the state-model half (registers + flags + namespace/class); there is no per-mnemonic semantics map (op bodies are a later milestone).
+
+The committed `M68000Spec.cs` is pinned by `M68000RegeneratedSpecTests`. The two arms are disjoint — running `--field-grammar` never touches the opcode-row datasets, so the 6502/Z80 specs stay byte-identical. Use the FieldGrammar arm only for field-encoded ISAs; use the opcode-row arm for flat byte-table ISAs (6502/Z80).
+
 ---
 
 ## Generated artifacts
