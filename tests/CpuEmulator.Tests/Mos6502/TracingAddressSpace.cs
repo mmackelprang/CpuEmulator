@@ -2,7 +2,7 @@ using CpuEmulator.Core;
 
 namespace CpuEmulator.Tests.Mos6502;
 
-internal sealed record BusAccess(uint Address, byte Value, bool IsRead)
+internal sealed record BusAccess(uint Address, byte Value, bool IsRead, AccessWidth Width = AccessWidth.Byte)
 {
     public override string ToString() => $"{(IsRead ? "R" : "W")} {Address:X4}={Value:X2}";
 }
@@ -32,6 +32,35 @@ internal sealed class TracingAddressSpace(IAddressSpace inner) : IAddressSpace
         Trace.Add(new BusAccess(address, value, false));
         inner.Write8(address, value);
     }
+
+    public ushort Read16(uint address)
+    {
+        ushort value = inner.Read16(address);
+        Trace.Add(new BusAccess(address, (byte)value, IsRead: true, AccessWidth.Word));
+        return value;
+    }
+
+    public uint Read32(uint address)
+    {
+        uint value = inner.Read32(address);
+        Trace.Add(new BusAccess(address, (byte)value, IsRead: true, AccessWidth.Long));
+        return value;
+    }
+
+    public void Write16(uint address, ushort value)
+    {
+        Trace.Add(new BusAccess(address, (byte)value, IsRead: false, AccessWidth.Word));
+        inner.Write16(address, value);
+    }
+
+    public void Write32(uint address, uint value)
+    {
+        Trace.Add(new BusAccess(address, (byte)value, IsRead: false, AccessWidth.Long));
+        inner.Write32(address, value);
+    }
+
+    /// <summary>Mirror the inner space's byte order so the wide overrides write through correctly.</summary>
+    public Endianness Endianness => inner.Endianness;
 
     public bool TryPeek8(uint address, out byte value) => inner.TryPeek8(address, out value);
 
