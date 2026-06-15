@@ -141,8 +141,62 @@ public sealed partial class Z80Cpu
     /// bytes alias documented ops); the real policy is M3.4. Charges one cycle.</summary>
     private void HandleUndefinedOpcode(byte opcode) => _cycles++;
 
-    /// <summary>No interrupt servicing in the base plane (M3.4b owns IM 0/1/2 + the latch wake).</summary>
-    private partial bool TryServiceInterrupt() => false;
+    /// <summary>Instruction-boundary interrupt service (the generated Step calls this before the opcode
+    /// fetch — CpuEmitter.cs:147). NMI beats a maskable INT. Returns false when nothing is pending (so
+    /// every TomHarte single-step case is unaffected). When it services, it performs the full push/vector
+    /// bus sequence itself (charging cycles via ReadBus/WriteBus + the M1-acknowledge internal T-states
+    /// via _cycles), saves/clears IFF per the Z80 model, bumps R for the acknowledge M1 cycle, clears the
+    /// halted latch (the HALT wake), sets WZ to the vector, and returns true. M3.5-1.</summary>
+    private partial bool TryServiceInterrupt()
+    {
+        // NMI is non-maskable and highest priority; a maskable INT requires IFF1.
+        if (!_nmiPending && !(_irqLine && _iff1))
+            return false;
+
+        _halted = false;        // the HALT wake — resume fetch on the next Step
+        BumpRefresh();          // the acknowledge is one M1 cycle → R low-7 += 1
+
+        if (_nmiPending)
+        {
+            _nmiPending = false;
+            _iff2 = _iff1;      // NMI saves IFF1 into IFF2 (RETN restores it)
+            _iff1 = false;      // ...and disables maskable interrupts
+            PushPc();
+            PC = 0x0066;
+            WZ = 0x0066;
+            _cycles += 11 - 2;  // NMI = 11 T; PushPc charged 2 (two WriteBus)
+            return true;
+        }
+
+        // Maskable INT acknowledge: clear BOTH flip-flops (nested IRQ masked until EI).
+        _iff1 = false;
+        _iff2 = false;
+
+        switch (Im)
+        {
+            // IM 0 (Task 4) and IM 2 (Task 5) are added below; IM 1 first:
+            default: // IM 1 (and the IM-1 fallback): fixed RST 38h.
+                PushPc();
+                PC = 0x0038;
+                WZ = 0x0038;
+                _cycles += 13 - 2;  // IM1 = 13 T; PushPc charged 2
+                return true;
+        }
+    }
+
+    /// <summary>Push the current PC (PCH then PCL, little-endian on the descending stack), charging the
+    /// two write cycles. The pushed PC is the return address — the instruction that would have run next.</summary>
+    private void PushPc()
+    {
+        SP = unchecked((ushort)(SP - 1));
+        WriteBus(SP, unchecked((byte)(PC >> 8)));   // PCH
+        SP = unchecked((ushort)(SP - 1));
+        WriteBus(SP, unchecked((byte)PC));          // PCL
+    }
+
+    /// <summary>Bump R's low 7 bits (bit 7 preserved) — the interrupt acknowledge is an M1 cycle, so R
+    /// increments exactly as a one-byte opcode fetch does (same formula as OnInstructionFetched).</summary>
+    private void BumpRefresh() => R = (byte)((R & 0x80) | ((R + 1) & 0x7F));
 
     /// <summary>The R-refresh increment (M3.4a, Ground truth F). The low 7 bits of R increment on each
     /// opcode-fetch M1 cycle (bit 7 is preserved). The generated Step calls this once per instruction

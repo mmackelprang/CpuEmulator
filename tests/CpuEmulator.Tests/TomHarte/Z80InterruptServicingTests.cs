@@ -63,4 +63,32 @@ public class Z80InterruptServicingTests
         cpu.SetNmiLine(false);         // falling edge does NOT clear the pending latch
         Assert.True(cpu.InterruptPending);
     }
+
+    [Fact]
+    public void IM1_services_to_0x0038_pushing_PC_clearing_IFF_bumping_R()
+    {
+        var (cpu, mem) = BuildCpu();
+        // Place a NOP at 0x0038 (the IM1 handler) — not executed here; we only assert the service vector.
+        mem.Write8(0x0038, 0x00);
+        cpu.SetRegister("PC", 0x1234);   // the instruction that WOULD run next → pushed return address
+        cpu.SetRegister("SP", 0xFFF0);
+        cpu.SetRegister("R", 0x10);
+        cpu.SetRegister("WZ", 0x0000);
+        cpu.Im = 1;
+        cpu.Iff1 = true; cpu.Iff2 = true;
+        cpu.SetIrqLine(true);
+
+        long before = cpu.CycleCount;
+        cpu.Step();   // services the interrupt (does NOT fetch an opcode)
+
+        Assert.Equal(0x0038u, (uint)cpu.GetRegister("PC"));   // IM1 → RST 38h
+        Assert.Equal(0xFFEEu, (uint)cpu.GetRegister("SP"));   // SP -= 2 (two pushes)
+        Assert.Equal(0x34, mem.Read8(0xFFEE));                // PCL pushed
+        Assert.Equal(0x12, mem.Read8(0xFFEF));                // PCH pushed
+        Assert.Equal(0x0038u, (uint)cpu.GetRegister("WZ"));   // WZ = vector
+        Assert.False(cpu.Iff1);                                // maskable ack clears IFF1
+        Assert.False(cpu.Iff2);                                // ...and IFF2
+        Assert.Equal(0x11u, (uint)cpu.GetRegister("R"));      // R low-7 bumped by 1 (0x10 → 0x11)
+        Assert.Equal(13L, cpu.CycleCount - before);           // IM1 = 13 T-states
+    }
 }
