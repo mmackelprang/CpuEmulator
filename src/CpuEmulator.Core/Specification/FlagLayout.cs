@@ -9,6 +9,6 @@ namespace CpuEmulator.Core.Specification;
 /// record equality and array mutation are unsupported usage.</summary>
 public sealed record FlagLayout(FlagBitDef[] Bits);
 
-/// <summary>One flag name → hardware bit position. <paramref name="Bit"/> is 0–7 (a byte status
-/// register).</summary>
+/// <summary>One flag name → hardware bit position. <paramref name="Bit"/> is 0–15 (0–7 for a byte
+/// status register; the 68000's 16-bit SR uses 0–4 for the CCR and 8–15 for the system byte, M4.1).</summary>
 public sealed record FlagBitDef(string Name, int Bit);

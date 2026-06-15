@@ -904,10 +904,13 @@ internal static class SpecParser
                     element.GetLocation(), $"'{name}' is not a known Flag member"));
                 return ImmutableArray<FlagBitModel>.Empty;
             }
-            if (bit is < 0 or > 7)
+            // M4.1 (ADR 0003 Decision 1): the 68000's SR is 16-bit (CCR bits 0–4, system byte 8–15), so a
+            // flag bit position may be 0–15 (was 0–7 for a byte status register). The Z80's 0–7 layout is
+            // unchanged.
+            if (bit is < 0 or > 15)
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFlagLayout,
-                    element.GetLocation(), $"bit {bit} for flag '{name}' is outside 0–7"));
+                    element.GetLocation(), $"bit {bit} for flag '{name}' is outside 0–15"));
                 return ImmutableArray<FlagBitModel>.Empty;
             }
             if (!seen.Add(name))
