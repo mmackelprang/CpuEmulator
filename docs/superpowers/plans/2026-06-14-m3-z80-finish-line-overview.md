@@ -32,7 +32,7 @@ The WZ/MEMPTR model is COMPLETE with a universal final Q/WZ/IM check (`checkInte
 | **DD / FD prefixes ((IX/IY) + (IX+d))** | `// TODO(mode)` (Indexed mode unsupported) | **M3.4e — the NEXT PR; scoped, likely 2–3 PRs** |
 | **DDCB / FDCB compound prefixes** | not decodable (compound key unsupported) | **part of M3.4e** |
 | **Interrupt SERVICING (IM 0/1/2 + NMI vectoring)** | serviced (IM 0/1/2 + NMI + IFF1/IFF2 + EI-delay + HALT-wake); interrupt UAT green | **M3.5-1 — plan detailed + implemented; PR pending** |
-| **ZEXALL / ZEXDOC exerciser** | not wired | **M3.5** |
+| **ZEXALL / ZEXDOC exerciser** | GREEN — ZEXDOC + ZEXALL 67 sub-tests each, zero ERROR (CP/M BDOS host) | **M3.5-2 — detailed + implemented; PR pending** |
 | **Z80 through the JIT** | interpreter-only (ED/CB rows are JIT fallbacks) | **M3.5** |
 
 Total remaining decodable opcodes: **16 ED block + ~252 DD + ~252 FD + 256 DDCB + 256 FDCB ≈ 1,032**, plus
@@ -288,5 +288,7 @@ M4 68000 + M5 8086 — NOT part of this finish-line).
 - **M3.4d (NEXT, fully planned):** `docs/superpowers/plans/2026-06-14-m3-z80-ed-block-ops.md`
 - **M3.4e (scoped):** `docs/superpowers/plans/2026-06-14-m3-z80-ixiy-prefixes.md`
 - **M3.5 (scoped):** `docs/superpowers/plans/2026-06-14-m3-z80-zexall-jit-m35.md`
+- **M3.5-1 (detailed + implemented):** `docs/superpowers/plans/2026-06-14-m3-z80-m35-1-interrupt-servicing.md`
+- **M3.5-2 (detailed + implemented):** `docs/superpowers/plans/2026-06-14-m3-z80-m35-2-zexall.md`
 - **Predecessor (the depth template):** `docs/superpowers/plans/2026-06-14-m3-z80-ed-core.md`
 - **Architecture record:** `docs/architecture/0001-z80-second-architecture.md`
