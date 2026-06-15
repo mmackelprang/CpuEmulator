@@ -5,13 +5,13 @@ namespace CpuEmulator.Jit;
 /// Chaining resolves successors BY PC through the live cache on every chain edge (Ground truth A,
 /// "resolve-by-PC, not bake-the-delegate"), so severing is just dropping the inbound set + evicting
 /// the successor from the cache — no emitted IL is patched.</summary>
-internal sealed class ChainTable
+internal sealed class ChainTable<TCpu> where TCpu : class
 {
-    private readonly System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.HashSet<CompiledBlock>> _inbound = new();
+    private readonly System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.HashSet<CompiledBlock<TCpu>>> _inbound = new();
 
     /// <summary>Record that <paramref name="predecessor"/> chains into the block at
     /// <paramref name="successorPc"/>. Idempotent (a set).</summary>
-    public void Link(ushort successorPc, CompiledBlock predecessor)
+    public void Link(ushort successorPc, CompiledBlock<TCpu> predecessor)
     {
         if (!_inbound.TryGetValue(successorPc, out var set))
             _inbound[successorPc] = set = [];
@@ -19,10 +19,10 @@ internal sealed class ChainTable
     }
 
     /// <summary>The predecessors that chain into <paramref name="successorPc"/> (empty if none).</summary>
-    public System.Collections.Generic.IReadOnlyCollection<CompiledBlock> InboundTo(ushort successorPc)
+    public System.Collections.Generic.IReadOnlyCollection<CompiledBlock<TCpu>> InboundTo(ushort successorPc)
         => _inbound.TryGetValue(successorPc, out var set)
             ? set
-            : System.Array.Empty<CompiledBlock>();
+            : System.Array.Empty<CompiledBlock<TCpu>>();
 
     /// <summary>Sever all inbound links to <paramref name="successorPc"/> (called when that block is
     /// evicted). The predecessors are NOT touched — they resolve-by-PC and will recompile the
@@ -31,7 +31,7 @@ internal sealed class ChainTable
 
     /// <summary>Drop a predecessor from every inbound set it appears in (called when the
     /// PREDECESSOR is evicted — so a later Sever of a successor does not retain a dead block).</summary>
-    public void Forget(CompiledBlock predecessor)
+    public void Forget(CompiledBlock<TCpu> predecessor)
     {
         foreach (var set in _inbound.Values)
             set.Remove(predecessor);

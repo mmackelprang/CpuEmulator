@@ -7,7 +7,7 @@ namespace CpuEmulator.Jit;
 
 /// <summary>The Alu (non-ADC/SBC), Rmw, and control-flow (Branch/Jump/Jsr/Rts) emit arms.
 /// Each mirrors the proven CpuEmitter body one-for-one.</summary>
-internal sealed partial class BlockCompiler
+internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 {
     // ── ALU class (non-ADC/SBC: And/Ora/Eor/Compare/Bit) ─────────────────────────────────────
     private void EmitAlu(EmitContext ctx, OpcodeDescriptor d)
@@ -25,7 +25,7 @@ internal sealed partial class BlockCompiler
                 // A = A <op> data
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FA);
+                il.Emit(OpCodes.Ldfld, _fa);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal);
                 il.Emit(kind switch
                 {
@@ -34,10 +34,10 @@ internal sealed partial class BlockCompiler
                     _ => OpCodes.Xor,
                 });
                 il.Emit(OpCodes.Conv_U1);
-                il.Emit(OpCodes.Stfld, FA);
+                il.Emit(OpCodes.Stfld, _fa);
                 // SetNZ(A)
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FA);
+                il.Emit(OpCodes.Ldfld, _fa);
                 EmitSetNZFromStack(ctx);
                 break;
             }
@@ -56,7 +56,7 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.Ldarg_0);
                 // (P & 0x7C)
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FP);
+                il.Emit(OpCodes.Ldfld, _fp);
                 il.Emit(OpCodes.Ldc_I4, 0x7C);
                 il.Emit(OpCodes.And);
                 // | (reg >= data ? 1 : 0)
@@ -89,7 +89,7 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.And);
                 il.Emit(OpCodes.Or);
                 il.Emit(OpCodes.Conv_U1);
-                il.Emit(OpCodes.Stfld, FP);
+                il.Emit(OpCodes.Stfld, _fp);
                 break;
             }
             case "Adc":
@@ -103,13 +103,13 @@ internal sealed partial class BlockCompiler
                 // P = (P & 0x3D) | ((A & data) == 0 ? 2 : 0) | (data & 0xC0)
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FP);
+                il.Emit(OpCodes.Ldfld, _fp);
                 il.Emit(OpCodes.Ldc_I4, 0x3D);
                 il.Emit(OpCodes.And);
                 // | ((A & data) == 0 ? 2 : 0)
                 Label nz = il.DefineLabel(), nzdone = il.DefineLabel();
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FA);
+                il.Emit(OpCodes.Ldfld, _fa);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal);
                 il.Emit(OpCodes.And);
                 il.Emit(OpCodes.Ldc_I4, 0xFF);
@@ -127,7 +127,7 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.And);
                 il.Emit(OpCodes.Or);
                 il.Emit(OpCodes.Conv_U1);
-                il.Emit(OpCodes.Stfld, FP);
+                il.Emit(OpCodes.Stfld, _fp);
                 break;
             }
             default:
@@ -151,16 +151,16 @@ internal sealed partial class BlockCompiler
             il.Emit(OpCodes.Pop);
             // value = A
             il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Ldfld, FA);
+            il.Emit(OpCodes.Ldfld, _fa);
             il.Emit(OpCodes.Stloc, ctx.DataLocal);    // value (int)
             EmitRmwCompute(ctx, kind);                // temp -> HiLocal, sets C from value
             // A = temp; SetNZ(A)
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldloc, ctx.HiLocal);
             il.Emit(OpCodes.Conv_U1);
-            il.Emit(OpCodes.Stfld, FA);
+            il.Emit(OpCodes.Stfld, _fa);
             il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Ldfld, FA);
+            il.Emit(OpCodes.Ldfld, _fa);
             EmitSetNZFromStack(ctx);
             // (opcode-fetch cycle charged up-front in EmitInstruction)
             return;
@@ -234,7 +234,7 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.Ldc_I4_1);
                 il.Emit(OpCodes.Shl);
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FP);
+                il.Emit(OpCodes.Ldfld, _fp);
                 il.Emit(OpCodes.Ldc_I4_1);
                 il.Emit(OpCodes.And);
                 il.Emit(OpCodes.Or);
@@ -255,7 +255,7 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.Ldc_I4_1);
                 il.Emit(OpCodes.Shr_Un);
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FP);
+                il.Emit(OpCodes.Ldfld, _fp);
                 il.Emit(OpCodes.Ldc_I4_1);
                 il.Emit(OpCodes.And);
                 il.Emit(OpCodes.Ldc_I4_7);
@@ -295,7 +295,7 @@ internal sealed partial class BlockCompiler
         ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FP);
+        il.Emit(OpCodes.Ldfld, _fp);
         il.Emit(OpCodes.Ldc_I4, 0xFE);
         il.Emit(OpCodes.And);
         pushCarry();
@@ -303,7 +303,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.And);
         il.Emit(OpCodes.Or);
         il.Emit(OpCodes.Conv_U1);
-        il.Emit(OpCodes.Stfld, FP);
+        il.Emit(OpCodes.Stfld, _fp);
     }
 
     /// <summary>Resolve a memory-RMW effective address onto the stack (ZeroPage/ZeroPageX/
@@ -395,7 +395,7 @@ internal sealed partial class BlockCompiler
         Label notTaken = il.DefineLabel();
         // if (((P >> bit) & 1) == expectedBit)
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FP);
+        il.Emit(OpCodes.Ldfld, _fp);
         il.Emit(OpCodes.Ldc_I4, bit);
         il.Emit(OpCodes.Shr_Un);
         il.Emit(OpCodes.Ldc_I4_1);
@@ -443,7 +443,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldloc, ctx.HiLocal);
         il.Emit(OpCodes.Conv_U2);
-        il.Emit(OpCodes.Stfld, FPC);
+        il.Emit(OpCodes.Stfld, _fpc);
         // (opcode-fetch cycle charged up-front; the taken +1 / page-cross +1 charged in the body
         //  above, unchanged from M2-i). Chain to the TAKEN static target (Ground truth A).
         EmitChainOrExit(ctx, takenTargetPc);
@@ -477,7 +477,7 @@ internal sealed partial class BlockCompiler
             il.Emit(OpCodes.Shl);
             il.Emit(OpCodes.Or);
             il.Emit(OpCodes.Conv_U2);
-            il.Emit(OpCodes.Stfld, FPC);
+            il.Emit(OpCodes.Stfld, _fpc);
             // (opcode-fetch cycle charged up-front in EmitInstruction)
             EmitChainOrExit(ctx, target);
         }
@@ -524,7 +524,7 @@ internal sealed partial class BlockCompiler
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldloc, ctx.HiLocal);
             il.Emit(OpCodes.Conv_U2);
-            il.Emit(OpCodes.Stfld, FPC);
+            il.Emit(OpCodes.Stfld, _fpc);
             // (opcode-fetch cycle charged up-front in EmitInstruction). JMP-(ind) reads its target
             // from memory at run time — a DYNAMIC successor, NOT chainable (Ground truth A).
             EmitNormalExit(ctx);
@@ -573,7 +573,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Shl);
         il.Emit(OpCodes.Or);
         il.Emit(OpCodes.Conv_U2);
-        il.Emit(OpCodes.Stfld, FPC);
+        il.Emit(OpCodes.Stfld, _fpc);
         // (opcode-fetch cycle charged up-front in EmitInstruction). Chain to the static call target.
         EmitChainOrExit(ctx, target);
     }
@@ -607,7 +607,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Shl);
         il.Emit(OpCodes.Or);
         il.Emit(OpCodes.Conv_U2);
-        il.Emit(OpCodes.Stfld, FPC);
+        il.Emit(OpCodes.Stfld, _fpc);
         // dummy read at new PC; PC++
         EmitLoadPC(ctx);
         il.Emit(OpCodes.Conv_U4);

@@ -115,8 +115,17 @@ internal static class CpuEmitter
         // Resolve the role-named registers from the spec (NOT hardcoded): the Status-role reg, the
         // ProgramCounter-role reg, and the accumulator (the first 8-bit general reg by convention — "A"
         // on both the 6502 and Z80; falls back to the status reg if a future CPU lacks an "A").
-        string status = model.Registers.First(r => r.Role == "Status").Name;
-        string pc = model.Registers.First(r => r.Role == "ProgramCounter").Name;
+        // GUARD: the generic JIT requires BOTH a Status and a ProgramCounter register (the baked
+        // _fp/_fpc handles). A minimal synthetic spec (decode/flag/port fixtures) may declare neither
+        // — those CPUs are never driven through the generic JIT, so skip the JitTarget emission for
+        // them (no StatusField/ProgramCounterField to resolve). The 6502 + Z80 + any real CPU declare
+        // both, so they always get a JitTarget.
+        var statusRegister = model.Registers.FirstOrDefault(r => r.Role == "Status");
+        var pcRegisterModel = model.Registers.FirstOrDefault(r => r.Role == "ProgramCounter");
+        if (statusRegister is null || pcRegisterModel is null)
+            return;
+        string status = statusRegister.Name;
+        string pc = pcRegisterModel.Name;
         string acc = model.Registers.Any(r => r.Name == "A") ? "A" : status;
         string cpuType = model.CpuName;
 
@@ -280,14 +289,28 @@ internal static class CpuEmitter
         sb.AppendLine("    /// Step then ends without fetching an opcode.</summary>");
         sb.AppendLine("    private partial bool TryServiceInterrupt();");
 
+        // Halted is part of the IMonitorSupport surface (the JIT dispatcher's J6 halted fast path
+        // queries a uniform Halted on the inner CPU). A CPU that uses Halt() declares a
+        // `partial bool Halted` whose body the hand-written partial owns (the latch); a CPU with NO
+        // HALT op gets a generated constant-false Halted, so EVERY generated CPU satisfies the
+        // interface without a hand-written hook (the 6502's former hand-written `Halted => false` is
+        // now generated here — one less hand-written member, and synthetic CPUs compile uniformly).
         if (hasHaltOp)
         {
             sb.AppendLine();
             sb.AppendLine("    /// <summary>True while the halted latch is set (M3.2 Ground truth B). The hand-written");
             sb.AppendLine("    /// partial owns the latch (set by the Halt() micro-op's DoHalt(), cleared in");
             sb.AppendLine("    /// TryServiceInterrupt — the wake). Step consults this to idle a cycle instead of");
-            sb.AppendLine("    /// fetching. Emitted ONLY for a CPU that uses Halt() — the 6502 Step is byte-identical.</summary>");
+            sb.AppendLine("    /// fetching.</summary>");
             sb.AppendLine("    public partial bool Halted { get; }");
+        }
+        else
+        {
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>A CPU with no HALT instruction never enters the halted state (M3.2 Ground");
+            sb.AppendLine("    /// truth B), so Halted is a constant false — the JIT dispatcher's halted fast path branch");
+            sb.AppendLine("    /// is dead for it (byte-identical JIT). Generated so every CPU satisfies IMonitorSupport.</summary>");
+            sb.AppendLine("    public bool Halted => false;");
         }
 
         sb.AppendLine();
@@ -3600,6 +3623,20 @@ internal static class CpuEmitter
         InstructionClass cls = insn.Class;
         int baseCycles = JitBaseCycles(insn, cls);
         (string jitClass, bool endsBlock, bool fallback) = ClassifyForJit(insn, cls);
+
+        // M3.5-3a (J1/J3): a STRUCTURED CPU (one with a DecodeStructure — the Z80, and the synthetic
+        // decode fixtures) emits its keyed descriptors with NeedsFallback FORCED true. The generic JIT
+        // cannot yet emit correct IL for a structured CPU's ops (the Z80's flag model + M-cycle/T-state
+        // timing differ from the 6502 arms the JIT has), so EVERY structured-CPU op defers to the
+        // interpreter Step in 5-3a — the all-fallback bring-up the tier-parity gate proves. WITHOUT
+        // this, a Z80 op the importer mapped to a GENERIC class (e.g. NOP→Register, LD A,n→Load — not a
+        // Z80* class, so ClassifyForJit's z80 guard misses it) would be wrongly emitted via the 6502 arm
+        // with the 6502 cycle model (NOP=2T vs the Z80's 4T) — breaking tier parity. 5-3b flips the hot
+        // Z80 ops back to emitted IL one family at a time, each with its own correct cycle + flag model.
+        // A fallback op ENDS the block (one interpreter Step per block), matching ClassifyForJit's rule.
+        fallback = true;
+        endsBlock = true;
+
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
 
         int fixedLength = insn.KeyShape switch

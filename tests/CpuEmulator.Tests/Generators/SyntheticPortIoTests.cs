@@ -210,8 +210,8 @@ public class SyntheticPortIoTests
         io.Write8(0x0010, 0x42);        // Io[0x10] = 0x42 — what a correct Io callout reads
 
         var fastmem = new Fastmem(program, new JitOptions());
-        var compiler = new BlockCompiler(inner, program, fastmem, new JitOptions());
-        BlockDelegate probe = compiler.CompilePortProbe(PortInADescriptor());
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, program, fastmem, new JitOptions());
+        BlockDelegate<Mos6502Cpu> probe = compiler.CompilePortProbe(PortInADescriptor());
 
         long budget = 100;
         probe(inner, program, fastmem, new DirtyMap(program.PageCount),
@@ -240,8 +240,8 @@ public class SyntheticPortIoTests
         io.MapMemory(0, new byte[0x10000], writable: true);
 
         var fastmem = new Fastmem(program, new JitOptions());
-        var compiler = new BlockCompiler(inner, program, fastmem, new JitOptions());
-        BlockDelegate probe = compiler.CompilePortProbe(PortOutADescriptor());
+        var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, program, fastmem, new JitOptions());
+        BlockDelegate<Mos6502Cpu> probe = compiler.CompilePortProbe(PortOutADescriptor());
 
         long budget = 100;
         probe(inner, program, fastmem, new DirtyMap(program.PageCount),

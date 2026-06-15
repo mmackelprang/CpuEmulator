@@ -2,14 +2,13 @@ using System.Reflection;
 using System.Reflection.Emit;
 using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
-using CpuEmulator.Cpus.Mos6502;
 
 namespace CpuEmulator.Jit;
 
 /// <summary>The per-class emit arms. Each mirrors the proven CpuEmitter body one-for-one — the
 /// interpreter is the oracle. Operand resolution (the dummy-read + page-cross shape) is shared
 /// between Load and Alu, exactly as the interpreter shares EmitOperandResolution.</summary>
-internal sealed partial class BlockCompiler
+internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 {
     // ── Operand resolution for Load + Alu: reads memory into a byte (int) on the stack ───────
     // Mirrors CpuEmitter.EmitOperandResolution. Leaves the data byte (int) on the IL stack.
@@ -509,7 +508,7 @@ internal sealed partial class BlockCompiler
                 byte mask = (byte)(1 << op.FlagBit);
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FP);
+                il.Emit(OpCodes.Ldfld, _fp);
                 if (op.BoolArg)
                 {
                     il.Emit(OpCodes.Ldc_I4, (int)mask);
@@ -521,7 +520,7 @@ internal sealed partial class BlockCompiler
                     il.Emit(OpCodes.And);
                 }
                 il.Emit(OpCodes.Conv_U1);
-                il.Emit(OpCodes.Stfld, FP);
+                il.Emit(OpCodes.Stfld, _fp);
                 break;
             }
             default:
@@ -556,7 +555,7 @@ internal sealed partial class BlockCompiler
                 EmitStackAddress(ctx);
                 // (P | 0x30)
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, FP);
+                il.Emit(OpCodes.Ldfld, _fp);
                 il.Emit(OpCodes.Ldc_I4, 0x30);
                 il.Emit(OpCodes.Or);
                 EmitStoreByte(ctx);
@@ -606,7 +605,7 @@ internal sealed partial class BlockCompiler
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal);
                 il.Emit(OpCodes.Conv_U1);
-                il.Emit(OpCodes.Stfld, FP);
+                il.Emit(OpCodes.Stfld, _fp);
                 break;
             }
             default:

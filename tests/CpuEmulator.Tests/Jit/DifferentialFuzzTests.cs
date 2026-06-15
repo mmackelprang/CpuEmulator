@@ -133,7 +133,7 @@ public class DifferentialFuzzTests
         var (space, ram) = NewSpace(p);
         var inner = new Mos6502Cpu(space, UndefinedOpcodePolicy.Nop)
             { PC = p.StartPc, A = p.A, X = p.X, Y = p.Y, S = p.S, P = p.P };
-        var jit = new JittedCpu(inner, space, opts);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: opts);
         DriveToTrap(inner, () => { long budget = 1; jit.Run(ref budget); });
         return (Snapshot(inner), ram);
     }

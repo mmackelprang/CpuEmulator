@@ -45,7 +45,7 @@ public class JitUatTests
             .WithCpu(ctx =>
             {
                 var space = (AddressSpace)ctx.Space(AddressSpaceKind.Program);
-                return new JittedCpu(new Mos6502Cpu(space), space);
+                return new JittedCpu<Mos6502Cpu>(new Mos6502Cpu(space), Mos6502Cpu.JitTarget, space);
             })
             .Build();
         return (machine, uart, timer);
@@ -66,7 +66,7 @@ public class JitUatTests
             .WithCpu(ctx =>
             {
                 var space = (AddressSpace)ctx.Space(AddressSpaceKind.Program);
-                return new JittedCpu(new Mos6502Cpu(space), space);
+                return new JittedCpu<Mos6502Cpu>(new Mos6502Cpu(space), Mos6502Cpu.JitTarget, space);
             })
             .Build();
         return (machine, uart, timer);
@@ -85,7 +85,7 @@ public class JitUatTests
             {
                 var space = (AddressSpace)ctx.Space(AddressSpaceKind.Program);
                 inner = new Mos6502Cpu(space);
-                return new JittedCpu(inner, space);
+                return new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
             })
             .Build();
         inner.S = 0xFD;

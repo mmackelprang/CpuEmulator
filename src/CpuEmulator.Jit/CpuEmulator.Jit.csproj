@@ -11,7 +11,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <!--
+      J1 (M3.5-3a): the JIT assembly is now GENERIC over the CPU type (BlockCompiler<TCpu> +
+      JittedCpu<TCpu> + the IJitTarget per-CPU seam), so it no longer references any CONCRETE CPU
+      assembly — a structural genericity proof. The Mos6502 ProjectReference is removed; the JIT
+      resolves all CPU-specific reflection + decode through Mos6502Cpu.JitTarget / Z80Cpu.JitTarget,
+      injected by the caller. Core carries the IJitTarget contract.
+    -->
     <ProjectReference Include="..\CpuEmulator.Core\CpuEmulator.Core.csproj" />
-    <ProjectReference Include="..\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
   </ItemGroup>
 </Project>

@@ -21,21 +21,21 @@ public class RegisterFieldMapTests
         return space;
     }
 
-    private static BlockCompiler NewCompiler(AddressSpace space)
+    private static BlockCompiler<Mos6502Cpu> NewCompiler(AddressSpace space)
     {
         var opts = new JitOptions();
         var inner = new Mos6502Cpu(space);
-        return new BlockCompiler(inner, space, new Fastmem(space, opts), opts);
+        return new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
     }
 
-    private static IReadOnlyDictionary<string, FieldInfo> RegFieldsOf(BlockCompiler bc) =>
-        (IReadOnlyDictionary<string, FieldInfo>)typeof(BlockCompiler)
+    private static IReadOnlyDictionary<string, FieldInfo> RegFieldsOf(BlockCompiler<Mos6502Cpu> bc) =>
+        (IReadOnlyDictionary<string, FieldInfo>)typeof(BlockCompiler<Mos6502Cpu>)
             .GetField("_regFields", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(bc)!;
 
-    private static FieldInfo InvokeRegField(BlockCompiler bc, string name)
+    private static FieldInfo InvokeRegField(BlockCompiler<Mos6502Cpu> bc, string name)
     {
-        var m = typeof(BlockCompiler).GetMethod("RegField",
+        var m = typeof(BlockCompiler<Mos6502Cpu>).GetMethod("RegField",
             BindingFlags.NonPublic | BindingFlags.Instance, [typeof(string)])!;
         try
         {
@@ -92,7 +92,7 @@ public class RegisterFieldMapTests
         var jitSpace = NewRamSpace();
         Poke(jitSpace);
         var inner = new Mos6502Cpu(jitSpace) { PC = 0x0200, S = 0xFD, P = 0x24 };
-        var jit = new JittedCpu(inner, jitSpace);
+        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, jitSpace);
         long jitBudget = 8;
         jit.Run(ref jitBudget);
 

@@ -2,18 +2,23 @@ using System.Reflection;
 using System.Reflection.Emit;
 using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
-using CpuEmulator.Cpus.Mos6502;
 
 namespace CpuEmulator.Jit;
 
-/// <summary>The CPU-agnostic block compiler: walks the generated <see cref="OpcodeDescriptor"/>
-/// table from an entry PC into a straight-line run, then emits one <see cref="DynamicMethod"/>
-/// per block (the descriptor-interpreter-that-emits-IL — the Pydgin "walk the IR → emit" arm).
-/// The interpreter is the oracle: every emitted instruction mirrors the proven CpuEmitter body
-/// one-for-one, and any NeedsFallback opcode emits a callout to the inner interpreter's Step.</summary>
-internal sealed partial class BlockCompiler
+/// <summary>The CPU-agnostic block compiler, generic over the interpreter CPU type (J1): walks the
+/// generated <see cref="OpcodeDescriptor"/> table from an entry PC into a straight-line run, then
+/// emits one <see cref="DynamicMethod"/> per block (the descriptor-interpreter-that-emits-IL — the
+/// Pydgin "walk the IR → emit" arm). The interpreter is the oracle: every emitted instruction
+/// mirrors the proven CpuEmitter body one-for-one, and any NeedsFallback opcode emits a callout to
+/// the inner interpreter's Step. The CPU-specific reflection (status/PC/accumulator fields +
+/// Step/AdvanceCycles/CycleCount/InterruptPending + decode) is resolved through the injected
+/// <see cref="IJitTarget"/> (the per-CPU seam), so the compiler NEVER names a concrete CPU type
+/// while still emitting DIRECT field access against it (the baked-<see cref="FieldInfo"/> speed
+/// premise — NOT an ICpuCore-virtual rewrite).</summary>
+internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 {
-    private readonly Mos6502Cpu _cpu;
+    private readonly TCpu _cpu;
+    private readonly IJitTarget _target;        // the per-CPU seam (J1)
     private readonly AddressSpace _bus;
     private readonly Fastmem _fastmem;
     private readonly JitOptions _opts;
@@ -43,30 +48,29 @@ internal sealed partial class BlockCompiler
     private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regFields;
 
     // P (Status), PC (ProgramCounter), and A (the accumulator) are NOT operand-driven — the
-    // flow/flag/PC arms and the ALU/RMW/decimal A-convention arms (some of which are static
-    // helpers) reference them directly, by the 6502 convention baked into those templates (NOT
-    // from a descriptor's RegA/RegB). They are resolved by NAME from the concrete CPU type once at
-    // static init and kept as named handles for the hot arms. The OPERAND registers — the ones a
-    // descriptor's RegA/RegB actually name (Load/Store/Transfer/Compare/Increment/Decrement/SetNZ/
-    // Push/Pull, plus the indexed-mode X/Y and stack S) — go through _regFields (the J2 win).
-    private static readonly FieldInfo FA = typeof(Mos6502Cpu).GetField("A")!;
-    private static readonly FieldInfo FP = typeof(Mos6502Cpu).GetField("P")!;
-    private static readonly FieldInfo FPC = typeof(Mos6502Cpu).GetField("PC")!;
+    // flow/flag/PC arms and the ALU/RMW/decimal A-convention arms reference them directly, by the
+    // 6502 convention baked into those templates (NOT from a descriptor's RegA/RegB). They are now
+    // per-CPU INSTANCE handles (J2: was static, baked to typeof(Mos6502Cpu)) — resolved from the
+    // injected IJitTarget's StatusField/ProgramCounterField/AccumulatorField (by NAME on the CPU
+    // type). The OPERAND registers — the ones a descriptor's RegA/RegB actually name (Load/Store/
+    // Transfer/Compare/Increment/Decrement/SetNZ/Push/Pull, plus the indexed-mode X/Y and stack S)
+    // — go through _regFields (the J2 win).
+    private readonly FieldInfo _fa;
+    private readonly FieldInfo _fp;
+    private readonly FieldInfo _fpc;
 
-    // Resolved from IAddressSpace so the bus arm works against either the concrete AddressSpace
+    // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
+    // typeof(Mos6502Cpu)). Resolved from the injected target's reflection handles.
+    private readonly MethodInfo _mAdvance;
+    private readonly MethodInfo _mStep;
+    private readonly MethodInfo _mCycleCount;
+    private readonly MethodInfo _mInterruptPending;
+
+    // CPU-AGNOSTIC handles SURVIVE as static (the positive J4/J6/J8 finding — these never named the
+    // CPU). Resolved from IAddressSpace so the bus arm works against either the concrete AddressSpace
     // (fastmem mode) or a TracingAddressSpace (trace mode) — see the BlockDelegate deviation note.
     private static readonly MethodInfo MRead = typeof(IAddressSpace).GetMethod("Read8")!;
     private static readonly MethodInfo MWrite = typeof(IAddressSpace).GetMethod("Write8")!;
-    private static readonly MethodInfo MAdvance =
-        typeof(Mos6502Cpu).GetMethod("AdvanceCycles", BindingFlags.NonPublic | BindingFlags.Instance)!;
-    private static readonly MethodInfo MStep = typeof(Mos6502Cpu).GetMethod("Step")!;
-    private static readonly MethodInfo MCycleCount = typeof(Mos6502Cpu).GetProperty("CycleCount")!.GetGetMethod()!;
-    // Pre-positioned for the M2-ii emitted block-entry interrupt check. M2-i does NOT emit an
-    // entry check — the dispatcher (JittedCpu.Run) checks InterruptPending before each block,
-    // which is authoritative without chaining (plan Task 4 note). This handle is intentionally
-    // unused until chaining lands; it is NOT a wired-up emitted check.
-    private static readonly MethodInfo MInterruptPending =
-        typeof(Mos6502Cpu).GetProperty("InterruptPending")!.GetGetMethod()!;
 
     private static readonly MethodInfo MPageBacking = typeof(Fastmem).GetProperty("PageBacking")!.GetGetMethod()!;
     private static readonly MethodInfo MPageOffset = typeof(Fastmem).GetProperty("PageOffset")!.GetGetMethod()!;
@@ -78,17 +82,29 @@ internal sealed partial class BlockCompiler
     private static readonly MethodInfo MDirtyAny = typeof(DirtyMap).GetProperty("Any")!.GetGetMethod()!;
     private static readonly MethodInfo MChainInvoke = typeof(ChainDispatch).GetMethod("Invoke")!;
 
-    public BlockCompiler(Mos6502Cpu cpu, AddressSpace bus, Fastmem fastmem, JitOptions opts)
+    public BlockCompiler(TCpu cpu, IJitTarget target, AddressSpace bus, Fastmem fastmem, JitOptions opts)
     {
-        (_cpu, _bus, _fastmem, _opts) = (cpu, bus, fastmem, opts);
+        (_cpu, _target, _bus, _fastmem, _opts) = (cpu, target, bus, fastmem, opts);
+        _fa = target.AccumulatorField;
+        _fp = target.StatusField;
+        _fpc = target.ProgramCounterField;
+        _mAdvance = target.AdvanceCyclesMethod;
+        _mStep = target.StepMethod;
+        _mCycleCount = target.CycleCountGetter;
+        _mInterruptPending = target.InterruptPendingGetter;
 
         // Build the register-name → FieldInfo map from the CPU's declared register names (the
-        // introspection the generator already emits — ICpuCore.RegisterNames). J2: the names come
-        // from data, not a baked enum; each must name a public field on the concrete CPU type.
+        // introspection the generator already emits — IJitTarget.RegisterNames). J2: the names come
+        // from data, not a baked enum. RECORDED J2 FINDING: the 6502's register file is all FIELDS;
+        // the Z80's is fields + composed pair-view PROPERTIES (AF/BC/DE/HL/IX/IY + the alt set,
+        // which on the generated CPU are properties over the 8-bit half fields, NOT fields). The map
+        // covers the directly-emittable (field-backed) registers and SKIPS the field-less pair-views
+        // — no emitted op references a pair in 5-3a (everything falls back), and an emitted op that
+        // needs a pair (5-3b) resolves it via a dedicated 16-bit register helper then.
         _regFields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
-        foreach (string name in _cpu.RegisterNames)
-            _regFields[name] = typeof(Mos6502Cpu).GetField(name)
-                ?? throw new EmulationException($"register '{name}' has no field on the CPU type");
+        foreach (string name in target.RegisterNames)
+            if (target.CpuType.GetField(name) is { } f)   // 8-bit halves + I/R + WZ/SP/PC fields
+                _regFields[name] = f;                       // pair-view PROPERTIES are skipped (5-3b owns them)
     }
 
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the
@@ -104,8 +120,8 @@ internal sealed partial class BlockCompiler
         var stream = new BusFetchStream(_bus, pc);          // byte-granular, positioned at pc
         for (int i = 0; i < _opts.BlockLengthCap; i++)
         {
-            DecodeResult r = Mos6502Cpu.Decode(stream);     // the walk — computes key + length
-            OpcodeDescriptor d = Mos6502Cpu.DescriptorFor(r.OperationKey);  // 6502: key == opcode → [256]
+            DecodeResult r = _target.Decode(stream);        // J3: the per-CPU decode seam (was static)
+            OpcodeDescriptor d = _target.DescriptorFor(r.OperationKey);     // 6502: key == opcode → [256]
             run.Add((pc, d, r.Length));
             if (d.EndsBlock) break;
             pc = unchecked((ushort)(pc + r.Length));         // advance by the COMPUTED length
@@ -114,7 +130,7 @@ internal sealed partial class BlockCompiler
         return run;
     }
 
-    public CompiledBlock Compile(ushort entryPc)
+    public CompiledBlock<TCpu> Compile(ushort entryPc)
     {
         CompileCount++;
         FallbackEmitCount = 0;   // reset the per-Compile fallback seam (Task 6 emit-not-fallback probe)
@@ -122,11 +138,11 @@ internal sealed partial class BlockCompiler
         var spannedPages = PagesSpanned(run);
         var dm = new DynamicMethod(
             $"block_{entryPc:X4}", typeof(void),
-            [typeof(Mos6502Cpu), typeof(IAddressSpace), typeof(Fastmem),
+            [typeof(TCpu), typeof(IAddressSpace), typeof(Fastmem),
              typeof(DirtyMap), typeof(ChainDispatch),
              typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType(),
              typeof(IAddressSpace)],   // M3.2: ioBus (arg 7) — the Port callout target (never fastmem)
-            typeof(BlockCompiler).Module, skipVisibility: true);   // reach the AdvanceCycles seam
+            typeof(BlockCompiler<TCpu>).Module, skipVisibility: true);   // reach the AdvanceCycles seam
         ILGenerator il = dm.GetILGenerator();
         var ctx = new EmitContext(il, spannedPages);
 
@@ -145,8 +161,8 @@ internal sealed partial class BlockCompiler
             EmitChainOrExit(ctx, (ushort)(lastPc + lastLen));
         else
             EmitNormalExit(ctx);   // safety net (unreachable for self-terminating ending arms)
-        var del = (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
-        return new CompiledBlock(entryPc, del, spannedPages);
+        var del = (BlockDelegate<TCpu>)dm.CreateDelegate(typeof(BlockDelegate<TCpu>));
+        return new CompiledBlock<TCpu>(entryPc, del, spannedPages);
     }
 
     /// <summary>Test seam (M3.2 Ground truth F.1 — the JIT-side never-fastmem proof). Compiles a
@@ -156,22 +172,22 @@ internal sealed partial class BlockCompiler
     /// EmitPort directly (the M3.1b synthetic-direct-emit precedent; the live second-CPU JIT run is
     /// M3.5/J1). EntryPc 0 + a single emittable Port row; the arm mirrors EmitInstruction's up-front
     /// opcode-fetch charge + PC increment so the cycle bookkeeping matches a real block.</summary>
-    internal BlockDelegate CompilePortProbe(OpcodeDescriptor d)
+    internal BlockDelegate<TCpu> CompilePortProbe(OpcodeDescriptor d)
     {
         var dm = new DynamicMethod(
             "port_probe", typeof(void),
-            [typeof(Mos6502Cpu), typeof(IAddressSpace), typeof(Fastmem),
+            [typeof(TCpu), typeof(IAddressSpace), typeof(Fastmem),
              typeof(DirtyMap), typeof(ChainDispatch),
              typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType(),
              typeof(IAddressSpace)],
-            typeof(BlockCompiler).Module, skipVisibility: true);
+            typeof(BlockCompiler<TCpu>).Module, skipVisibility: true);
         ILGenerator il = dm.GetILGenerator();
         var ctx = new EmitContext(il, new System.Collections.Generic.HashSet<int>());
         EmitChargeOneCycle(ctx);    // opcode-fetch cycle (as EmitInstruction does up-front)
         EmitIncrementPC(ctx, 1);
         EmitPort(ctx, d);           // THE arm under test — an Io-bus callout, no fastmem branch
         EmitNormalExit(ctx);
-        return (BlockDelegate)dm.CreateDelegate(typeof(BlockDelegate));
+        return (BlockDelegate<TCpu>)dm.CreateDelegate(typeof(BlockDelegate<TCpu>));
     }
 
     private static System.Collections.Generic.HashSet<int> PagesSpanned(
@@ -277,14 +293,14 @@ internal sealed partial class BlockCompiler
     }
 
     // ── Cycle bookkeeping (both counters move together: budget-=1 AND cpu._cycles+=1) ──────
-    private static void EmitChargeOneCycle(EmitContext ctx)
+    private void EmitChargeOneCycle(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
         // cpu.AdvanceCycles(1)
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldc_I4_1);
         il.Emit(OpCodes.Conv_I8);
-        il.Emit(OpCodes.Call, MAdvance);
+        il.Emit(OpCodes.Call, _mAdvance);
         // budget -= 1
         il.Emit(OpCodes.Ldarg_S, ArgBudget);
         il.Emit(OpCodes.Dup);
@@ -297,23 +313,23 @@ internal sealed partial class BlockCompiler
 
     // ── PC helpers ─────────────────────────────────────────────────────────────────────────
     /// <summary>Push the current PC (as uint) onto the stack.</summary>
-    private static void EmitLoadPC(EmitContext ctx)
+    private void EmitLoadPC(EmitContext ctx)
     {
         ctx.Il.Emit(OpCodes.Ldarg_0);
-        ctx.Il.Emit(OpCodes.Ldfld, FPC);   // ushort -> I4 (zero-extended)
+        ctx.Il.Emit(OpCodes.Ldfld, _fpc);   // ushort -> I4 (zero-extended)
     }
 
     /// <summary>PC = (ushort)(PC + n).</summary>
-    private static void EmitIncrementPC(EmitContext ctx, int n)
+    private void EmitIncrementPC(EmitContext ctx, int n)
     {
         ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FPC);
+        il.Emit(OpCodes.Ldfld, _fpc);
         il.Emit(OpCodes.Ldc_I4, n);
         il.Emit(OpCodes.Add);
         il.Emit(OpCodes.Conv_U2);
-        il.Emit(OpCodes.Stfld, FPC);
+        il.Emit(OpCodes.Stfld, _fpc);
     }
 
     /// <summary>Read the byte at the current PC (operand/code fetch), charging 1 cycle; pushes
@@ -477,14 +493,14 @@ internal sealed partial class BlockCompiler
 
     // ── SetNZ: P = (P & 0x7D) | (src==0 ? 2 : 0) | (src & 0x80) ──────────────────────────────
     /// <summary>Set the N and Z flags from the (int) source byte on the stack (consumes it).</summary>
-    private static void EmitSetNZFromStack(EmitContext ctx)
+    private void EmitSetNZFromStack(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Stloc, ctx.DataLocal);   // src
         il.Emit(OpCodes.Ldarg_0);                // cpu (for the final Stfld)
         // (P & 0x7D)
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldfld, FP);
+        il.Emit(OpCodes.Ldfld, _fp);
         il.Emit(OpCodes.Ldc_I4, 0x7D);
         il.Emit(OpCodes.And);
         // | (src==0 ? 2 : 0)
@@ -505,7 +521,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.And);
         il.Emit(OpCodes.Or);
         il.Emit(OpCodes.Conv_U1);
-        il.Emit(OpCodes.Stfld, FP);
+        il.Emit(OpCodes.Stfld, _fp);
     }
 
     /// <summary>Resolve an operand register's <see cref="FieldInfo"/> by its declared NAME (J2).
@@ -536,7 +552,7 @@ internal sealed partial class BlockCompiler
     /// dispatcher resumes at PC). A Recompile exit never reaches here — the SMC guard returns from
     /// the MIDDLE of the block (a chainable exit is only at a block-ending opcode), so a
     /// self-modifying block always routes to the dispatcher (Ground truth B).</summary>
-    private static void EmitChainOrExit(EmitContext ctx, ushort staticTargetPc)
+    private void EmitChainOrExit(EmitContext ctx, ushort staticTargetPc)
     {
         ILGenerator il = ctx.Il;
         Label toDispatcher = il.DefineLabel();
@@ -554,7 +570,7 @@ internal sealed partial class BlockCompiler
 
         // (4) cpu.InterruptPending -> dispatcher (sample the irq at the chain edge)
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Callvirt, MInterruptPending);
+        il.Emit(OpCodes.Callvirt, _mInterruptPending);
         il.Emit(OpCodes.Brtrue, toDispatcher);
 
         // (5)-(7) chain.Invoke(targetPc, ref budget, out exit); ret
@@ -572,7 +588,7 @@ internal sealed partial class BlockCompiler
 
     /// <summary>After an instruction, if budget &lt;= 0 set PC = nextPc and exit Budget; else
     /// continue the block.</summary>
-    private static void EmitBudgetCheck(EmitContext ctx, ushort nextPc)
+    private void EmitBudgetCheck(EmitContext ctx, ushort nextPc)
     {
         ILGenerator il = ctx.Il;
         Label keepGoing = il.DefineLabel();
@@ -585,7 +601,7 @@ internal sealed partial class BlockCompiler
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldc_I4, (int)nextPc);
         il.Emit(OpCodes.Conv_U2);
-        il.Emit(OpCodes.Stfld, FPC);
+        il.Emit(OpCodes.Stfld, _fpc);
         il.Emit(OpCodes.Ldarg_S, ArgExit);
         il.Emit(OpCodes.Ldc_I4, (int)BlockExit.Budget);
         il.Emit(OpCodes.Stind_I4);
@@ -603,17 +619,17 @@ internal sealed partial class BlockCompiler
         ILGenerator il = ctx.Il;
         // long before = cpu.CycleCount;
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Callvirt, MCycleCount);
+        il.Emit(OpCodes.Callvirt, _mCycleCount);
         il.Emit(OpCodes.Stloc, ctx.TmpLong);
         // cpu.Step();
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Callvirt, MStep);
+        il.Emit(OpCodes.Callvirt, _mStep);
         // budget -= (cpu.CycleCount - before);
         il.Emit(OpCodes.Ldarg_S, ArgBudget);
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldind_I8);
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Callvirt, MCycleCount);
+        il.Emit(OpCodes.Callvirt, _mCycleCount);
         il.Emit(OpCodes.Ldloc, ctx.TmpLong);
         il.Emit(OpCodes.Sub);                // consumed
         il.Emit(OpCodes.Sub);                // budget - consumed

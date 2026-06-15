@@ -30,6 +30,14 @@ public interface IMonitorSupport
     /// interrupt-service hook gates on.</summary>
     bool InterruptPending { get; }
 
+    /// <summary>True while the CPU is in a halted state (the Z80 HALT latch; the 6502 has no HALT
+    /// and returns false). The JIT dispatcher's halted fast path (J6) queries this uniform signal on
+    /// the inner CPU so it can idle a halted core via the interpreter rather than compiling a
+    /// degenerate block. A CPU without a HALT op returns a constant false (the branch stays dead —
+    /// the 6502's emitted JIT is byte-identical). The generated CPU exposes the same
+    /// <c>Halted</c> the interpreter's Step guard reads.</summary>
+    bool Halted { get; }
+
     /// <summary>Name of the ProgramCounter-role register in
     /// <see cref="ICpuCore.RegisterNames"/>.</summary>
     string ProgramCounterName { get; }
