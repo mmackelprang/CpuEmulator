@@ -257,4 +257,40 @@ public class Z80InterruptServicingTests
         Assert.NotEqual(0x0038u, (uint)cpu.GetRegister("PC"));
         Assert.Equal(0x0002u, (uint)cpu.GetRegister("PC"));   // NOP ran (PC advanced), still no service
     }
+
+    [Fact]
+    public void HALT_then_IRQ_wakes_and_services()
+    {
+        var (cpu, mem) = BuildCpu();
+        mem.Write8(0x0000, 0x76);   // HALT
+        cpu.SetRegister("PC", 0x0000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 1; cpu.Iff1 = true; cpu.Iff2 = true;
+
+        cpu.Step();   // execute HALT → _halted set, PC advances past HALT (to 0x0001)
+        // While halted with no interrupt, Step idles one cycle and does NOT advance further.
+        ulong pcAfterHalt = cpu.GetRegister("PC");
+        cpu.Step();   // idle (no interrupt pending) — PC unchanged, one cycle burned
+        Assert.Equal(pcAfterHalt, cpu.GetRegister("PC"));
+
+        cpu.SetIrqLine(true);   // now assert IRQ
+        cpu.Step();             // services: clears _halted, pushes PC, jumps to 0x0038
+        Assert.Equal(0x0038u, (uint)cpu.GetRegister("PC"));
+        // The pushed return address is the post-HALT PC (resumes at the instruction after HALT).
+        Assert.Equal((byte)(pcAfterHalt & 0xFF), mem.Read8(0xFFEE));
+        Assert.Equal((byte)(pcAfterHalt >> 8), mem.Read8(0xFFEF));
+    }
+
+    [Fact]
+    public void HALT_with_no_interrupt_idles_without_advancing_PC()
+    {
+        var (cpu, mem) = BuildCpu();
+        mem.Write8(0x0000, 0x76);   // HALT
+        cpu.SetRegister("PC", 0x0000);
+        cpu.Step();   // HALT
+        ulong pc = cpu.GetRegister("PC");
+        long c0 = cpu.CycleCount;
+        for (int i = 0; i < 10; i++) cpu.Step();   // 10 idle steps
+        Assert.Equal(pc, cpu.GetRegister("PC"));    // PC frozen while halted
+        Assert.True(cpu.CycleCount > c0);           // cycles advanced (idle burns budget, no infinite loop)
+    }
 }
