@@ -69,6 +69,46 @@ public sealed partial class M68000Cpu
     private byte ReadBus(uint address) { _cycles++; return _bus.Read8(address); }
     private void WriteBus(uint address, byte value) { _cycles++; _bus.Write8(address, value); }
 
+    // ── Wide big-endian bus access (M4.2 surface; M4.5a wires it into the MOVE bodies). Each charges the
+    //    bus-access cycles. The 16-bit bus decomposes a .l into two .w transactions: ReadLongBus is two
+    //    Read16 calls (high word first) — which the tracing bus records as two .w transactions. The cycle
+    //    counts here are the BUS portion; the op body adds the instruction's internal cycles so CycleCount
+    //    ends == the case's length (Σ transaction cycles — validated by the TomHarte gate). ────────────────
+    private const int WordAccessCycles = 4;   // a word bus cycle is 4 clocks on the 68000 (S0-S7)
+
+    private ushort ReadWordBus(uint address)
+    {
+        _cycles += WordAccessCycles;
+        return _bus.Read16(address);
+    }
+
+    private void WriteWordBus(uint address, ushort value)
+    {
+        _cycles += WordAccessCycles;
+        _bus.Write16(address, value);
+    }
+
+    // A long access is TWO word transactions (high word first) — charge + access each separately so the
+    // tracing bus records two .w transactions (the 16-bit-bus decomposition the vectors assert).
+    private uint ReadLongBus(uint address)
+    {
+        ushort hi = ReadWordBus(address);
+        ushort lo = ReadWordBus(address + 2);
+        return ((uint)hi << 16) | lo;
+    }
+
+    private void WriteLongBus(uint address, uint value)
+    {
+        WriteWordBus(address, (ushort)(value >> 16));
+        WriteWordBus(address + 2, (ushort)value);
+    }
+
+    // Test seams (mirror the generated ComputeEaProbe) — drive the wide path from synthetic unit tests.
+    public ushort ReadWordBusProbe(uint a) => ReadWordBus(a);
+    public uint ReadLongBusProbe(uint a) => ReadLongBus(a);
+    public void WriteWordBusProbe(uint a, ushort v) => WriteWordBus(a, v);
+    public void WriteLongBusProbe(uint a, uint v) => WriteLongBus(a, v);
+
     /// <summary>Undefined-opcode hook — M4.1 stub (the 68000's illegal-instruction exception is M4.5d). The
     /// instruction table is empty in M4.1, so any Step would route here; M4.1 never calls Step.</summary>
     private void HandleUndefinedOpcode(byte opcode) { _cycles++; }

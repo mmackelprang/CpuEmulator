@@ -217,14 +217,38 @@ internal static class CpuEmitter
         }
         if (model.FieldGrammar is not null)
         {
-            // M4.3a: a word-granular field-decode CPU (the 68000) has its decode walk + descriptor table
-            // generated and synthetically proven, but the INTERPRETER that drives Step over a live
-            // big-endian bus is M4.5 (the live BE AddressSpaceFetchStream + the per-op execution land
-            // there). M4.3a's generated Step is never called — the proof drives the static Decode walk
-            // directly with a BufferFetchStream. Emit an inert Step that names the deferral honestly
-            // rather than wiring the (little-endian, 16-bit-origin) byte stream the 68000 must not use.
-            sb.AppendLine("        throw new System.NotSupportedException(");
-            sb.AppendLine("            \"word-granular field-decode interpreter Step is M4.5; M4.3a proves the decode walk synthetically\");");
+            // M4.5a: the word-granular field-decode interpreter. Fetch the operword + extension words via the
+            // live big-endian word stream (which reads the operword EXACTLY once — surfaced on __r.Operword,
+            // so dispatch needs no second Read16 of PC), advance PC by the computed length, dispatch on the
+            // decoded opIndex. Non-MOVE families route to HandleUndefinedOpcode (their bodies are M4.5b-d).
+            sb.AppendLine("        var __stream = new CpuEmulator.Core.Jit.M68000FetchStream(_bus, PC);");
+            sb.AppendLine("        var __r = Decode(__stream);");
+            sb.AppendLine("        uint __operword = __r.Operword;               // the operword the fetch read once");
+            sb.AppendLine("        // Each fetched word (operword + extension words) is a .w bus transaction worth 4 clocks.");
+            sb.AppendLine("        // The fetch stream traced the Read16s (matching the vector's fetch transactions); charge their");
+            sb.AppendLine("        // cycles here (the literal 4 keeps the generated Step self-contained — a synthetic FieldGrammar");
+            sb.AppendLine("        // CPU has no hand-written WordAccessCycles constant).");
+            sb.AppendLine("        _cycles += __stream.UnitsConsumed * 4;");
+            sb.AppendLine("        // PC-relative EAs (d16(PC)/d8(PC,Xn)) are based on the address of the FIRST extension word");
+            sb.AppendLine("        // = operword address + 2 (the operword is at the pre-advance PC). Capture it BEFORE the");
+            sb.AppendLine("        // advance so ComputeEa's PcForEa reads the right base (the live PC moves past the whole insn).");
+            sb.AppendLine("        _eaPcBase = PC + 2u;");
+            sb.AppendLine("        PC += (uint)__r.Length;                       // advance past operword + extension words");
+            sb.AppendLine("        if (__r.OperationKey == 0xFFFFFFFFu) { HandleUndefinedOpcode(unchecked((byte)__operword)); return; }");
+            sb.AppendLine("        uint __opIndex = (__r.OperationKey >> 8) & 0xFFFFu;   // unpack opIndex from the key");
+            sb.AppendLine("        uint __size = __r.OperationKey & 0xFFu;               // 0=b,1=w,2=l");
+            sb.AppendLine("        uint __ea = __operword & 0x3Fu;");
+            sb.AppendLine("        uint __srcMode = (__ea >> 3) & 7u, __srcReg = __ea & 7u;");
+            sb.AppendLine("        switch (__opIndex)");
+            sb.AppendLine("        {");
+            // Emit one dispatch arm per MOVE-family opIndex, matched by the dataset operation name.
+            EmitMoveDispatchArms(sb, model.FieldGrammar);
+            sb.AppendLine("            default:");
+            sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)__operword));   // M4.5b-d families");
+            sb.AppendLine("                break;");
+            sb.AppendLine("        }");
+            sb.AppendLine("        _eaPcBase = 0u;   // clear the PC-relative base so the synthetic ComputeEaProbe's");
+            sb.AppendLine("                          // \": PC\" fallback is valid again after a Step (review finding).");
         }
         else if (model.Decode is null)
         {
@@ -278,6 +302,19 @@ internal static class CpuEmitter
             sb.AppendLine("    /// model the Z80 EI one-instruction delay. Partial — elided when unimplemented");
             sb.AppendLine("    /// (a structured CPU with no EI-delay is unaffected; the 6502 never emits EI).</summary>");
             sb.AppendLine("    partial void OnInterruptEnable();");
+        }
+        if (model.FieldGrammar is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    // M4.5a: the MOVE-family op bodies — implemented by the hand-written M68000Cpu.Move partial.");
+            sb.AppendLine("    // Classic `partial void` (implicitly private): elided when unimplemented (Task 3 has no body");
+            sb.AppendLine("    // yet — the MOVE arms are no-ops), implemented by M68000Cpu.Move.cs from Task 4 onward.");
+            sb.AppendLine("    partial void MoveExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveToSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveToCcrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveFromSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveUspExecute(uint operword);");
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -4113,17 +4150,31 @@ internal static class CpuEmitter
         sb.AppendLine("                ushort ew = (ushort)stream.NextUnit();   // big-endian word (the stream composes BE)");
         sb.AppendLine("                switch (w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
         sb.AppendLine("            }");
+        sb.AppendLine("            // M4.5a (deferred D5): MOVE/MOVEA have a SECOND EA (dest, bits 11-6, mode/reg swapped).");
+        sb.AppendLine("            if (IsMoveFamily(f.OpIndex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                uint dstReg  = (operword >> 9) & 7u;   // bits 11-9");
+        sb.AppendLine("                uint dstMode = (operword >> 6) & 7u;   // bits 8-6");
+        sb.AppendLine("                int dstExt = ExtensionWordCount(dstMode, dstReg, size);");
+        sb.AppendLine("                for (int w = 0; w < dstExt; w++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    ushort ew = (ushort)stream.NextUnit();");
+        sb.AppendLine("                    switch (extWords + w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
+        sb.AppendLine("                }");
+        sb.AppendLine("                extWords += dstExt;");
+        sb.AppendLine("            }");
         sb.AppendLine("            int len = stream.UnitsConsumed * stream.UnitBytes;        // COMPUTED — words × 2");
         sb.AppendLine("            var ext = new CpuEmulator.Core.Jit.ExtensionWords(e0, e1, e2, e3, extWords);");
-        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext);");
+        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext, (ushort)operword);");
         sb.AppendLine("        }");
         sb.AppendLine("        // No field op matched ⇒ the illegal-instruction path (the Undefined sentinel; M4.5 vectors it).");
         sb.AppendLine("        int illegalLen = stream.UnitsConsumed * stream.UnitBytes;     // 2 (the operword) — the illegal op is one word");
-        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(0xFFFFFFFFu, illegalLen, CpuEmulator.Core.Jit.DecodedOperands.None);");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(0xFFFFFFFFu, illegalLen, CpuEmulator.Core.Jit.DecodedOperands.None, default, (ushort)operword);");
         sb.AppendLine("    }");
 
         EmitSizeMapHelper(sb);            // MapSize(sizeBits, enc) — Standard vs Move (C4)
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
+        EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
         // DescriptorFor reuses the keyed dictionary (emitted by EmitKeyedDescriptorTable); 0xFFFFFFFF →
@@ -4144,6 +4195,44 @@ internal static class CpuEmitter
         sb.AppendLine("    private static uint MapSize(uint bits, int enc) => enc == 1");
         sb.AppendLine("        ? bits switch { 1u => 0u, 3u => 1u, 2u => 2u, _ => 0u }   // Move: 01=b,11=w,10=l");
         sb.AppendLine("        : bits switch { 0u => 0u, 1u => 1u, 2u => 2u, _ => 0u };  // Standard: 00=b,01=w,10=l");
+    }
+
+    /// <summary>M4.5a: emit the MOVE-family Step dispatch arms (opIndex → partial body hook). The hand-written
+    /// M68000Cpu.Move partial implements the *Execute methods. Only the MOVE family is wired in M4.5a; the
+    /// other families fall through to HandleUndefinedOpcode (their bodies are M4.5b-d). Name-driven from the
+    /// dataset operation names, so the emitted case labels track the live opIndices automatically.</summary>
+    private static void EmitMoveDispatchArms(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        for (int i = 0; i < grammar.Ops.Length; i++)
+        {
+            string op = grammar.Ops[i].Operation;
+            string? hook = op switch
+            {
+                "MOVE"         => "MoveExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEA"        => "MoveAExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVE_TO_SR"   => "MoveToSrExecute(__operword, __r, __srcMode, __srcReg)",
+                "MOVE_TO_CCR"  => "MoveToCcrExecute(__operword, __r, __srcMode, __srcReg)",
+                "MOVE_FROM_SR" => "MoveFromSrExecute(__operword, __r, __srcMode, __srcReg)",
+                "MOVE_USP"     => "MoveUspExecute(__operword)",
+                _ => null,
+            };
+            if (hook is null) continue;
+            sb.AppendLine($"            case {i}u: {hook}; break;");
+        }
+    }
+
+    /// <summary>M4.5a: the opIndices whose length is two-EA (MOVE + MOVEA). The dest EA (bits 11-6, swapped)
+    /// contributes extension words too (deferred D5 from M4.4a). Emitted from the dataset operation names.</summary>
+    private static void EmitIsMoveFamily(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var moveIndices = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "MOVE" or "MOVEA") moveIndices.Add(i);
+        sb.AppendLine();
+        sb.Append("    private static bool IsMoveFamily(uint opIndex) => ");
+        sb.AppendLine(moveIndices.Count == 0
+            ? "false;"
+            : string.Join(" || ", moveIndices.Select(i => $"opIndex == {i}u")) + ";");
     }
 
     /// <summary>M4.3a Task 4 (C5): emit ExtensionWordCount(eaMode, eaReg, size) — the (ea-mode, size)
@@ -4231,14 +4320,28 @@ internal static class CpuEmitter
         sb.AppendLine("    /// <summary>Write address register An by index (0-7 → A0..A7) — the (An)+/-(An) write-back (D3/D4).</summary>");
         sb.AppendLine("    private void SetAreg(uint reg, uint v) { switch(reg){ case 0u: A0=v; break; case 1u: A1=v; break; case 2u: A2=v; break; case 3u: A3=v; break; case 4u: A4=v; break; case 5u: A5=v; break; case 6u: A6=v; break; default: A7=v; break; } }");
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>The PC the PC-relative EA is computed from (the synthetic probe reads the PC field;");
-        sb.AppendLine("    /// the live extension-word address is M4.5's).</summary>");
-        sb.AppendLine("    private uint PcForEa => PC;");
+        sb.AppendLine("    /// <summary>The PC a PC-relative EA (d16(PC)/d8(PC,Xn)) is computed from: the address of the EA's");
+        sb.AppendLine("    /// first extension word = the operword address + 2 (M4.5a). Step captures it before advancing the");
+        sb.AppendLine("    /// live PC past the whole instruction; defaults to the live PC for the synthetic EA-compute probe");
+        sb.AppendLine("    /// (which sets PC to the operword address directly and reads back PcForEa without a Step).</summary>");
+        sb.AppendLine("    private uint _eaPcBase;");
+        sb.AppendLine("    private uint PcForEa => _eaPcBase != 0u ? _eaPcBase : PC;");
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Decode the brief extension word (d8(An,Xn)/d8(PC,Xn)). M4.3b's synthetic proof uses the");
-        sb.AppendLine("    /// displacement-only contribution (the low 8 bits are the signed displacement); the index-register");
-        sb.AppendLine("    /// decode (the register the brief word names — NOT a fixed X/Y) is an M4.5 detail (D5).</summary>");
-        sb.AppendLine("    private uint ComputeBriefIndex(uint baseAddr, ushort ext) => unchecked(baseAddr + (uint)(sbyte)(byte)ext);");
+        sb.AppendLine("    /// <summary>Decode the brief extension word (d8(An,Xn)/d8(PC,Xn)) — M4.5a wires the full index");
+        sb.AppendLine("    /// (D5, pulled forward from M4.3b's displacement-only stub). The brief format: bit 15 = D/A (0=Dn,");
+        sb.AppendLine("    /// 1=An), bits 14-12 = index register, bit 11 = W/L (0=sign-extended low word, 1=full long), bits");
+        sb.AppendLine("    /// 10-9 = scale (0 on the 68000), bits 7-0 = signed 8-bit displacement. EA = base + disp + index.</summary>");
+        sb.AppendLine("    private uint ComputeBriefIndex(uint baseAddr, ushort ext)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int disp = (sbyte)(byte)ext;                       // signed 8-bit displacement (low byte)");
+        sb.AppendLine("        uint idxReg = (uint)((ext >> 12) & 7);            // bits 14-12: index register number");
+        sb.AppendLine("        uint idxVal = (ext & 0x8000) != 0 ? Areg(idxReg) : Dreg(idxReg);   // bit 15: An vs Dn");
+        sb.AppendLine("        if ((ext & 0x0800) == 0) idxVal = unchecked((uint)(int)(short)(ushort)idxVal);  // bit 11: .w sign-extends");
+        sb.AppendLine("        return unchecked(baseAddr + (uint)disp + idxVal);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Read data register Dn by index (0-7 → D0..D7) — the brief-index index-register decode.</summary>");
+        sb.AppendLine("    private uint Dreg(uint reg) => reg switch { 0u=>D0,1u=>D1,2u=>D2,3u=>D3,4u=>D4,5u=>D5,6u=>D6,_=>D7 };");
         sb.AppendLine();
         sb.AppendLine("    /// <summary>A thin public wrapper over ComputeEa so the synthetic EA-compute proof can drive each");
         sb.AppendLine("    /// mode and read back __ea + the mutated An (M4.3b, D6).</summary>");
