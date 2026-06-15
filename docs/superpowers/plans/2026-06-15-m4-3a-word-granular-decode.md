@@ -1072,23 +1072,27 @@ EOF
 
 | Commit | Content | Suite |
 |---|---|---|
-| (Task 1) | FieldGrammar/FieldOp carrier + FetchUnit.Word authoring + parse | |
-| (Task 2) | big-endian word BufferFetchStream path (C2) | |
-| (Task 3) | field-decode arm: extraction + opaque (op, size) key | |
-| (Task 4) | operand-computed length from the (ea-mode, size) extension-word count (C5) | |
+| `61b3e21` (Task 1) | FieldGrammar/FieldOp carrier + FetchUnit.Word authoring + parse (+ CPUGEN015) | 5119 |
+| `4cef02f` (Task 2) | big-endian word BufferFetchStream path (C2) | 5123 |
+| (Tasks 3+4 folded) | field-decode arm (extraction + opaque (op,size) key) + operand-computed length from the (ea-mode, size) extension-word count (C5) | 5132 |
+
+> Tasks 3 + 4 were folded into a single commit (the plan sanctions this — "the implementer may fold
+> Tasks 3+4 into one commit"). The field-decode arm + the `ExtensionWordCount` table share
+> `CpuEmitter.cs`; the extraction/key proof and the computed-length proof were each made green before
+> the combined commit, so the two properties are still proven independently within `M68kFieldDecodeWalkTests`.
 
 | Closeout metric | Value |
 |---|---|
-| Baseline test count (Task 0) | (record) |
-| Final test count | (record) |
-| `FieldGrammar`/`FetchUnit.Word` declarable + consumed? | (YES expected) |
-| Operword → (operation, size, ea-mode, ea-register) extraction? | (YES expected — synthetic) |
-| Operand-computed length per (mode, size)? | (YES expected — incl. #imm.w vs #imm.l) |
-| Illegal operword → Undefined sentinel? | (YES expected) |
-| Any 68000 opcode live? | NO — framework-only; no 680x0 vector green |
-| 6502/Z80 un-regressed? | (YES expected — RegeneratedSpecTests byte-identity green) |
-| `-warnaserror` | (clean expected) |
-| Still deferred | EA descriptor + compute + write-back (M4.3b); legality matrix (M4.3b); dataset + real decode + gzip loader (M4.4); interpreter + TomHarte gate (M4.5) |
+| Baseline test count (Task 0) | 5116 |
+| Final test count | 5132 (5116 + 2 vocabulary + 1 grammar-carrier + 4 BE-stream + 2 extraction/key/Undefined + 7 computed-length Theory rows) |
+| `FieldGrammar`/`FetchUnit.Word` declarable + consumed? | YES — declared as a sibling carrier, parsed onto `SpecModel.FetchUnit`, consumed by the emitter's field-decode branch |
+| Operword → (operation, size, ea-mode, ea-register) extraction? | YES — synthetic (mask/match match, size via SizeEncoding, EA mode 5-3 + reg 2-0) |
+| Operand-computed length per (mode, size)? | YES — incl. #imm.w (4 bytes) vs #imm.l (6 bytes) size-dependence |
+| Illegal operword → Undefined sentinel? | YES — unmatched operword keys 0xFFFFFFFF → DescriptorFor → JitOpClass.Undefined |
+| Any 68000 opcode live? | NO — framework-only; no 680x0 vector green; the real M68000Spec.cs is untouched (still no DecodeStructure / FieldGrammar, empty Instructions) |
+| 6502/Z80 un-regressed? | YES — RegeneratedSpecTests byte-identity green after every task (the field arm fires only for a declared FieldGrammar) |
+| `-warnaserror` | clean (0 warnings) after every task |
+| Still deferred | EA descriptor + compute + write-back (M4.3b); legality matrix + retiring RequiredIndexRegister X/Y (M4.3b); two-EA MOVE extension-word SUM + the MOVE size-encoding outlier (M4.4 — the carrier expresses both); dataset + real M68000Spec.cs decode + gzip loader (M4.4); live big-endian AddressSpaceFetchStream + interpreter Step + 680x0 TomHarte gate (M4.5) |
 | Recommended next chunk | M4.3b — the structured EA descriptor + EA-compute + auto-inc/dec write-back |
 
 ## Slice docs index
