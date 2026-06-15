@@ -40,11 +40,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private const byte ArgExit = 6;
     private const byte ArgIoBus = 7;   // M3.2: the second IAddressSpace the Port arm calls (never fastmem)
 
-    // J2 (M3.1a): the register file is DATA. The OPERAND registers (A/X/Y/S — the ones a micro-op
+    // J2 (M3.1a + M3.5-3a): the register file is DATA. The OPERAND registers (the ones a micro-op
     // descriptor's RegA/RegB name) resolve through a per-compile name→FieldInfo map built from the
-    // CPU's declared RegisterNames — no baked A=0/X=1/… index switch. The CPU TYPE is still
-    // Mos6502Cpu (J1 deferred to M3.5); the map is built BY NAME against that concrete type, which
-    // is exactly the J2 shape.
+    // CPU's declared RegisterNames — no baked A=0/X=1/… index switch. The CPU TYPE is now the generic
+    // TCpu (J1 done, M3.5-3a); the map is built BY NAME against TCpu's concrete type (resolved from the
+    // injected IJitTarget.CpuType), which is exactly the J2 shape.
     private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regFields;
 
     // P (Status), PC (ProgramCounter), and A (the accumulator) are NOT operand-driven — the
