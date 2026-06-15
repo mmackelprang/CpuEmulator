@@ -193,7 +193,19 @@ public sealed partial class Z80Cpu
                 return true;
             }
 
-            // IM 2 (Task 5) is added below; IM 1 is the default:
+            case 2: // IM 2: I-register high byte + device-byte low byte → table pointer → vector.
+            {
+                ushort ptr = unchecked((ushort)((I << 8) | (InterruptData & 0xFE)));
+                byte vlo = ReadBus(ptr);
+                byte vhi = ReadBus(unchecked((ushort)(ptr + 1)));
+                ushort vector = unchecked((ushort)(vlo | (vhi << 8)));
+                PushPc();
+                PC = vector;
+                WZ = vector;
+                _cycles += 19 - 4;  // IM2 = 19 T; PushPc(2) + two vector ReadBus(2) charged 4
+                return true;
+            }
+
             default: // IM 1 (and the IM-1 fallback): fixed RST 38h.
                 PushPc();
                 PC = 0x0038;

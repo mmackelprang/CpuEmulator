@@ -169,4 +169,44 @@ public class Z80InterruptServicingTests
         cpu.Step();
         Assert.Equal(0x0018u, (uint)cpu.GetRegister("PC"));
     }
+
+    [Fact]
+    public void IM2_reads_the_vector_from_the_I_register_table()
+    {
+        var (cpu, mem) = BuildCpu();
+        // I = 0x12, device byte = 0x80 → table pointer 0x1280; vector stored there = 0x9ABC.
+        mem.Write8(0x1280, 0xBC);   // vector lo
+        mem.Write8(0x1281, 0x9A);   // vector hi
+        cpu.SetRegister("PC", 0x3000);
+        cpu.SetRegister("SP", 0xFFF0);
+        cpu.SetRegister("I", 0x12);
+        cpu.Im = 2;
+        cpu.Iff1 = true;
+        cpu.InterruptData = 0x80;
+        cpu.SetIrqLine(true);
+
+        long before = cpu.CycleCount;
+        cpu.Step();
+
+        Assert.Equal(0x9ABCu, (uint)cpu.GetRegister("PC"));   // vector from the table
+        Assert.Equal(0x9ABCu, (uint)cpu.GetRegister("WZ"));
+        Assert.Equal(0x00, mem.Read8(0xFFEE));                // PCL of the return address (0x3000)
+        Assert.Equal(0x30, mem.Read8(0xFFEF));                // PCH
+        Assert.False(cpu.Iff1); Assert.False(cpu.Iff2);
+        Assert.Equal(19L, cpu.CycleCount - before);           // IM2 = 19 T-states
+    }
+
+    [Fact]
+    public void IM2_masks_the_device_byte_low_bit()
+    {
+        var (cpu, mem) = BuildCpu();
+        // Device byte 0x81 → masked to 0x80 (the table is word-aligned: bit 0 cleared).
+        mem.Write8(0x1280, 0x11); mem.Write8(0x1281, 0x22);   // vector 0x2211 at 0x1280
+        cpu.SetRegister("PC", 0x3000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.SetRegister("I", 0x12); cpu.Im = 2; cpu.Iff1 = true;
+        cpu.InterruptData = 0x81;   // low bit set → masked off
+        cpu.SetIrqLine(true);
+        cpu.Step();
+        Assert.Equal(0x2211u, (uint)cpu.GetRegister("PC"));   // read from 0x1280, not 0x1281
+    }
 }
