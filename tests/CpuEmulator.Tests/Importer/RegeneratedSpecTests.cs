@@ -25,7 +25,7 @@ public class RegeneratedSpecTests
         const string datasetRelPath   = "tools/CpuEmulator.SpecImporter/data/mos6502-opcodes.json";
         const string semanticsRelPath = "tools/CpuEmulator.SpecImporter/data/mos6502-semantics.json";
 
-        string repoRoot = FindRepoRoot();
+        string repoRoot = TestRepo.FindRepoRoot();
         var dataset = OpcodeDataset.Load(Path.Combine(repoRoot, datasetRelPath));
         var map     = SemanticsMap.Load(Path.Combine(repoRoot, semanticsRelPath));
 
@@ -43,14 +43,5 @@ public class RegeneratedSpecTests
         Assert.Equal(151, report.Emitted);
         Assert.Equal(0,   report.TodoSemantics);  // BRK + RTI now map (3b-ii)
         Assert.Equal(0,   report.TodoMode);       // all 13 modes expressible
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CpuEmulator.slnx")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
-        return dir!.FullName;
     }
 }
