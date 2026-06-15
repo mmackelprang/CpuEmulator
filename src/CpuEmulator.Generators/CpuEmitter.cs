@@ -224,6 +224,11 @@ internal static class CpuEmitter
             sb.AppendLine("        var __stream = new CpuEmulator.Core.Jit.M68000FetchStream(_bus, PC);");
             sb.AppendLine("        var __r = Decode(__stream);");
             sb.AppendLine("        uint __operword = __r.Operword;               // the operword the fetch read once");
+            sb.AppendLine("        // Each fetched word (operword + extension words) is a .w bus transaction worth 4 clocks.");
+            sb.AppendLine("        // The fetch stream traced the Read16s (matching the vector's fetch transactions); charge their");
+            sb.AppendLine("        // cycles here (the literal 4 keeps the generated Step self-contained — a synthetic FieldGrammar");
+            sb.AppendLine("        // CPU has no hand-written WordAccessCycles constant).");
+            sb.AppendLine("        _cycles += __stream.UnitsConsumed * 4;");
             sb.AppendLine("        PC += (uint)__r.Length;                       // advance past operword + extension words");
             sb.AppendLine("        if (__r.OperationKey == 0xFFFFFFFFu) { HandleUndefinedOpcode(unchecked((byte)__operword)); return; }");
             sb.AppendLine("        uint __opIndex = (__r.OperationKey >> 8) & 0xFFFFu;   // unpack opIndex from the key");
