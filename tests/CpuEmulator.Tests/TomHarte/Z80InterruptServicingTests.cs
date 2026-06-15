@@ -209,4 +209,52 @@ public class Z80InterruptServicingTests
         cpu.Step();
         Assert.Equal(0x2211u, (uint)cpu.GetRegister("PC"));   // read from 0x1280, not 0x1281
     }
+
+    [Fact]
+    public void EI_delays_interrupt_servicing_by_one_instruction()
+    {
+        var (cpu, mem) = BuildCpu();
+        // Program: EI (0xFB) at 0x0000, then NOP (0x00) at 0x0001, then NOP at 0x0002.
+        mem.Write8(0x0000, 0xFB); mem.Write8(0x0001, 0x00); mem.Write8(0x0002, 0x00);
+        cpu.SetRegister("PC", 0x0000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 1;
+        cpu.Iff1 = false; cpu.Iff2 = false;   // interrupts start disabled
+        cpu.SetIrqLine(true);                  // IRQ asserted the whole time
+
+        cpu.Step();   // EI — enables IFF1/IFF2 (vector-correct) but opens the no-service window; no service
+        Assert.Equal(0x0001u, (uint)cpu.GetRegister("PC"));   // EI ran (PC advanced), no service
+        Assert.True(cpu.Iff1);                                 // EI set IFF1 immediately (fb.json model)
+        Assert.False(cpu.InterruptPending);                    // ...but the EI window is open → not pending YET
+
+        cpu.Step();   // NOP at 0x0001 — runs without being interrupted (the EI delay); window closes here
+        Assert.Equal(0x0002u, (uint)cpu.GetRegister("PC"));   // NOP ran, no service
+        Assert.True(cpu.Iff1);                                 // still enabled
+        Assert.True(cpu.InterruptPending);                     // window closed → now pending
+
+        cpu.Step();   // boundary before the next instruction: NOW the IRQ services (IM1 → 0x0038)
+        Assert.Equal(0x0038u, (uint)cpu.GetRegister("PC"));
+    }
+
+    [Fact]
+    public void DI_masks_a_pending_IRQ()
+    {
+        var (cpu, mem) = BuildCpu();
+        mem.Write8(0x0000, 0xF3);   // DI
+        mem.Write8(0x0001, 0x00);   // NOP
+        cpu.SetRegister("PC", 0x0000); cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 1;
+        // Start with interrupts DISABLED so the first boundary does NOT service before DI runs (the
+        // boundary-before-fetch model: with Iff1 set + IRQ asserted the first Step would service the IRQ,
+        // never reaching DI). DI then keeps IFF clear immediately (no delay), so a later boundary masks.
+        cpu.Iff1 = false; cpu.Iff2 = false;
+        cpu.SetIrqLine(true);
+
+        cpu.Step();   // DI runs (IFF stays clear — DI clears immediately, no delay)
+        Assert.False(cpu.Iff1);
+        Assert.Equal(0x0001u, (uint)cpu.GetRegister("PC"));   // DI ran, no service (IFF was clear)
+
+        cpu.Step();   // next boundary: IRQ asserted but IFF1 clear → masked; the NOP at 0x0001 runs.
+        Assert.NotEqual(0x0038u, (uint)cpu.GetRegister("PC"));
+        Assert.Equal(0x0002u, (uint)cpu.GetRegister("PC"));   // NOP ran (PC advanced), still no service
+    }
 }

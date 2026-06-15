@@ -206,6 +206,12 @@ internal static class CpuEmitter
             sb.AppendLine("    /// to bump a refresh register (the Z80 R increments its low 7 bits per fetch). Partial —");
             sb.AppendLine("    /// elided when unimplemented, so a structured CPU that needs no refresh is unaffected.</summary>");
             sb.AppendLine("    partial void OnInstructionFetched(int keyBytes);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>Interrupt-enable hook (M3.5-1): the EI micro-op body calls this");
+            sb.AppendLine("    /// instead of writing the IFF latches directly, so the hand-written partial can");
+            sb.AppendLine("    /// model the Z80 EI one-instruction delay. Partial — elided when unimplemented");
+            sb.AppendLine("    /// (a structured CPU with no EI-delay is unaffected; the 6502 never emits EI).</summary>");
+            sb.AppendLine("    partial void OnInterruptEnable();");
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -2018,7 +2024,11 @@ internal static class CpuEmitter
                 sb.AppendLine("        _iff1 = false; _iff2 = false;");
                 break;
             case "Ei":
-                sb.AppendLine("        _iff1 = true; _iff2 = true;");
+                // M3.5-1: EI has a one-instruction delay (interrupts enable only AFTER the next
+                // instruction). The partial owns the delay latch via OnInterruptEnable(); the generated
+                // body delegates to it rather than writing _iff1/_iff2 directly. A structured CPU that
+                // does not implement the partial gets a no-op (the delay is a Z80 detail).
+                sb.AppendLine("        OnInterruptEnable();");
                 break;
             default:
                 throw new System.InvalidOperationException($"Z80 misc: no template for op '{kind}'");

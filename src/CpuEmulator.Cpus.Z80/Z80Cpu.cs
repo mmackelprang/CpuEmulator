@@ -41,6 +41,14 @@ public sealed partial class Z80Cpu
     /// vector-table pointer. Host/UAT-settable; default 0xFF (IM 0 → RST 38h, the common power-on form).</summary>
     public byte InterruptData { get; set; } = 0xFF;
 
+    /// <summary>The EI one-instruction-delay window (M3.5-1). EI's body sets IFF1/IFF2 IMMEDIATELY (so the
+    /// single-step TomHarte EI vector's final iff1/iff2 stay correct — fb.json) but ALSO opens a one-
+    /// instruction "do-not-service-yet" window by setting this to 1. Servicing (and InterruptPending)
+    /// requires _eiPending == 0, so the instruction immediately AFTER EI runs without being interrupted
+    /// (the documented Z80 quirk). Each TryServiceInterrupt boundary decrements it toward 0, so the NEXT
+    /// boundary services. Cleared on Reset.</summary>
+    private int _eiPending;
+
     /// <summary>IFF1 — the master interrupt-enable latch (observable Z80 state; the TomHarte vectors
     /// check it for DI/EI). Settable so a harness can establish the initial state.</summary>
     public bool Iff1 { get => _iff1; set => _iff1 = value; }
@@ -84,6 +92,7 @@ public sealed partial class Z80Cpu
         _nmiPending = false;
         _nmiLine = false;
         _irqLine = false;
+        _eiPending = 0;
     }
 
     /// <summary>The maskable INT line is level-sensitive: sampled at every instruction boundary and
@@ -100,8 +109,9 @@ public sealed partial class Z80Cpu
     }
 
     /// <summary>True exactly when the next Step will service an interrupt — NMI (non-maskable, edge-
-    /// latched) or a maskable INT gated by IFF1 (M3.5-1). The JIT boundary-samples this policy-blind.</summary>
-    public partial bool InterruptPending => _nmiPending || (_irqLine && _iff1);
+    /// latched) or a maskable INT gated by IFF1 AND the EI-delay window being closed (M3.5-1). The JIT
+    /// boundary-samples this policy-blind.</summary>
+    public partial bool InterruptPending => _nmiPending || (_irqLine && _iff1 && _eiPending == 0);
 
     /// <summary>The halted latch the generated Step consults (set by the Halt() micro-op via DoHalt).
     /// M3.4 owns the wake (clearing it on a serviced interrupt); the skeleton never wakes.</summary>
@@ -154,9 +164,21 @@ public sealed partial class Z80Cpu
     /// halted latch (the HALT wake), sets WZ to the vector, and returns true. M3.5-1.</summary>
     private partial bool TryServiceInterrupt()
     {
-        // NMI is non-maskable and highest priority; a maskable INT requires IFF1.
-        if (!_nmiPending && !(_irqLine && _iff1))
+        // M3.5-1: nothing eligible to service? EI's body set IFF1/IFF2 immediately (the architectural
+        // latch, vector-correct — fb.json) AND opened a one-instruction no-service window (_eiPending=1).
+        // The maskable INT requires IFF1 AND a CLOSED EI window (_eiPending == 0); NMI is non-maskable and
+        // ignores the window. When we cannot service, we close the EI window by one step (so the boundary
+        // AFTER the instruction following EI becomes eligible) and return false.
+        if (!_nmiPending && !(_irqLine && _iff1 && _eiPending == 0))
+        {
+            if (_eiPending > 0)
+                _eiPending--;   // the instruction after EI ran without service; arm the next boundary
             return false;
+        }
+
+        // A serviced boundary closes any open EI window too (it cannot be open here for a maskable INT —
+        // the eligibility check above required _eiPending == 0 — but an NMI may interrupt the EI-delay).
+        _eiPending = 0;
 
         _halted = false;        // the HALT wake — resume fetch on the next Step
         BumpRefresh();          // the acknowledge is one M1 cycle → R low-7 += 1
@@ -228,6 +250,18 @@ public sealed partial class Z80Cpu
     /// <summary>Bump R's low 7 bits (bit 7 preserved) — the interrupt acknowledge is an M1 cycle, so R
     /// increments exactly as a one-byte opcode fetch does (same formula as OnInstructionFetched).</summary>
     private void BumpRefresh() => R = (byte)((R & 0x80) | ((R + 1) & 0x7F));
+
+    /// <summary>The EI micro-op body calls this (M3.5-1, the one generator touch). EI enables interrupts
+    /// architecturally NOW (IFF1/IFF2 := true — vector-correct for the single-step TomHarte EI vector's
+    /// final iff1/iff2, fb.json) but opens a one-instruction "do-not-service-yet" window so the
+    /// instruction immediately following EI is not interrupted (the documented Z80 quirk). The window
+    /// (_eiPending) closes one boundary at a time in TryServiceInterrupt.</summary>
+    partial void OnInterruptEnable()
+    {
+        _iff1 = true;
+        _iff2 = true;
+        _eiPending = 1;
+    }
 
     /// <summary>The R-refresh increment (M3.4a, Ground truth F). The low 7 bits of R increment on each
     /// opcode-fetch M1 cycle (bit 7 is preserved). The generated Step calls this once per instruction
