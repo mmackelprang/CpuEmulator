@@ -27,6 +27,10 @@ public sealed class CpmBdosHost
 
     public bool Terminated { get; private set; }
 
+    /// <summary>The Z80 T-state count consumed so far (the budget counter) — exposed for diagnostics
+    /// and for pinning the passing ZEX cycle counts in the close-state record.</summary>
+    public long CycleCount => _cpu.CycleCount;
+
     public CpmBdosHost(byte[] com)
     {
         ArgumentNullException.ThrowIfNull(com);
