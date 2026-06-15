@@ -1736,9 +1736,17 @@ internal static class M68kEaLegality
     private static bool IsAlterable(uint mode, uint reg)   // not PC-relative, not #imm
         => mode <= 6u || (mode == 7u && reg <= 1u);
 
+    // "All addressing modes" = the SUPERSET of data addressing that adds An-direct back in (M68000 PRM
+    // Appendix C, Table C-1): every legal (mode, reg) incl. An-direct, #imm, and PC-relative. Distinct
+    // from DataAddressing, which excludes An-direct. Aliasing "All" to IsData would wrongly reject An
+    // sources (MOVE An,<ea> / CMP An,<ea>) — pre-merge review MEDIUM-1.
+    private static bool IsAll(uint mode, uint reg)
+        => mode <= 6u || (mode == 7u && reg <= 4u);
+
     public static bool IsLegal(uint mode, uint reg, string category) => category switch
     {
-        "DataAddressing" or "All"  => IsData(mode, reg),
+        "DataAddressing"           => IsData(mode, reg),
+        "All"                      => IsAll(mode, reg),
         "MemoryAlterable"          => IsMemory(mode, reg) && IsAlterable(mode, reg),
         "DataAlterable"            => IsData(mode, reg) && IsAlterable(mode, reg),
         "Control"                  => IsControl(mode, reg),
