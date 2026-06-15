@@ -1717,3 +1717,32 @@ internal static class SpecParser
             ? member.Identifier.Text
             : null;
 }
+
+/// <summary>M4.3b (ADR 0004 Decision 2): the 68000 EA-category legality matrix — EA-category DATA
+/// replacing the per-class switch (for the 68000 only; the 6502/Z80 ValidateModeForClass is unchanged,
+/// D5). Maps a (mode, reg) EA to whether it is legal in the named category. The index register is read
+/// from the brief extension word, NOT a fixed X/Y (RequiredIndexRegister's 6502 convention is retired
+/// for the 68000). M4.3b SHIPS + PROVES the data + the function; it is NOT called from ValidateModeForClass
+/// (the M4.4 dataset / M4.5 interpreter consume it) — so the 6502/Z80 parse path stays byte-identical.</summary>
+internal static class M68kEaLegality
+{
+    // Mode 7's register sub-field selects abs.w(0)/abs.l(1)/d16(PC)(2)/d8(PC,Xn)(3)/#imm(4).
+    private static bool IsData(uint mode, uint reg)        // "data addressing": all modes EXCEPT An (mode 1)
+        => (mode <= 6u && mode != 1u) || (mode == 7u && reg <= 4u);
+    private static bool IsMemory(uint mode, uint reg)      // excludes Dn, An
+        => (mode >= 2u && mode <= 6u) || (mode == 7u && reg <= 4u);
+    private static bool IsControl(uint mode, uint reg)     // (An), d16/d8(An), abs, d16/d8(PC) — no Dn/An/(An)+/-(An)/#imm
+        => mode == 2u || (mode >= 5u && mode <= 6u) || (mode == 7u && reg <= 3u);
+    private static bool IsAlterable(uint mode, uint reg)   // not PC-relative, not #imm
+        => mode <= 6u || (mode == 7u && reg <= 1u);
+
+    public static bool IsLegal(uint mode, uint reg, string category) => category switch
+    {
+        "DataAddressing" or "All"  => IsData(mode, reg),
+        "MemoryAlterable"          => IsMemory(mode, reg) && IsAlterable(mode, reg),
+        "DataAlterable"            => IsData(mode, reg) && IsAlterable(mode, reg),
+        "Control"                  => IsControl(mode, reg),
+        "Alterable"                => IsAlterable(mode, reg),
+        _ => true,
+    };
+}
