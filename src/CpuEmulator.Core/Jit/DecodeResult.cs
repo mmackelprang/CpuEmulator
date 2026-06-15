@@ -14,7 +14,10 @@ public readonly record struct DecodeResult(
     uint OperationKey,   // opaque — "whatever bits/bytes select the operation" (Ground truth C)
     int Length,          // COMPUTED OUTPUT: total bytes consumed by the walk (Ground truth B)
     DecodedOperands Operands,
-    ExtensionWords ExtensionWords = default);   // M4.3b: the 68000 EA extension words (empty for 6502/Z80)
+    ExtensionWords ExtensionWords = default,   // M4.3b: the 68000 EA extension words (empty for 6502/Z80)
+    ushort Operword = 0);   // M4.5a: the 68000 operword the field walk read (0 for 6502/Z80 byte walks) —
+                            // lets the FieldGrammar Step dispatch without a second Read16 of PC (the field
+                            // walk reads the operword exactly once via the fetch stream).
 
 /// <summary>The 68000 EA extension words the field-decode walk consumed (M4.3b). A fixed inline buffer of
 /// up to 4 16-bit words (MOVE's two EAs at .l = 2 + 2). Empty (Count == 0) for the 6502/Z80 byte walks.

@@ -217,14 +217,27 @@ internal static class CpuEmitter
         }
         if (model.FieldGrammar is not null)
         {
-            // M4.3a: a word-granular field-decode CPU (the 68000) has its decode walk + descriptor table
-            // generated and synthetically proven, but the INTERPRETER that drives Step over a live
-            // big-endian bus is M4.5 (the live BE AddressSpaceFetchStream + the per-op execution land
-            // there). M4.3a's generated Step is never called — the proof drives the static Decode walk
-            // directly with a BufferFetchStream. Emit an inert Step that names the deferral honestly
-            // rather than wiring the (little-endian, 16-bit-origin) byte stream the 68000 must not use.
-            sb.AppendLine("        throw new System.NotSupportedException(");
-            sb.AppendLine("            \"word-granular field-decode interpreter Step is M4.5; M4.3a proves the decode walk synthetically\");");
+            // M4.5a: the word-granular field-decode interpreter. Fetch the operword + extension words via the
+            // live big-endian word stream (which reads the operword EXACTLY once — surfaced on __r.Operword,
+            // so dispatch needs no second Read16 of PC), advance PC by the computed length, dispatch on the
+            // decoded opIndex. Non-MOVE families route to HandleUndefinedOpcode (their bodies are M4.5b-d).
+            sb.AppendLine("        var __stream = new CpuEmulator.Core.Jit.M68000FetchStream(_bus, PC);");
+            sb.AppendLine("        var __r = Decode(__stream);");
+            sb.AppendLine("        uint __operword = __r.Operword;               // the operword the fetch read once");
+            sb.AppendLine("        PC += (uint)__r.Length;                       // advance past operword + extension words");
+            sb.AppendLine("        if (__r.OperationKey == 0xFFFFFFFFu) { HandleUndefinedOpcode(unchecked((byte)__operword)); return; }");
+            sb.AppendLine("        uint __opIndex = (__r.OperationKey >> 8) & 0xFFFFu;   // unpack opIndex from the key");
+            sb.AppendLine("        uint __size = __r.OperationKey & 0xFFu;               // 0=b,1=w,2=l");
+            sb.AppendLine("        uint __ea = __operword & 0x3Fu;");
+            sb.AppendLine("        uint __srcMode = (__ea >> 3) & 7u, __srcReg = __ea & 7u;");
+            sb.AppendLine("        switch (__opIndex)");
+            sb.AppendLine("        {");
+            // Emit one dispatch arm per MOVE-family opIndex, matched by the dataset operation name.
+            EmitMoveDispatchArms(sb, model.FieldGrammar);
+            sb.AppendLine("            default:");
+            sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)__operword));   // M4.5b-d families");
+            sb.AppendLine("                break;");
+            sb.AppendLine("        }");
         }
         else if (model.Decode is null)
         {
@@ -278,6 +291,19 @@ internal static class CpuEmitter
             sb.AppendLine("    /// model the Z80 EI one-instruction delay. Partial — elided when unimplemented");
             sb.AppendLine("    /// (a structured CPU with no EI-delay is unaffected; the 6502 never emits EI).</summary>");
             sb.AppendLine("    partial void OnInterruptEnable();");
+        }
+        if (model.FieldGrammar is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    // M4.5a: the MOVE-family op bodies — implemented by the hand-written M68000Cpu.Move partial.");
+            sb.AppendLine("    // Classic `partial void` (implicitly private): elided when unimplemented (Task 3 has no body");
+            sb.AppendLine("    // yet — the MOVE arms are no-ops), implemented by M68000Cpu.Move.cs from Task 4 onward.");
+            sb.AppendLine("    partial void MoveExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveToSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveToCcrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveFromSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
+            sb.AppendLine("    partial void MoveUspExecute(uint operword);");
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -4115,11 +4141,11 @@ internal static class CpuEmitter
         sb.AppendLine("            }");
         sb.AppendLine("            int len = stream.UnitsConsumed * stream.UnitBytes;        // COMPUTED — words × 2");
         sb.AppendLine("            var ext = new CpuEmulator.Core.Jit.ExtensionWords(e0, e1, e2, e3, extWords);");
-        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext);");
+        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext, (ushort)operword);");
         sb.AppendLine("        }");
         sb.AppendLine("        // No field op matched ⇒ the illegal-instruction path (the Undefined sentinel; M4.5 vectors it).");
         sb.AppendLine("        int illegalLen = stream.UnitsConsumed * stream.UnitBytes;     // 2 (the operword) — the illegal op is one word");
-        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(0xFFFFFFFFu, illegalLen, CpuEmulator.Core.Jit.DecodedOperands.None);");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(0xFFFFFFFFu, illegalLen, CpuEmulator.Core.Jit.DecodedOperands.None, default, (ushort)operword);");
         sb.AppendLine("    }");
 
         EmitSizeMapHelper(sb);            // MapSize(sizeBits, enc) — Standard vs Move (C4)
@@ -4144,6 +4170,30 @@ internal static class CpuEmitter
         sb.AppendLine("    private static uint MapSize(uint bits, int enc) => enc == 1");
         sb.AppendLine("        ? bits switch { 1u => 0u, 3u => 1u, 2u => 2u, _ => 0u }   // Move: 01=b,11=w,10=l");
         sb.AppendLine("        : bits switch { 0u => 0u, 1u => 1u, 2u => 2u, _ => 0u };  // Standard: 00=b,01=w,10=l");
+    }
+
+    /// <summary>M4.5a: emit the MOVE-family Step dispatch arms (opIndex → partial body hook). The hand-written
+    /// M68000Cpu.Move partial implements the *Execute methods. Only the MOVE family is wired in M4.5a; the
+    /// other families fall through to HandleUndefinedOpcode (their bodies are M4.5b-d). Name-driven from the
+    /// dataset operation names, so the emitted case labels track the live opIndices automatically.</summary>
+    private static void EmitMoveDispatchArms(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        for (int i = 0; i < grammar.Ops.Length; i++)
+        {
+            string op = grammar.Ops[i].Operation;
+            string? hook = op switch
+            {
+                "MOVE"         => "MoveExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEA"        => "MoveAExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVE_TO_SR"   => "MoveToSrExecute(__operword, __r, __srcMode, __srcReg)",
+                "MOVE_TO_CCR"  => "MoveToCcrExecute(__operword, __r, __srcMode, __srcReg)",
+                "MOVE_FROM_SR" => "MoveFromSrExecute(__operword, __r, __srcMode, __srcReg)",
+                "MOVE_USP"     => "MoveUspExecute(__operword)",
+                _ => null,
+            };
+            if (hook is null) continue;
+            sb.AppendLine($"            case {i}u: {hook}; break;");
+        }
     }
 
     /// <summary>M4.3a Task 4 (C5): emit ExtensionWordCount(eaMode, eaReg, size) — the (ea-mode, size)
