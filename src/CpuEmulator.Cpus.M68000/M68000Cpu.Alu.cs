@@ -219,9 +219,13 @@ public sealed partial class M68000Cpu
             return ccr;
         }
 
-        /// <summary>The CcrRule delegate instances the registrations pass.</summary>
-        public static byte ArithAdd(uint a, uint b, uint r, uint size, bool xIn, byte old) => Arith(a, b, r, size, xIn, old, isSub: false);
-        public static byte ArithSub(uint a, uint b, uint r, uint size, bool xIn, byte old) => Arith(a, b, r, size, xIn, old, isSub: true);
+        /// <summary>The CcrRule delegate instances the registrations pass. The PLAIN add/sub (ADD/SUB/ADDI/
+        /// SUBI/ADDQ/SUBQ) do NOT consume the incoming X in their carry/borrow — only the X-variants (ADDX/SUBX,
+        /// via ArithXAdd/ArithXSub) do. So Arith is called with xIn:false here; passing the live X would corrupt
+        /// the carry/borrow for a non-X op when X happened to be set (TomHarte-confirmed: SUB.w D5,D5 = 0 must
+        /// give C=X=0, not C=X=1).</summary>
+        public static byte ArithAdd(uint a, uint b, uint r, uint size, bool xIn, byte old) => Arith(a, b, r, size, false, old, isSub: false);
+        public static byte ArithSub(uint a, uint b, uint r, uint size, bool xIn, byte old) => Arith(a, b, r, size, false, old, isSub: true);
 
         /// <summary>Logic NZ; V=C=0; X untouched.</summary>
         public static byte Logic(uint a, uint b, uint r, uint size, bool xIn, byte old)
@@ -241,10 +245,11 @@ public sealed partial class M68000Cpu
         public static byte NegXRule(uint a, uint b, uint r, uint size, bool xIn, byte old)
             => ArithX(0u, a, r, size, xIn, old, isSub: true);
 
-        /// <summary>Compare: Arith-borrow but X is NEVER touched (CMP/CMPA/CMPI do not affect X).</summary>
+        /// <summary>Compare: Arith-borrow (with xIn:false — CMP never consumes X), but X is NEVER touched
+        /// (CMP/CMPA/CMPI do not affect X — the original X is restored).</summary>
         public static byte Cmp(uint a, uint b, uint r, uint size, bool xIn, byte old)
         {
-            byte arith = Arith(a, b, r, size, xIn, old, isSub: true);
+            byte arith = Arith(a, b, r, size, false, old, isSub: true);
             byte keptX = (byte)(old & 0x10);
             return (byte)((arith & ~0x10) | keptX);   // restore the original X
         }
@@ -301,18 +306,17 @@ public sealed partial class M68000Cpu
     partial void CmpAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
         => AddrAlu(operword, r, size, srcMode, srcReg, Alu.Sub, setsCcr: true,  writes: false);
 
-    /// <summary>ADDA/SUBA/CMPA shared body: An dest (bits 11-9). The operword's size field (sizeShift 8,
-    /// width 1, standard encoding) decodes to size index 0 = .w (opmode 011) or 1 = .l (opmode 111) — NOT the
-    /// usual 0=.b. So the operand size is .w when size==0 and .l when size==1. A .w source SIGN-EXTENDS to 32
-    /// and the arithmetic is ALWAYS on the full 32 bits. ADDA/SUBA set no CCR and write An; CMPA sets CCR (a
-    /// full-32-bit Cmp) and writes nothing.</summary>
+    /// <summary>ADDA/SUBA/CMPA shared body: An dest (bits 11-9). The decode walk already REMAPPED the operword's
+    /// 1-bit size field (opmode bit 8: 0=.w, 1=.l) to the real operand size index (1=.w, 2=.l) — see
+    /// IsAddressRegVariant in the generator — so here size is the genuine .w/.l index. A .w source SIGN-EXTENDS
+    /// to 32 and the arithmetic is ALWAYS on the full 32 bits. ADDA/SUBA set no CCR and write An; CMPA sets CCR
+    /// (a full-32-bit Cmp) and writes nothing.</summary>
     private void AddrAlu(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg,
         AluFn aluFn, bool setsCcr, bool writes)
     {
-        bool isWord = size == 0u;                                // ADDA: size index 0 = .w, 1 = .l
-        uint opSize = isWord ? 1u : 2u;                          // the real operand size index (.w / .l)
+        bool isWord = size == 1u;                                // remapped: 1 = .w, 2 = .l
         uint anReg = (operword >> 9) & 7u;
-        uint srcRaw = ReadEaOperand(srcMode, srcReg, opSize, r.ExtensionWords);
+        uint srcRaw = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);
         uint src = isWord ? unchecked((uint)(int)(short)(ushort)srcRaw) : srcRaw;   // .w sign-extend to 32
         uint a = Areg(anReg);
         uint result = aluFn(a, src, false, 2u);                  // full 32-bit op (size index 2)
@@ -510,13 +514,15 @@ public sealed partial class M68000Cpu
         }
 
         byte ccr = (byte)(SR & 0xFF);
-        ccr = (byte)(ccr & ~0x0F);   // clear N Z V C; keep X
         if (overflow)
         {
-            ccr |= 0x02;             // V set; on overflow Dn is NOT updated (the 68000 leaves it).
+            // On a DIV overflow (quotient doesn't fit 16 bits) the 68000 sets V=1, clears C, and leaves
+            // N/Z/X UNCHANGED (TomHarte-confirmed across DIVU/DIVS); Dn is NOT written.
+            ccr = (byte)((ccr & ~0x01) | 0x02);   // C=0, V=1; N/Z/X preserved
             SR = (ushort)((SR & 0xFF00) | ccr);
-            return;                  // do NOT write Dn on overflow (vector-confirmed)
+            return;                                // do NOT write Dn on overflow (vector-confirmed)
         }
+        ccr = (byte)(ccr & ~0x0F);   // clear N Z V C; keep X
         if ((quotient & 0x8000u) != 0) ccr |= 0x08;   // N from the 16-bit quotient sign
         if (quotient == 0u) ccr |= 0x04;              // Z
         SR = (ushort)((SR & 0xFF00) | ccr);

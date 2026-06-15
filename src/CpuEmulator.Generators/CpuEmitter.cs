@@ -4148,6 +4148,11 @@ internal static class CpuEmitter
         sb.AppendLine("            // Extract the size bits and map via the size encoding (Standard vs Move — C4).");
         sb.AppendLine("            uint sizeBits = (operword >> f.SizeShift) & (uint)((1 << f.SizeWidth) - 1);");
         sb.AppendLine("            uint size = MapSize(sizeBits, f.SizeEnc);          // 0=b, 1=w, 2=l (an OperandSize index)");
+        sb.AppendLine("            // M4.5b: the address-reg variants (ADDA/SUBA/CMPA) have a 1-bit size field (opmode bit 8:");
+        sb.AppendLine("            // 0=.w, 1=.l) that the Standard MapSize yields as index 0/1 — but the operand is .w/.l, NOT");
+        sb.AppendLine("            // .b/.w. Remap to the REAL operand size index (1=.w, 2=.l) so the extension-word count, the EA");
+        sb.AppendLine("            // (An)+/-(An) magnitude, and the (operation,size) key all reflect .w/.l (the body relies on it).");
+        sb.AppendLine("            if (IsAddressRegVariant(f.OpIndex)) size += 1u;");
         sb.AppendLine("            // Extract the 6-bit EA field: mode = bits 5-3, register = bits 2-0 (M4.3b consumes these).");
         sb.AppendLine("            uint ea = (operword >> f.EaShift) & 0x3F;");
         sb.AppendLine("            uint eaMode = (ea >> 3) & 7;");
@@ -4202,6 +4207,7 @@ internal static class CpuEmitter
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
         EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
         EmitIsImmediateForm(sb, grammar); // M4.5b: the leading-#imm-word ALU immediate-form predicate
+        EmitIsAddressRegVariant(sb, grammar); // M4.5b: the ADDA/SUBA/CMPA .w/.l size remap predicate
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
         // DescriptorFor reuses the keyed dictionary (emitted by EmitKeyedDescriptorTable); 0xFFFFFFFF →
@@ -4307,6 +4313,21 @@ internal static class CpuEmitter
         sb.AppendLine(immIndices.Count == 0
             ? "false;"
             : string.Join(" || ", immIndices.Select(i => $"opIndex == {i}u")) + ";");
+    }
+
+    /// <summary>M4.5b: the address-reg variants (ADDA/SUBA/CMPA) whose 1-bit opmode size field (bit 8: 0=.w,
+    /// 1=.l) the Standard MapSize yields as index 0/1; the decode walk remaps it to the real .w/.l index (1/2)
+    /// so the extension-word count + EA magnitude + (operation,size) key reflect the true operand size.</summary>
+    private static void EmitIsAddressRegVariant(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var idx = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "ADDA" or "SUBA" or "CMPA") idx.Add(i);
+        sb.AppendLine();
+        sb.Append("    private static bool IsAddressRegVariant(uint opIndex) => ");
+        sb.AppendLine(idx.Count == 0
+            ? "false;"
+            : string.Join(" || ", idx.Select(i => $"opIndex == {i}u")) + ";");
     }
 
     /// <summary>M4.3a Task 4 (C5): emit ExtensionWordCount(eaMode, eaReg, size) — the (ea-mode, size)
