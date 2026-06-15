@@ -13,7 +13,17 @@ namespace CpuEmulator.Core.Jit;
 public readonly record struct DecodeResult(
     uint OperationKey,   // opaque — "whatever bits/bytes select the operation" (Ground truth C)
     int Length,          // COMPUTED OUTPUT: total bytes consumed by the walk (Ground truth B)
-    DecodedOperands Operands);
+    DecodedOperands Operands,
+    ExtensionWords ExtensionWords = default);   // M4.3b: the 68000 EA extension words (empty for 6502/Z80)
+
+/// <summary>The 68000 EA extension words the field-decode walk consumed (M4.3b). A fixed inline buffer of
+/// up to 4 16-bit words (MOVE's two EAs at .l = 2 + 2). Empty (Count == 0) for the 6502/Z80 byte walks.
+/// The EA-compute (CpuEmitter EmitM68kEa) reads d16/abs.w/abs.l/#imm/brief-index from here.</summary>
+public readonly record struct ExtensionWords(ushort W0, ushort W1, ushort W2, ushort W3, int Count)
+{
+    public static readonly ExtensionWords None = default;
+    public ushort this[int i] => i switch { 0 => W0, 1 => W1, 2 => W2, 3 => W3, _ => 0 };
+}
 
 /// <summary>The operand bytes the walk consumed, in a fixed-capacity inline buffer (no
 /// allocation in the hot loop). For the 6502 this is operandLo/operandHi (the 0/1/2 bytes the

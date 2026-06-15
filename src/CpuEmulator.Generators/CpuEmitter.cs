@@ -4106,10 +4106,16 @@ internal static class CpuEmitter
         sb.AppendLine("            uint eaReg  = ea & 7;");
         sb.AppendLine("            // The opaque (operation, size) descriptor key (Ground truth C — opaque to consumers).");
         sb.AppendLine("            uint key = (1u << 24) | (f.OpIndex << 8) | size;   // high tag keeps it distinct from byte/prefix keys");
+        sb.AppendLine("            ushort e0 = 0, e1 = 0, e2 = 0, e3 = 0;                     // M4.3b: capture the extension-word VALUES (D2)");
         sb.AppendLine("            int extWords = ExtensionWordCount(eaMode, eaReg, size);   // M4.3a Task 4: operand-computed");
-        sb.AppendLine("            for (int w = 0; w < extWords; w++) stream.NextUnit();      // consume the extension words (length only)");
+        sb.AppendLine("            for (int w = 0; w < extWords; w++)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                ushort ew = (ushort)stream.NextUnit();   // big-endian word (the stream composes BE)");
+        sb.AppendLine("                switch (w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
+        sb.AppendLine("            }");
         sb.AppendLine("            int len = stream.UnitsConsumed * stream.UnitBytes;        // COMPUTED — words × 2");
-        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None);");
+        sb.AppendLine("            var ext = new CpuEmulator.Core.Jit.ExtensionWords(e0, e1, e2, e3, extWords);");
+        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext);");
         sb.AppendLine("        }");
         sb.AppendLine("        // No field op matched ⇒ the illegal-instruction path (the Undefined sentinel; M4.5 vectors it).");
         sb.AppendLine("        int illegalLen = stream.UnitsConsumed * stream.UnitBytes;     // 2 (the operword) — the illegal op is one word");
