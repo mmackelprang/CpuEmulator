@@ -841,23 +841,24 @@ EOF
 
 | Commit | Content | Suite |
 |---|---|---|
-| (Task 1) | surface the EA extension-word values from the field-decode walk (D2) | |
-| (Task 2) | EmitM68kEa EA-compute (14 modes + write-back + A7 + ordering + pure-EA) | |
-| (Task 3) | EA-category legality matrix (additive; 6502/Z80 unchanged; retire X/Y) | |
+| `c18c829` (Task 1) | surface the EA extension-word values from the field-decode walk (D2) | green |
+| `19d52f2` (Task 2) | EmitM68kEa EA-compute (14 modes + write-back + A7 + ordering + pure-EA) | green |
+| `01b802e` (Task 3) | EA-category legality matrix (additive; 6502/Z80 unchanged; retire X/Y) | green |
+| `8722b68` (review fix) | EA-category "All" admits An-direct (pre-merge review MEDIUM-1) | green |
 
 | Closeout metric | Value |
 |---|---|
-| Baseline test count (Task 0) | (record) |
-| Final test count | (record) |
-| Extension-word values surfaced (d16/abs.w/abs.l/#imm)? | (YES expected — synthetic) |
-| All 14 EA modes compute the address? | (YES expected — synthetic) |
-| `(An)+`/`-(An)` write-back by size + ordering (D3)? | (YES expected) |
-| `A7 ±2` special case (D4)? | (YES expected) |
-| Pure-EA (LEA/PEA, no-dereference) compute? | (YES expected) |
-| EA-category legality matrix + X/Y retired (68000)? | (YES expected) |
+| Baseline test count (Task 0) | 5133 (0 failed, 0 skipped) |
+| Final test count | 5151 (0 failed, 0 skipped) — +18 M4.3b tests (2 ext-word + 7 EA-compute + 9 legality) |
+| Extension-word values surfaced (d16/abs.w/abs.l/#imm)? | YES — abs.w surfaces 1 word, abs.l surfaces 2, big-endian, in order |
+| All 14 EA modes compute the address? | YES — synthetic ComputeEaProbe per mode (An / (An) / (An)+ / -(An) / d16(An) / d8(An,Xn) / abs.w / abs.l / d16(PC) / d8(PC,Xn) / #imm + Dn-direct sentinel) |
+| `(An)+`/`-(An)` write-back by size + ordering (D3)? | YES — PostInc reads-then-adds; PreDec subtracts-then-reads; both asserted on EA value AND resulting An |
+| `A7 ±2` special case (D4)? | YES — `(A7)+.b` moves A7 by 2 (not 1) |
+| Pure-EA (LEA/PEA, no-dereference) compute? | YES — pureEa flag suppresses the (An)+/-(An) write-back |
+| EA-category legality matrix + X/Y retired (68000)? | YES — M68kEaLegality.IsLegal(mode,reg,category); DataAddressing/All/Control/Alterable/Data-Memory-Alterable; index reg read from the brief ext word, not a fixed X/Y |
 | Any 68000 opcode live? | NO — framework-only; no 680x0 vector green; the EA-compute is not yet called from any op |
-| 6502/Z80 un-regressed? | (YES expected — RegeneratedSpecTests byte-identity green) |
-| `-warnaserror` | (clean expected) |
+| 6502/Z80 un-regressed? | YES — RegeneratedSpecTests byte-identity green (EmitM68kEa emitted only on the FieldGrammar path; DecodeResult widened via default param) |
+| `-warnaserror` | clean (0 warnings, 0 errors) |
 | Still deferred | dataset + real decode + gzip loader (M4.4); interpreter + EA-compute wired into op bodies + cycle-accurate sequencing + TomHarte gate (M4.5); address-error vector + IPL (M4.5d); JIT hot-op emit (M6) |
 | Recommended next chunk | M4.4 — the importer field-pattern dataset + the real M68000Spec.cs decode + the mnemonic-keyed gzip TomHarte loader |
 
