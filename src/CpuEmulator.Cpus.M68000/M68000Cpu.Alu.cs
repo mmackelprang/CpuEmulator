@@ -41,6 +41,7 @@ public sealed partial class M68000Cpu
         public static uint NegFn(uint a, uint b, bool x, uint size) => 0u - a;       // 0 - operand
         public static uint NotFn(uint a, uint b, bool x, uint size) => ~a;            // bitwise complement
         public static uint TstFn(uint a, uint b, bool x, uint size) => a;             // identity (compare to 0)
+        public static uint NegXFn(uint a, uint b, bool x, uint size) => 0u - a - (x ? 1u : 0u);   // 0 - operand - X
     }
 
     // Test seam (mirrors M4.5a's *Probe wrappers).
@@ -59,8 +60,12 @@ public sealed partial class M68000Cpu
         bool xIn = (Ccr & 0x10) != 0;   // the incoming X flag (only ArithX reads it; harmless for others)
         byte oldCcr = (byte)(SR & 0xFF);
 
-        // Resolve A (operand read first / dest), B (the second operand), and the destination (mode,reg).
-        uint a, b, dstMode, dstReg;
+        // Resolve A (the EA/dest operand), B (the second operand), and WHERE the result goes. The destination
+        // is captured as a resolved descriptor so the write does NOT recompute a memory EA (the read-modify-
+        // write DOUBLE-COMPUTE fix: ComputeEa(pureEa:false) does the (An)+/-(An) write-back, so calling it again
+        // for the write would advance An a SECOND time and write to the wrong address — ADR 0007 finding #2).
+        uint a, b;
+        AluDest dest;
         switch (shape)
         {
             case AluShape.RegEa:
@@ -68,9 +73,19 @@ public sealed partial class M68000Cpu
                 uint dnReg = (operword >> 9) & 7u;       // bits 11-9 = the Dn operand
                 bool toEa  = (operword & 0x0100u) != 0;  // bit 8 direction: 1 = Dn op <ea> -> <ea>
                 uint dn = DataReg(dnReg) & mask;
-                uint ea = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);   // the <ea> operand
-                if (toEa) { a = ea; b = dn;  dstMode = srcMode; dstReg = srcReg; }   // dest = EA
-                else      { a = dn; b = ea;  dstMode = 0u;      dstReg = dnReg;  }   // dest = Dn
+                if (toEa)
+                {
+                    // dest = EA. Resolve the EA ONCE (single write-back), read A at it, write the result at it.
+                    dest = ResolveEaDest(srcMode, srcReg, size, r.ExtensionWords, out a);
+                    a &= mask; b = dn;
+                }
+                else
+                {
+                    // dest = Dn. The EA is a pure source read (its own (An)+/-(An) advance happens once, here).
+                    a = DataReg(dnReg) & mask;
+                    b = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords) & mask;
+                    dest = AluDest.Register(0u, dnReg);
+                }
                 break;
             }
             case AluShape.ImmEa:
@@ -81,31 +96,77 @@ public sealed partial class M68000Cpu
                 uint imm = size == 2u ? (((uint)r.ExtensionWords[0] << 16) | r.ExtensionWords[1])
                                       : (r.ExtensionWords[0] & mask);
                 var eaExt = ShiftExt(r.ExtensionWords, immCount);
-                a = ReadEaOperand(srcMode, srcReg, size, eaExt) & mask;   // dest EA value (operand A)
-                b = imm & mask;
-                dstMode = srcMode; dstReg = srcReg;
+                dest = ResolveEaDest(srcMode, srcReg, size, eaExt, out a);   // dest EA value (operand A)
+                a &= mask; b = imm & mask;
                 break;
             }
             case AluShape.QuickEa:
             {
                 uint imm3 = (operword >> 9) & 7u; if (imm3 == 0u) imm3 = 8u;   // 0 -> 8
-                a = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords) & mask;
-                b = imm3;
-                dstMode = srcMode; dstReg = srcReg;
+                dest = ResolveEaDest(srcMode, srcReg, size, r.ExtensionWords, out a);
+                a &= mask; b = imm3;
                 break;
             }
             default: // UnaryEa — one EA operand (NEG/NOT/TST). b=0; the aluFn ignores the unused arg.
             {
-                a = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords) & mask;
-                b = 0u;
-                dstMode = srcMode; dstReg = srcReg;
+                dest = ResolveEaDest(srcMode, srcReg, size, r.ExtensionWords, out a);
+                a &= mask; b = 0u;
                 break;
             }
         }
 
         uint result = aluFn(a, b, xIn, size) & mask;
-        if (writesResult) WriteEaOperand(dstMode, dstReg, size, result, r.ExtensionWords);
+        if (writesResult) WriteResolvedDest(dest, size, result);
         SR = (ushort)((SR & 0xFF00) | ccrRule(a, b, result, size, xIn, oldCcr));
+    }
+
+    /// <summary>A resolved ALU destination: either a data register (Mode 0) or an already-computed memory
+    /// address. Capturing the memory address ONCE (at read time) is the read-modify-write double-compute fix
+    /// (ADR 0007 finding #2): the (An)+/-(An) write-back is performed exactly once by the read's ComputeEa, and
+    /// the write reuses the resolved address rather than recomputing the EA (which would advance An again).</summary>
+    private readonly struct AluDest
+    {
+        public readonly bool IsRegister;
+        public readonly uint Mode;       // EA mode (only meaningful when IsRegister) — 0 = Dn
+        public readonly uint Reg;        // register index (when IsRegister)
+        public readonly uint Address;    // resolved memory address (when !IsRegister)
+
+        private AluDest(bool isReg, uint mode, uint reg, uint addr)
+        { IsRegister = isReg; Mode = mode; Reg = reg; Address = addr; }
+
+        public static AluDest Register(uint mode, uint reg) => new(true, mode, reg, 0u);
+        public static AluDest Memory(uint addr) => new(false, 0u, 0u, addr);
+    }
+
+    /// <summary>Read the EA operand AND resolve its destination in ONE pass. For a register EA (Dn mode 0 / An
+    /// mode 1) it reads the register and returns a register dest. For a memory EA it computes the address ONCE
+    /// (single (An)+/-(An) write-back), reads the operand at it, and returns a Memory dest carrying that exact
+    /// address — so the later write does NOT recompute the EA (the double-compute fix).</summary>
+    private AluDest ResolveEaDest(uint mode, uint reg, uint size,
+        CpuEmulator.Core.Jit.ExtensionWords ext, out uint operand)
+    {
+        if (mode == 0u) { operand = DataReg(reg); return AluDest.Register(0u, reg); }   // Dn
+        if (mode == 1u) { operand = Areg(reg);    return AluDest.Register(1u, reg); }   // An (full 32)
+        uint ea = ComputeEa(mode, reg, size, ext, pureEa: false);   // ONE write-back for (An)+/-(An)
+        operand = size switch { 0u => ReadByteAt(ea), 1u => ReadWordBus(ea), _ => ReadLongBus(ea) };
+        return AluDest.Memory(ea);
+    }
+
+    /// <summary>Write the ALU result to a resolved destination — a register (partial write for .b/.w) or the
+    /// already-computed memory address (no second ComputeEa, so no second (An)+/-(An) advance).</summary>
+    private void WriteResolvedDest(AluDest dest, uint size, uint result)
+    {
+        if (dest.IsRegister)
+        {
+            SetDataRegPartial(dest.Reg, result, size);   // Dn partial write (An is never an ALU-driver dest)
+            return;
+        }
+        switch (size)
+        {
+            case 0u: WriteByteAt(dest.Address, (byte)result); break;
+            case 1u: WriteWordBus(dest.Address, (ushort)result); break;
+            default: WriteLongBus(dest.Address, result); break;
+        }
     }
 
     /// <summary>Shift the extension-word buffer down by <paramref name="drop"/> words (used to skip the leading
@@ -176,6 +237,10 @@ public sealed partial class M68000Cpu
         public static byte NegRule(uint a, uint b, uint r, uint size, bool xIn, byte old)
             => Arith(0u, a, r, size, false, old, isSub: true);
 
+        /// <summary>NEGX CCR = ArithX borrow of (0 - a - X), with sticky Z. a is the ORIGINAL operand.</summary>
+        public static byte NegXRule(uint a, uint b, uint r, uint size, bool xIn, byte old)
+            => ArithX(0u, a, r, size, xIn, old, isSub: true);
+
         /// <summary>Compare: Arith-borrow but X is NEVER touched (CMP/CMPA/CMPI do not affect X).</summary>
         public static byte Cmp(uint a, uint b, uint r, uint size, bool xIn, byte old)
         {
@@ -204,5 +269,257 @@ public sealed partial class M68000Cpu
         public static byte LogicProbe(uint result, uint size, byte oldCcr) => Logic(0, 0, result, size, false, oldCcr);
         public static byte CmpProbe(uint a, uint b, uint result, uint size, byte oldCcr) => Cmp(a, b, result, size, false, oldCcr);
         public static byte ArithXProbe(uint a, uint b, uint result, uint size, bool xIn, byte oldCcr, bool isSub) => ArithX(a, b, result, size, xIn, oldCcr, isSub);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // The op-body registrations (ADR 0007 option C). Classic `partial void` (matching the generator-emitted
+    // declarations + the MOVE bodies): the regular families are one-line BinaryAluExecute registrations; the
+    // irregular tail (ADDA/SUBA/CMPA, EXT, CLR, ADDX/SUBX/NEGX, MULU/MULS, DIVU/DIVS) keeps bespoke bodies.
+    // ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    // ── Task 3: the regular two-operand reg<->EA families — one line each ──────────────────────────────────────
+    // (Partial-method parameter NAMES must match the generator-emitted declaration — operword/r/size/srcMode/
+    //  srcReg — per CS8826; the body forwards them positionally to BinaryAluExecute / the bespoke helpers.)
+    partial void AddExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Add, AluCcr.ArithAdd, AluShape.RegEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void SubExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Sub, AluCcr.ArithSub, AluShape.RegEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void AndExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.And, AluCcr.Logic,    AluShape.RegEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void OrExecute (uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Or,  AluCcr.Logic,    AluShape.RegEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void EorExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Eor, AluCcr.Logic,    AluShape.RegEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void CmpExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Sub, AluCcr.Cmp,      AluShape.RegEa, writesResult: false, operword, r, size, srcMode, srcReg);
+
+    // ── Task 4: address-reg variants. An dest, .w source sign-extends to 32, the op is full-32-bit. ───────────
+    partial void AddAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => AddrAlu(operword, r, size, srcMode, srcReg, Alu.Add, setsCcr: false, writes: true);
+    partial void SubAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => AddrAlu(operword, r, size, srcMode, srcReg, Alu.Sub, setsCcr: false, writes: true);
+    partial void CmpAExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => AddrAlu(operword, r, size, srcMode, srcReg, Alu.Sub, setsCcr: true,  writes: false);
+
+    /// <summary>ADDA/SUBA/CMPA shared body: An dest (bits 11-9). The operword's size field (sizeShift 8,
+    /// width 1, standard encoding) decodes to size index 0 = .w (opmode 011) or 1 = .l (opmode 111) — NOT the
+    /// usual 0=.b. So the operand size is .w when size==0 and .l when size==1. A .w source SIGN-EXTENDS to 32
+    /// and the arithmetic is ALWAYS on the full 32 bits. ADDA/SUBA set no CCR and write An; CMPA sets CCR (a
+    /// full-32-bit Cmp) and writes nothing.</summary>
+    private void AddrAlu(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg,
+        AluFn aluFn, bool setsCcr, bool writes)
+    {
+        bool isWord = size == 0u;                                // ADDA: size index 0 = .w, 1 = .l
+        uint opSize = isWord ? 1u : 2u;                          // the real operand size index (.w / .l)
+        uint anReg = (operword >> 9) & 7u;
+        uint srcRaw = ReadEaOperand(srcMode, srcReg, opSize, r.ExtensionWords);
+        uint src = isWord ? unchecked((uint)(int)(short)(ushort)srcRaw) : srcRaw;   // .w sign-extend to 32
+        uint a = Areg(anReg);
+        uint result = aluFn(a, src, false, 2u);                  // full 32-bit op (size index 2)
+        if (writes) SetAreg(anReg, result);
+        if (setsCcr)
+            SR = (ushort)((SR & 0xFF00) | AluCcr.Cmp(a, src, result, 2u, false, (byte)(SR & 0xFF)));
+    }
+
+    // ── Task 5: the unary core. NEG = 0 - ea (Arith); NOT = ~ea (Logic); TST = compare ea to 0 (Logic, no write).
+    partial void NegExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.NegFn, AluCcr.NegRule, AluShape.UnaryEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void NotExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.NotFn, AluCcr.Logic,   AluShape.UnaryEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void TstExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.TstFn, AluCcr.Logic,   AluShape.UnaryEa, writesResult: false, operword, r, size, srcMode, srcReg);
+
+    // ── Task 6: immediate forms (ImmEa). #imm is operand B; the EA is operand A AND the dest (CMPI no write). ──
+    partial void AddIExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Add, AluCcr.ArithAdd, AluShape.ImmEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void SubIExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Sub, AluCcr.ArithSub, AluShape.ImmEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void AndIExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.And, AluCcr.Logic,    AluShape.ImmEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void OrIExecute (uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Or,  AluCcr.Logic,    AluShape.ImmEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void EorIExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Eor, AluCcr.Logic,    AluShape.ImmEa, writesResult: true,  operword, r, size, srcMode, srcReg);
+    partial void CmpIExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.Sub, AluCcr.Cmp,      AluShape.ImmEa, writesResult: false, operword, r, size, srcMode, srcReg);
+
+    // ── Task 7: quick forms. imm3 = bits 11-9 (0->8). An dest = full-32-bit, NO CCR; else the QuickEa path. ───
+    partial void AddQExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => QuickAlu(operword, r, size, srcMode, srcReg, Alu.Add, AluCcr.ArithAdd);
+    partial void SubQExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => QuickAlu(operword, r, size, srcMode, srcReg, Alu.Sub, AluCcr.ArithSub);
+
+    private void QuickAlu(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg,
+        AluFn aluFn, CcrRule ccrRule)
+    {
+        uint imm3 = (operword >> 9) & 7u; if (imm3 == 0u) imm3 = 8u;
+        if (srcMode == 1u)   // An dest: full-32-bit, NO CCR (the quick-to-An quirk)
+        {
+            uint an = Areg(srcReg);
+            SetAreg(srcReg, aluFn(an, imm3, false, 2u));
+            return;
+        }
+        // Else: ride the QuickEa driver (it re-reads imm3 the same way + sets CCR).
+        BinaryAluExecute(aluFn, ccrRule, AluShape.QuickEa, writesResult: true, operword, r, size, srcMode, srcReg);
+    }
+
+    // ── Task 8: EXT — Dn sign-extend (bespoke; no EA). opmode bits 8-6: 010 = .b->.w, 011 = .w->.l. ────────────
+    partial void ExtExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+    {
+        uint dn = operword & 7u;
+        uint opmode = (operword >> 6) & 7u;        // 010 = byte->word, 011 = word->long
+        uint cur = DataReg(dn);
+        uint result;
+        uint resultSize;
+        if (opmode == 2u)                    // .b -> .w
+        {
+            result = unchecked((uint)(int)(sbyte)(byte)cur) & 0xFFFFu;
+            SetDataRegPartial(dn, result, 1u);   // write the low word; upper word preserved
+            resultSize = 1u;
+        }
+        else                                 // .w -> .l (opmode 3)
+        {
+            result = unchecked((uint)(int)(short)(ushort)cur);
+            SetDataRegPartial(dn, result, 2u);   // write the whole long
+            resultSize = 2u;
+        }
+        // CCR: N/Z from the (size-relative) result, V=C=0, X untouched.
+        SR = (ushort)((SR & 0xFF00) | AluCcr.Logic(0, 0, result, resultSize, false, (byte)(SR & 0xFF)));
+    }
+
+    // ── Task 9: CLR — write 0; CCR always Z=1, N=V=C=0, X untouched. The 68000 READS the EA before writing
+    //    (the vector-confirmed dummy read; data-axis-invisible but issued so the M4.5d trace matches). The
+    //    address-once form: for (An)+/-(An) (modes 3/4) compute the EA ONCE so An advances exactly once. ───────
+    partial void ClrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+    {
+        if (srcMode is 3u or 4u)
+        {
+            uint ea = ComputeEa(srcMode, srcReg, size, r.ExtensionWords, pureEa: false);   // single write-back
+            switch (size)
+            {
+                case 0u: _ = ReadByteAt(ea); WriteByteAt(ea, 0); break;
+                case 1u: _ = ReadWordBus(ea); WriteWordBus(ea, 0); break;
+                default: _ = ReadLongBus(ea); WriteLongBus(ea, 0); break;
+            }
+        }
+        else
+        {
+            _ = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);   // dummy read (Dn/simple-memory)
+            WriteEaOperand(srcMode, srcReg, size, 0u, r.ExtensionWords);  // write 0
+        }
+        byte ccr = (byte)(SR & 0xFF);
+        ccr = (byte)((ccr & 0x10) | 0x04);                     // keep X; set Z; clear N/V/C
+        SR = (ushort)((SR & 0xFF00) | ccr);
+    }
+
+    // ── Task 10: ADDX/SUBX — X-flag in, sticky Z (AluCcr.ArithX). bit 3 (R/M): 0 = Dx op Dy -> Dy;
+    //    1 = -(Ax) op -(Ay) -> (Ay). NEGX = 0 - ea - X (UnaryEa, ArithX). ───────────────────────────────────────
+    partial void AddXExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => XAlu(operword, size, Alu.AddX, AluCcr.ArithXAdd);
+    partial void SubXExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => XAlu(operword, size, Alu.SubX, AluCcr.ArithXSub);
+
+    private void XAlu(uint ow, uint size, AluFn aluFn, CcrRule ccrRule)
+    {
+        uint mask = SizeMask(size);
+        bool xIn = (Ccr & 0x10) != 0;
+        byte oldCcr = (byte)(SR & 0xFF);
+        uint yReg = (ow >> 9) & 7u;   // Dy / Ay (the dest, operand A)
+        uint xReg = ow & 7u;          // Dx / Ax (the source, operand B)
+        bool mem  = (ow & 0x0008u) != 0;
+
+        uint a, b, result;
+        if (!mem)   // Dx op Dy -> Dy
+        {
+            a = DataReg(yReg) & mask;
+            b = DataReg(xReg) & mask;
+            result = aluFn(a, b, xIn, size) & mask;
+            SetDataRegPartial(yReg, result, size);
+        }
+        else        // -(Ax) op -(Ay) -> (Ay) : predecrement BOTH (source Ax first, then dest Ay — the pairing)
+        {
+            uint aAddr = ComputeEa(4u, xReg, size, CpuEmulator.Core.Jit.ExtensionWords.None, pureEa: false); // -(Ax)
+            b = ReadSized(aAddr, size) & mask;
+            uint dAddr = ComputeEa(4u, yReg, size, CpuEmulator.Core.Jit.ExtensionWords.None, pureEa: false); // -(Ay)
+            a = ReadSized(dAddr, size) & mask;
+            result = aluFn(a, b, xIn, size) & mask;
+            WriteSized(dAddr, size, result);
+        }
+        SR = (ushort)((SR & 0xFF00) | ccrRule(a, b, result, size, xIn, oldCcr));
+    }
+
+    private uint ReadSized(uint ea, uint size) => size switch { 0u => ReadByteAt(ea), 1u => ReadWordBus(ea), _ => ReadLongBus(ea) };
+    private void WriteSized(uint ea, uint size, uint v)
+    { switch (size) { case 0u: WriteByteAt(ea, (byte)v); break; case 1u: WriteWordBus(ea, (ushort)v); break; default: WriteLongBus(ea, v); break; } }
+
+    partial void NegXExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => BinaryAluExecute(Alu.NegXFn, AluCcr.NegXRule, AluShape.UnaryEa, writesResult: true, operword, r, size, srcMode, srcReg);
+
+    // ── Task 11: MULU/MULS — Dn.w * ea.w -> Dn.l. CCR: N/Z from the 32-bit result, V=C=0, X untouched. ────────
+    partial void MulUExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => Mul(operword, r, srcMode, srcReg, signed: false);
+    partial void MulSExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => Mul(operword, r, srcMode, srcReg, signed: true);
+
+    private void Mul(uint ow, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg, bool signed)
+    {
+        uint dn = (ow >> 9) & 7u;
+        uint srcW = ReadEaOperand(srcMode, srcReg, 1u, r.ExtensionWords) & 0xFFFFu;   // .w source
+        uint dnW  = DataReg(dn) & 0xFFFFu;
+        uint result = signed
+            ? unchecked((uint)((int)(short)(ushort)dnW * (int)(short)(ushort)srcW))
+            : (dnW * srcW);
+        SetDataRegPartial(dn, result, 2u);   // whole-long write
+        SR = (ushort)((SR & 0xFF00) | AluCcr.Logic(0, 0, result, 2u, false, (byte)(SR & 0xFF)));  // N/Z, V=C=0, X kept
+    }
+
+    // ── Task 12: DIVU/DIVS — Dn.l / ea.w -> quotient(low16) + remainder(high16) in Dn. ÷0 detected here; the
+    //    vector-5 EXCEPTION is M4.5d (detect-and-defer: on ÷0 the body returns WITHOUT writing — the real
+    //    vector takes the trap, classified deferred by the runner's IsExceptionCase). V on quotient overflow. ──
+    partial void DivUExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => Div(operword, r, srcMode, srcReg, signed: false);
+    partial void DivSExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => Div(operword, r, srcMode, srcReg, signed: true);
+
+    private void Div(uint ow, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg, bool signed)
+    {
+        uint dn = (ow >> 9) & 7u;
+        uint divisorW = ReadEaOperand(srcMode, srcReg, 1u, r.ExtensionWords) & 0xFFFFu;   // .w divisor
+        if (divisorW == 0u)
+            return;   // DETECT ÷0; DEFER the vector-5 exception to M4.5d (no write, no CCR change)
+
+        uint dividend = DataReg(dn);
+        uint quotient, remainder;
+        bool overflow;
+        if (!signed)
+        {
+            ulong q = (ulong)dividend / divisorW;
+            remainder = dividend % divisorW;
+            overflow = q > 0xFFFFu;
+            quotient = (uint)(q & 0xFFFFu);
+        }
+        else
+        {
+            int dvd = unchecked((int)dividend);
+            int dvs = (int)(short)(ushort)divisorW;
+            long q = (long)dvd / dvs;
+            int rem = dvd % dvs;
+            overflow = q > short.MaxValue || q < short.MinValue;
+            quotient = (uint)((int)q & 0xFFFF);
+            remainder = (uint)(rem & 0xFFFF);
+        }
+
+        byte ccr = (byte)(SR & 0xFF);
+        ccr = (byte)(ccr & ~0x0F);   // clear N Z V C; keep X
+        if (overflow)
+        {
+            ccr |= 0x02;             // V set; on overflow Dn is NOT updated (the 68000 leaves it).
+            SR = (ushort)((SR & 0xFF00) | ccr);
+            return;                  // do NOT write Dn on overflow (vector-confirmed)
+        }
+        if ((quotient & 0x8000u) != 0) ccr |= 0x08;   // N from the 16-bit quotient sign
+        if (quotient == 0u) ccr |= 0x04;              // Z
+        SR = (ushort)((SR & 0xFF00) | ccr);
+        SetDataRegPartial(dn, (remainder << 16) | (quotient & 0xFFFFu), 2u);
     }
 }
