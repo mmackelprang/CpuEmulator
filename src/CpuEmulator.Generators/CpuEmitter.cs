@@ -102,7 +102,45 @@ internal static class CpuEmitter
         EmitDisassembler(sb, model);
         EmitMonitorSupport(sb, model);
         EmitJitDescriptors(sb, model, flags);
+        EmitJitTarget(sb, model);
         EmitDecodeWalk(sb, model);
+    }
+
+    /// <summary>The generated per-CPU JIT seam (J1) — the data-driven replacement for the 6502's baked
+    /// FA/FP/FPC/MStep handles. Resolves the status/PC/accumulator fields by the SPEC's role-named
+    /// registers, so the generic BlockCompiler&lt;TCpu&gt; never names a concrete CPU type. AOT-clean
+    /// (reflection handles + delegate wraps, no Reflection.Emit). One per CPU, on the generated partial.</summary>
+    private static void EmitJitTarget(StringBuilder sb, SpecModel model)
+    {
+        // Resolve the role-named registers from the spec (NOT hardcoded): the Status-role reg, the
+        // ProgramCounter-role reg, and the accumulator (the first 8-bit general reg by convention — "A"
+        // on both the 6502 and Z80; falls back to the status reg if a future CPU lacks an "A").
+        string status = model.Registers.First(r => r.Role == "Status").Name;
+        string pc = model.Registers.First(r => r.Role == "ProgramCounter").Name;
+        string acc = model.Registers.Any(r => r.Name == "A") ? "A" : status;
+        string cpuType = model.CpuName;
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated per-CPU JIT seam (J1) — the data-driven replacement for the");
+        sb.AppendLine("    /// 6502's baked FA/FP/FPC/MStep handles. Resolves the status/PC/accumulator fields by the");
+        sb.AppendLine("    /// SPEC's role-named registers, so the generic BlockCompiler&lt;TCpu&gt; never names a");
+        sb.AppendLine("    /// concrete CPU type. AOT-clean (reflection handles + delegate wraps, no Reflection.Emit).</summary>");
+        sb.AppendLine("    public static readonly CpuEmulator.Core.Jit.IJitTarget JitTarget = new GeneratedJitTarget();");
+        sb.AppendLine();
+        sb.AppendLine("    private sealed class GeneratedJitTarget : CpuEmulator.Core.Jit.IJitTarget");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        public System.Type CpuType => typeof({cpuType});");
+        sb.AppendLine($"        public System.Reflection.FieldInfo StatusField => typeof({cpuType}).GetField(\"{status}\")!;");
+        sb.AppendLine($"        public System.Reflection.FieldInfo ProgramCounterField => typeof({cpuType}).GetField(\"{pc}\")!;");
+        sb.AppendLine($"        public System.Reflection.FieldInfo AccumulatorField => typeof({cpuType}).GetField(\"{acc}\")!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo StepMethod => typeof({cpuType}).GetMethod(\"Step\")!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo AdvanceCyclesMethod => typeof({cpuType}).GetMethod(\"AdvanceCycles\", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo CycleCountGetter => typeof({cpuType}).GetProperty(\"CycleCount\")!.GetGetMethod()!;");
+        sb.AppendLine($"        public System.Reflection.MethodInfo InterruptPendingGetter => typeof({cpuType}).GetProperty(\"InterruptPending\")!.GetGetMethod()!;");
+        sb.AppendLine($"        public CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream) => {cpuType}.Decode(stream);");
+        sb.AppendLine($"        public CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey) => {cpuType}.DescriptorFor(operationKey);");
+        sb.AppendLine($"        public System.Collections.Generic.IReadOnlyList<string> RegisterNames => s_registerNames;");
+        sb.AppendLine("    }");
     }
 
     private static void EmitExecution(StringBuilder sb, SpecModel model, FlagBitMap flags)

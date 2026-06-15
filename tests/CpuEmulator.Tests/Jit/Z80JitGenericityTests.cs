@@ -30,4 +30,16 @@ public class Z80JitGenericityTests
         Assert.NotNull(t.CycleCountGetter);
         Assert.NotNull(t.InterruptPendingGetter);
     }
+
+    [Fact]
+    public void Generated_JitTargets_resolve_for_both_CPUs()
+    {
+        Assert.Equal(typeof(Mos6502Cpu), Mos6502Cpu.JitTarget.CpuType);
+        Assert.Equal("P", Mos6502Cpu.JitTarget.StatusField.Name);   // 6502 status = P
+        Assert.Equal(typeof(Z80Cpu), Z80Cpu.JitTarget.CpuType);
+        Assert.Equal("F", Z80Cpu.JitTarget.StatusField.Name);       // Z80 status = F
+        // The decode + descriptor wraps resolve for both (the J3 seam): a 6502 NOP key + a Z80 NOP key.
+        Assert.NotNull(Mos6502Cpu.JitTarget.AdvanceCyclesMethod);
+        Assert.NotNull(Z80Cpu.JitTarget.AdvanceCyclesMethod);
+    }
 }
