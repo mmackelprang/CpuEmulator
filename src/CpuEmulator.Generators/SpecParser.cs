@@ -865,8 +865,9 @@ internal static class SpecParser
     /// <summary>Parse the optional <c>Flags</c> field (M3.4a Ground truth B). ABSENT ⇒ empty (the
     /// 6502 FlagBit enum-fallback). Present ⇒ a <c>new([ new("S", 7), new("Z", 6), … ])</c> /
     /// <c>new FlagLayout([...])</c> creation whose collection of <c>FlagBitDef("NAME", bit)</c>
-    /// entries is parsed into the model. A malformed structure or a bit outside 0–7 reports
-    /// CPUGEN013. Each name must be a known Flag member (CPUGEN013 otherwise).</summary>
+    /// entries is parsed into the model. A malformed structure or a bit outside 0–15 reports
+    /// CPUGEN013 (M4.1 widened the cap from 0–7 to 0–15 for the 68000's 16-bit SR). Each name must
+    /// be a known Flag member (CPUGEN013 otherwise).</summary>
     private static ImmutableArray<FlagBitModel> ParseFlagLayout(
         ClassDeclarationSyntax classDecl,
         ImmutableArray<DiagnosticInfo>.Builder diagnostics)
