@@ -4139,6 +4139,19 @@ internal static class CpuEmitter
         sb.AppendLine("                ushort ew = (ushort)stream.NextUnit();   // big-endian word (the stream composes BE)");
         sb.AppendLine("                switch (w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
         sb.AppendLine("            }");
+        sb.AppendLine("            // M4.5a (deferred D5): MOVE/MOVEA have a SECOND EA (dest, bits 11-6, mode/reg swapped).");
+        sb.AppendLine("            if (IsMoveFamily(f.OpIndex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                uint dstReg  = (operword >> 9) & 7u;   // bits 11-9");
+        sb.AppendLine("                uint dstMode = (operword >> 6) & 7u;   // bits 8-6");
+        sb.AppendLine("                int dstExt = ExtensionWordCount(dstMode, dstReg, size);");
+        sb.AppendLine("                for (int w = 0; w < dstExt; w++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    ushort ew = (ushort)stream.NextUnit();");
+        sb.AppendLine("                    switch (extWords + w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
+        sb.AppendLine("                }");
+        sb.AppendLine("                extWords += dstExt;");
+        sb.AppendLine("            }");
         sb.AppendLine("            int len = stream.UnitsConsumed * stream.UnitBytes;        // COMPUTED — words × 2");
         sb.AppendLine("            var ext = new CpuEmulator.Core.Jit.ExtensionWords(e0, e1, e2, e3, extWords);");
         sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None, ext, (ushort)operword);");
@@ -4150,6 +4163,7 @@ internal static class CpuEmitter
 
         EmitSizeMapHelper(sb);            // MapSize(sizeBits, enc) — Standard vs Move (C4)
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
+        EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
         // DescriptorFor reuses the keyed dictionary (emitted by EmitKeyedDescriptorTable); 0xFFFFFFFF →
@@ -4194,6 +4208,20 @@ internal static class CpuEmitter
             if (hook is null) continue;
             sb.AppendLine($"            case {i}u: {hook}; break;");
         }
+    }
+
+    /// <summary>M4.5a: the opIndices whose length is two-EA (MOVE + MOVEA). The dest EA (bits 11-6, swapped)
+    /// contributes extension words too (deferred D5 from M4.4a). Emitted from the dataset operation names.</summary>
+    private static void EmitIsMoveFamily(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var moveIndices = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "MOVE" or "MOVEA") moveIndices.Add(i);
+        sb.AppendLine();
+        sb.Append("    private static bool IsMoveFamily(uint opIndex) => ");
+        sb.AppendLine(moveIndices.Count == 0
+            ? "false;"
+            : string.Join(" || ", moveIndices.Select(i => $"opIndex == {i}u")) + ";");
     }
 
     /// <summary>M4.3a Task 4 (C5): emit ExtensionWordCount(eaMode, eaReg, size) — the (ea-mode, size)
