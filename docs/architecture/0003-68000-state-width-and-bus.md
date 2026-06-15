@@ -135,6 +135,8 @@ The default implementations for a little-endian space may compose from `Read8` (
 - *Good:* one place owns word/long transactions, the alignment fault (ADR 0004), the cycle charge (one per word, two per long), and the trace granularity the gate demands. Endianness is data. The 24-bit address fits the flat page table (ADR 0002) — **no two-level table, no `uint→ulong`**.
 - *Bad:* a genuine, enumerated `IAddressSpace` contract growth — the first since M1. Every bus implementer (including the test `TracingAddressSpace`, which must now record `.b`/`.w`/`.l` transactions to diff against the vectors) gains the wide path. Acceptable per ADR 0001 §10 and the explicit M3.2 pre-planning.
 
+> **RESOLVED in M4.2 (2026-06-15).** The "final shape is the M4 bus PR's to settle" was settled by `docs/superpowers/plans/2026-06-15-m4-2-wide-be-bus.md` exactly as the recommended surface above — the four wide methods + `Endianness` landed as DEFAULT interface methods (composing over `Read8`/`Write8`), `AddressSpace` overrides them with a construction-time `Endianness` (default `LittleEndian`), and `BusAlignment.IsMisaligned` provides the detection-only alignment seam. See the M4.2 resolution note on §6 open-question 1 for the full deliver-vs-defer (the address-error EXCEPTION → M4.5; the wide-bus JIT emit arm → M6; per-byte MMIO decomposition). The 6502/Z80 stay byte-identical + byte-only and green; no 68000 instruction executes yet.
+
 ### Decision 3 — The JIT's data half: the 68000 enters as all-fallback; the wide-bus + 32-bit emit arms are deferred to M6
 
 **The problem.** The post-M3 JIT is generic (`IJitTarget` + `BlockCompiler<TCpu>`), but its emit arms are 6502/Z80-shaped: every register access is byte-typed (`Conv_U1`), the bus arms are byte-only, the cycle model is per-byte-access. The 68000 stresses three JIT 6502-isms the Z80 left untested (research §8): **J4** (wide big-endian bus), **J-new-A** (32-bit register IL + partial-write of `.b`/`.w` into a 32-bit field), **J5** (operand-dependent cycle counts).
@@ -201,6 +203,24 @@ Honesty per the brief: where a decision genuinely depends on what the first M4 P
 ## 6. Open questions for the owner
 
 1. **The wide-bus contract change (Decision 2) — owner sign-off.** This is the load-bearing M4 decision and the first `IAddressSpace` growth since M1. The TomHarte trace evidence (word/long `.w`/`.l` transactions) makes Option (A) effectively forced — but it is a real contract change touching every bus implementer. *Recommend: accept (A).*
+
+   > **M4.2 resolution (2026-06-15, `docs/superpowers/plans/2026-06-15-m4-2-wide-be-bus.md`):**
+   > - The wide surface landed as Decision 2's recommended shape: `IAddressSpace` gains `Read16/Read32/
+   >   Write16/Write32` + `Endianness Endianness { get; }` as DEFAULT interface methods composing over
+   >   `Read8`/`Write8` (so every implementer, incl. the test `TracingAddressSpace`, gets a correct wide
+   >   path for free); `AddressSpace` overrides with a construction-time `Endianness` (default `LittleEndian`;
+   >   the 68000 constructs `BigEndian` in M4.5) + the page-path composition. BE writes high-byte-first; a
+   >   long is two words, high word first. The 6502/Z80 stay byte-identical + byte-only (LE default; nobody
+   >   calls the wide methods).
+   > - Odd-address handling (Decision 2's "the alignment check has one home"): M4.2 ships the DETECTION
+   >   predicate `BusAlignment.IsMisaligned(addr, width)` (pure, no raise). The address-error EXCEPTION
+   >   (vector 3, the supervisor stack frame) is DEFERRED to M4.5 per ADR 0004 Decision 3 — the M4.5
+   >   interpreter checks the predicate BEFORE a wide access and vectors.
+   > - A wide MMIO access composes into per-byte peripheral callouts each `AccessWidth.Byte` (Decision D5 of
+   >   the M4.2 plan) — the conservative correct M4.2 behaviour (no peripheral in any current/M4.5 fixture;
+   >   the TomHarte `ram` is memory). A single width-tagged MMIO callout is a future device-modelling concern.
+   > - The wide-bus / 32-bit JIT emit arm is NOT in M4.2 — it is M6 (Decision 3); M4.2's wide accessors go
+   >   through the normal `AddressSpace` wide path. The fastmem `TryGetDirectAccess` view is untouched.
 2. **Cycle-accuracy bar (shared with ADR 0001 open-q 5, extended).** Hold the interpreter to the TomHarte per-cycle/per-transaction bus-trace + `prefetch` fidelity (the oracle demands it), with the cycle *count* computed from a 68000 timing model (mode + size + operands), not a constant `BaseCycles`. Confirm `PageCrossPenalty` generalizes to a per-arch timing addend (J5). *Recommend: yes, interpreter held to the full gate.*
 3. **Prefetch-queue modelling timing** (just-in-time item 3) — Core-state PR or first instruction-family PR?
 
