@@ -315,6 +315,17 @@ internal static class CpuEmitter
             sb.AppendLine("    partial void MoveToCcrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
             sb.AppendLine("    partial void MoveFromSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint srcMode, uint srcReg);");
             sb.AppendLine("    partial void MoveUspExecute(uint operword);");
+            sb.AppendLine();
+            sb.AppendLine("    // M4.5b: the integer-ALU op bodies — implemented by the hand-written M68000Cpu.Alu partial.");
+            sb.AppendLine("    // Classic `partial void` (implicitly private): elided when unimplemented (so the dispatch arms");
+            sb.AppendLine("    // are no-ops until each family's body lands), implemented by M68000Cpu.Alu.cs.");
+            foreach (var name in new[] {
+                "Add","Sub","And","Or","Eor","Cmp","AddA","SubA","CmpA",
+                "AddI","SubI","AndI","OrI","EorI","CmpI","AddQ","SubQ",
+                "Neg","NegX","Not","Clr","Tst","Ext","AddX","SubX","MulU","MulS","DivU","DivS" })
+            {
+                sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            }
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -4137,6 +4148,11 @@ internal static class CpuEmitter
         sb.AppendLine("            // Extract the size bits and map via the size encoding (Standard vs Move — C4).");
         sb.AppendLine("            uint sizeBits = (operword >> f.SizeShift) & (uint)((1 << f.SizeWidth) - 1);");
         sb.AppendLine("            uint size = MapSize(sizeBits, f.SizeEnc);          // 0=b, 1=w, 2=l (an OperandSize index)");
+        sb.AppendLine("            // M4.5b: the address-reg variants (ADDA/SUBA/CMPA) have a 1-bit size field (opmode bit 8:");
+        sb.AppendLine("            // 0=.w, 1=.l) that the Standard MapSize yields as index 0/1 — but the operand is .w/.l, NOT");
+        sb.AppendLine("            // .b/.w. Remap to the REAL operand size index (1=.w, 2=.l) so the extension-word count, the EA");
+        sb.AppendLine("            // (An)+/-(An) magnitude, and the (operation,size) key all reflect .w/.l (the body relies on it).");
+        sb.AppendLine("            if (IsAddressRegVariant(f.OpIndex)) size += 1u;");
         sb.AppendLine("            // Extract the 6-bit EA field: mode = bits 5-3, register = bits 2-0 (M4.3b consumes these).");
         sb.AppendLine("            uint ea = (operword >> f.EaShift) & 0x3F;");
         sb.AppendLine("            uint eaMode = (ea >> 3) & 7;");
@@ -4144,12 +4160,27 @@ internal static class CpuEmitter
         sb.AppendLine("            // The opaque (operation, size) descriptor key (Ground truth C — opaque to consumers).");
         sb.AppendLine("            uint key = (1u << 24) | (f.OpIndex << 8) | size;   // high tag keeps it distinct from byte/prefix keys");
         sb.AppendLine("            ushort e0 = 0, e1 = 0, e2 = 0, e3 = 0;                     // M4.3b: capture the extension-word VALUES (D2)");
-        sb.AppendLine("            int extWords = ExtensionWordCount(eaMode, eaReg, size);   // M4.3a Task 4: operand-computed");
-        sb.AppendLine("            for (int w = 0; w < extWords; w++)");
+        sb.AppendLine("            int extWords = 0;");
+        sb.AppendLine("            // M4.5b: the immediate forms (ADDI/SUBI/ANDI/ORI/EORI/CMPI) carry a LEADING #imm");
+        sb.AppendLine("            // extension word(s) BEFORE the EA's own words: .b/.w = 1 word, .l = 2 words. The");
+        sb.AppendLine("            // walk fetches them FIRST (stream order), so ext[0..immCount-1] = imm, then the EA's.");
+        sb.AppendLine("            if (IsImmediateForm(f.OpIndex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                int immWords = size == 2u ? 2 : 1;");
+        sb.AppendLine("                for (int w = 0; w < immWords; w++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    ushort iw = (ushort)stream.NextUnit();");
+        sb.AppendLine("                    switch (w) { case 0: e0 = iw; break; default: e1 = iw; break; }");
+        sb.AppendLine("                }");
+        sb.AppendLine("                extWords = immWords;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            int eaExt = ExtensionWordCount(eaMode, eaReg, size);      // M4.3a Task 4: operand-computed");
+        sb.AppendLine("            for (int w = 0; w < eaExt; w++)");
         sb.AppendLine("            {");
         sb.AppendLine("                ushort ew = (ushort)stream.NextUnit();   // big-endian word (the stream composes BE)");
-        sb.AppendLine("                switch (w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
+        sb.AppendLine("                switch (extWords + w) { case 0: e0 = ew; break; case 1: e1 = ew; break; case 2: e2 = ew; break; default: e3 = ew; break; }");
         sb.AppendLine("            }");
+        sb.AppendLine("            extWords += eaExt;");
         sb.AppendLine("            // M4.5a (deferred D5): MOVE/MOVEA have a SECOND EA (dest, bits 11-6, mode/reg swapped).");
         sb.AppendLine("            if (IsMoveFamily(f.OpIndex))");
         sb.AppendLine("            {");
@@ -4175,6 +4206,8 @@ internal static class CpuEmitter
         EmitSizeMapHelper(sb);            // MapSize(sizeBits, enc) — Standard vs Move (C4)
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
         EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
+        EmitIsImmediateForm(sb, grammar); // M4.5b: the leading-#imm-word ALU immediate-form predicate
+        EmitIsAddressRegVariant(sb, grammar); // M4.5b: the ADDA/SUBA/CMPA .w/.l size remap predicate
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
         // DescriptorFor reuses the keyed dictionary (emitted by EmitKeyedDescriptorTable); 0xFFFFFFFF →
@@ -4214,6 +4247,36 @@ internal static class CpuEmitter
                 "MOVE_TO_CCR"  => "MoveToCcrExecute(__operword, __r, __srcMode, __srcReg)",
                 "MOVE_FROM_SR" => "MoveFromSrExecute(__operword, __r, __srcMode, __srcReg)",
                 "MOVE_USP"     => "MoveUspExecute(__operword)",
+                // ── M4.5b: the integer-ALU families (ADR 0007 option C). All take the same (ow,r,size,sm,sr). ──
+                "ADD"  => "AddExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SUB"  => "SubExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "AND"  => "AndExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "OR"   => "OrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EOR"  => "EorExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CMP"  => "CmpExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ADDA" => "AddAExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SUBA" => "SubAExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CMPA" => "CmpAExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ADDI" => "AddIExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SUBI" => "SubIExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ANDI" => "AndIExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ORI"  => "OrIExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EORI" => "EorIExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CMPI" => "CmpIExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ADDQ" => "AddQExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SUBQ" => "SubQExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "NEG"  => "NegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "NEGX" => "NegXExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "NOT"  => "NotExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CLR"  => "ClrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "TST"  => "TstExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EXT"  => "ExtExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ADDX" => "AddXExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SUBX" => "SubXExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MULU" => "MulUExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MULS" => "MulSExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "DIVU" => "DivUExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "DIVS" => "DivSExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 _ => null,
             };
             if (hook is null) continue;
@@ -4233,6 +4296,38 @@ internal static class CpuEmitter
         sb.AppendLine(moveIndices.Count == 0
             ? "false;"
             : string.Join(" || ", moveIndices.Select(i => $"opIndex == {i}u")) + ";");
+    }
+
+    /// <summary>M4.5b: the opIndices whose encoding carries a LEADING #imm extension word(s) before the EA's
+    /// own words (ADDI/SUBI/ANDI/ORI/EORI/CMPI). The decode walk fetches those first so ext[0..] = imm, then
+    /// the EA's. Name-driven from the dataset operation names (NOT the to-CCR/SR system forms — those are
+    /// distinct operation rows, M4.5c). 0xF immediate-to-CCR/SR variants are absent from this set.</summary>
+    private static void EmitIsImmediateForm(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var immIndices = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "ADDI" or "SUBI" or "ANDI" or "ORI" or "EORI" or "CMPI")
+                immIndices.Add(i);
+        sb.AppendLine();
+        sb.Append("    private static bool IsImmediateForm(uint opIndex) => ");
+        sb.AppendLine(immIndices.Count == 0
+            ? "false;"
+            : string.Join(" || ", immIndices.Select(i => $"opIndex == {i}u")) + ";");
+    }
+
+    /// <summary>M4.5b: the address-reg variants (ADDA/SUBA/CMPA) whose 1-bit opmode size field (bit 8: 0=.w,
+    /// 1=.l) the Standard MapSize yields as index 0/1; the decode walk remaps it to the real .w/.l index (1/2)
+    /// so the extension-word count + EA magnitude + (operation,size) key reflect the true operand size.</summary>
+    private static void EmitIsAddressRegVariant(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var idx = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "ADDA" or "SUBA" or "CMPA") idx.Add(i);
+        sb.AppendLine();
+        sb.Append("    private static bool IsAddressRegVariant(uint opIndex) => ");
+        sb.AppendLine(idx.Count == 0
+            ? "false;"
+            : string.Join(" || ", idx.Select(i => $"opIndex == {i}u")) + ";");
     }
 
     /// <summary>M4.3a Task 4 (C5): emit ExtensionWordCount(eaMode, eaReg, size) — the (ea-mode, size)

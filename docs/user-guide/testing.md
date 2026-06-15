@@ -197,12 +197,26 @@ In both shapes **field 2 is the per-slot cycle count** — the case's top-level 
 field 2 across its transactions (confirmed against the live data; this resolves the ADR 0004 §5 "field 2
 unconfirmed" flag).
 
-> **State as of M4.4b: the loader PARSES; no opcode executes yet.** M4.4b ships the gzip + mnemonic-keyed
-> loader, the `680x0/v1` cache resolver, the skip-when-absent theory attribute, the fetch script, a
-> committed gzip fixture (an always-on parse proof needing no download), a skip-gated real-file theory, and
-> a runner **scaffold** that sets the full initial state on a fresh `M68000Cpu` over a tracing wide
-> big-endian bus and returns a `NotYetExecuted` sentinel. The op bodies, the prefetch-queue mechanism, and
-> the Step-and-diff (registers + ram + per-transaction bus trace + the final prefetch queue) are **M4.5**.
+> **State as of M4.5b: the 68000 EXECUTES the MOVE family (M4.5a) AND the integer-ALU families (M4.5b),
+> TomHarte-green on the DATA axis.** M4.4b shipped the gzip + mnemonic-keyed loader, the `680x0/v1` cache
+> resolver, the skip-when-absent theory attribute, the fetch script, and the runner scaffold. M4.5a wired
+> the field-decode Step + the MOVE op bodies and turned the runner into a real Step-and-diff (10 MOVE files
+> green). M4.5b adds the table-driven integer-ALU layer (ADR 0007 option C) — `ADD/SUB/AND/OR/EOR/CMP`,
+> `ADDA/SUBA/CMPA`, `NEG/NEGX/NOT/CLR/TST`, `EXT`, `ADDX/SUBX`, `MULU/MULS/DIVU/DIVS` — green across the
+> **51 in-scope ALU-family files (300,950 data-axis cases)**.
+>
+> **DATA axis only.** The sweep asserts the final `D0–D7, A0–A6, USP, SSP, SR, RAM` (the pure execution
+> result, operword seeded from `initial.prefetch[0]`). The TIMING axis (`final.pc`/`final.prefetch`, the
+> per-transaction bus trace, the cycle count) + the `DIVU/DIVS` divide-by-zero exception (vector 5) +
+> address-error/privilege cases are **M4.5d** (detected and DEFERRED via the runner's `IsExceptionCase`
+> heuristic, counted not asserted).
+>
+> **Honesty (M4.5b).** The immediate forms (`ADDI/SUBI/ANDI/ORI/EORI/CMPI`) and quick forms (`ADDQ/SUBQ`)
+> EXECUTE but are **NOT TomHarte-gated** — no `v1` vector files exist for them. They are covered by
+> differential-equivalence (each ≡ its vector-proven reg↔EA counterpart through the same driver) + synthetic
+> immediate-fetch tests (`M68000AluExecuteTests`). `CMPM` is dropped (absent from the FieldGrammar dataset;
+> its cases are bundled into the `CMP.*`/`CMPA.l` files and skipped as out-of-scope to M4.5c). The
+> shift/rotate/bit/BCD/Scc/system-misc families are M4.5c.
 
 #### Fetch 68000 vectors
 
@@ -222,6 +236,13 @@ dotnet test --filter "FullyQualifiedName~M68000TomHarteLoaderTests"
 
 # The skip-gated real-file theory runs once vectors are fetched:
 dotnet test --filter "FullyQualifiedName~Loads_one_real_vector_file_when_present"
+
+# The MOVE-family green sweep (M4.5a) and the integer-ALU green sweep (M4.5b) — the un-fakeable
+# data-axis gates. Run under -c Release with the vectors PRESENT (a skip is NOT a mergeable state).
+# These are HEAVY (10 + 51 files x several-thousand cases); run them SEQUENTIALLY, coarse-monitored
+# (wake on Passed!/Failed!), and kill any leftover testhost.exe workers before a fresh run:
+dotnet test -c Release --filter "FullyQualifiedName~M68000TomHarteTests"
+dotnet test -c Release --filter "FullyQualifiedName~M68000AluTomHarteTests"
 ```
 
 ---
