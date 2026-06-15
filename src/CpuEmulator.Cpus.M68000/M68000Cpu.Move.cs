@@ -139,8 +139,11 @@ public sealed partial class M68000Cpu
     partial void MoveFromSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r,
         uint srcMode, uint srcReg)
     {
-        // dest EA is the operword's low 6 bits (mode = srcMode, reg = srcReg here — MOVE from SR's single EA).
-        WriteEaOperand(srcMode, srcReg, size: 1u, value: SR, ext: r.ExtensionWords);   // SR.w → dest
+        // NOTE: for MOVE-from-SR the operword's low-6 EA field (passed here as srcMode/srcReg) is the
+        // DESTINATION, not a source — this op moves SR -> EA. Alias them explicitly so a future maintainer
+        // adding a second EA or a privilege path does not misread the direction (review finding, M4.5a).
+        uint dstMode = srcMode, dstReg = srcReg;
+        WriteEaOperand(dstMode, dstReg, size: 1u, value: SR, ext: r.ExtensionWords);   // SR.w -> dest EA
     }
 
     partial void MoveUspExecute(uint operword)
