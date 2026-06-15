@@ -172,6 +172,58 @@ CPUEMULATOR_UAT=full dotnet test --filter "FullyQualifiedName~Z80TomHarte"
 
 A registers-only subset (skips the bus-trace/ports diff) is available via `CPUEMULATOR_Z80_REGS_ONLY=1` for fast triage; the merge gate always runs the full diff.
 
+### 68000 TomHarte single-step vectors (loader infrastructure — M4.4b)
+
+The 68000 is the framework's third architecture. It uses a **third** vector corpus —
+[SingleStepTests/680x0](https://github.com/SingleStepTests/680x0) — structurally distinct from both the
+6502 and Z80 sets on three axes:
+
+- **gzip-compressed** files (`*.json.gz`) — the loader gunzips with `GZipStream` before parsing;
+- **mnemonic + size-keyed** filenames (`ADD.b.json.gz`, `ABCD.json.gz`) — the filename is the disassembly,
+  not the opcode hex; 124 files, several thousand cases each (e.g. `ADD.b` has 8065);
+- a per-case schema carrying the **2-word prefetch queue** (`prefetch: [w0, w1]`, in both `initial` and
+  `final`), the **separate `usp`/`ssp`** (never `a7`), the 16-bit `sr`, the 32-bit `d0..d7`/`a0..a6`/`pc`,
+  the `ram` `[addr, value]` pairs, a top-level `length` (total instruction cycles), and a word-granular
+  `transactions` array.
+
+The `transactions` tuples come in two shapes (pinned against the live upstream repo):
+
+| Shape | Meaning |
+|---|---|
+| `["n", cycles]` | an idle / internal slot — no bus access |
+| `[dir, cycles, fc, addr, sizeTag, value]` | a bus access — `dir` is `"r"`/`"w"`, `fc` is the function code (5 = supervisor data, 6 = supervisor program), `sizeTag` is `.b`/`.w` (the 68000 bus is 16-bit, so a `.l` access decomposes into two `.w` transactions — no `.l` at the bus level) |
+
+In both shapes **field 2 is the per-slot cycle count** — the case's top-level `length` equals the sum of
+field 2 across its transactions (confirmed against the live data; this resolves the ADR 0004 §5 "field 2
+unconfirmed" flag).
+
+> **State as of M4.4b: the loader PARSES; no opcode executes yet.** M4.4b ships the gzip + mnemonic-keyed
+> loader, the `680x0/v1` cache resolver, the skip-when-absent theory attribute, the fetch script, a
+> committed gzip fixture (an always-on parse proof needing no download), a skip-gated real-file theory, and
+> a runner **scaffold** that sets the full initial state on a fresh `M68000Cpu` over a tracing wide
+> big-endian bus and returns a `NotYetExecuted` sentinel. The op bodies, the prefetch-queue mechanism, and
+> the Step-and-diff (registers + ram + per-transaction bus trace + the final prefetch queue) are **M4.5**.
+
+#### Fetch 68000 vectors
+
+```
+# Windows
+pwsh tools/get-test-vectors-68000.ps1
+```
+
+The script sparse-checks-out the upstream `68000/v1/` tree and caches it under `$TESTVECTORS/680x0/v1/`
+(matching the resolver). It is idempotent and `$LASTEXITCODE`-checked.
+
+#### Run
+
+```
+# The committed gzip fixture parse proof always runs (no vectors needed):
+dotnet test --filter "FullyQualifiedName~M68000TomHarteLoaderTests"
+
+# The skip-gated real-file theory runs once vectors are fetched:
+dotnet test --filter "FullyQualifiedName~Loads_one_real_vector_file_when_present"
+```
+
 ---
 
 ## Pre-merge gate checklist
@@ -212,6 +264,7 @@ The PR body must include the total TomHarte case count (must equal 1,510,000), t
 | `CPUEMULATOR_TESTVECTORS` | `~/.cache/cpuemulator/vectors` | All vectors |
 | *(none)* | `$TESTVECTORS/6502/v1/` | TomHarte 6502 JSON files (one per opcode hex) |
 | *(none)* | `$TESTVECTORS/z80/v1/` | TomHarte Z80 JSON files (separate corpus, distinct schema) |
+| *(none)* | `$TESTVECTORS/680x0/v1/` | TomHarte 68000 gzip files (`*.json.gz`, mnemonic+size-keyed; M4.4b loader parses, M4.5 executes) |
 | *(none)* | `$TESTVECTORS/klaus/6502_functional_test.bin` | Klaus 64 KiB binary |
 
 Vectors are never vendored into the repository. The fetch scripts download and cache them on demand; they are safe to re-run (idempotent).

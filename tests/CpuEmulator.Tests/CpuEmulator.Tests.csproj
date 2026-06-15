@@ -22,6 +22,8 @@
   <ItemGroup>
     <!-- Seeded fixture for cross-source diff tests (test-only; not in the tools data/ directory). -->
     <Content Include="Importer\data\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Committed 680x0 TomHarte gzip fixture (M4.4b): always-on parse proof, no vector download. -->
+    <None Include="TomHarte\fixtures\m68000-sample.json.gz" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
