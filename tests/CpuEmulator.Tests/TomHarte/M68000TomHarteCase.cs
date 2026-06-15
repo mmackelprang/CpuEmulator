@@ -68,11 +68,16 @@ internal static class M68000TomHarteLoader
         element.TryGetProperty("length", out var len) && len.ValueKind == JsonValueKind.Number ? len.GetInt32() : 0,
         [.. element.GetProperty("transactions").EnumerateArray().Select(ReadTransaction)]);
 
+    // Read numbers via GetInt64 + unchecked cast rather than GetUInt32, so a value the upstream tooling
+    // happened to write as a signed/negative decimal (e.g. -1 for 0xFFFFFFFF) parses losslessly instead of
+    // throwing — the parse must be robust against any in-range bit pattern the corpus encodes.
+    private static uint NumU32(JsonElement v) => unchecked((uint)v.GetInt64());
+
     private static uint U32(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetUInt32() : 0u;
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? NumU32(v) : 0u;
 
     private static ushort U16(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? (ushort)v.GetUInt32() : (ushort)0;
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? (ushort)NumU32(v) : (ushort)0;
 
     private static M68000State ReadState(JsonElement e)
     {
@@ -82,15 +87,15 @@ internal static class M68000TomHarteLoader
         for (int i = 0; i < 7; i++) a[i] = U32(e, $"a{i}");
 
         ushort[] prefetch = e.TryGetProperty("prefetch", out var pf) && pf.ValueKind == JsonValueKind.Array
-            ? [.. pf.EnumerateArray().Select(x => (ushort)x.GetUInt32())]
+            ? [.. pf.EnumerateArray().Select(x => (ushort)NumU32(x))]
             : [0, 0];
 
         M68000Ram[] ram = e.TryGetProperty("ram", out var r) && r.ValueKind == JsonValueKind.Array
             ? [.. r.EnumerateArray().Select(static pair =>
               {
                   using var items = pair.EnumerateArray();
-                  items.MoveNext(); uint address = items.Current.GetUInt32();
-                  items.MoveNext(); byte value = items.Current.GetByte();
+                  items.MoveNext(); uint address = NumU32(items.Current);
+                  items.MoveNext(); byte value = (byte)(NumU32(items.Current) & 0xFF);
                   return new M68000Ram(address, value);
               })]
             : [];
@@ -107,9 +112,9 @@ internal static class M68000TomHarteLoader
         string dir   = items.Length > 0 ? items[0].GetString() ?? "n" : "n";
         int cycles   = items.Length > 1 && items[1].ValueKind == JsonValueKind.Number ? items[1].GetInt32() : 0;
         int fc       = items.Length > 2 && items[2].ValueKind == JsonValueKind.Number ? items[2].GetInt32() : 0;
-        uint addr    = items.Length > 3 && items[3].ValueKind == JsonValueKind.Number ? items[3].GetUInt32() : 0u;
+        uint addr    = items.Length > 3 && items[3].ValueKind == JsonValueKind.Number ? NumU32(items[3]) : 0u;
         string sz    = items.Length > 4 ? items[4].GetString() ?? "" : "";
-        uint val     = items.Length > 5 && items[5].ValueKind == JsonValueKind.Number ? items[5].GetUInt32() : 0u;
+        uint val     = items.Length > 5 && items[5].ValueKind == JsonValueKind.Number ? NumU32(items[5]) : 0u;
         bool isIdle  = dir == "n";
         return new M68000Transaction(IsRead: dir == "r", IsIdle: isIdle, cycles, fc, addr, sz, val);
     }

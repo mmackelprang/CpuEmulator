@@ -12,6 +12,10 @@ $ErrorActionPreference = "Stop"
 $vectorDir = Join-Path $Destination "680x0/v1"
 if (Test-Path $vectorDir) { Write-Host "680x0 vectors already present at $vectorDir"; exit 0 }
 
+# Ensure the destination root exists (a fresh machine or a custom CPUEMULATOR_TESTVECTORS may not have it)
+# so the clone's parent directory is present.
+New-Item -ItemType Directory -Force $Destination | Out-Null
+
 # Clone into a temp sibling, then move 68000/v1 into <dest>/680x0/v1. Check $LASTEXITCODE (native commands
 # do not trip $ErrorActionPreference) so a failed clone cannot report success (the Z80 script's finding).
 $clone = Join-Path $Destination "680x0-clone"

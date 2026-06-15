@@ -9,11 +9,19 @@ namespace CpuEmulator.Tests.TomHarte;
 /// </summary>
 internal static class M68000TomHarteVectors
 {
-    public static string? TryGetVectorDirectory()
-    {
-        string root = Environment.GetEnvironmentVariable("CPUEMULATOR_TESTVECTORS")
+    /// <summary>The cache root: the CPUEMULATOR_TESTVECTORS override, else ~/.cache/cpuemulator/vectors.</summary>
+    private static string CacheRoot() =>
+        Environment.GetEnvironmentVariable("CPUEMULATOR_TESTVECTORS")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                             ".cache", "cpuemulator", "vectors");
+
+    public static string? TryGetVectorDirectory() => ResolveVectorDirectory(CacheRoot());
+
+    /// <summary>Resolve &lt;root&gt;/680x0/v1, returning null when absent. Pure (no env read) so tests can
+    /// exercise the path logic with an explicit root WITHOUT mutating the process-global
+    /// CPUEMULATOR_TESTVECTORS — a mutation would race the vector-gated theories that read it in parallel.</summary>
+    public static string? ResolveVectorDirectory(string root)
+    {
         string dir = Path.Combine(root, "680x0", "v1");
         return Directory.Exists(dir) ? dir : null;
     }
