@@ -36,6 +36,11 @@ public sealed partial class Z80Cpu
     private bool _nmiLine;
     private bool _nmiPending;
 
+    /// <summary>The byte the device places on the data bus during an interrupt acknowledge (M3.5-1).
+    /// IM 0 decodes it as the supplied opcode (the common RST n case); IM 2 uses it as the low byte of the
+    /// vector-table pointer. Host/UAT-settable; default 0xFF (IM 0 → RST 38h, the common power-on form).</summary>
+    public byte InterruptData { get; set; } = 0xFF;
+
     /// <summary>IFF1 — the master interrupt-enable latch (observable Z80 state; the TomHarte vectors
     /// check it for DI/EI). Settable so a harness can establish the initial state.</summary>
     public bool Iff1 { get => _iff1; set => _iff1 = value; }
@@ -174,7 +179,21 @@ public sealed partial class Z80Cpu
 
         switch (Im)
         {
-            // IM 0 (Task 4) and IM 2 (Task 5) are added below; IM 1 first:
+            case 0: // IM 0: the device supplies an opcode — model the common RST n form.
+            {
+                // An RST opcode is 11_yyy_111 (0xC7|y<<3); its vector is (y<<3) = opcode & 0x38.
+                // Default (InterruptData 0xFF = RST 38h) → 0x0038. Any non-RST byte → 0x0038 fallback.
+                ushort vector = (InterruptData & 0xC7) == 0xC7
+                    ? (ushort)(InterruptData & 0x38)
+                    : (ushort)0x0038;
+                PushPc();
+                PC = vector;
+                WZ = vector;
+                _cycles += 13 - 2;  // IM0 RST = 13 T; PushPc charged 2
+                return true;
+            }
+
+            // IM 2 (Task 5) is added below; IM 1 is the default:
             default: // IM 1 (and the IM-1 fallback): fixed RST 38h.
                 PushPc();
                 PC = 0x0038;

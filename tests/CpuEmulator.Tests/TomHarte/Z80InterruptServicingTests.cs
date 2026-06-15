@@ -133,4 +133,40 @@ public class Z80InterruptServicingTests
         Assert.True(cpu.Iff1);       // restored from the saved IFF2
         Assert.Equal(0x4000u, (uint)cpu.GetRegister("PC"));
     }
+
+    [Fact]
+    public void IM0_defaults_to_RST_38h()
+    {
+        var (cpu, mem) = BuildCpu();
+        cpu.SetRegister("PC", 0x2000);
+        cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 0;
+        cpu.Iff1 = true; cpu.Iff2 = true;
+        cpu.SetIrqLine(true);
+        // InterruptData defaults to 0xFF (RST 38h opcode) → vector 0x0038.
+
+        long before = cpu.CycleCount;
+        cpu.Step();
+
+        Assert.Equal(0x0038u, (uint)cpu.GetRegister("PC"));
+        Assert.Equal(0x00, mem.Read8(0xFFEE));                // PCL
+        Assert.Equal(0x20, mem.Read8(0xFFEF));                // PCH
+        Assert.False(cpu.Iff1); Assert.False(cpu.Iff2);
+        Assert.Equal(13L, cpu.CycleCount - before);           // IM0 RST = 13 T
+    }
+
+    [Fact]
+    public void IM0_decodes_the_device_RST_opcode()
+    {
+        var (cpu, _) = BuildCpu();
+        cpu.SetRegister("PC", 0x2000);
+        cpu.SetRegister("SP", 0xFFF0);
+        cpu.Im = 0;
+        cpu.Iff1 = true;
+        cpu.InterruptData = 0xDF;   // RST 18h opcode (0xDF) → vector 0x0018
+        cpu.SetIrqLine(true);
+
+        cpu.Step();
+        Assert.Equal(0x0018u, (uint)cpu.GetRegister("PC"));
+    }
 }
