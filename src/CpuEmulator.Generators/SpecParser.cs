@@ -494,10 +494,13 @@ internal static class SpecParser
                 continue;
             }
 
-            if (bits is not (8 or 16))
+            // M4.1 (ADR 0003 Decision 1): widen the register-width cap to admit 32-bit registers (the
+            // 68000's D0–D7/A0–A6/USP/SSP/PC). 8/16 are unchanged, so the 6502/Z80 emit byte-identically
+            // (the field-type selection's 8/16 arms are untouched — CpuEmitter FieldType()).
+            if (bits is not (8 or 16 or 32))
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidRegister,
-                    element.GetLocation(), name, "register width must be 8 or 16 bits"));
+                    element.GetLocation(), name, "register width must be 8, 16, or 32 bits"));
                 continue;
             }
 

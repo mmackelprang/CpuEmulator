@@ -3276,7 +3276,11 @@ internal static class CpuEmitter
         sb.AppendLine();
         sb.AppendLine("    private static bool KnownMnemonic(string mnemonic) => mnemonic switch");
         sb.AppendLine("    {");
-        sb.AppendLine($"        {string.Join(" or ", mnemonics.Select(m => $"\"{m}\""))} => true,");
+        // M4.1: a register-only CPU (the 68000 in M4.1) has zero instruction rows, so there are no
+        // mnemonics — emit only the `_ => false` arm. A spec with mnemonics (6502/Z80) is unchanged
+        // (the joined-name arm is emitted exactly as before), so their .g.cs is byte-identical.
+        if (mnemonics.Length > 0)
+            sb.AppendLine($"        {string.Join(" or ", mnemonics.Select(m => $"\"{m}\""))} => true,");
         sb.AppendLine("        _ => false,");
         sb.AppendLine("    };");
 

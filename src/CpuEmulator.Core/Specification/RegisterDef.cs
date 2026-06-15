@@ -1,7 +1,7 @@
 namespace CpuEmulator.Core.Specification;
 
-/// <summary>One architectural register. <paramref name="Bits"/> must be 8 or 16 (wider
-/// registers arrive with a 16/32-bit CPU). Exactly one register must have the
+/// <summary>One architectural register. <paramref name="Bits"/> must be 8, 16, or 32 (32-bit
+/// arrived with the 68000, M4.1). Exactly one register must have the
 /// <see cref="RegisterRole.ProgramCounter"/> role.
 ///
 /// M3.4a (additive): a 16-bit register MAY declare <paramref name="HighHalf"/> + <paramref
