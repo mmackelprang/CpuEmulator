@@ -215,7 +215,18 @@ internal static class CpuEmitter
             sb.AppendLine("            return;");
             sb.AppendLine("        }");
         }
-        if (model.Decode is null)
+        if (model.FieldGrammar is not null)
+        {
+            // M4.3a: a word-granular field-decode CPU (the 68000) has its decode walk + descriptor table
+            // generated and synthetically proven, but the INTERPRETER that drives Step over a live
+            // big-endian bus is M4.5 (the live BE AddressSpaceFetchStream + the per-op execution land
+            // there). M4.3a's generated Step is never called — the proof drives the static Decode walk
+            // directly with a BufferFetchStream. Emit an inert Step that names the deferral honestly
+            // rather than wiring the (little-endian, 16-bit-origin) byte stream the 68000 must not use.
+            sb.AppendLine("        throw new System.NotSupportedException(");
+            sb.AppendLine("            \"word-granular field-decode interpreter Step is M4.5; M4.3a proves the decode walk synthetically\");");
+        }
+        else if (model.Decode is null)
         {
             // Degenerate (6502): the byte-fetch Step is UNCHANGED (Ground truth E). The per-op bodies
             // do their own ReadBus(PC); PC++; for the 6502 key == opcode so Execute(opcode) dispatches
@@ -253,7 +264,7 @@ internal static class CpuEmitter
             sb.AppendLine("        Execute(__r.OperationKey);");
         }
         sb.AppendLine("    }");
-        if (model.Decode is not null)
+        if (model.Decode is not null || model.FieldGrammar is not null)
         {
             sb.AppendLine();
             sb.AppendLine("    /// <summary>Fetch-side hook (M3.4a): called once per instruction after the opcode +");
@@ -337,7 +348,8 @@ internal static class CpuEmitter
         // walk resolved (the per-op methods are named by OperationKey to disambiguate prefixed/bare/
         // group rows that share an opcode byte). The case-label key is OperationKey in both — for the
         // 6502 OperationKey == opcode (≤ 0xFF) so the emitted arms are textually identical.
-        string execParam = model.Decode is null ? "byte opcode" : "uint opcode";
+        bool keyedDispatch = model.Decode is not null || model.FieldGrammar is not null;
+        string execParam = keyedDispatch ? "uint opcode" : "byte opcode";
         sb.AppendLine();
         sb.AppendLine($"    private void Execute({execParam})");
         sb.AppendLine("    {");
@@ -346,9 +358,9 @@ internal static class CpuEmitter
         foreach (var instruction in model.Instructions)
             sb.AppendLine($"            case 0x{instruction.OperationKey:X2}: Op{instruction.OperationKey:X2}(); break;");
         sb.AppendLine("            default:");
-        sb.AppendLine(model.Decode is null
-            ? "                HandleUndefinedOpcode(opcode);"
-            : "                HandleUndefinedOpcode(unchecked((byte)opcode));");
+        sb.AppendLine(keyedDispatch
+            ? "                HandleUndefinedOpcode(unchecked((byte)opcode));"
+            : "                HandleUndefinedOpcode(opcode);");
         sb.AppendLine("                break;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
@@ -356,6 +368,7 @@ internal static class CpuEmitter
         // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
         // etc. are byte-identical method names). `structured` = a declared DecodeStructure (the Z80);
         // the degenerate (6502) CPU passes false so its register/implied bodies are byte-identical.
+        // (A FieldGrammar CPU has zero instruction rows in M4.3a, so this loop is empty.)
         bool structured = model.Decode is not null;
         foreach (var instruction in model.Instructions)
             EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags, structured);
@@ -3468,7 +3481,7 @@ internal static class CpuEmitter
         // identical (Ground truth E: "MINIMAL (body)"). A structured CPU's key is a uint, so the
         // parameter widens to express keys > 0xFF; the IMonitorSupport.Disassemble(byte,...) contract
         // stays stable (its explicit impl widens the byte to the key).
-        string opParam = model.Decode is null ? "byte opcode" : "uint opcode";
+        string opParam = (model.Decode is not null || model.FieldGrammar is not null) ? "uint opcode" : "byte opcode";
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Disassemble one instruction. Returns a human-readable string.</summary>");
         sb.AppendLine($"    public static string Disassemble({opParam}, byte operandLo, byte operandHi)");
@@ -3555,7 +3568,10 @@ internal static class CpuEmitter
     /// Reflection.Emit here; the JIT assembly is the only place that emits IL.</summary>
     private static void EmitJitDescriptors(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
-        if (model.Decode is not null)
+        // A declared DecodeStructure OR a word-granular FieldGrammar (M4.3a) keys descriptors on the
+        // opaque OperationKey via a dictionary (the field-decode DescriptorFor resolves through it). A
+        // FieldGrammar CPU has no instruction rows yet, so the dictionary is empty — but it must EXIST.
+        if (model.Decode is not null || model.FieldGrammar is not null)
         {
             EmitKeyedDescriptorTable(sb, model, flags);
             return;
@@ -3588,7 +3604,9 @@ internal static class CpuEmitter
     /// LengthRule.Fixed. The 6502 (no DecodeStructure) keeps the dense array path above.</summary>
     private static void EmitKeyedDescriptorTable(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
-        var modRm = model.Decode!.ModRmOpcodes.Values;
+        // A FieldGrammar-only CPU (M4.3a) declares no DecodeStructure, hence no ModRm opcodes; the field-
+        // decode path computes length itself, so the keyed table is just the (empty, for M4.3a) row map.
+        var modRm = model.Decode?.ModRmOpcodes.Values ?? System.Collections.Immutable.ImmutableArray<byte>.Empty;
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Key→descriptor table for a declared DecodeStructure (Ground truth C). Keyed on");
         sb.AppendLine("    /// the opaque OperationKey the walk computes; DescriptorFor consults this, never a raw");
@@ -3894,7 +3912,7 @@ internal static class CpuEmitter
     /// output, never a field read (Ground truth B).</summary>
     private static void EmitDecodeWalk(StringBuilder sb, SpecModel model)
     {
-        if (model.Decode is not null)
+        if (model.Decode is not null || model.FieldGrammar is not null)
         {
             EmitStructuredDecodeWalk(sb, model);
             return;
@@ -3947,6 +3965,16 @@ internal static class CpuEmitter
     /// never a field read.</summary>
     private static void EmitStructuredDecodeWalk(StringBuilder sb, SpecModel model)
     {
+        // M4.3a (ADR 0004 Decision 1): a declared word-granular FieldGrammar selects the field-decode arm
+        // (non-contiguous bit-field extraction over a 16-bit big-endian operword). A byte-fetch CPU
+        // (6502/Z80/8086) has no FieldGrammar, so it falls through to the existing prefix/ModRm/sub-field
+        // walk below — byte-identical.
+        if (model.FieldGrammar is { } grammar && grammar.FetchUnit == FetchUnit.Word)
+        {
+            EmitFieldDecodeWalk(sb, model, grammar);
+            return;
+        }
+
         var decode = model.Decode!;
         string prefixSet = string.Join(", ", decode.Prefixes.Values.Select(p => $"0x{p:X2}"));
         string modRmSet = string.Join(", ", decode.ModRmOpcodes.Values.Select(p => $"0x{p:X2}"));
@@ -4036,5 +4064,105 @@ internal static class CpuEmitter
         sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
         sb.AppendLine("        => JitDescriptorsByKey.TryGetValue(operationKey, out var d)");
         sb.AppendLine("            ? d : CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined((byte)operationKey);");
+    }
+
+    /// <summary>M4.3a (ADR 0004 Decision 1): the word-granular, field-decomposed decode walk. Fetches a
+    /// 16-bit big-endian operword, matches it against the emitted (mask, match) field-op table, extracts
+    /// (operation, size, ea-mode, ea-register) by non-contiguous bit-field extraction, packs the opaque
+    /// (operation, size) key, and (Task 4) consumes the extension words the (ea-mode × size) implies so
+    /// the COMPUTED length is right. No match ⇒ the Undefined sentinel (the illegal-instruction path; the
+    /// vector is M4.5). Length == UnitsConsumed × UnitBytes (= words × 2) throughout — never a field read.</summary>
+    private static void EmitFieldDecodeWalk(StringBuilder sb, SpecModel model, FieldGrammarModel grammar)
+    {
+        // Emit the field-op table: each entry (mask, match, opIndex, sizeShift, sizeWidth, sizeEnc, eaShift).
+        // opIndex is the op's position in the grammar (the (operation, size) key's high part).
+        sb.AppendLine();
+        sb.AppendLine("    // M4.3a: the word-granular field-op table (mask, match, opIndex, size/EA field positions).");
+        sb.AppendLine("    private static readonly (uint Mask, uint Match, uint OpIndex, int SizeShift, int SizeWidth, int SizeEnc, int EaShift)[] s_fieldOps =");
+        sb.AppendLine("    [");
+        for (int i = 0; i < grammar.Ops.Length; i++)
+        {
+            var op = grammar.Ops[i];
+            int sizeEnc = (int)op.SizeEncoding;   // 0 = Standard, 1 = Move (C4)
+            sb.AppendLine($"        (0x{op.Mask:X4}u, 0x{op.Match:X4}u, {i}u, {op.SizeShift}, {op.SizeWidth}, {sizeEnc}, {op.EaShift}),");
+        }
+        sb.AppendLine("    ];");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated word-granular field-decode walk (M4.3a, ADR 0004 Decision 1).</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        uint operword = stream.NextUnit();                    // the 16-bit big-endian operword (one word)");
+        sb.AppendLine("        for (int i = 0; i < s_fieldOps.Length; i++)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var f = s_fieldOps[i];");
+        sb.AppendLine("            if ((operword & f.Mask) != f.Match) continue;     // non-matching op");
+        sb.AppendLine("            // Extract the size bits and map via the size encoding (Standard vs Move — C4).");
+        sb.AppendLine("            uint sizeBits = (operword >> f.SizeShift) & (uint)((1 << f.SizeWidth) - 1);");
+        sb.AppendLine("            uint size = MapSize(sizeBits, f.SizeEnc);          // 0=b, 1=w, 2=l (an OperandSize index)");
+        sb.AppendLine("            // Extract the 6-bit EA field: mode = bits 5-3, register = bits 2-0 (M4.3b consumes these).");
+        sb.AppendLine("            uint ea = (operword >> f.EaShift) & 0x3F;");
+        sb.AppendLine("            uint eaMode = (ea >> 3) & 7;");
+        sb.AppendLine("            uint eaReg  = ea & 7;");
+        sb.AppendLine("            // The opaque (operation, size) descriptor key (Ground truth C — opaque to consumers).");
+        sb.AppendLine("            uint key = (1u << 24) | (f.OpIndex << 8) | size;   // high tag keeps it distinct from byte/prefix keys");
+        sb.AppendLine("            int extWords = ExtensionWordCount(eaMode, eaReg, size);   // M4.3a Task 4: operand-computed");
+        sb.AppendLine("            for (int w = 0; w < extWords; w++) stream.NextUnit();      // consume the extension words (length only)");
+        sb.AppendLine("            int len = stream.UnitsConsumed * stream.UnitBytes;        // COMPUTED — words × 2");
+        sb.AppendLine("            return new CpuEmulator.Core.Jit.DecodeResult(key, len, CpuEmulator.Core.Jit.DecodedOperands.None);");
+        sb.AppendLine("        }");
+        sb.AppendLine("        // No field op matched ⇒ the illegal-instruction path (the Undefined sentinel; M4.5 vectors it).");
+        sb.AppendLine("        int illegalLen = stream.UnitsConsumed * stream.UnitBytes;     // 2 (the operword) — the illegal op is one word");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(0xFFFFFFFFu, illegalLen, CpuEmulator.Core.Jit.DecodedOperands.None);");
+        sb.AppendLine("    }");
+
+        EmitSizeMapHelper(sb);            // MapSize(sizeBits, enc) — Standard vs Move (C4)
+        EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
+
+        // DescriptorFor reuses the keyed dictionary (emitted by EmitKeyedDescriptorTable); 0xFFFFFFFF →
+        // Undefined sentinel. (For M4.3a the grammar CPU has no descriptor rows yet — every matched key
+        // resolves to Undefined too; the proof asserts the KEY shape + the computed length, not a live op.)
+        sb.AppendLine();
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
+        sb.AppendLine("        => JitDescriptorsByKey.TryGetValue(operationKey, out var d)");
+        sb.AppendLine("            ? d : CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined((byte)operationKey);");
+    }
+
+    /// <summary>Emit MapSize(sizeBits, enc): a field op's size bits → an OperandSize index (0=b,1=w,2=l).</summary>
+    private static void EmitSizeMapHelper(StringBuilder sb)
+    {
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Map a field op's size bits to an OperandSize index (0=b,1=w,2=l). Standard");
+        sb.AppendLine("    /// (enc 0): 00=b,01=w,10=l. Move (enc 1, the MOVE outlier): 01=b,11=w,10=l (C4).</summary>");
+        sb.AppendLine("    private static uint MapSize(uint bits, int enc) => enc == 1");
+        sb.AppendLine("        ? bits switch { 1u => 0u, 3u => 1u, 2u => 2u, _ => 0u }   // Move: 01=b,11=w,10=l");
+        sb.AppendLine("        : bits switch { 0u => 0u, 1u => 1u, 2u => 2u, _ => 0u };  // Standard: 00=b,01=w,10=l");
+    }
+
+    /// <summary>M4.3a Task 4 (C5): emit ExtensionWordCount(eaMode, eaReg, size) — the (ea-mode, size)
+    /// extension-word count (the operand-computed-length core).</summary>
+    private static void EmitExtensionWordCount(StringBuilder sb)
+    {
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>M4.3a (ADR 0004 Decision 1 / C5): the extension-word count an EA mode consumes,");
+        sb.AppendLine("    /// mode-AND-size dependent (the operand-computed length core). mode = EA bits 5-3, reg = 2-0,");
+        sb.AppendLine("    /// size = 0/1/2 (b/w/l). mode 7 (reg-selected): 0=abs.w(1), 1=abs.l(2), 2=d16(PC)(1),");
+        sb.AppendLine("    /// 3=d8(PC,Xn)(1), 4=#imm(1 for b/w, 2 for l). This table is shared with M4.3b (which READS");
+        sb.AppendLine("    /// the same extension words to compute the EA address).</summary>");
+        sb.AppendLine("    private static int ExtensionWordCount(uint eaMode, uint eaReg, uint size) => eaMode switch");
+        sb.AppendLine("    {");
+        sb.AppendLine("        0u or 1u or 2u or 3u or 4u => 0,   // Dn / An / (An) / (An)+ / -(An): no extension word");
+        sb.AppendLine("        5u or 6u => 1,                     // d16(An) / d8(An,Xn): one extension word");
+        sb.AppendLine("        7u => eaReg switch                 // mode 7: the register sub-field selects the form");
+        sb.AppendLine("        {");
+        sb.AppendLine("            0u => 1,                       // abs.w");
+        sb.AppendLine("            1u => 2,                       // abs.l");
+        sb.AppendLine("            2u => 1,                       // d16(PC)");
+        sb.AppendLine("            3u => 1,                       // d8(PC,Xn)");
+        sb.AppendLine("            4u => size == 2u ? 2 : 1,      // #imm: .l = 2 words, .b/.w = 1 (the size-dependence)");
+        sb.AppendLine("            _  => 0,                       // illegal mode-7 register (M4.5 vectors)");
+        sb.AppendLine("        },");
+        sb.AppendLine("        _ => 0,");
+        sb.AppendLine("    };");
     }
 }

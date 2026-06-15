@@ -49,7 +49,29 @@ internal sealed record SpecModel(
     EquatableArray<InstructionModel> Instructions,
     DecodeStructureModel? Decode = null,          // ABSENT (the 6502) ⇒ the degenerate walk
     FetchUnit FetchUnit = FetchUnit.Byte,
-    EquatableArray<FlagBitModel> Flags = default);  // ABSENT (the 6502) ⇒ FlagBit enum fallback
+    EquatableArray<FlagBitModel> Flags = default,   // ABSENT (the 6502) ⇒ FlagBit enum fallback
+    FieldGrammarModel? FieldGrammar = null);        // M4.3a: ABSENT (6502/Z80/8086) ⇒ no field-decode arm
+
+/// <summary>How a field op's size bits map to an OperandSize (M4.3a / C4). Standard: 00=b,01=w,10=l.
+/// Move (the MOVE outlier): 01=b,11=w,10=l. Mirrors Core.Specification.SizeEncoding.</summary>
+internal enum SizeEncodingKind { Standard, Move }
+
+/// <summary>An EA category tag (M4.3a) — carried for the M4.3b legality matrix; the count-only walk does
+/// not yet branch on it. Mirrors Core.Specification.EaCategory.</summary>
+internal enum EaCategoryKind { DataAddressing, MemoryAlterable, DataAlterable, Control, Alterable, All }
+
+/// <summary>One operation's word-granular field decomposition (M4.3a). The operword is matched by
+/// (Mask, Match); the size is extracted from [SizeShift, SizeShift+SizeWidth) via SizeEncoding; the 6-bit
+/// EA field (mode:register) is at EaShift. LegalEa tags the EA category (M4.3b). Mirrors Core's FieldOp.</summary>
+internal sealed record FieldOpModel(
+    ushort Mask, ushort Match, string Operation,
+    int SizeShift, int SizeWidth, SizeEncodingKind SizeEncoding,
+    int EaShift, EaCategoryKind LegalEa);
+
+/// <summary>A word-granular, field-decomposed decode grammar (M4.3a, ADR 0004 Decision 1). Declaring it
+/// (with FetchUnit.Word) opts the CPU into the field-decode arm + operand-computed length. ABSENT
+/// (6502/Z80/8086) ⇒ the byte/prefix walk is unchanged. Mirrors Core's FieldGrammar.</summary>
+internal sealed record FieldGrammarModel(FetchUnit FetchUnit, EquatableArray<FieldOpModel> Ops);
 
 /// <summary>One flag name → hardware bit position parsed from a declared <c>FlagLayout</c>
 /// (Ground truth B). ABSENT on the model (empty array) ⇒ the 6502 enum-fallback FlagBit map.</summary>

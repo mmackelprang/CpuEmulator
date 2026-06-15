@@ -64,6 +64,10 @@ internal static class SpecDiagnostics
         "CPUGEN014", "Invalid register pair view",
         "Register pair view '{0}': {1}");
 
+    public static readonly DiagnosticDescriptor InvalidFieldGrammar = Make(
+        "CPUGEN015", "Invalid field grammar",
+        "Field grammar is not analyzable: {0}");
+
     public static DiagnosticDescriptor ById(string id) => id switch
     {
         "CPUGEN001" => MissingRegisters,
@@ -80,6 +84,7 @@ internal static class SpecDiagnostics
         "CPUGEN012" => InvalidDecodeStructure,
         "CPUGEN013" => InvalidFlagLayout,
         "CPUGEN014" => InvalidPairView,
+        "CPUGEN015" => InvalidFieldGrammar,
         _ => throw new System.ArgumentException($"Unknown diagnostic id '{id}'."),
     };
 }

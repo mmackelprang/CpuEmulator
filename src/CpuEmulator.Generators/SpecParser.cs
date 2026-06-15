@@ -418,12 +418,21 @@ internal static class SpecParser
         // Optional flag layout (M3.4a Ground truth B). ABSENT (the 6502) ⇒ the FlagBit enum fallback.
         var flags = ParseFlagLayout(classDecl, diagnostics);
 
+        // Optional word-granular field grammar (M4.3a, RECON-FINDING C1). ABSENT (6502/Z80/8086) ⇒ no
+        // field-decode arm; the byte/prefix walk is unchanged. Declaring it sets FetchUnit from the grammar.
+        var fieldGrammar = ParseFieldGrammar(classDecl, diagnostics);
+
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
+        // RECON-FINDING C1: the fetch unit flows from the declared grammar onto SpecModel.FetchUnit
+        // (replacing the old hardcoded FetchUnit.Byte) so the emitter's field-decode branch can see it.
+        // A spec with NO grammar keeps FetchUnit.Byte (the 6502/Z80 default — byte-identical).
+        FetchUnit fetchUnit = fieldGrammar?.FetchUnit ?? FetchUnit.Byte;
+
         var model = new SpecModel(ns, cpuName, architecture,
             LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode,
-            FetchUnit.Byte, flags);
+            fetchUnit, flags, fieldGrammar);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -925,6 +934,198 @@ internal static class SpecParser
 
         return bits.ToImmutable();
     }
+
+    /// <summary>Parse the optional word-granular field grammar (M4.3a, ADR 0004 Decision 1 / C1/C4).
+    /// ABSENT (6502/Z80/8086 declare no <c>FieldGrammar</c> field) ⇒ null (the byte/prefix walk is
+    /// unchanged). Present ⇒ a <c>new(FetchUnit.Word, [ FieldOp(Mask: .., Match: .., ..), .. ])</c>
+    /// (or <c>new FieldGrammar(..)</c>) creation: arg 0 is the FetchUnit enum member; arg 1 is a
+    /// collection of <c>FieldOp(..)</c> factory calls. Discovered by the field's declared TYPE
+    /// (<c>FieldGrammar</c>), not a fixed name, so the spec may name the field whatever it likes. A
+    /// malformed structure / field op reports CPUGEN015.</summary>
+    private static FieldGrammarModel? ParseFieldGrammar(
+        ClassDeclarationSyntax classDecl,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        var field = FindFieldByType(classDecl, "FieldGrammar");
+        if (field is null)
+            return null;   // ABSENT — the byte/prefix default (6502/Z80/8086).
+
+        Location loc = field.GetLocation();
+        if (field.Declaration.Variables[0].Initializer?.Value is not { } init ||
+            GetCreationArguments(init) is not { Count: 2 } args)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "expected new(FetchUnit.Word, [ FieldOp(Mask: .., Match: .., Operation: .., SizeShift: .., SizeWidth: .., SizeEncoding: .., EaShift: .., LegalEa: ..), .. ])"));
+            return null;
+        }
+
+        // Arg 0: the FetchUnit enum member. A FieldGrammar is the 68000's WORD-granular decode SHAPE —
+        // only FetchUnit.Word is coherent (a byte-unit structured CPU uses the prefix/ModRm walk via a
+        // DecodeStructure, not a field grammar). Rejecting FetchUnit.Byte here also forecloses the
+        // emitter NRE that a Byte-unit grammar would hit (EmitStructuredDecodeWalk's field-decode branch
+        // is gated on FetchUnit.Word and the fall-through assumes a non-null Decode).
+        if (EnumMemberName(args[0], "FetchUnit") is not { } fetchName ||
+            fetchName is not ("Byte" or "Word"))
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "first argument must be FetchUnit.Byte or FetchUnit.Word"));
+            return null;
+        }
+        if (fetchName != "Word")
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "a FieldGrammar requires FetchUnit.Word (the 68000 word-granular decode); byte-unit structured CPUs use a DecodeStructure prefix/ModRm walk"));
+            return null;
+        }
+        FetchUnit fetchUnit = FetchUnit.Word;
+
+        // Arg 1: a collection of FieldOp(..) factory calls.
+        if (args[1] is not CollectionExpressionSyntax opsColl)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "second argument must be a collection of FieldOp(..) entries"));
+            return null;
+        }
+
+        var ops = ImmutableArray.CreateBuilder<FieldOpModel>();
+        foreach (var element in opsColl.Elements)
+        {
+            if (element is not ExpressionElementSyntax expr ||
+                ParseFieldOp(expr.Expression, element.GetLocation(), diagnostics) is not { } op)
+                return null;   // ParseFieldOp already reported CPUGEN015
+            ops.Add(op);
+        }
+
+        return new FieldGrammarModel(fetchUnit, ops.ToImmutable());
+    }
+
+    /// <summary>Parse one <c>FieldOp(Mask, Match, Operation, SizeShift, SizeWidth, SizeEncoding, EaShift,
+    /// LegalEa)</c> factory call. Args may be positional or named; literals/enum members only (the
+    /// constrained-DSL contract). Returns null (and reports CPUGEN015) on any non-analyzable / invalid arg.
+    /// Validates SizeShift/SizeWidth fit a 16-bit operword and (Match &amp; ~Mask) == 0.</summary>
+    private static FieldOpModel? ParseFieldOp(
+        ExpressionSyntax expression, Location loc,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        if (GetCreationArgumentSyntaxes(expression) is not { } cargs || cargs.Count != 8)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "FieldOp takes Mask, Match, Operation, SizeShift, SizeWidth, SizeEncoding, EaShift, LegalEa"));
+            return null;
+        }
+
+        // Field-op parameter order (the FieldOp factory / record — PascalCase to match both the
+        // `new FieldOp(Mask: ..)` record syntax and the `FieldOp(Mask: ..)` factory). Args may be named
+        // or positional; a named arg routes by name, a positional arg routes by its index.
+        string[] order = ["Mask", "Match", "Operation", "SizeShift", "SizeWidth", "SizeEncoding", "EaShift", "LegalEa"];
+        var slot = new ExpressionSyntax?[8];
+        for (int i = 0; i < cargs.Count; i++)
+        {
+            string? name = cargs[i].NameColon?.Name.Identifier.Text;
+            int idx = name is null ? i : System.Array.IndexOf(order, name);
+            if (idx < 0 || idx >= 8 || slot[idx] is not null)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                    $"unexpected or duplicate FieldOp argument '{name ?? "#" + i}'"));
+                return null;
+            }
+            slot[idx] = cargs[i].Expression;
+        }
+        if (System.Array.IndexOf(slot, null) >= 0)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "FieldOp is missing one or more required arguments"));
+            return null;
+        }
+
+        // Mask/Match are 16-bit operword masks (0..0xFFFF). The other ints are bit positions / widths.
+        int? mask = LiteralInt(slot[0]!);
+        int? match = LiteralInt(slot[1]!);
+        string? operation = LiteralString(slot[2]!);
+        int? sizeShift = LiteralInt(slot[3]!);
+        int? sizeWidth = LiteralInt(slot[4]!);
+        string? sizeEncName = EnumMemberName(slot[5]!, "SizeEncoding");
+        int? eaShift = LiteralInt(slot[6]!);
+        string? legalEaName = EnumMemberName(slot[7]!, "EaCategory");
+        if (mask is not (>= 0 and <= 0xFFFF) ||
+            match is not (>= 0 and <= 0xFFFF) ||
+            operation is null ||
+            sizeShift is null || sizeWidth is null || eaShift is null ||
+            sizeEncName is null || legalEaName is null)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "FieldOp arguments must be literal Mask/Match (0..0xFFFF), a string Operation, literal int bit positions, SizeEncoding.* and EaCategory.* members"));
+            return null;
+        }
+
+        int maskV = mask.Value, matchV = match.Value;
+        int sizeShiftV = sizeShift.Value, sizeWidthV = sizeWidth.Value, eaShiftV = eaShift.Value;
+
+        // Structural validation (RECON-FINDING C4): the size field must fit a 16-bit operword and the
+        // match bits cannot fall outside the mask.
+        if (sizeShiftV < 0 || sizeWidthV < 1 || sizeShiftV + sizeWidthV > 16)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                $"FieldOp '{operation}' size field [{sizeShiftV}, {sizeShiftV + sizeWidthV}) does not fit a 16-bit operword"));
+            return null;
+        }
+        if (eaShiftV < 0 || eaShiftV + 6 > 16)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                $"FieldOp '{operation}' EA field at shift {eaShiftV} does not fit a 16-bit operword"));
+            return null;
+        }
+        if ((matchV & ~maskV) != 0)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                $"FieldOp '{operation}' Match 0x{matchV:X4} has bits outside Mask 0x{maskV:X4}"));
+            return null;
+        }
+
+        var sizeEnc = sizeEncName switch
+        {
+            "Standard" => SizeEncodingKind.Standard,
+            "Move" => SizeEncodingKind.Move,
+            _ => (SizeEncodingKind?)null,
+        };
+        var legalEa = legalEaName switch
+        {
+            "DataAddressing" => EaCategoryKind.DataAddressing,
+            "MemoryAlterable" => EaCategoryKind.MemoryAlterable,
+            "DataAlterable" => EaCategoryKind.DataAlterable,
+            "Control" => EaCategoryKind.Control,
+            "Alterable" => EaCategoryKind.Alterable,
+            "All" => EaCategoryKind.All,
+            _ => (EaCategoryKind?)null,
+        };
+        if (sizeEnc is null || legalEa is null)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                $"FieldOp '{operation}' has an unknown SizeEncoding/EaCategory member"));
+            return null;
+        }
+
+        return new FieldOpModel(
+            (ushort)maskV, (ushort)matchV, operation,
+            sizeShiftV, sizeWidthV, sizeEnc.Value, eaShiftV, legalEa.Value);
+    }
+
+    /// <summary>Find the single field whose declared type's simple name matches <paramref name="typeName"/>
+    /// (e.g. the <c>FieldGrammar</c> carrier — discovered by type, not a fixed field name). Null when
+    /// absent.</summary>
+    private static FieldDeclarationSyntax? FindFieldByType(ClassDeclarationSyntax classDecl, string typeName) =>
+        classDecl.Members.OfType<FieldDeclarationSyntax>()
+            .FirstOrDefault(f => f.Declaration.Variables.Count == 1 &&
+                                 SimpleTypeName(f.Declaration.Type) == typeName);
+
+    /// <summary>The simple (unqualified) name of a type syntax: <c>FieldGrammar</c> for
+    /// <c>FieldGrammar</c> or <c>CpuEmulator.Core.Specification.FieldGrammar</c>. Null for arrays etc.</summary>
+    private static string? SimpleTypeName(TypeSyntax type) => type switch
+    {
+        IdentifierNameSyntax id => id.Identifier.Text,
+        QualifiedNameSyntax q => q.Right.Identifier.Text,
+        _ => null,
+    };
 
     /// <summary>Parse a collection of 0xNN byte literals into the builder; false on any non-literal
     /// or out-of-range element.</summary>
