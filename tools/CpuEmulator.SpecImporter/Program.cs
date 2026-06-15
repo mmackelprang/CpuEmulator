@@ -101,6 +101,12 @@ public static class Program
             catch (InvalidDataException ex) { return Fail($"Data error: {ex.Message}"); }
         }
 
+        // --config is only meaningful in the FieldGrammar arm (handled above). If it reached here,
+        // --field-grammar was absent, so the flag has no effect — reject it rather than silently ignore
+        // (the arg loop's contract is that unrecognized flag combinations fail loudly).
+        if (configPath is not null)
+            return Fail("--config is only valid with --field-grammar.");
+
         // Mutual-exclusion check: --validate-only and --out are incompatible
         // (validate-only mode never writes a spec file by design).
         if (validateOnly && outputPath is not null)

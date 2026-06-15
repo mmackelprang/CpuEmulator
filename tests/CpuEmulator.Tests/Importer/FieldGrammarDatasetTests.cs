@@ -56,6 +56,19 @@ public class FieldGrammarDatasetTests
     }
 
     [Fact]
+    public void Rejects_a_zero_width_size_field()
+    {
+        // The generator (CPUGEN015) requires sizeWidth >= 1; the validator must reject sizeWidth 0
+        // so the importer fails at load time instead of emitting a spec the generator rejects.
+        var ex = Assert.Throws<InvalidDataException>(() => FieldGrammarDataset.Parse("""
+            [ { "operation": "X", "mask": "0xFFFF", "match": "0x4E71",
+                "sizeShift": 0, "sizeWidth": 0, "sizeEncoding": "Standard",
+                "eaShift": 0, "legalEa": "All" } ]
+            """));
+        Assert.Contains("size field", ex.Message);
+    }
+
+    [Fact]
     public void Rejects_an_unknown_size_encoding()
     {
         var ex = Assert.Throws<InvalidDataException>(() => FieldGrammarDataset.Parse("""

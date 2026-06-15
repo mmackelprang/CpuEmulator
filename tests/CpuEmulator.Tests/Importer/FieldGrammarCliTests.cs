@@ -30,4 +30,14 @@ public class FieldGrammarCliTests
         int exit = Program.Main(["--field-grammar", "x.json", "--out", "y.cs"]);
         Assert.Equal(1, exit);   // usage error: --config required
     }
+
+    [Fact]
+    public void Config_without_field_grammar_is_a_usage_error()
+    {
+        // --config is only valid in the FieldGrammar arm; the opcode-row arm must reject it rather
+        // than silently ignore it (the arg loop's "unknown combination fails loudly" contract).
+        int exit = Program.Main(["--dataset", "a.json", "--semantics", "b.json", "--out", "c.cs",
+                                 "--config", "x.json"]);
+        Assert.Equal(1, exit);
+    }
 }

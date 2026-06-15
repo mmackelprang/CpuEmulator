@@ -90,7 +90,7 @@
   { "operation": "MULU", "mask": "0xF1C0", "match": "0xC0C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-136 (MULU)" },
   { "operation": "MULS", "mask": "0xF1C0", "match": "0xC1C0", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-138 (MULS)" },
   { "operation": "ABCD", "mask": "0xF1F0", "match": "0xC100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-3 (ABCD)" },
-  { "operation": "EXG",  "mask": "0xF130", "match": "0xC100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-105 (EXG)" },
+  { "operation": "EXG",  "mask": "0xF130", "match": "0xC100", "sizeShift": 0, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-105 (EXG). ORDER: must follow ABCD (0xF1F0/0xC100, tighter mask) - every ABCD word also matches EXG's mask, so ABCD must fire first." },
   { "operation": "AND",  "mask": "0xF000", "match": "0xC000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-15 (AND)" },
 
   { "operation": "ADDA", "mask": "0xF0C0", "match": "0xD0C0", "sizeShift": 8, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-7 (ADDA): opmode 011=.w / 111=.l" },

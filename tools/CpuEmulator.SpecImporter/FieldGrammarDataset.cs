@@ -78,11 +78,15 @@ public static class FieldGrammarDataset
             if ((match & ~mask) != 0)
                 throw new InvalidDataException(
                     $"'match' {d.Match} has bits outside 'mask' {d.Mask} at {ctx} (unreachable family).");
-            if (d.SizeWidth.Value < 0 || d.SizeShift.Value < 0 ||
+            // The generator's analyzer (SpecParser CPUGEN015) requires sizeWidth >= 1 — a zero-width
+            // size field is not analyzable. Reject it here too so the importer fails loudly at load time
+            // rather than emitting a spec the generator silently rejects. No-size families use an inert
+            // 1-bit field (sizeShift: 0, sizeWidth: 1), not a zero-width one.
+            if (d.SizeWidth.Value < 1 || d.SizeShift.Value < 0 ||
                 d.SizeShift.Value + d.SizeWidth.Value > 16)
                 throw new InvalidDataException(
                     $"size field [shift {d.SizeShift}, width {d.SizeWidth}] out of bounds at {ctx} " +
-                    "(shift + width must be 0..16).");
+                    "(width must be >= 1 and shift + width <= 16).");
             if (d.EaShift.Value < 0 || d.EaShift.Value > 10)
                 throw new InvalidDataException($"eaShift {d.EaShift} out of bounds (0..10) at {ctx}.");
             if (!KnownSizeEncodings.Contains(d.SizeEncoding))
