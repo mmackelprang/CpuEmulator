@@ -43,6 +43,18 @@ public class M68kFieldGrammarVocabularyTests
         Assert.Empty(result.GeneratorDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
     }
 
+    [Fact]
+    public void A_field_grammar_declaring_byte_fetch_is_rejected_CPUGEN015()
+    {
+        // A FieldGrammar is the WORD-granular decode SHAPE; FetchUnit.Byte is incoherent (a byte-unit
+        // structured CPU uses a DecodeStructure prefix/ModRm walk). The parser rejects it with CPUGEN015
+        // rather than letting the emitter take an under-defended fall-through.
+        string byteFetch = Spec.Replace("FetchUnit.Word", "FetchUnit.Byte");
+        var result = GeneratorTestHost.Run(byteFetch);
+        Assert.Contains(result.GeneratorDiagnostics,
+            d => d.Severity == DiagnosticSeverity.Error && d.Id == "CPUGEN015");
+    }
+
     private const string Spec = """
         using CpuEmulator.Core.Specification;
         using static CpuEmulator.Core.Specification.Spec;

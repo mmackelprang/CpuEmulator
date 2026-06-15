@@ -1084,7 +1084,7 @@ EOF
 | Closeout metric | Value |
 |---|---|
 | Baseline test count (Task 0) | 5116 |
-| Final test count | 5132 (5116 + 2 vocabulary + 1 grammar-carrier + 4 BE-stream + 2 extraction/key/Undefined + 7 computed-length Theory rows) |
+| Final test count | 5133 (5116 + 4 grammar-vocabulary incl. the FetchUnit.Byte rejection + 4 BE-stream + 2 extraction/key/Undefined + 7 computed-length Theory rows) |
 | `FieldGrammar`/`FetchUnit.Word` declarable + consumed? | YES — declared as a sibling carrier, parsed onto `SpecModel.FetchUnit`, consumed by the emitter's field-decode branch |
 | Operword → (operation, size, ea-mode, ea-register) extraction? | YES — synthetic (mask/match match, size via SizeEncoding, EA mode 5-3 + reg 2-0) |
 | Operand-computed length per (mode, size)? | YES — incl. #imm.w (4 bytes) vs #imm.l (6 bytes) size-dependence |

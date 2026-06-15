@@ -959,7 +959,11 @@ internal static class SpecParser
             return null;
         }
 
-        // Arg 0: the FetchUnit enum member (FetchUnit.Byte / FetchUnit.Word).
+        // Arg 0: the FetchUnit enum member. A FieldGrammar is the 68000's WORD-granular decode SHAPE —
+        // only FetchUnit.Word is coherent (a byte-unit structured CPU uses the prefix/ModRm walk via a
+        // DecodeStructure, not a field grammar). Rejecting FetchUnit.Byte here also forecloses the
+        // emitter NRE that a Byte-unit grammar would hit (EmitStructuredDecodeWalk's field-decode branch
+        // is gated on FetchUnit.Word and the fall-through assumes a non-null Decode).
         if (EnumMemberName(args[0], "FetchUnit") is not { } fetchName ||
             fetchName is not ("Byte" or "Word"))
         {
@@ -967,7 +971,13 @@ internal static class SpecParser
                 "first argument must be FetchUnit.Byte or FetchUnit.Word"));
             return null;
         }
-        FetchUnit fetchUnit = fetchName == "Word" ? FetchUnit.Word : FetchUnit.Byte;
+        if (fetchName != "Word")
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidFieldGrammar, loc,
+                "a FieldGrammar requires FetchUnit.Word (the 68000 word-granular decode); byte-unit structured CPUs use a DecodeStructure prefix/ModRm walk"));
+            return null;
+        }
+        FetchUnit fetchUnit = FetchUnit.Word;
 
         // Arg 1: a collection of FieldOp(..) factory calls.
         if (args[1] is not CollectionExpressionSyntax opsColl)
