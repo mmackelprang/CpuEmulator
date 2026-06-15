@@ -30,7 +30,7 @@ public class M68000StepDispatchTests
         Assert.Equal(0x1002u, (uint)cpu.GetRegister("PC")); // advanced past the operword (length 2)
     }
 
-    [Fact(Skip = "MOVE body lands in Task 4")]
+    [Fact]
     public void Step_reaches_the_move_body_for_a_MOVE_operword()
     {
         // MOVE.l D0,D1 = 0x2200 (0010 dest-reg=001 dest-mode=000 src-mode=000 src-reg=000; size .l via Move enc).
