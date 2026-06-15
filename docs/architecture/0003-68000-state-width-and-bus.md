@@ -168,6 +168,24 @@ Honesty per the brief: where a decision genuinely depends on what the first M4 P
 2. **The precise `Size` operand placement** — whether `OperandSize` is one field on a handful of broad ops (`Move68kOp`, `Alu68kOp`) or a wider refactor of the operand model. ADR 0001 J10 already calls for an extensible operand model; the 68000's `Size` + bit-number + register-mask + shift-count operands (ADR 0004) confirm it. The *shape* of the extensible operand model is best settled when the first ALU-family PR has real encodings in hand.
 3. **Whether the prefetch queue is modelled in the interpreter from PR 1 or staged** — the TomHarte gate checks `prefetch` (2 words). The interpreter must eventually model the 2-word prefetch to pass. Whether that lands in the Core-state PR or the first instruction-family PR is a sequencing call for the Planner; flag it now so it is not a late surprise (it was absent from the forward brief).
 
+> **M4.1 resolution (2026-06-15, `docs/superpowers/plans/2026-06-15-m4-1-core-width-and-68000-state.md`):**
+> - Item 1 (A7 banking): RESOLVED as the recommendation — USP/SSP are real 32-bit registers (USP General,
+>   SSP the StackPointer role); A7 is a hand-written mode-selected property on the M68000Cpu partial (the
+>   SR S-bit selects USP vs SSP). RegisterRole gains NO banking member.
+> - Item 2 (OperandSize placement): the `OperandSize { Byte, Word, Long }` enum landed in Core (M4.1) as a
+>   standalone type — the size axis as a name. Threading it onto the size-bearing ops (Move68kOp/Alu68kOp/
+>   AluAddr68kOp) is deferred to the first ALU-family PR (M4.5a) per this ADR's own recommendation, when
+>   real encodings settle the extensible-operand-model shape.
+> - Item 3 (prefetch-queue timing): unchanged — deferred to the interpreter PR (M4.5), out of M4.1 scope.
+> - **Pipeline deviation (Decision D4):** the M4.1 68000 spec is a GUARDED HAND-WRITE
+>   (`src/CpuEmulator.Cpus.M68000/M68000Spec.cs`), not importer-generated. The importer hard-rejects a
+>   zero-row opcode dataset (`OpcodeDataset.Parse` throws on an empty array — the guard that protects the
+>   6502/Z80 from an accidentally-empty real dataset), and the M4.1 68000 has zero instruction rows. The
+>   hand-write matches the exact importer-output shape (Registers + FlagLayout + empty Instructions, no
+>   DecodeStructure) with a `TODO(M4.4)` to fold it into the importer pipeline when the field-pattern
+>   dataset + register-only-CPU support land. No importer code or dataset files were added in M4.1, and the
+>   `M68000RegeneratedSpecTests` byte-identity guard is deferred to M4.4 (there is no importer run to guard).
+
 ---
 
 ## 5. Consequences summary
