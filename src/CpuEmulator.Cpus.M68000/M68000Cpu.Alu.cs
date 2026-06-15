@@ -84,7 +84,7 @@ public sealed partial class M68000Cpu
                     // dest = Dn. The EA is a pure source read (its own (An)+/-(An) advance happens once, here).
                     a = DataReg(dnReg) & mask;
                     b = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords) & mask;
-                    dest = AluDest.Register(0u, dnReg);
+                    dest = AluDest.DataRegister(dnReg);
                 }
                 break;
             }
@@ -120,45 +120,50 @@ public sealed partial class M68000Cpu
         SR = (ushort)((SR & 0xFF00) | ccrRule(a, b, result, size, xIn, oldCcr));
     }
 
-    /// <summary>A resolved ALU destination: either a data register (Mode 0) or an already-computed memory
-    /// address. Capturing the memory address ONCE (at read time) is the read-modify-write double-compute fix
-    /// (ADR 0007 finding #2): the (An)+/-(An) write-back is performed exactly once by the read's ComputeEa, and
-    /// the write reuses the resolved address rather than recomputing the EA (which would advance An again).</summary>
+    /// <summary>A resolved ALU destination: either a data register (Dn) or an already-computed memory address.
+    /// Capturing the memory address ONCE (at read time) is the read-modify-write double-compute fix (ADR 0007
+    /// finding #2): the (An)+/-(An) write-back is performed exactly once by the read's ComputeEa, and the write
+    /// reuses the resolved address rather than recomputing the EA (which would advance An again). An (mode 1) is
+    /// NEVER a binary-ALU-driver destination (the address-reg variants use the bespoke AddrAlu; ADDQ/SUBQ-to-An
+    /// is special-cased in QuickAlu before the driver), so only a data register or a memory address occurs.</summary>
     private readonly struct AluDest
     {
         public readonly bool IsRegister;
-        public readonly uint Mode;       // EA mode (only meaningful when IsRegister) — 0 = Dn
-        public readonly uint Reg;        // register index (when IsRegister)
+        public readonly uint Reg;        // data-register index (when IsRegister)
         public readonly uint Address;    // resolved memory address (when !IsRegister)
 
-        private AluDest(bool isReg, uint mode, uint reg, uint addr)
-        { IsRegister = isReg; Mode = mode; Reg = reg; Address = addr; }
+        private AluDest(bool isReg, uint reg, uint addr)
+        { IsRegister = isReg; Reg = reg; Address = addr; }
 
-        public static AluDest Register(uint mode, uint reg) => new(true, mode, reg, 0u);
-        public static AluDest Memory(uint addr) => new(false, 0u, 0u, addr);
+        public static AluDest DataRegister(uint reg) => new(true, reg, 0u);
+        public static AluDest Memory(uint addr) => new(false, 0u, addr);
     }
 
-    /// <summary>Read the EA operand AND resolve its destination in ONE pass. For a register EA (Dn mode 0 / An
-    /// mode 1) it reads the register and returns a register dest. For a memory EA it computes the address ONCE
-    /// (single (An)+/-(An) write-back), reads the operand at it, and returns a Memory dest carrying that exact
-    /// address — so the later write does NOT recompute the EA (the double-compute fix).</summary>
+    /// <summary>Read the EA operand AND resolve its destination in ONE pass. For a Dn EA (mode 0) it reads the
+    /// register and returns a data-register dest. For a memory EA it computes the address ONCE (single
+    /// (An)+/-(An) write-back), reads the operand at it, and returns a Memory dest carrying that exact address —
+    /// so the later write does NOT recompute the EA (the double-compute fix). An (mode 1) as a destination is a
+    /// contract violation (no binary-ALU-driver op writes An — see AluDest) and is rejected rather than silently
+    /// mis-written to Dn.</summary>
     private AluDest ResolveEaDest(uint mode, uint reg, uint size,
         CpuEmulator.Core.Jit.ExtensionWords ext, out uint operand)
     {
-        if (mode == 0u) { operand = DataReg(reg); return AluDest.Register(0u, reg); }   // Dn
-        if (mode == 1u) { operand = Areg(reg);    return AluDest.Register(1u, reg); }   // An (full 32)
+        if (mode == 0u) { operand = DataReg(reg); return AluDest.DataRegister(reg); }   // Dn
+        if (mode == 1u)
+            throw new System.InvalidOperationException(
+                "An is not a binary-ALU-driver destination (use AddrAlu/QuickAlu) — ResolveEaDest contract.");
         uint ea = ComputeEa(mode, reg, size, ext, pureEa: false);   // ONE write-back for (An)+/-(An)
         operand = size switch { 0u => ReadByteAt(ea), 1u => ReadWordBus(ea), _ => ReadLongBus(ea) };
         return AluDest.Memory(ea);
     }
 
-    /// <summary>Write the ALU result to a resolved destination — a register (partial write for .b/.w) or the
-    /// already-computed memory address (no second ComputeEa, so no second (An)+/-(An) advance).</summary>
+    /// <summary>Write the ALU result to a resolved destination — a data register (partial write for .b/.w) or
+    /// the already-computed memory address (no second ComputeEa, so no second (An)+/-(An) advance).</summary>
     private void WriteResolvedDest(AluDest dest, uint size, uint result)
     {
         if (dest.IsRegister)
         {
-            SetDataRegPartial(dest.Reg, result, size);   // Dn partial write (An is never an ALU-driver dest)
+            SetDataRegPartial(dest.Reg, result, size);   // Dn partial write
             return;
         }
         switch (size)
@@ -170,7 +175,9 @@ public sealed partial class M68000Cpu
     }
 
     /// <summary>Shift the extension-word buffer down by <paramref name="drop"/> words (used to skip the leading
-    /// immediate words so ComputeEa(EA) reads ext[0]/ext[1]). Mirrors M4.5a's DestExtensionWords slice.</summary>
+    /// immediate words so ComputeEa(EA) reads ext[0]/ext[1]). Mirrors M4.5a's DestExtensionWords slice. The
+    /// ExtensionWords indexer is out-of-bounds-safe (returns 0 past Count), so drop+2/drop+3 reading past the
+    /// captured count for a 1-word immediate is intentional and harmless (yields 0).</summary>
     private static CpuEmulator.Core.Jit.ExtensionWords ShiftExt(CpuEmulator.Core.Jit.ExtensionWords all, int drop)
         => new CpuEmulator.Core.Jit.ExtensionWords(
             all[drop], all[drop + 1], all[drop + 2], all[drop + 3],
