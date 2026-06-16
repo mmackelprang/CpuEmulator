@@ -4,22 +4,22 @@ using Xunit;
 
 namespace CpuEmulator.Tests.TomHarte;
 
-/// <summary>M4.5d-1 (Task 14 axis c): the CROSS-CORPUS exception sweep. Re-runs the M4.5a-c vector files
-/// (MOVE/ALU/shift/bit/BCD/Scc/data-movement) with assertExceptions:true so the EMBEDDED exception cases —
-/// every case whose real 68000 took a privilege violation (vector 8), an illegal instruction (vector 4), or a
-/// ÷0 (vector 5) — flip deferred→asserted and are diffed on the data axis (frame + mode + handler PC via RAM/
-/// SR/SSP). This is the un-fakeable proof the exception model is right across the WHOLE existing corpus, not
-/// just the 20 dedicated files. The address-error (vector 3) large-frame WORD contents stay deferred (DD4 — the
-/// runner's IsAddressErrorCase; assert trap-taken only, M4.5d-2 for the precise group-0 words). The TIMING axis
-/// is M4.5d-2 (timingAxis:false).
+/// <summary>M4.5d-1 (Task 14 axis c): the CROSS-CORPUS exception sweep — re-runs the M4.5a-c vector files
+/// (MOVE/ALU/shift/bit/BCD/Scc/data-movement) with assertExceptions:true over the EMBEDDED exception cases.
 ///
-/// HONESTY: this sweep asserts ONLY the cases the corpus marks as exceptions (the embedded axis); the
-/// non-exception cases are already asserted green by the M4.5a/b/c sweeps with the default flag — they are NOT
-/// re-run here. The newly-asserting count (the embedded small-frame exceptions) is the merge-gate evidence.</summary>
+/// EMPIRICAL HONESTY FINDING (verified against the whole 68000/v1 corpus): every embedded exception in the
+/// M4.5a-c files is an ADDRESS ERROR (vector 3) — there are ZERO embedded privilege (vector 8) or illegal
+/// (vector 4) cases anywhere in the corpus, and the only ÷0/CHK/TRAP/TRAPV cases live in the dedicated d-1
+/// files (asserted by M68000M45d1TomHarteTests). So this sweep's REAL job is a REGRESSION GUARD: it proves
+/// that turning assertExceptions on over the existing corpus does NOT wrongly assert the address-error cases
+/// (they stay correctly DEFERRED via the runner's IsAddressErrorCase, DD4 — the precise 14-byte group-0 frame
+/// is M4.5d-2) and does not destabilize anything. The genuine exception-model proof is the dedicated d-1 files
+/// (TRAP 32-47, TRAPV 7, CHK 6, ÷0 5). Privilege (vector 8) + ILLEGAL (vector 4) are SYNTHETIC-tested only —
+/// no v1 vector exercises them (disclosed). The TIMING axis is M4.5d-2 (timingAxis:false).</summary>
 public class M68000ExceptionCorpusTomHarteTests
 {
-    // The full M4.5a-c corpus (MOVE + ALU + shift/bit/BCD/Scc/data-movement) — every file carries embedded
-    // exception cases (privilege/illegal/÷0/address-error). Re-run with assertExceptions:true.
+    // The full M4.5a-c corpus (MOVE + ALU + shift/bit/BCD/Scc/data-movement) — every embedded exception case is
+    // an address error (vector 3, deferred per DD4). Re-run with assertExceptions:true as the regression guard.
     public static IEnumerable<object[]> CorpusFiles =>
     [
         // MOVE family (M4.5a)

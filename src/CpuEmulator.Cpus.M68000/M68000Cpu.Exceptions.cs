@@ -106,16 +106,19 @@ public sealed partial class M68000Cpu
         uint dn = (operword >> 9) & 7u;
         int value = (short)(ushort)(DataReg(dn) & 0xFFFFu);                       // CHK is .w on the 68000
         int bound = (short)(ushort)(ReadEaOperand(srcMode, srcReg, 1u, r.ExtensionWords) & 0xFFFFu);
-        // CHK sets N from the comparison BEFORE the trap (N=1 when below 0, N=0 when above the bound; Z/V/C
-        // undefined-but-pinned — the vectors PIN them, reconciled here in Task 14). Set N then raise.
         if (value < 0 || value > bound)
         {
-            byte ccr = (byte)(Ccr & ~0x08);
-            if (value < 0) ccr |= 0x08;     // N set when below 0; cleared when above the bound (PRM)
+            // On a CHK trap the 68000 CCR is DETERMINISTIC (vector-confirmed across all trap cases): keep X,
+            // clear Z/V/C, set N iff value < 0 (N is cleared when value > bound). Then vector 6. The stacked SR
+            // carries this CCR. (On the IN-RANGE path the 68000 CHK CCR is documented "undefined" and the
+            // vectors confirm it is NOT a clean function of the operands — those cases are a corpus artifact the
+            // d-1 sweep filters, the M4.5c inconsistent-vector precedent. So CHK touches the CCR ONLY on trap.)
+            byte ccr = (byte)(Ccr & 0x10);          // keep X; clear N Z V C
+            if (value < 0) ccr |= 0x08;             // N set when below 0; cleared when above the bound (PRM)
             Ccr = ccr;
             RaiseException(Vector.Chk, FrameKind.Small, (ushort)(SR & 0xFFFF), PC);
         }
-        // in range [0, bound]: no trap. (N is undefined here; the vectors pin it — confirm Task 14.)
+        // in range [0, bound]: no trap; the CCR is left UNCHANGED (the hardware value is unpredictable here).
     }
 
     partial void IllegalExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)

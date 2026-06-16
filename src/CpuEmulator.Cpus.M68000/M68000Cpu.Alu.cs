@@ -499,9 +499,14 @@ public sealed partial class M68000Cpu
         if (divisorW == 0u)
         {
             // M4.5d-1 (ADR 0008 §3.2): the ÷0 detect-and-defer comes due — vector 5. The detection point is
-            // UNCHANGED (the divisor read + the == 0 test); only the action changes from "return, let the runner
-            // defer" to "raise vector 5, then return" (no Dn write, no CCR change before the trap).
-            RaiseException(Vector.DivideByZero, FrameKind.Small, (ushort)(SR & 0xFFFF), PC);
+            // UNCHANGED (the divisor read + the == 0 test). The 68000 CLEARS N/Z/V/C (keeps X) before stacking
+            // the SR on a ÷0 trap (vector-confirmed: the stacked SR's CCR = X kept, N=Z=V=C=0 — e.g. 0x1D->0x10).
+            // No Dn write. The stacked PC is the DIVxx instruction's OWN address = PC - length (vector-confirmed:
+            // the single vector-5 ÷0 case stacks 0xC00, the instruction start, NOT the post-advance PC — the
+            // prefetch/formal-PC trail; a timing-axis nuance pinned for the one corpus case). Set CCR THEN raise.
+            Ccr = (byte)(Ccr & 0x10);
+            uint pcAtFault = unchecked(PC - (uint)r.Length);
+            RaiseException(Vector.DivideByZero, FrameKind.Small, (ushort)(SR & 0xFFFF), pcAtFault);
             return;
         }
 

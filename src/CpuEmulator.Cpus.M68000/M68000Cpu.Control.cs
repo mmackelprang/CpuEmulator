@@ -20,12 +20,12 @@ public sealed partial class M68000Cpu
         uint cc = (operword >> 8) & 0xFu;
         uint disp8 = operword & 0xFFu;
         int disp;
-        if (disp8 == 0x00u)            // Bcc.w : the 16-bit displacement word
+        if (disp8 == 0x00u)            // Bcc.w : the 16-bit displacement word follows
             disp = (short)r.ExtensionWords[0];
-        else if (disp8 == 0xFFu)       // Bcc.l : 68020+ -> ILLEGAL on the 68000
-        { RaiseException(Vector.Illegal, FrameKind.Small, (ushort)(SR & 0xFFFF), PC); return; }
         else
-            disp = (sbyte)(byte)disp8; // Bcc.b : the 8-bit displacement
+            disp = (sbyte)(byte)disp8; // Bcc.b : the 8-bit displacement (0xFF = -1 is a NORMAL .b disp on the
+                                       //         68000 — the .l form is 68020+, so the 68000 does NOT trap it;
+                                       //         vector-confirmed: 0x__FF cases land at base + (-1), not ILLEGAL)
 
         uint branchBase = PcForEa;     // = operword + 2 (the displacement origin)
         uint target = unchecked(branchBase + (uint)disp);
@@ -107,8 +107,9 @@ public sealed partial class M68000Cpu
     {
         uint an = operword & 7u;
         int disp = (short)r.ExtensionWords[0];     // the +1 signed displacement word
-        uint pushed = Areg(an);                    // capture An BEFORE -(A7) (the An==A7 edge: push the ORIGINAL)
-        uint sp = A7 - 4u; A7 = sp; WriteLongBus(sp, pushed);    // push An -(A7)
+        // The 68000 sequence: SP -= 4; (SP) = An; An = SP; SP += disp. The push reads An AFTER the predecrement,
+        // so for the An==A7 edge it pushes the DECREMENTED SP (vector-confirmed: LINK A7 pushes A7-4, not A7).
+        uint sp = A7 - 4u; A7 = sp; WriteLongBus(sp, Areg(an));   // push An -(A7) (An read after the decrement)
         SetAreg(an, A7);                           // An = the new A7 (the frame pointer)
         A7 = unchecked(A7 + (uint)disp);           // allocate the frame (disp is typically negative)
     }
