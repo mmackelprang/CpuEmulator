@@ -3,6 +3,7 @@ using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
 using CpuEmulator.Cpus.M68000;
 using CpuEmulator.Jit;   // BlockCompiler<>, JittedCpu<>, Fastmem, JitOptions
+using CpuEmulator.Tests.TomHarte;   // M68000TomHarteTheory, the loader/runner/corpus (smoke fact)
 using Xunit;
 
 namespace CpuEmulator.Tests.Jit;
@@ -91,5 +92,30 @@ public class M68000JitGenericityTests
         var (ipc, icyc) = RunOne(throughJit: false);
         Assert.Equal(ipc, jpc);     // the fallback set the real 24-bit PC; the ushort cache key never aliased
         Assert.Equal(icyc, jcyc);   // the fallback charged the same cycles (CycleCount delta)
+    }
+
+    [M68000TomHarteTheory]   // skips when the 680x0 vectors are absent (same attribute the data-axis sweeps use)
+    [InlineData("NOP.json.gz")]
+    public void One_family_file_is_tier_parity_green_through_the_JIT(string file)
+    {
+        string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
+        Assert.NotNull(dir);
+        string path = System.IO.Path.Combine(dir, file);
+        Assert.True(System.IO.File.Exists(path), $"vector file missing: {path}");
+        var cases = M68000TomHarteLoader.LoadFile(path);
+        int executed = 0;
+        var failures = new System.Collections.Generic.List<string>();
+        foreach (var c in cases)
+        {
+            // Carry the interpreter sweeps' corpus-artifact exclusions forward (Refinement 3). NOP.json.gz has
+            // neither artifact, so this is a no-op here — included for symmetry with the headline sweep.
+            if (M68000DataAxisCorpus.IsExcludedCase(c)) continue;
+            var rr = M68000TomHarteRunner.RunCaseThroughJit(c, assertExceptions: true);
+            if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) continue;
+            executed++;
+            if (rr is not null) { failures.Add(rr); if (failures.Count >= 5) break; }
+        }
+        Assert.True(executed > 0, $"{file}: 0 executed cases");
+        Assert.True(failures.Count == 0, $"{file}: {failures.Count} tier-parity failures:\n" + string.Join("\n", failures));
     }
 }

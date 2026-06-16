@@ -208,6 +208,70 @@ internal static class M68000TomHarteRunner
         return problems.Count == 0 ? null : Format(c, problems);
     }
 
+    /// <summary>M4.6 tier-parity path: run one case through JittedCpu&lt;M68000Cpu&gt; (all-fallback) and diff
+    /// the DATA axis against the case's final state — the byte-identical Tier-0-vs-Tier-1 gate. Mirrors
+    /// RunCase exactly except it drives Run(ref budget) (a one-instruction budget) instead of Step(). The
+    /// budget is the case length so the single fallback op completes; the JIT's block-entry interrupt check
+    /// + the fallback valve handle the synchronous mid-instruction vector (TRAP/÷0/privilege) authentically
+    /// (the exception-capable op bails to inner.Step). Returns null on pass / DeferredException for deferred /
+    /// a formatted report on failure — the same contract as RunCase.</summary>
+    public static string? RunCaseThroughJit(M68000TomHarteCase c, bool assertExceptions = false)
+    {
+        if (!assertExceptions && IsExceptionCase(c)) return DeferredException;
+        if (assertExceptions && IsAddressErrorCase(c)) return DeferredException;   // DD4: vector-3 stays deferred
+
+        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 24,
+            endianness: Endianness.BigEndian);
+        // Reuse this worker thread's 16 MiB arena instead of allocating per case (same GC-thrash fix RunCase
+        // uses). Array.Clear re-zeroes it → identical to a fresh new byte[0x1000000] before the case's initial
+        // RAM is applied below.
+        byte[] ram = _ramArena ??= new byte[0x1000000];
+        Array.Clear(ram, 0, ram.Length);
+        inner.MapMemory(0x000000, ram, writable: true);
+        foreach (var e in c.Initial.Ram) inner.Write8(e.Address & inner.AddressMask, e.Value);
+
+        uint pc = c.Initial.Pc;
+        ushort[] pf = c.Initial.Prefetch;
+        if (pf.Length > 0) inner.Write16((pc + 0u) & inner.AddressMask, pf[0]);
+        if (pf.Length > 1) inner.Write16((pc + 2u) & inner.AddressMask, pf[1]);
+
+        // JIT fastmem binds to the concrete AddressSpace (no TracingAddressSpace — the JIT data-axis gate
+        // asserts regs/SR/RAM, NOT the per-transaction trace; trace-equivalence is the interpreter axis).
+        var (jit, cpu) = M68000JittedCpuFactory.Create(inner);
+        var s = c.Initial;
+        for (int i = 0; i < 8; i++) cpu.SetRegister($"D{i}", s.D[i]);
+        for (int i = 0; i < 7; i++) cpu.SetRegister($"A{i}", s.A[i]);
+        cpu.SetRegister("USP", s.Usp);
+        cpu.SetRegister("SSP", s.Ssp);
+        cpu.SetRegister("PC", s.Pc);
+        cpu.SetRegister("SR", s.Sr);
+
+        // One instruction through Tier-1. The budget is the case's cycle length so the single fallback op
+        // (which charges its real cycles via inner.Step) completes within one Run iteration; overshoot is
+        // bounded by one instruction (JittedCpu.Run exits at the block boundary). A floor keeps a zero-length
+        // edge case from no-op'ing the Run loop.
+        long budget = System.Math.Max(c.Length, 1);
+        jit.Run(ref budget);
+
+        var problems = new System.Collections.Generic.List<string>();
+        void Check(string name, uint expected)
+        {
+            uint got = (uint)cpu.GetRegister(name);
+            if (got != expected) problems.Add($"{name}: expected {expected:X8}, got {got:X8}");
+        }
+        var f = c.Final;
+        for (int i = 0; i < 8; i++) Check($"D{i}", f.D[i]);
+        for (int i = 0; i < 7; i++) Check($"A{i}", f.A[i]);
+        Check("USP", f.Usp);
+        Check("SSP", f.Ssp);
+        { uint gotSr = (uint)cpu.GetRegister("SR"); if (gotSr != f.Sr) problems.Add($"SR: expected {f.Sr:X4}, got {gotSr:X4}"); }
+        foreach (var e in f.Ram)
+            if (inner.Read8(e.Address & inner.AddressMask) != e.Value)
+                problems.Add($"RAM[{e.Address:X6}]: expected {e.Value:X2}, got {inner.Read8(e.Address & inner.AddressMask):X2}");
+
+        return problems.Count == 0 ? null : Format(c, problems);
+    }
+
     /// <summary>Compare the recorded word/long BusAccess trace against the case's non-idle transactions, in
     /// order: address + direction + size + value (richer than the Z80's address-only diff — Recon §C). Idle
     /// ("n") transactions have no bus access, so they are filtered out of the expected list. (TIMING axis —
