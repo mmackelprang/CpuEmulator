@@ -49,6 +49,16 @@ internal static class CpuEmitter
         sb.AppendLine();
         sb.AppendLine("    private long _cycles;");
         sb.AppendLine("    public long CycleCount => _cycles;");
+        if (model.FieldGrammar is not null)
+        {
+            // M4.5d-2a (ADR 0008 §5): the CPU OWNS its stateful prefetch queue across Steps (the seam break).
+            // 68000-specific — gated to the FieldGrammar Step path, so 6502/Z80 emit byte-identically (no field).
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M4.5d-2a: the stateful 2-word prefetch queue, owned across Steps (ADR 0008 §5).");
+            sb.AppendLine("    /// Re-seeded from the formal PC at each Step (the corpus seeds prefetch[0]@PC, prefetch[1]@PC+2),");
+            sb.AppendLine("    /// then advanced+refilled by the decode walk; the queue END STATE is the asserted final.prefetch.</summary>");
+            sb.AppendLine("    private CpuEmulator.Core.Jit.M68000FetchStream? _fetchQueue;");
+        }
         var flags = FlagBitMap.From(model.Flags.Length > 0 ? model.Flags.Values : null);
         EmitBody(sb, model, flags);
         sb.AppendLine("}");
@@ -221,13 +231,20 @@ internal static class CpuEmitter
             // live big-endian word stream (which reads the operword EXACTLY once — surfaced on __r.Operword,
             // so dispatch needs no second Read16 of PC), advance PC by the computed length, dispatch on the
             // decoded opIndex. Non-MOVE families route to HandleUndefinedOpcode (their bodies are M4.5b-d).
-            sb.AppendLine("        var __stream = new CpuEmulator.Core.Jit.M68000FetchStream(_bus, PC);");
+            // M4.5d-2a (ADR 0008 §5): drive the decode walk through the CPU-OWNED stateful prefetch queue
+            // (the seam break). Seed it from the formal PC — the corpus places the operword in prefetch[0]@PC
+            // and the next word in prefetch[1]@PC+2 (the runner writes both into the bus), so the queue reads
+            // exactly those two words, then refills q1 with one fresh word per consumed word (NextUnit). After
+            // a non-sequential transfer (branch/jump/return/exception) the live PC diverges from the queue's
+            // formal PC and the queue is RESEEDED from the new PC — so the queue END STATE is the asserted
+            // final.prefetch and the trailing formal PC is the asserted final.pc.
+            sb.AppendLine("        var __stream = _fetchQueue ??= new CpuEmulator.Core.Jit.M68000FetchStream(_bus);");
+            sb.AppendLine("        __stream.Seed(PC, _bus.Read16(PC), _bus.Read16(unchecked(PC + 2u)));");
+            sb.AppendLine("        __stream.BeginInstruction();");
             sb.AppendLine("        var __r = Decode(__stream);");
             sb.AppendLine("        uint __operword = __r.Operword;               // the operword the fetch read once");
-            sb.AppendLine("        // Each fetched word (operword + extension words) is a .w bus transaction worth 4 clocks.");
-            sb.AppendLine("        // The fetch stream traced the Read16s (matching the vector's fetch transactions); charge their");
-            sb.AppendLine("        // cycles here (the literal 4 keeps the generated Step self-contained — a synthetic FieldGrammar");
-            sb.AppendLine("        // CPU has no hand-written WordAccessCycles constant).");
+            sb.AppendLine("        // 2a leaves the FLAT *4 cycle charge in place (cycle-exactness is 2b — ADR 0008 §3). 2a asserts");
+            sb.AppendLine("        // the queue STATE (final.pc + final.prefetch), NOT CycleCount == length.");
             sb.AppendLine("        _cycles += __stream.UnitsConsumed * 4;");
             sb.AppendLine("        // PC-relative EAs (d16(PC)/d8(PC,Xn)) are based on the address of the FIRST extension word");
             sb.AppendLine("        // = operword address + 2 (the operword is at the pre-advance PC). Capture it BEFORE the");
@@ -249,6 +266,12 @@ internal static class CpuEmitter
             sb.AppendLine("        }");
             sb.AppendLine("        _eaPcBase = 0u;   // clear the PC-relative base so the synthetic ComputeEaProbe's");
             sb.AppendLine("                          // \": PC\" fallback is valid again after a Step (review finding).");
+            // M4.5d-2a: after the body, if the live PC diverged from the queue's formal PC, a non-sequential
+            // control transfer happened (branch/jump/return/exception set PC) — RESEED the queue from the new
+            // PC so final.prefetch is [word@PC, word@(PC+2)] (the corpus's taken-branch/target prefetch). For a
+            // sequential instruction FormalPc already == PC (NextUnit advanced it in lock-step with the length
+            // advance), so the reseed is a no-op and the refilled queue stands as the end state.
+            sb.AppendLine("        if (__stream.FormalPc != PC) __stream.Reseed(PC);");
         }
         else if (model.Decode is null)
         {
@@ -4460,7 +4483,16 @@ internal static class CpuEmitter
             {
                 "Bcc" or "DBcc" or "RTS" or "RTR" or "RTE" or "LINK" or "UNLK" or "TRAP" or "TRAPV"
                     or "ILLEGAL" or "NOP" or "RESET" or "STOP"
-                    or "ORI_CCR" or "ANDI_CCR" or "EORI_CCR" or "ORI_SR" or "ANDI_SR" or "EORI_SR" => true,
+                    or "ORI_CCR" or "ANDI_CCR" or "EORI_CCR" or "ORI_SR" or "ANDI_SR" or "EORI_SR"
+                    // M4.5d-2a: MOVE USP (0x4E60-0x4E6F) is a 1-word, EA-LESS op — its low 6 bits are
+                    // {direction, An-register}, NOT an EA. The M4.5a dataset row (legalEa "All", eaShift 0) made
+                    // the M4.3a walk mis-read bits 5-3 as an EA mode and read a spurious extension word for the
+                    // MOVEfromUSP half (0x4E68-0x4E6F → mode 5 = (d16,An), 1 ext word) — invisible on the data
+                    // axis (MoveUspExecute uses only the operword) but it over-advanced the formal PC + the
+                    // prefetch queue (final.pc/prefetch off by one word). Suppress the EA read: MOVE USP carries
+                    // 0 leading words (operword-only), so the queue advances exactly one word. Reconciled per
+                    // the 2a sweep (the only PC/prefetch mismatch in the corpus).
+                    or "MOVE_USP" => true,
                 _ => false,
             };
             if (!isControl) continue;

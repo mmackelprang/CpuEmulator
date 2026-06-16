@@ -93,7 +93,13 @@ internal static class M68000TomHarteRunner
     }
     private const uint Vector3 = 3;   // address error (group 0 — the large frame)
 
-    public static string? RunCase(M68000TomHarteCase c, bool timingAxis = false, bool assertExceptions = false)
+    /// <summary>M4.5d-2a (ADR 0008 §5, plan T0): the PC/prefetch assertion mode — diffs the prefetch-queue
+    /// END STATE (<c>final.pc</c> + both <c>final.prefetch</c> words) WITHOUT the full per-transaction trace /
+    /// cycle-count diff (the 2a ceiling; cycle-exactness is 2b). Asserted on top of the data axis. Default-off
+    /// (DD5) so the M4.5a-c data sweeps + the M4.5d-1 data-axis gate stay byte-identical; the 2a sweep
+    /// (M68000TimingAxisTomHarteTests) passes <c>pcPrefetchAxis: true, assertExceptions: true</c>.</summary>
+    public static string? RunCase(M68000TomHarteCase c, bool timingAxis = false, bool assertExceptions = false,
+                                  bool pcPrefetchAxis = false)
     {
         // M4.5d-1 (ADR 0008 §3.4, sign-off D): the default-off assertExceptions preserves M4.5a-c byte-for-byte.
         // With the default, IsExceptionCase still short-circuits to DeferredException, so the M4.5a-c sweeps (which
@@ -156,9 +162,23 @@ internal static class M68000TomHarteRunner
             if (inner.Read8(e.Address & inner.AddressMask) != e.Value)
                 problems.Add($"RAM[{e.Address:X6}]: expected {e.Value:X2}, got {inner.Read8(e.Address & inner.AddressMask):X2}");
 
-        // ── TIMING axis (M4.5d — asserted only for the USP families that satisfy the mechanical prefetch model).
-        // TODO(M4.5d): assert final.pc, final.prefetch, the per-transaction bus trace, and the cycle count for
-        // ALL families once the prefetch-queue mechanism + cycle-accurate sequencing land.
+        // ── PC/PREFETCH axis (M4.5d-2a — the queue END STATE: final.pc + both final.prefetch words). The 2a
+        // ceiling: it asserts the prefetch-queue mechanism's observable state WITHOUT the per-transaction
+        // trace / cycle-count diff (those are 2b — cycle-exactness). final.pc is the trailing formal PC (the
+        // live PC register after Step); final.prefetch is the CPU-owned queue's end state.
+        if (pcPrefetchAxis)
+        {
+            Check("PC", f.Pc);
+            var (w0, w1) = cpu.FinalPrefetch;
+            if (f.Prefetch.Length > 0 && w0 != f.Prefetch[0])
+                problems.Add($"prefetch[0]: expected {f.Prefetch[0]:X4}, got {w0:X4}");
+            if (f.Prefetch.Length > 1 && w1 != f.Prefetch[1])
+                problems.Add($"prefetch[1]: expected {f.Prefetch[1]:X4}, got {w1:X4}");
+        }
+
+        // ── TIMING axis (M4.5d-2b — the FULL per-transaction bus trace + cycle count == length). 2a does NOT
+        // turn this on (the flat *4 cycle charge stands; the refill-interleaved trace is 2b). It remains the
+        // bonus gate for the USP families that satisfy the mechanical model.
         if (timingAxis)
         {
             Check("PC", f.Pc);

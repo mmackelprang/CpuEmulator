@@ -56,6 +56,30 @@ public class M68000ExceptionTests
         Assert.Equal(0xB000u, (uint)cpu.GetRegister("PC"));
     }
 
+    // ── M4.5d-2a (plan T3, DD3/F): the group-0 (address/bus error) 14-byte large frame ──────────────────────
+    [Fact]
+    public void Raise_large_frame_pushes_the_14_byte_group0_layout()
+    {
+        // Vector 3 (address error). Table entry at 0xC = 4·3. The 68000 group-0 frame, lowest address first:
+        //   [SSP+0x0] SSW   [SSP+0x2..0x4] access address (long)   [SSP+0x6] IR   [SSP+0x8] SR   [SSP+0xa..0xc] PC
+        // pushed high-address-first as A7 decrements by 0xE (14 bytes). 2a pins the IR (the operword); the SSW +
+        // access address are trace-coupled (M4.5d-2b) but the LAYOUT + the IR pinning are asserted here.
+        var (cpu, bus) = Build();
+        cpu.SetRegister("SR", 0x2700);     // supervisor
+        cpu.SetRegister("SSP", 0x9000);
+        bus.Write32(0xC, 0x0000D000);      // the vector-3 handler
+        cpu.RaiseLargeFrameProbe(vector: 3, srAtFault: 0x2700, pcAtFault: 0x00001234,
+            accessAddress: 0x00ABCDEF, instructionRegister: 0x3E34, specialStatusWord: 0x3E35);
+        Assert.True(cpu.SupervisorMode);
+        Assert.Equal(0x8FF2u, (uint)cpu.GetRegister("SSP"));                  // SSP -= 0xE (14-byte frame)
+        Assert.Equal((ushort)0x3E35, bus.Read16(0x8FF2));                    // [+0x0] SSW (trace-coupled — 2b)
+        Assert.Equal(0x00ABCDEFu, bus.Read32(0x8FF4));                       // [+0x2] access address (long)
+        Assert.Equal((ushort)0x3E34, bus.Read16(0x8FF8));                    // [+0x6] IR == the operword (PINNED)
+        Assert.Equal((ushort)0x2700, bus.Read16(0x8FFA));                    // [+0x8] SR at fault
+        Assert.Equal(0x00001234u, bus.Read32(0x8FFC));                       // [+0xa] PC (long)
+        Assert.Equal(0xD000u, (uint)cpu.GetRegister("PC"));                  // PC = Read32(4·3)
+    }
+
     // ── Task 8: TRAP/TRAPV/CHK/ILLEGAL/NOP/RESET/STOP ───────────────────────────────────────────────────────
     [Fact]
     public void Trap_n_vectors_to_32_plus_n()
