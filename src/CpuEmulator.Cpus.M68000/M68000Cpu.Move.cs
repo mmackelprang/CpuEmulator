@@ -122,9 +122,11 @@ public sealed partial class M68000Cpu
     partial void MoveToSrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r,
         uint srcMode, uint srcReg)
     {
-        // PRIVILEGED: a user-mode MOVE to SR is a privilege violation (vector 8) — that EXCEPTION is M4.5d.
-        // M4.5a honors the bit but does NOT vector (the MOVEtoSR vectors are supervisor-mode cases). If a
-        // user-mode case appears, Task 8 flags it; the privilege vector lands in M4.5d.
+        // PRIVILEGED: a user-mode MOVE to SR is a privilege violation (vector 8). M4.5d-1 (ADR 0008 §3.2) makes
+        // the gate vector through the ONE RaiseException routine — flipping M4.5a's "honor the bit but do not
+        // vector" to a real trap. The MOVE-to-SR vectors were supervisor-mode cases (so they stay green); any
+        // user-mode case now ASSERTS the trap under the runner's assertExceptions flag (Task 14).
+        if (TrapIfUserMode()) return;   // PRIVILEGED (vector 8 when !SupervisorMode)
         uint value = ReadEaOperand(srcMode, srcReg, size: 1u, r.ExtensionWords);   // .w source
         // The 68000 SR has only T(15) S(13) I2..I0(10-8) X N Z V C(4-0) implemented; the unused bits
         // (14, 11, 7-5) read as 0 and a load masks them off. SR_VALID = 0xA71F.
@@ -151,6 +153,7 @@ public sealed partial class M68000Cpu
     partial void MoveUspExecute(uint operword)
     {
         // PRIVILEGED. bit 3 = direction: 1 = USP → An; 0 = An → USP. reg = bits 2-0.
+        if (TrapIfUserMode()) return;   // PRIVILEGED (vector 8 when !SupervisorMode — ADR 0008 §3.2)
         uint reg = operword & 7u;
         if ((operword & 0x8u) != 0) SetAreg(reg, USP);            // MOVE USP,An (from USP)
         else USP = Areg(reg);                                     // MOVE An,USP (to USP)

@@ -67,14 +67,45 @@ internal static class M68000TomHarteRunner
     /// it as deferred rather than executed-green.</summary>
     public const string DeferredException = "DEFERRED(M4.5d): exception case (address-error/privilege vector)";
 
-    public static string? RunCase(M68000TomHarteCase c, bool timingAxis = false)
+    /// <summary>M4.5d-1 (DD4): the address-error subset (vector 3). When <c>assertExceptions</c> un-defers the
+    /// exception cases, the group-0 large-frame WORD contents are timing-coupled (ADR 0008 §2.1) — M4.5d-1
+    /// asserts trap-taken (mode + handler PC) but the pushed frame words may not match on the data axis. Task 13
+    /// Step 0 resolves this empirically; if the address-error frame words prove timing-sensitive, this predicate
+    /// keeps vector-3 deferred while vector-4/5/6/7/8 assert. The vector-3 table entry is the read pair at
+    /// (0xC, 0xE) whose composed value is final.pc.</summary>
+    public static bool IsAddressErrorCase(M68000TomHarteCase c)
     {
-        // Exception cases (misaligned wide access -> address error, etc.) are M4.5d (ADR 0004 §3 — the
-        // exception/vector machinery, the same deferred axis as prefetch/timing). M4.5a does not model the
-        // trap, so it cannot reproduce the stack-frame + vector-fetch + handler-jump result; report it deferred
-        // rather than fail it (a fail here would be a DRIFT false-positive — the MOVE body is correct; the CPU
-        // simply traps before completing). The non-exception MOVE cases are asserted fully on the data axis.
-        if (IsExceptionCase(c)) return DeferredException;
+        var reads = new List<(uint Addr, uint Val)>();
+        foreach (var t in c.Transactions)
+            if (t is { IsIdle: false, IsRead: true })
+                reads.Add((t.Address, t.Value));
+        for (int k = 0; k + 1 < reads.Count; k++)
+        {
+            var (a0, v0) = reads[k];
+            var (a1, _) = reads[k + 1];
+            if (a0 == 4u * Vector3 && a1 == a0 + 2)
+            {
+                _ = v0;
+                return true;
+            }
+        }
+        return false;
+    }
+    private const uint Vector3 = 3;   // address error (group 0 — the large frame)
+
+    public static string? RunCase(M68000TomHarteCase c, bool timingAxis = false, bool assertExceptions = false)
+    {
+        // M4.5d-1 (ADR 0008 §3.4, sign-off D): the default-off assertExceptions preserves M4.5a-c byte-for-byte.
+        // With the default, IsExceptionCase still short-circuits to DeferredException, so the M4.5a-c sweeps (which
+        // never pass the flag) stay byte-identical. The M4.5d-1 exception sweep (Task 14) passes true, which lets
+        // those cases RUN and be diffed on the data axis (the modeled RaiseException produces the same vector
+        // fetch + frame the case expects). The flag only STRENGTHENS the gate; it never weakens the default.
+        if (!assertExceptions && IsExceptionCase(c)) return DeferredException;
+        // (DD4) The address-error (vector 3) large-frame WORD contents are timing-coupled (ADR 0008 §2.1). Task 13
+        // Step 0 found the pushed group-0 frame words do NOT match on the data axis (they encode in-progress
+        // bus-cycle state), so vector-3 stays DEFERRED even under assertExceptions — the small-frame exceptions
+        // (vector 4/5/6/7/8) assert; the address-error frame-word precision is M4.5d-2 (assert trap-taken only).
+        if (assertExceptions && IsAddressErrorCase(c)) return DeferredException;
 
         var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 24,
             endianness: Endianness.BigEndian);

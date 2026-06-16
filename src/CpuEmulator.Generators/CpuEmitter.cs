@@ -336,6 +336,15 @@ internal static class CpuEmitter
             {
                 sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
             }
+            sb.AppendLine();
+            sb.AppendLine("    // M4.5d-1: the control-flow + exception op bodies — hand-written M68000Cpu.Control/Exceptions partials.");
+            foreach (var name in new[] {
+                "Bcc","DBcc","Jmp","Jsr","Rts","Rtr","Rte","Link","Unlk",
+                "Trap","TrapV","Chk","Illegal","Nop","Reset","Stop",
+                "OriCcr","AndiCcr","EoriCcr","OriSr","AndiSr","EoriSr" })
+            {
+                sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            }
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -4198,7 +4207,24 @@ internal static class CpuEmitter
         sb.AppendLine("                }");
         sb.AppendLine("                extWords = lead;");
         sb.AppendLine("            }");
-        sb.AppendLine("            int eaExt = ExtensionWordCount(eaMode, eaReg, size);      // M4.3a Task 4: operand-computed");
+        sb.AppendLine("            // M4.5d-1: the EA-less control/exception ops (Bcc/DBcc/RTS/RTR/RTE/LINK/UNLK/TRAP/TRAPV/");
+        sb.AppendLine("            // ILLEGAL/NOP/RESET/STOP/*-to-CCR/SR) carry NO EA in bits 5-0 — they carry a fixed count of");
+        sb.AppendLine("            // leading words instead (a disp/imm word for Bcc.w/DBcc/LINK/STOP/*toCCR/SR, none for the");
+        sb.AppendLine("            // rest). The pre-existing M4.3a decoder mis-read bits 5-0 as an EA (over- or under-reporting");
+        sb.AppendLine("            // length); ControlLeadingWordCount(opIndex, operword) returns the TRUE count and the EA read");
+        sb.AppendLine("            // below is suppressed (IsEaLessControlOp). JMP/JSR/CHK DO take a real EA, so they are NOT here.");
+        sb.AppendLine("            else if (IsEaLessControlOp(f.OpIndex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                int lead = ControlLeadingWordCount(f.OpIndex, operword);");
+        sb.AppendLine("                for (int w = 0; w < lead; w++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    ushort lw = (ushort)stream.NextUnit();");
+        sb.AppendLine("                    switch (w) { case 0: e0 = lw; break; default: e1 = lw; break; }");
+        sb.AppendLine("                }");
+        sb.AppendLine("                extWords = lead;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            // EA extension words: suppressed for the EA-less control ops (they have no EA in bits 5-0).");
+        sb.AppendLine("            int eaExt = IsEaLessControlOp(f.OpIndex) ? 0 : ExtensionWordCount(eaMode, eaReg, size);   // M4.3a Task 4");
         sb.AppendLine("            for (int w = 0; w < eaExt; w++)");
         sb.AppendLine("            {");
         sb.AppendLine("                ushort ew = (ushort)stream.NextUnit();   // big-endian word (the stream composes BE)");
@@ -4232,6 +4258,7 @@ internal static class CpuEmitter
         EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
         EmitIsImmediateForm(sb, grammar); // M4.5b: the leading-#imm-word ALU immediate-form predicate
         EmitLeadingFixedWordCount(sb, grammar); // M4.5c: the leading fixed-word count (static bit / MOVEM / MOVEP)
+        EmitControlOpDecode(sb, grammar);     // M4.5d-1: the EA-less control ops + their leading disp/imm word count
         EmitIsAddressRegVariant(sb, grammar); // M4.5b: the ADDA/SUBA/CMPA .w/.l size remap predicate
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
@@ -4329,6 +4356,29 @@ internal static class CpuEmitter
                 "TAS"          => "TasExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 "MOVEM"        => "MoveMExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 "MOVEP"        => "MovePExecute(__operword, __r, __size, __srcMode, __srcReg)",   // optional (DC5) — INCLUDED
+                // ── M4.5d-1: control flow + exceptions. All take (__operword,__r,__size,__srcMode,__srcReg). ──
+                "Bcc"       => "BccExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "DBcc"      => "DBccExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "JMP"       => "JmpExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "JSR"       => "JsrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "RTS"       => "RtsExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "RTR"       => "RtrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "RTE"       => "RteExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "LINK"      => "LinkExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "UNLK"      => "UnlkExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "TRAP"      => "TrapExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "TRAPV"     => "TrapVExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CHK"       => "ChkExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ILLEGAL"   => "IllegalExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "NOP"       => "NopExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "RESET"     => "ResetExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "STOP"      => "StopExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ORI_CCR"   => "OriCcrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ANDI_CCR"  => "AndiCcrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EORI_CCR"  => "EoriCcrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ORI_SR"    => "OriSrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ANDI_SR"   => "AndiSrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EORI_SR"   => "EoriSrExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 _ => null,
             };
             if (hook is null) continue;
@@ -4384,6 +4434,64 @@ internal static class CpuEmitter
         sb.AppendLine(idx.Count == 0
             ? "0;"
             : "(" + string.Join(" || ", idx.Select(i => $"opIndex == {i}u")) + ") ? 1 : 0;");
+    }
+
+    /// <summary>M4.5d-1: the EA-less control/exception ops — those whose operword bits 5-0 are NOT an effective
+    /// address (so the M4.3a EA-extension read must be suppressed) plus the per-op count of FIXED leading words
+    /// they carry instead. The set is name-driven from the dataset operation names ON THE FIELD-GRAMMAR PATH
+    /// ONLY (6502/Z80 never get these helpers). JMP/JSR/CHK are EXCLUDED — they take a real EA in bits 5-0.
+    /// <list type="bullet">
+    /// <item>1 leading word: LINK (disp), DBcc (disp), STOP (imm), ORI/ANDI/EORI -to-CCR/-to-SR (imm).</item>
+    /// <item>conditional: Bcc carries a 16-bit displacement word ONLY when the disp byte (bits 7-0) is 0x00
+    ///   (the .w form); the .b form is operword-only.</item>
+    /// <item>0 leading words: RTS/RTR/RTE/UNLK/TRAP/TRAPV/ILLEGAL/NOP/RESET (operword-only).</item>
+    /// </list></summary>
+    private static void EmitControlOpDecode(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        // Map each EA-less control op's dataset operation name to its leading-word count category.
+        // "none" = 0 words; "one" = 1 word; "bcc" = conditional (1 iff disp byte == 0).
+        var eaLess = new System.Collections.Generic.List<int>();
+        var oneWord = new System.Collections.Generic.List<int>();
+        int bccIndex = -1;
+        for (int i = 0; i < grammar.Ops.Length; i++)
+        {
+            string op = grammar.Ops[i].Operation;
+            bool isControl = op switch
+            {
+                "Bcc" or "DBcc" or "RTS" or "RTR" or "RTE" or "LINK" or "UNLK" or "TRAP" or "TRAPV"
+                    or "ILLEGAL" or "NOP" or "RESET" or "STOP"
+                    or "ORI_CCR" or "ANDI_CCR" or "EORI_CCR" or "ORI_SR" or "ANDI_SR" or "EORI_SR" => true,
+                _ => false,
+            };
+            if (!isControl) continue;
+            eaLess.Add(i);
+            if (op == "Bcc") { bccIndex = i; continue; }
+            bool carriesOneWord = op switch
+            {
+                "DBcc" or "LINK" or "STOP"
+                    or "ORI_CCR" or "ANDI_CCR" or "EORI_CCR" or "ORI_SR" or "ANDI_SR" or "EORI_SR" => true,
+                _ => false,   // RTS/RTR/RTE/UNLK/TRAP/TRAPV/ILLEGAL/NOP/RESET — operword-only
+            };
+            if (carriesOneWord) oneWord.Add(i);
+        }
+
+        sb.AppendLine();
+        sb.Append("    private static bool IsEaLessControlOp(uint opIndex) => ");
+        sb.AppendLine(eaLess.Count == 0
+            ? "false;"
+            : string.Join(" || ", eaLess.Select(i => $"opIndex == {i}u")) + ";");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The count of leading disp/imm words an EA-less control op carries. Bcc is");
+        sb.AppendLine("    /// conditional (1 iff the disp byte is 0x00 — the .w form). 0 for the operword-only ops.</summary>");
+        sb.AppendLine("    private static int ControlLeadingWordCount(uint opIndex, uint operword)");
+        sb.AppendLine("    {");
+        if (bccIndex >= 0)
+            sb.AppendLine($"        if (opIndex == {bccIndex}u) return (operword & 0xFFu) == 0u ? 1 : 0;   // Bcc.w iff disp byte == 0");
+        sb.Append("        return (");
+        sb.Append(oneWord.Count == 0 ? "false" : string.Join(" || ", oneWord.Select(i => $"opIndex == {i}u")));
+        sb.AppendLine(") ? 1 : 0;");
+        sb.AppendLine("    }");
     }
 
     /// <summary>M4.5b: the address-reg variants (ADDA/SUBA/CMPA) whose 1-bit opmode size field (bit 8: 0=.w,
