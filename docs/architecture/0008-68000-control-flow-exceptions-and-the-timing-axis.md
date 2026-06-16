@@ -1,6 +1,6 @@
 # ADR 0008 — M4.5d: 68000 control flow, the exception model, IPL interrupts, the prefetch queue, and the deferred timing axis
 
-> **Status:** Proposed (architecture pass — awaiting the owner's morning review before any seam-breaking implementation).
+> **Status:** Accepted (owner sign-off 2026-06-16). M4.5d-1 (forks A/B/D) shipped in PR #43 (merged `7ce9f95`). M4.5d-2 forks C/E/F resolved — see the Resolution note in the decisions block. Proceed.
 > **Date:** 2026-06-16
 > **Deciders:** Mark (owner). Drafted autonomously by Claude Architect for the Coordinator while the owner is asleep; the
 > `## Decisions needing the user's sign-off` block at the end gathers every fork that genuinely needs the owner's call.
@@ -376,6 +376,14 @@ so an in-progress queue model never regresses the M4.5d-1 data-axis gate.
 Every fork below is stated with my recommendation, the alternative, and the risk. These are staged for the morning review; the
 Coordinator may proceed on **A** and **B** autonomously tonight (they are additive/low-risk) and should **hold C, D-as-extended, F**
 for the owner.
+
+> **✅ RESOLVED (owner sign-off, 2026-06-16):**
+> - **A, B, D** — shipped in **PR #43** (M4.5d-1, merged `7ce9f95`): control flow + the one `RaiseException` routine + the default-off `assertExceptions` flag; data-axis TomHarte-green (185 theories).
+> - **C → Tier (i), staged.** M4.5d-2 lands the prefetch-queue model + `final.pc`/`final.prefetch` first (the seam break, reviewed in isolation), then the full per-transaction trace + cycle accounting. The 68000 becomes cycle-exact.
+> - **E → Full IPL in M4.5d-2.** The complete interrupt-acknowledge sequence + prioritization, paired with the timing work.
+> - **F → Address-error group-0 frame in M4.5d-2.** The precise frame words land with the timing axis (they are timing-coupled).
+>
+> The original forks are retained below as the decision record.
 
 **A. Ship M4.5d-1 (control flow + exceptions) as a clean additive data-axis PR, ahead of and separate from the timing axis.**
 - *Recommendation:* **Yes — build it autonomously tonight.** It is the most M4.5c-like work in the arc, reuses proven primitives
