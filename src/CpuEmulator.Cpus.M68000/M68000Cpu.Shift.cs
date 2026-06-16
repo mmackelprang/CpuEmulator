@@ -73,4 +73,78 @@ public sealed partial class M68000Cpu
         public static byte RotateXProbe(uint result, uint size, bool lastBitOut, byte oldCcr, bool countZero = false)
             => RotateX(result, size, lastBitOut, oldCcr, countZero);
     }
+
+    /// <summary>The 8 shift/rotate kinds. The registration decodes operword bit 8 (direction) within each pair.</summary>
+    private enum ShiftKind { Asl, Asr, Lsl, Lsr, Rol, Ror, Roxl, Roxr }
+
+    /// <summary>The shift/rotate driver (ADR 0007 §7.1 sibling to BinaryAluExecute). REGISTER form (0xF018):
+    /// count = reg(Dn mod 64) or imm(bits 11-9, 0->8) per bit 5, target Dn(bits 2-0), size bits 7-6. MEMORY form
+    /// (SHIFT_MEM): count 1, .w, target EA. Captures last-bit-out + (ASL) msbChanged; sets CCR via ShiftCcr.</summary>
+    private void ShiftRotateExecute(ShiftKind kind, uint operword, CpuEmulator.Core.Jit.DecodeResult r,
+        uint size, uint srcMode, uint srcReg, bool memoryForm)
+    {
+        uint mask = SizeMask(size);
+        byte oldCcr = (byte)(SR & 0xFF);
+        bool xIn = (oldCcr & 0x10) != 0;
+
+        int count;
+        uint value;
+        AluDest dest;
+        uint targetDn = operword & 7u;
+        if (memoryForm)
+        {
+            count = 1;
+            dest = ResolveEaDest(srcMode, srcReg, size, r.ExtensionWords, out value);   // .w memory RMW (address-once)
+            value &= mask;
+        }
+        else
+        {
+            bool regCount = (operword & 0x20u) != 0;                  // bit 5: 1 = register count
+            if (regCount) count = (int)(DataReg((operword >> 9) & 7u) % 64u);   // Dn mod 64
+            else { uint q = (operword >> 9) & 7u; count = q == 0u ? 8 : (int)q; } // imm 1-8 (0->8)
+            value = DataReg(targetDn) & mask;
+            dest = AluDest.DataRegister(targetDn);
+        }
+
+        uint sb = size switch { 0u => 0x80u, 1u => 0x8000u, _ => 0x80000000u };
+        uint v = value & mask;
+        bool lastBitOut = false, msbChanged = false;
+        for (int i = 0; i < count; i++)
+        {
+            bool msbBefore = (v & sb) != 0;
+            switch (kind)
+            {
+                case ShiftKind.Asl: case ShiftKind.Lsl:
+                    lastBitOut = (v & sb) != 0; v = (v << 1) & mask; break;
+                case ShiftKind.Asr:
+                    lastBitOut = (v & 1u) != 0; v = ((v >> 1) | (msbBefore ? sb : 0u)) & mask; break;   // sign-fill
+                case ShiftKind.Lsr:
+                    lastBitOut = (v & 1u) != 0; v = (v >> 1) & mask; break;
+                case ShiftKind.Rol:
+                    lastBitOut = (v & sb) != 0; v = ((v << 1) | (lastBitOut ? 1u : 0u)) & mask; break;
+                case ShiftKind.Ror:
+                    lastBitOut = (v & 1u) != 0; v = ((v >> 1) | (lastBitOut ? sb : 0u)) & mask; break;
+                case ShiftKind.Roxl:
+                    lastBitOut = (v & sb) != 0; v = ((v << 1) | (xIn ? 1u : 0u)) & mask; xIn = lastBitOut; break;
+                default: /* Roxr */
+                    { bool lobit = (v & 1u) != 0; v = ((v >> 1) | (xIn ? sb : 0u)) & mask; lastBitOut = lobit; xIn = lobit; } break;
+            }
+            if (((v & sb) != 0) != msbBefore) msbChanged = true;
+        }
+        uint result = v & mask;
+
+        if (memoryForm) WriteResolvedDest(dest, size, result);
+        else SetDataRegPartial(targetDn, result, size);
+
+        bool countZero = count == 0;
+        byte ccr = kind switch
+        {
+            ShiftKind.Asl => ShiftCcr.Shift(result, size, lastBitOut, msbChanged, oldCcr, countZero),
+            ShiftKind.Asr or ShiftKind.Lsl or ShiftKind.Lsr
+                          => ShiftCcr.Shift(result, size, lastBitOut, msbChanged: false, oldCcr, countZero),
+            ShiftKind.Rol or ShiftKind.Ror   => ShiftCcr.Rotate(result, size, lastBitOut, oldCcr, countZero),
+            _ /* Roxl/Roxr */                => ShiftCcr.RotateX(result, size, lastBitOut, oldCcr, countZero),
+        };
+        SR = (ushort)((SR & 0xFF00) | ccr);
+    }
 }
