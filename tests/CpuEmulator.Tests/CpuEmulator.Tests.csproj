@@ -24,6 +24,9 @@
     <Content Include="Importer\data\**" CopyToOutputDirectory="PreserveNewest" />
     <!-- Committed 680x0 TomHarte gzip fixture (M4.4b): always-on parse proof, no vector download. -->
     <None Include="TomHarte\fixtures\m68000-sample.json.gz" CopyToOutputDirectory="PreserveNewest" />
+    <!-- xUnit parallelism config (TomHarte-sweep parallelization): collection-level parallelism across the
+         per-file/per-plane split sweep classes. maxParallelThreads is tuned empirically; see the plan. -->
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -38,3 +38,17 @@ public sealed class M68000TomHarteTheoryAttribute : TheoryAttribute
                    "or set CPUEMULATOR_TESTVECTORS (default ~/.cache/cpuemulator/vectors).";
     }
 }
+
+/// <summary>FactAttribute that skips at discovery when the 680x0 vectors are absent — the Fact-shaped twin of
+/// <see cref="M68000TomHarteTheoryAttribute"/>, for the per-file split sweep classes (one vector file == one
+/// Fact == one xUnit collection, so the files distribute across cores instead of running serially in one
+/// theory class). Identical skip logic; zero semantics change.</summary>
+public sealed class M68000TomHarteFactAttribute : FactAttribute
+{
+    public M68000TomHarteFactAttribute()
+    {
+        if (M68000TomHarteVectors.TryGetVectorDirectory() is null)
+            Skip = "680x0 TomHarte vectors not found — run tools/get-test-vectors-68000.ps1, " +
+                   "or set CPUEMULATOR_TESTVECTORS (default ~/.cache/cpuemulator/vectors).";
+    }
+}

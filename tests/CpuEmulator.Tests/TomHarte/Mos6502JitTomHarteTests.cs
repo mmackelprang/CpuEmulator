@@ -7,27 +7,18 @@ using Xunit.Abstractions;
 namespace CpuEmulator.Tests.TomHarte;
 
 /// <summary>
-/// Task 7: sampled TomHarte SingleStepTests parity through the Tier-1 <c>JittedCpu</c>. Reuses
-/// the interpreter test's implemented-opcode probe and the same per-opcode vector files, but
-/// runs each case through a JIT-wrapped CPU (forcing block compilation + execution — Step would
-/// just re-test the interpreter, so the runner drives Run with the case's cycle budget).
+/// Task 7: sampled TomHarte SingleStepTests parity through the Tier-1 <c>JittedCpu</c>. Reuses the interpreter
+/// test's implemented-opcode probe and the same per-opcode vector files, but runs each case through a
+/// JIT-wrapped CPU. The assertion is state + RAM + cycle count, NOT the bus trace (fastmem — Ground truth E).
 ///
-/// The assertion is state + RAM + cycle count, NOT the bus trace (fastmem bypasses the bus for
-/// RAM/ROM — Ground truth E). ADC/SBC/BRK/RTI run through the interpreter-fallback path, which is
-/// still a valid parity check: the JIT must produce the interpreter's result whether by emit or
-/// by fallback. Trace-equivalence (DisableFastmem) is pinned by <c>JitTraceEquivalenceTests</c>.
-///
-/// Sampling: <c>CPUEMULATOR_UAT=full</c> runs all 10,000 cases/opcode (the M2-i UAT gate, also the
-/// M2-ii full sweep); otherwise <c>CPUEMULATOR_TOMHARTE_SAMPLE</c> or the 200/opcode default.
+/// <para><b>Parallelism (test-infra, zero semantics change).</b> The single per-opcode <c>[Theory]</c> is now
+/// split into 4 index-partitioned collections (the same partitioning as the interpreter sweep), so the opcodes
+/// distribute across cores. The row count is unchanged. The non-sweep emit-probe tests stay in
+/// <see cref="Mos6502JitTomHarteSpecialTests"/>.</para>
 /// </summary>
-public class Mos6502JitTomHarteTests(ITestOutputHelper output)
+public abstract class Mos6502JitTomHarteSweepBase(ITestOutputHelper output)
 {
-    /// <summary>Same implemented-opcode probe as the interpreter test (Disassemble != "???").</summary>
-    public static TheoryData<byte> ImplementedOpcodes() => Mos6502TomHarteTests.ImplementedOpcodes();
-
-    [TomHarteTheory]
-    [MemberData(nameof(ImplementedOpcodes))]
-    public void Opcode_matches_TomHarte_through_the_JIT(byte opcode)
+    protected void RunOpcodeThroughJit(byte opcode)
     {
         string dir  = TomHarteVectors.TryGetVectorDirectory()!;
         string path = Path.Combine(dir, $"{opcode:x2}.json");
@@ -59,12 +50,40 @@ public class Mos6502JitTomHarteTests(ITestOutputHelper output)
             Assert.Fail($"{failures.Count} JIT parity failure(s) of {run} run:\n\n" +
                         string.Join("\n---\n", failures));
     }
+}
 
+public sealed class Mos6502Jit_P0(ITestOutputHelper output) : Mos6502JitTomHarteSweepBase(output)
+{
+    public static TheoryData<byte> Ops() => Mos6502TomHarteTests.PartitionOpcodes(0, 4);
+    [TomHarteTheory][MemberData(nameof(Ops))] public void Opcode_matches_TomHarte_through_the_JIT(byte opcode) => RunOpcodeThroughJit(opcode);
+}
+
+public sealed class Mos6502Jit_P1(ITestOutputHelper output) : Mos6502JitTomHarteSweepBase(output)
+{
+    public static TheoryData<byte> Ops() => Mos6502TomHarteTests.PartitionOpcodes(1, 4);
+    [TomHarteTheory][MemberData(nameof(Ops))] public void Opcode_matches_TomHarte_through_the_JIT(byte opcode) => RunOpcodeThroughJit(opcode);
+}
+
+public sealed class Mos6502Jit_P2(ITestOutputHelper output) : Mos6502JitTomHarteSweepBase(output)
+{
+    public static TheoryData<byte> Ops() => Mos6502TomHarteTests.PartitionOpcodes(2, 4);
+    [TomHarteTheory][MemberData(nameof(Ops))] public void Opcode_matches_TomHarte_through_the_JIT(byte opcode) => RunOpcodeThroughJit(opcode);
+}
+
+public sealed class Mos6502Jit_P3(ITestOutputHelper output) : Mos6502JitTomHarteSweepBase(output)
+{
+    public static TheoryData<byte> Ops() => Mos6502TomHarteTests.PartitionOpcodes(3, 4);
+    [TomHarteTheory][MemberData(nameof(Ops))] public void Opcode_matches_TomHarte_through_the_JIT(byte opcode) => RunOpcodeThroughJit(opcode);
+}
+
+/// <summary>The non-sweep 6502 JIT probes (sample-resolution, the ADC emit-vs-fallback probe, and the decimal
+/// emitted-arm subset) — unchanged from the pre-split single class; kept together as their own collection.</summary>
+public class Mos6502JitTomHarteSpecialTests(ITestOutputHelper output)
+{
     // ── Task 6: the sample-size resolution honors CPUEMULATOR_UAT=full ──────────────────────────
-    /// <summary>The JIT sweep's sample size mirrors the interpreter's: CPUEMULATOR_UAT=full -&gt; the
-    /// full case count (int.MaxValue, i.e. every case in the file), else 200 (or the SAMPLE override).
-    /// This is the resolution the full-sweep pre-merge gate sets; at CI scale it stays sampled (fast).
-    /// Asserted directly so the env-honoring contract is pinned without needing the full vector set.</summary>
+    /// <summary>The JIT sweep's sample size mirrors the interpreter's: CPUEMULATOR_UAT=full -&gt; the full case
+    /// count (int.MaxValue), else 200 (or the SAMPLE override). Asserted directly so the env-honoring contract is
+    /// pinned without needing the full vector set.</summary>
     [Fact]
     public void ResolveJit_honors_full()
     {
@@ -95,9 +114,8 @@ public class Mos6502JitTomHarteTests(ITestOutputHelper output)
     [Fact]
     public void ADC_opcode_block_emits_no_fallback()
     {
-        // A block containing an ADC (then a JMP-self to end it) emits ZERO fallbacks — ADC is now
-        // emitted (Task 5). Contrast a block containing a BRK, which still emits ONE fallback
-        // (BRK/RTI/undefined stay interpreter fallbacks — the recorded decision).
+        // A block containing an ADC (then a JMP-self to end it) emits ZERO fallbacks — ADC is now emitted
+        // (Task 5). Contrast a block containing a BRK, which still emits ONE fallback.
         var adc = NewCompiler((0x0200, [0xA9, 0x01, 0x69, 0x02, 0x4C, 0x04, 0x02])); // LDA / ADC / JMP*
         adc.Compile(0x0200);
         Assert.Equal(0, adc.FallbackEmitCount);
@@ -114,10 +132,8 @@ public class Mos6502JitTomHarteTests(ITestOutputHelper output)
     [InlineData(0xED)]  // SBC Absolute
     public void Decimal_subset_TomHarte_passes_through_the_JIT_by_emit(byte opcode)
     {
-        // A decimal-mode (D set in Initial.P) TomHarte subset for a few ADC/SBC opcodes, run through
-        // the JIT via RunCaseThroughJit. All must pass — and now via the EMITTED decimal arm, not the
-        // M2-i interpreter fallback (Task 5/6). A spot sample keeps CI fast; the full sweep
-        // (CPUEMULATOR_UAT=full) runs all 80,093 decimal cases through emit.
+        // A decimal-mode (D set in Initial.P) TomHarte subset for a few ADC/SBC opcodes, run through the JIT.
+        // All must pass — via the EMITTED decimal arm, not the M2-i interpreter fallback (Task 5/6).
         string dir  = TomHarteVectors.TryGetVectorDirectory()!;
         string path = Path.Combine(dir, $"{opcode:x2}.json");
         Assert.True(File.Exists(path), $"vector file missing: {path}");
