@@ -97,6 +97,15 @@ internal static class M68000TomHarteRunner
     }
     private const uint Vector3 = 3;   // address error (group 0 — the large frame)
 
+    /// <summary>A per-WORKER-THREAD reusable 16 MiB RAM arena. The runner formerly allocated a fresh
+    /// <c>new byte[0x1000000]</c> per case; at ~2M cases that is ~32 TB of transient allocation, and under the
+    /// parallelized (per-file-collection) sweep the concurrent live arenas thrash the GC — erasing the
+    /// parallelism win. Reusing one arena per worker thread (cleared per case) cuts arena allocation by ~4-5
+    /// orders of magnitude with IDENTICAL semantics: <see cref="Array.Clear(System.Array)"/> re-zeroes it, the
+    /// same state a fresh <c>new byte[]</c> gives, before the case's initial RAM is applied. [ThreadStatic] is
+    /// safe because <see cref="RunCase"/> is synchronous (no await) — a worker thread never reenters it.</summary>
+    [ThreadStatic] private static byte[]? _ramArena;
+
     /// <summary>M4.5d-2a (ADR 0008 §5, plan T0): the PC/prefetch assertion mode — diffs the prefetch-queue
     /// END STATE (<c>final.pc</c> + both <c>final.prefetch</c> words) WITHOUT the full per-transaction trace /
     /// cycle-count diff (the 2a ceiling; cycle-exactness is 2b). Asserted on top of the data axis. Default-off
@@ -119,7 +128,12 @@ internal static class M68000TomHarteRunner
 
         var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 24,
             endianness: Endianness.BigEndian);
-        inner.MapMemory(0x000000, new byte[0x1000000], writable: true);
+        // Reuse this worker thread's 16 MiB arena instead of allocating per case (GC-thrash fix for the
+        // parallelized sweep). Array.Clear re-zeroes it → identical to a fresh new byte[0x1000000] before the
+        // case's initial RAM is applied below.
+        byte[] ram = _ramArena ??= new byte[0x1000000];
+        Array.Clear(ram, 0, ram.Length);
+        inner.MapMemory(0x000000, ram, writable: true);
         foreach (var e in c.Initial.Ram) inner.Write8(e.Address & inner.AddressMask, e.Value);
 
         // Seed the prefetch queue into the bus so the live fetch sees the operword (D-C corrected: the operword
