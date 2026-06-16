@@ -151,6 +151,12 @@ public sealed partial class M68000Cpu
         // (so a same-or-lower interrupt does not re-fire).
         SR = (ushort)(((uint)SR & 0xF8FFu) | ((uint)level << 8));
         _iplLevel = 0;   // the device de-asserts on acknowledge (the synthetic model).
+        // M4.5d-2a (review Finding 2): the acknowledge set PC to the handler (a non-sequential transfer), but
+        // Step returns here WITHOUT seeding the queue. Reseed it from the handler PC so FinalPrefetch reflects
+        // the handler's prefetch, not the previous instruction's stale queue. (Synthetic-only in 2a — no vector
+        // exercises an async interrupt; the acknowledge-cycle trace is 2b. Null-safe: the queue is lazily created
+        // by the generated Step, so a pre-first-Step interrupt has nothing to reseed.)
+        _fetchQueue?.Reseed(PC);
         return true;
     }
 

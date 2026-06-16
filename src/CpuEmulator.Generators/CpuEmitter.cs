@@ -251,7 +251,18 @@ internal static class CpuEmitter
             sb.AppendLine("        // advance so ComputeEa's PcForEa reads the right base (the live PC moves past the whole insn).");
             sb.AppendLine("        _eaPcBase = PC + 2u;");
             sb.AppendLine("        PC += (uint)__r.Length;                       // advance past operword + extension words");
-            sb.AppendLine("        if (__r.OperationKey == 0xFFFFFFFFu) { HandleUndefinedOpcode(unchecked((byte)__operword)); return; }");
+            // M4.5d-2a (review Finding 1): the undefined-opcode path also goes through the reseed-on-divergence
+            // guard. Today HandleUndefinedOpcode is a stub (no PC change), so FormalPc == PC and the reseed is a
+            // no-op — but when it is promoted to RaiseException(ILLEGAL) (the real 68000 behaviour) it will set PC
+            // to the handler and the queue MUST reseed from it (else FinalPrefetch is stale). Run the same
+            // cleanup + reseed the matched-op path runs, then return.
+            sb.AppendLine("        if (__r.OperationKey == 0xFFFFFFFFu)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            HandleUndefinedOpcode(unchecked((byte)__operword));");
+            sb.AppendLine("            _eaPcBase = 0u;");
+            sb.AppendLine("            if (__stream.FormalPc != PC) __stream.Reseed(PC);");
+            sb.AppendLine("            return;");
+            sb.AppendLine("        }");
             sb.AppendLine("        uint __opIndex = (__r.OperationKey >> 8) & 0xFFFFu;   // unpack opIndex from the key");
             sb.AppendLine("        uint __size = __r.OperationKey & 0xFFu;               // 0=b,1=w,2=l");
             sb.AppendLine("        uint __ea = __operword & 0x3Fu;");
@@ -4490,9 +4501,14 @@ internal static class CpuEmitter
                     // MOVEfromUSP half (0x4E68-0x4E6F → mode 5 = (d16,An), 1 ext word) — invisible on the data
                     // axis (MoveUspExecute uses only the operword) but it over-advanced the formal PC + the
                     // prefetch queue (final.pc/prefetch off by one word). Suppress the EA read: MOVE USP carries
-                    // 0 leading words (operword-only), so the queue advances exactly one word. Reconciled per
-                    // the 2a sweep (the only PC/prefetch mismatch in the corpus).
-                    or "MOVE_USP" => true,
+                    // 0 leading words (operword-only), so the queue advances exactly one word.
+                    // The SAME mis-read hit the REGISTER-FORM shifts (ASLR/LSLR/ROLR/ROXLR_REG, 0xE000/E008/E010/
+                    // E018; bits 7-6 != 11 keeps them distinct from the memory-shift SHIFT_MEM op): their low 6
+                    // bits are {count/reg, i-r, type, Dy}, NOT an EA. E.g. ROXR.w D0,D0 = 0xE070 has bits 5-3 = 6
+                    // = mode (d8,An,Xn) -> 1 spurious ext word. The register-form bodies use only the operword +
+                    // register file (memoryForm: false), so suppressing the EA read is safe. Reconciled per the
+                    // 2a sweep (the PC/prefetch corpus mismatches).
+                    or "MOVE_USP" or "ASLR_REG" or "LSLR_REG" or "ROLR_REG" or "ROXLR_REG" => true,
                 _ => false,
             };
             if (!isControl) continue;

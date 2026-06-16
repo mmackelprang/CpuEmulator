@@ -340,6 +340,29 @@ public class M68000ExceptionTests
     }
 
     [Fact]
+    public void Ipl_acknowledge_reseeds_the_prefetch_queue_from_the_handler()
+    {
+        // M4.5d-2a (review Finding 2): a serviced interrupt sets PC to the handler (a non-sequential transfer)
+        // and Step returns BEFORE seeding the queue — so TryServiceInterrupt reseeds it. After the acknowledge,
+        // FinalPrefetch must be [bus[handler], bus[handler+2]], NOT stale. Synthetic-only (no async-interrupt
+        // vector — DD5). First Step a real instruction so the queue exists, then fire the interrupt on the next.
+        var (cpu, bus) = Build((0x1000, 0x4E), (0x1001, 0x71),   // NOP at 0x1000 (one-word)
+                               (0x1002, 0x12), (0x1003, 0x34),   // the sequential prefetch words after NOP
+                               (0x1004, 0x56), (0x1005, 0x78));
+        cpu.SetRegister("SR", 0x2300);     // supervisor, mask 3
+        cpu.SetRegister("SSP", 0x9000);
+        cpu.SetRegister("PC", 0x1000);
+        bus.Write32(0x74, 0x0000A500);     // autovector 29 handler
+        bus.Write16(0xA500, 0xBEEF);       // the handler's two prefetch words
+        bus.Write16(0xA502, 0xCAFE);
+        cpu.Step();                        // run the NOP — the queue now exists, seeded around 0x1000
+        cpu.SetInterruptLevel(5);          // 5 > mask 3 → pending
+        cpu.Step();                        // services the interrupt → PC = handler, queue reseeded from it
+        Assert.Equal(0xA500u, (uint)cpu.GetRegister("PC"));
+        Assert.Equal(((ushort)0xBEEF, (ushort)0xCAFE), cpu.FinalPrefetch);   // reseeded from the handler, not stale
+    }
+
+    [Fact]
     public void Ipl_at_or_below_mask_is_not_pending()
     {
         var (cpu, _) = Build();
