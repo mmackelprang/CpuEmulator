@@ -191,4 +191,36 @@ public class M68000BitBcdSccExecuteTests
         cpu.Step();
         Assert.Equal(0x12345600u, (uint)cpu.GetRegister("D0"));   // low byte = 0x00
     }
+
+    // ── Task 14: CMPM decodes as CMPM (not EOR) + the (Ay)+,(Ax)+ compare ──────────────────────────────────
+    [Fact]
+    public void Cmpm_operword_decodes_as_CMPM_not_EOR()
+    {
+        // CMPM.w (A0)+,(A1)+ = 0xB348. 1011 ddd=001(A1=Ay) 1 ss=01(.w) 001 reg=000(A0=Ax).
+        var buf = new byte[] { 0xB3, 0x48, 0, 0 };
+        var stream = new BufferFetchStream(buf, unitBytes: 2, bigEndian: true);
+        DecodeResult r = M68000Cpu.Decode(stream);
+        // CMPM opIndex differs from EOR's; the decode must not be illegal and must route to CmpMExecute (the
+        // execute test below proves the routing — compare-only, post-increment both).
+        Assert.NotEqual(0xFFFFFFFFu, r.OperationKey);
+    }
+
+    [Fact]
+    public void Cmpm_w_postincrements_both_and_compares_no_write()
+    {
+        // CMPM.w (A0)+,(A1)+ = 0xB348. result = (A1)+ - (A0)+. Equal operands -> Z.
+        var (cpu, bus) = Build((0x1000, 0xB3), (0x1001, 0x48));
+        cpu.SetRegister("PC", 0x1000);
+        cpu.SetRegister("A0", 0x2000);   // Ax (operand B)
+        cpu.SetRegister("A1", 0x3000);   // Ay (operand A)
+        bus.Write16(0x2000, 0x1234);
+        bus.Write16(0x3000, 0x1234);
+        cpu.SetRegister("SR", 0x0000);
+        cpu.Step();
+        Assert.Equal((ushort)0x1234, bus.Read16(0x2000));        // no write
+        Assert.Equal((ushort)0x1234, bus.Read16(0x3000));        // no write
+        Assert.Equal(0x2002u, (uint)cpu.GetRegister("A0"));      // (A0)+ advanced by 2 (.w)
+        Assert.Equal(0x3002u, (uint)cpu.GetRegister("A1"));      // (A1)+ advanced by 2 (.w)
+        Assert.Equal(0x04u, (uint)cpu.GetRegister("SR") & 0x04); // Z set (equal)
+    }
 }

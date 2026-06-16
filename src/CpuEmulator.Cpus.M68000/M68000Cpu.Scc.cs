@@ -42,4 +42,20 @@ public sealed partial class M68000Cpu
         AluDest dest = ResolveEaDest(srcMode, srcReg, 0u, r.ExtensionWords, out _);   // .b dummy read (address-once)
         WriteResolvedDest(dest, 0u, val);                                             // NO CCR change
     }
+
+    // CMPM (Ay)+,(Ax)+ : compare two postincrement-memory operands; NO write; CMP CCR (X untouched).
+    // Ay = bits 11-9 (operand A); Ax = bits 2-0 (operand B). Both (An)+; size = bits 7-6 (.b/.w/.l).
+    partial void CmpMExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+    {
+        uint ay = (operword >> 9) & 7u;   // (Ay)+ operand A
+        uint ax = operword & 7u;          // (Ax)+ operand B
+        byte oldCcr = (byte)(SR & 0xFF);
+        // Postincrement BOTH (Ax first as the source, then Ay — confirm the order against the bundled CMP vectors).
+        uint axAddr = ComputeEa(3u, ax, size, CpuEmulator.Core.Jit.ExtensionWords.None, pureEa: false);  // (Ax)+
+        uint b = ReadSized(axAddr, size) & SizeMask(size);
+        uint ayAddr = ComputeEa(3u, ay, size, CpuEmulator.Core.Jit.ExtensionWords.None, pureEa: false);  // (Ay)+
+        uint a = ReadSized(ayAddr, size) & SizeMask(size);
+        uint result = (a - b) & SizeMask(size);
+        SR = (ushort)((SR & 0xFF00) | AluCcr.Cmp(a, b, result, size, false, oldCcr));   // CMP CCR (X kept)
+    }
 }
