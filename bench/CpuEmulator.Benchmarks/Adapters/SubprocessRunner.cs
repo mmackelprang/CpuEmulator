@@ -11,10 +11,13 @@ namespace CpuEmulator.Benchmarks.Adapters;
 internal static class SubprocessRunner
 {
     /// <summary>Run the subject's glue and produce a measured (or skipped) result. The workload's
-    /// termination + window args are passed positionally: image-path, startPc, mode (trap|cap),
-    /// trapPc, measureCycles.</summary>
+    /// termination + window args are passed positionally: image-path, startPc, mode (trap|cap|bdos),
+    /// trapPc, measureCycles. <paramref name="bdosMode"/> (the Z80-W1 CP/M case) substitutes the
+    /// <c>bdos</c> mode token so the subject's runner services the BDOS CALL host-side (fn-2/fn-9 +
+    /// RET) and honors the warm-boot sentinel — the 6502 subjects never set it, so their <c>cap</c>
+    /// behavior is unchanged.</summary>
     public static AdapterResult Measure(string exe, IEnumerable<string> leadingArgs, BenchWorkload w,
-                                        string versionNote, long measureCyclesForCap)
+                                        string versionNote, long measureCyclesForCap, bool bdosMode = false)
     {
         string imagePath = Path.Combine(Path.GetTempPath(),
             $"cpuemu-bench-{Guid.NewGuid():N}.bin");
@@ -33,7 +36,7 @@ internal static class SubprocessRunner
             {
                 Quote(imagePath),
                 w.StartPc.ToString(CultureInfo.InvariantCulture),
-                "cap",                                  // a bounded window — see above
+                bdosMode ? "bdos" : "cap",              // a bounded window (cap) or a CP/M BDOS window (Z80-W1)
                 w.SuccessTrapPc.ToString(CultureInfo.InvariantCulture),
                 measure.ToString(CultureInfo.InvariantCulture),
             };
