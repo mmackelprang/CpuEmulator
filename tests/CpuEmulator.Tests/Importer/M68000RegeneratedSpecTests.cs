@@ -35,6 +35,6 @@ public class M68000RegeneratedSpecTests
         // Family count pinned (update intentionally when the dataset grows).
         Assert.Equal(report.Families, families.Length);
         Assert.True(families.Length >= 50, $"expected >=50 families, got {families.Length}");
-        Assert.Equal(82, families.Length);   // pinned count — bump deliberately when the dataset grows
+        Assert.Equal(83, families.Length);   // pinned count — bump deliberately when the dataset grows (M4.5c +CMPM)
     }
 }

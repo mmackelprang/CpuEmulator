@@ -196,6 +196,33 @@ Carried forward verbatim from the M4.5a correction (authority: ADR 0004 §3; the
 3. **`TST` on the unary path** — whether `TST` rides `BinaryAluExecute(UnaryEa, writesResult:false)` or needs a bespoke body depends on how clean the unary read-only path is. Planner's call at implementation; either satisfies the data axis.
 4. **The `ArithX` sticky-Z and the `ADDX`/`SUBX` -(An)↔-(An) operand shape** — confirm against the `ADDX.*`/`SUBX.*` vectors that the sticky-Z and the pre-decrement operand pairing are modeled before merge (the classic ALU-extend bug class).
 
+### 7.1 ✅ RESOLVED by M4.5c (2026-06-15) — Open Question #1: the descriptor generalizes (verdict (b))
+
+The `(AluFn, CcrRule, AluShape)` descriptor model **does generalize** to most of M4.5c, with ONE modest,
+additive extension for shift/rotate. This is the **(b)** verdict — a modest additive extension, NOT an ADR
+rewrite, NOT a premature jump to (B). **Option (C) STANDS.**
+
+- **BCD (ABCD/SBCD/NBCD) — ZERO new shape.** The operand shape (operword bit 3: `Dn,Dn` vs `-(An),-(An)`) is
+  IDENTICAL to ADDX/SUBX (the `XAlu` shape), and the X-in + sticky-Z behavior is already solved
+  (`AluCcr.ArithX`). BCD slots in with a new `BcdCcr` rule (the existing CCR-rule signature) + a decimal-adjust
+  func that mirrors `XAlu` (`BcdXAlu`). The strongest "yes."
+- **Bit ops (BTST/BCHG/BCLR/BSET, dynamic + static) — ZERO new shape.** "A op bit# → maybe-write, set CCR"
+  with a new well-behaved CCR rule (`BitCcr.BitTest`: Z from the tested bit, N/V/C/X untouched — the existing
+  signature). The RMW path reuses `ResolveEaDest`/`WriteResolvedDest` verbatim (the M4.5b address-once fix).
+- **Shift/rotate — ONE additive extension (a sibling driver, not a redesign).** A sibling `ShiftRotateExecute`
+  driver + a richer result carrier (last-bit-out + msb-changed) + new `ShiftCcr.Shift/Rotate/RotateX` rules,
+  because (a) `AluFn` returns only the result value — the last-bit-shifted-out is lost for count>1
+  (`M68000Cpu.Alu.cs:16`); (b) ASL's V = "the MSB changed at ANY point during the shift" needs intermediate
+  state the single-step `AluCcr.Arith` V-formula (`:211`) structurally cannot express; (c) the count-source
+  (register mod 64 / immediate 1-8 / implicit 1) is a THIRD operand-sourcing axis the `AluShape` switch
+  (`:23`/`:69-116`) does not cover. Cleaner as a small sibling driver than to bloat `BinaryAluExecute`.
+
+**Standing direction for the eventual (B) op-table promotion:** the 68000-local generated op-table must encode a
+`countSource` axis AND a `lastBitOut`/`msbChanged` CCR-input axis (the inputs shifts need that the current tuple
+loses). The finding "the tuple holds for BCD/bit; shifts add a count-source + last-bit-out axis" is the precise
+input the (B)-promotion Architect needs — banked here as stabilization evidence, NOT promoted now. **No ADR
+reversal; the seam (fetch/bus/runner) stays untouched; reversibility preserved.**
+
 ---
 
 *End of ADR 0007. The seam constraint held against the shipped code (the promotion is mechanical; fetch/bus/runner are agnostic by construction). M4.5b ships (C) — the table-driven ALU helper layer behind the unchanged dispatch seam — with the data/timing/exception axis split intact. Designer: no UX surface (headless framework). Planner can pick up the §5 structural guidance + the §6 gate from here.*

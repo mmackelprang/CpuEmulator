@@ -326,6 +326,16 @@ internal static class CpuEmitter
             {
                 sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
             }
+            sb.AppendLine();
+            sb.AppendLine("    // M4.5c: the shift/bit/BCD/Scc/CMPM/data-movement op bodies — hand-written M68000Cpu.* partials.");
+            foreach (var name in new[] {
+                "AslrReg","LslrReg","RolrReg","RoxlrReg","ShiftMem",
+                "Btst","Bchg","Bclr","Bset","BtstStatic","BchgStatic","BclrStatic","BsetStatic",
+                "Abcd","Sbcd","Nbcd","Scc","CmpM",
+                "Swap","MoveQ","Exg","Lea","Pea","Tas","MoveM","MoveP" })
+            {
+                sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            }
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -4174,6 +4184,20 @@ internal static class CpuEmitter
         sb.AppendLine("                }");
         sb.AppendLine("                extWords = immWords;");
         sb.AppendLine("            }");
+        sb.AppendLine("            // M4.5c: some ops carry a FIXED leading extension word BEFORE the EA's own words:");
+        sb.AppendLine("            //   • the static bit ops (BTST/BCHG/BCLR/BSET #imm) — the bit-number word (low byte);");
+        sb.AppendLine("            //   • MOVEM — the register-list mask word;  • MOVEP — the d16(An) displacement word.");
+        sb.AppendLine("            // Fetch it first so ext[0] = the fixed word, ext[1..] = the EA's (the body ShiftExt's by 1).");
+        sb.AppendLine("            else if (LeadingFixedWordCount(f.OpIndex) > 0)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                int lead = LeadingFixedWordCount(f.OpIndex);");
+        sb.AppendLine("                for (int w = 0; w < lead; w++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    ushort lw = (ushort)stream.NextUnit();");
+        sb.AppendLine("                    switch (w) { case 0: e0 = lw; break; default: e1 = lw; break; }");
+        sb.AppendLine("                }");
+        sb.AppendLine("                extWords = lead;");
+        sb.AppendLine("            }");
         sb.AppendLine("            int eaExt = ExtensionWordCount(eaMode, eaReg, size);      // M4.3a Task 4: operand-computed");
         sb.AppendLine("            for (int w = 0; w < eaExt; w++)");
         sb.AppendLine("            {");
@@ -4207,6 +4231,7 @@ internal static class CpuEmitter
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
         EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
         EmitIsImmediateForm(sb, grammar); // M4.5b: the leading-#imm-word ALU immediate-form predicate
+        EmitLeadingFixedWordCount(sb, grammar); // M4.5c: the leading fixed-word count (static bit / MOVEM / MOVEP)
         EmitIsAddressRegVariant(sb, grammar); // M4.5b: the ADDA/SUBA/CMPA .w/.l size remap predicate
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
@@ -4277,6 +4302,33 @@ internal static class CpuEmitter
                 "MULS" => "MulSExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 "DIVU" => "DivUExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 "DIVS" => "DivSExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                // ── M4.5c: shift/rotate, bit, BCD, Scc, CMPM, data-movement. All take (__operword,__r,__size,__srcMode,__srcReg). ──
+                "ASLR_REG"     => "AslrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "LSLR_REG"     => "LslrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ROLR_REG"     => "RolrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ROXLR_REG"    => "RoxlrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SHIFT_MEM"    => "ShiftMemExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BTST"         => "BtstExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCHG"         => "BchgExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCLR"         => "BclrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BSET"         => "BsetExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BTST_STATIC"  => "BtstStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCHG_STATIC"  => "BchgStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCLR_STATIC"  => "BclrStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BSET_STATIC"  => "BsetStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ABCD"         => "AbcdExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SBCD"         => "SbcdExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "NBCD"         => "NbcdExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "Scc"          => "SccExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CMPM"         => "CmpMExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SWAP"         => "SwapExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEQ"        => "MoveQExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EXG"          => "ExgExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "LEA"          => "LeaExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "PEA"          => "PeaExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "TAS"          => "TasExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEM"        => "MoveMExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEP"        => "MovePExecute(__operword, __r, __size, __srcMode, __srcReg)",   // optional (DC5) — INCLUDED
                 _ => null,
             };
             if (hook is null) continue;
@@ -4313,6 +4365,25 @@ internal static class CpuEmitter
         sb.AppendLine(immIndices.Count == 0
             ? "false;"
             : string.Join(" || ", immIndices.Select(i => $"opIndex == {i}u")) + ";");
+    }
+
+    /// <summary>M4.5c: the count of FIXED leading extension words an op carries BEFORE its EA's own words —
+    /// the decode walk fetches them first so ext[0..] = the fixed word(s), then the EA's words follow (the body
+    /// ShiftExt's by the count). The static bit ops (BTST/BCHG/BCLR/BSET #imm) carry one bit-number word; MOVEM
+    /// carries one register-list mask word; MOVEP carries one d16(An) displacement word. Emitted from the dataset
+    /// operation names ON THE FIELD-GRAMMAR PATH ONLY (6502/Z80 never get it).</summary>
+    private static void EmitLeadingFixedWordCount(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var idx = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "BTST_STATIC" or "BCHG_STATIC" or "BCLR_STATIC" or "BSET_STATIC"
+                                          or "MOVEM" or "MOVEP")
+                idx.Add(i);
+        sb.AppendLine();
+        sb.Append("    private static int LeadingFixedWordCount(uint opIndex) => ");
+        sb.AppendLine(idx.Count == 0
+            ? "0;"
+            : "(" + string.Join(" || ", idx.Select(i => $"opIndex == {i}u")) + ") ? 1 : 0;");
     }
 
     /// <summary>M4.5b: the address-reg variants (ADDA/SUBA/CMPA) whose 1-bit opmode size field (bit 8: 0=.w,

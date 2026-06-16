@@ -84,6 +84,7 @@
   { "operation": "SUB",  "mask": "0xF000", "match": "0x9000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-174 (SUB)" },
 
   { "operation": "CMPA", "mask": "0xF0C0", "match": "0xB0C0", "sizeShift": 8, "sizeWidth": 1, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-79 (CMPA)" },
+  { "operation": "CMPM", "mask": "0xF138", "match": "0xB108", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "All", "source": "M68000PRM 4-77 (CMPM): (Ay)+,(Ax)+ - tighter mask than EOR, MUST precede it" },
   { "operation": "EOR",  "mask": "0xF100", "match": "0xB100", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAlterable", "source": "M68000PRM 4-102 (EOR)" },
   { "operation": "CMP",  "mask": "0xF100", "match": "0xB000", "sizeShift": 6, "sizeWidth": 2, "sizeEncoding": "Standard", "eaShift": 0, "legalEa": "DataAddressing", "source": "M68000PRM 4-75 (CMP)" },
 

@@ -16,8 +16,9 @@ namespace CpuEmulator.Tests.TomHarte;
 /// HONESTY: the immediate forms (ADDI/SUBI/ANDI/ORI/EORI/CMPI) and quick forms (ADDQ/SUBQ) are NOT in this
 /// sweep — NO v1 vector files exist for them (ADR 0007 D1). They EXECUTE and are covered by differential-
 /// equivalence (each ≡ its vector-proven reg↔EA counterpart) + synthetic fetch tests in M68000AluExecuteTests,
-/// an explicitly-disclosed gap. CMPM is dropped (absent from the dataset). All shift/rotate/bit/BCD/system files
-/// are M4.5c (not here).
+/// an explicitly-disclosed gap. CMPM is NOW decodable + ASSERTED (M4.5c added its dataset row before EOR + a
+/// CmpMExecute body): the ~3,763 CMPM cases bundled in CMP.b/.w/.l + CMPA.l flow through RunCase like any other
+/// case (the M4.5b out-of-scope filter is REMOVED). All shift/rotate/bit/BCD/system files are M4.5c (not here).
 ///
 /// Skip-when-absent (vector-less environments) but MUST run green with the vectors PRESENT for merge — a skip is
 /// not a mergeable state (ADR 0007 §6 gate 2).
@@ -61,18 +62,12 @@ public class M68000AluTomHarteTests
         var failures = new List<string>();
         int executed = 0;     // non-exception ALU cases actually run + asserted on the data axis
         int deferred = 0;     // exception cases (DIVU/DIVS ÷0, address-error/privilege) — M4.5d, counted not asserted
-        int outOfScope = 0;   // CMPM cases EMBEDDED in the CMP files (M4.5c) — see below
         foreach (var c in cases)
         {
-            // The CMP.b/.w/.l vector files BUNDLE the CMPM cases ((Ay)+,(Ax)+ = encoding 1011 yyy 1 ss 001 xxx,
-            // mask 0xF138 == 0xB108). CMPM is ABSENT from the FieldGrammar dataset (ADR 0007 D1 — dropped from
-            // M4.5b; it is M4.5c, requiring a dataset row). In our decoder that opcode SLOT collides with EOR's
-            // mask, so it would mis-decode as EOR and fail. These are NOT plain CMP — skip them as out-of-scope
-            // (NOT asserted, NOT a vacuous-green hole: the ~6500+ plain-CMP cases per file ARE asserted). This is
-            // the honest M4.5c boundary, analogous to MOVE.q / MOVEM being excluded from the M4.5a MOVE sweep.
-            uint operword = c.Initial.Prefetch.Length > 0 ? c.Initial.Prefetch[0] : 0u;
-            if ((operword & 0xF138u) == 0xB108u) { outOfScope++; continue; }   // CMPM -> M4.5c
-
+            // The CMP.b/.w/.l + CMPA.l vector files BUNDLE the CMPM cases ((Ay)+,(Ax)+ = encoding
+            // 1011 yyy 1 ss 001 xxx, mask 0xF138 == 0xB108). M4.5c added a "CMPM" FieldGrammar row (BEFORE EOR so
+            // the tighter mask wins) + a CmpMExecute body, so these now DECODE as CMPM and ASSERT on the data
+            // axis through RunCase — the M4.5b out-of-scope filter is gone.
             string? r = M68000TomHarteRunner.RunCase(c);          // data axis (timingAxis: false)
             if (ReferenceEquals(r, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
             executed++;
@@ -84,13 +79,12 @@ public class M68000AluTomHarteTests
         }
 
         // Anti-fake guard: the file must actually EXECUTE a substantial body of cases (not be entirely deferred-
-        // as-exception or out-of-scope, which would make the gate vacuous). Every ALU file has thousands of
-        // in-scope non-exception cases.
+        // as-exception, which would make the gate vacuous). Every ALU file has thousands of in-scope cases.
         Assert.True(executed > 0, $"{file}: 0 executed (non-exception) cases — the gate would be vacuous");
 
         Assert.True(failures.Count == 0,
             $"{file}: {failures.Count}+ data-axis failures over {executed} executed cases " +
-            $"({deferred} deferred to M4.5d, {outOfScope} CMPM out-of-scope to M4.5c):\n" +
+            $"({deferred} deferred to M4.5d):\n" +
             string.Join("\n", failures));
     }
 }
