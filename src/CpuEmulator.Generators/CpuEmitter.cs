@@ -4508,7 +4508,14 @@ internal static class CpuEmitter
                     // = mode (d8,An,Xn) -> 1 spurious ext word. The register-form bodies use only the operword +
                     // register file (memoryForm: false), so suppressing the EA read is safe. Reconciled per the
                     // 2a sweep (the PC/prefetch corpus mismatches).
-                    or "MOVE_USP" or "ASLR_REG" or "LSLR_REG" or "ROLR_REG" or "ROXLR_REG" => true,
+                    // MOVEQ (0x7000, mask 0xF100) is the SAME over-read class: it carries its immediate in
+                    // operword bits 7-0 (always .l, sign-extended) — there is NO extension word. The M4.5a row
+                    // (legalEa "All", eaShift 0) made the walk treat bits 5-0 of the data byte as an EA field
+                    // (~25% of data bytes select an extension-word EA mode → 1 spurious ext word read), wrong on
+                    // the formal PC + prefetch queue (final.pc/prefetch off by one word). MoveQExecute uses only
+                    // the operword, so suppressing the EA read is safe; 0 leading words (operword-only). Folded in
+                    // pre-merge — MOVEQ was simply not in the original 2a sweep corpus so the gate stayed green.
+                    or "MOVE_USP" or "ASLR_REG" or "LSLR_REG" or "ROLR_REG" or "ROXLR_REG" or "MOVEQ" => true,
                 _ => false,
             };
             if (!isControl) continue;

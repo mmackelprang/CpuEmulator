@@ -43,6 +43,7 @@ public class M68000TimingAxisTomHarteTests
         // MOVE family (M4.5a)
         ["MOVE.b.json.gz"], ["MOVE.w.json.gz"], ["MOVE.l.json.gz"],
         ["MOVEA.w.json.gz"], ["MOVEA.l.json.gz"],
+        ["MOVE.q.json.gz"],   // MOVEQ — corpus file is named MOVE.q (NOT MOVEQ); EA-less, data in operword 7-0
         ["MOVEfromSR.json.gz"], ["MOVEtoSR.json.gz"], ["MOVEtoCCR.json.gz"],
         ["MOVEfromUSP.json.gz"], ["MOVEtoUSP.json.gz"],
         // integer ALU (M4.5b)

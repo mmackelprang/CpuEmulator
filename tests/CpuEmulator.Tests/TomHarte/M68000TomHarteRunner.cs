@@ -20,9 +20,13 @@ namespace CpuEmulator.Tests.TomHarte;
 /// rather than asserting them. (The plan's original gate over-specified the timing axis as an M4.5a
 /// precondition; the gate was corrected — see the plan's gate section.)</item>
 /// </list>
-/// <para>The two USP families (MOVEfromUSP/MOVEtoUSP) happen to ALSO satisfy the full timing axis under the
-/// mechanical prefetch model (single transaction, no idle cycles), so the sweep asserts the fuller gate for
-/// them as bonus evidence (<c>timingAxis: true</c>). Returns null on pass, a formatted report on failure.</para>
+/// <para>The two USP families (MOVEfromUSP/MOVEtoUSP) formerly ALSO satisfied the full timing axis under the
+/// mechanical (single-transaction) prefetch model, so the sweep asserted the fuller gate for them as bonus
+/// evidence (<c>timingAxis: true</c>). That bonus gate is SUSPENDED for M4.5d-2a: the stateful prefetch queue's
+/// <c>Seed</c> issues two <c>_bus.Read16</c> calls that pollute the per-transaction bus trace, so the
+/// trace-coupled timing axis no longer holds for these families under 2a. It is re-validated in 2b (when the
+/// queue refill is wired into the cycle-exact bus sequencing). The PC/prefetch axis (final.pc/final.prefetch)
+/// IS still asserted for them via the 2a sweep. Returns null on pass, a formatted report on failure.</para>
 /// </summary>
 internal static class M68000TomHarteRunner
 {
