@@ -48,37 +48,73 @@ public sealed partial class M68000Cpu
     /// frame on -(A7) (= -(SSP)); (3) PC = Read32(4·vector). The TIMING axis (the exact cycle count) is M4.5d-2;
     /// the DATA result is frame + mode + handler PC.</summary>
     private void RaiseException(uint vector, FrameKind frameKind, ushort srAtFault, uint pcAtFault)
+        => RaiseException(vector, frameKind, srAtFault, pcAtFault, accessAddress: 0u,
+                          instructionRegister: (ushort)0, specialStatusWord: (ushort)0);
+
+    /// <summary>The group-0 (address/bus error) overload — pushes the 14-byte large frame
+    /// <c>[SSW, accessAddress(long), IR, SR, PC]</c>. The small-frame overload above forwards with the
+    /// group-0 words zeroed (they are unused for FrameKind.Small).</summary>
+    private void RaiseException(uint vector, FrameKind frameKind, ushort srAtFault, uint pcAtFault,
+                                uint accessAddress, ushort instructionRegister, ushort specialStatusWord)
     {
         // 1. Enter supervisor mode + clear the trace bit. Writing SR re-banks A7 -> SSP (the USP/SSP swap is
         //    free; ADR 0008 §1.1). The CCR (low byte) of srAtFault carries forward — only S is forced, T cleared.
         SR = (ushort)((srAtFault | SrSupervisorBit) & ~SrTraceBit);
 
-        // 2. Push the frame on -(A7) (= -(SSP)). Small frame (group 1/2): PC (long) then SR (word) = 6 bytes.
-        //    PC is pushed FIRST (it lands at the higher address A7-4); SR is pushed SECOND (lands at the lowest
-        //    address A7-6). So the in-memory layout is [SR @ SSP, PC @ SSP+2] — the 68000 small frame.
         if (frameKind == FrameKind.Large)
         {
-            // DD4 — RESOLVED EMPIRICALLY (Task 13 Step 0). The 68000 group-0 (address/bus error) frame is a
-            // 14-byte frame (observed: SSP moves by 0xE in the MOVE.w address-error cases), NOT the small 6-byte
-            // PC+SR frame: [special-status-word, access-address(long), instruction-register, SR, PC]. The special
-            // status word + access-address encode the IN-PROGRESS bus-cycle state (which half of the bus cycle
-            // faulted) — TIMING-coupled and NOT data-axis-stable. So M4.5d-1 does NOT push the precise group-0
-            // words; the runner DEFERS the address-error subset (IsAddressErrorCase, vector 3) even under
-            // assertExceptions and asserts only trap-taken for it. The precise 14-byte frame is M4.5d-2.
+            // M4.5d-2a (DD3/F, plan T3): the 68000 group-0 (address/bus error) 14-byte frame, pushed on -(A7)
+            // (= -(SSP)). Empirically (the MOVE.w/.l address-error corpus) the in-memory layout, lowest address
+            // first, is:
+            //   [SSP+0x0] special status word (SSW)   — the in-progress bus-cycle state (R/W, FC, I/N)
+            //   [SSP+0x2] access address  (high word)  — the faulting bus address
+            //   [SSP+0x4] access address  (low  word)
+            //   [SSP+0x6] instruction register (IR)    — the operword being executed
+            //   [SSP+0x8] SR                           — the SR captured at fault
+            //   [SSP+0xa] PC (high word)               — the stacked PC
+            //   [SSP+0xc] PC (low  word)
+            // pushed high-address-first (PC first, SSW last) as A7 decrements by 0xE total.
             //
-            // No RaiseException caller passes FrameKind.Large in M4.5d-1 (address error is detected+deferred by
-            // the runner, not raised here) — this branch is the documented placeholder for M4.5d-2.
+            // HONEST 2a SCOPE (ADR 0008 §5.2/§8.1, DD3): of these words ONLY the IR (== the operword) is cleanly
+            // derivable from 2a's queue/formal-PC + data model. The SSW + access address encode WHICH HALF of the
+            // bus cycle faulted — trace-coupled, M4.5d-2b. The empirically-observed stacked PC and SR also vary
+            // with how far the (partially-executed) instruction progressed before faulting — also trace-coupled
+            // in 2a. So 2a provides the FRAME-PUSH MACHINERY + pins the IR, with PC/SR/access-address/SSW left to
+            // the caller (which in 2a passes the model's best values); the runner therefore still DEFERS the
+            // address-error cases on the data + PC/prefetch axes (IsAddressErrorCase) — 2a asserts trap-taken +
+            // the IR word, and 2b finalizes the trace-coupled words and turns the deferral into a green assertion.
+            uint sp = A7 - 4u; A7 = sp; WriteLongBus(sp, pcAtFault);             // PC (long)
+            sp = A7 - 2u; A7 = sp; WriteWordBus(sp, srAtFault);                  // SR (word)
+            sp = A7 - 2u; A7 = sp; WriteWordBus(sp, instructionRegister);        // IR (word) — the operword (pinned)
+            sp = A7 - 4u; A7 = sp; WriteLongBus(sp, accessAddress);             // access address (long)
+            sp = A7 - 2u; A7 = sp; WriteWordBus(sp, specialStatusWord);         // SSW (word) — trace-coupled (2b)
+            PC = ReadLongBus(4u * vector);                                      // vector through the table
+            return;
         }
-        uint sp = A7 - 4u; A7 = sp; WriteLongBus(sp, pcAtFault);   // push PC (long)
-        sp = A7 - 2u; A7 = sp; WriteWordBus(sp, srAtFault);        // push SR (word) -> SR at the lowest address
+
+        // 2. Small frame (group 1/2): PC (long) then SR (word) = 6 bytes. PC is pushed FIRST (it lands at the
+        //    higher address A7-4); SR is pushed SECOND (lands at the lowest address A7-6). So the in-memory
+        //    layout is [SR @ SSP, PC @ SSP+2] — the 68000 small frame.
+        uint sp0 = A7 - 4u; A7 = sp0; WriteLongBus(sp0, pcAtFault);   // push PC (long)
+        sp0 = A7 - 2u; A7 = sp0; WriteWordBus(sp0, srAtFault);        // push SR (word) -> SR at the lowest address
 
         // 3. Vector through the table (VectorBase = 0): PC = the 32-bit handler at 4·vector.
         PC = ReadLongBus(4u * vector);
     }
 
-    /// <summary>Test seam: drive RaiseException from a synthetic unit test (the ComputeEaProbe precedent).</summary>
+    /// <summary>Test seam: drive RaiseException from a synthetic unit test (the ComputeEaProbe precedent). The
+    /// small-frame form zeros the group-0 words; the large-frame form (M4.5d-2a) pins the 14-byte frame incl.
+    /// the IR + access address + SSW so a synthetic test can assert the layout (the corpus address-error frame
+    /// stays runner-deferred in 2a — see RaiseException's FrameKind.Large note).</summary>
     public void RaiseExceptionProbe(uint vector, bool large, ushort srAtFault, uint pcAtFault)
         => RaiseException(vector, large ? FrameKind.Large : FrameKind.Small, srAtFault, pcAtFault);
+
+    /// <summary>Test seam (M4.5d-2a): exercise the group-0 large-frame push with the full word set, so a
+    /// synthetic unit test can pin the 14-byte layout + the IR pinning without the trace-coupled corpus.</summary>
+    public void RaiseLargeFrameProbe(uint vector, ushort srAtFault, uint pcAtFault,
+                                     uint accessAddress, ushort instructionRegister, ushort specialStatusWord)
+        => RaiseException(vector, FrameKind.Large, srAtFault, pcAtFault, accessAddress, instructionRegister,
+                          specialStatusWord);
 
     /// <summary>The privilege gate: if in user mode, raise a privilege violation (vector 8) and return true (the
     /// caller must NOT execute). Centralizes the "integrate without scattering" privilege check (ADR 0008 §3.2).

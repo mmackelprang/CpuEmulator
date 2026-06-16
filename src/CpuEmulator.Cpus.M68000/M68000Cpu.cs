@@ -31,6 +31,14 @@ public sealed partial class M68000Cpu
     /// exception machinery (M4.5d) toggles it on entry/RTE.</summary>
     public bool SupervisorMode => (SR & SrSupervisorBit) != 0;
 
+    /// <summary>M4.5d-2a (ADR 0008 §5): the prefetch-queue END STATE after the last Step — the two words the
+    /// corpus asserts as <c>final.prefetch</c>. The queue (<c>_fetchQueue</c>) is the generated FieldGrammar
+    /// Step's CPU-owned stream (seeded from the formal PC, advanced+refilled by the decode walk, reseeded on a
+    /// control transfer). Returns (0, 0) before the first Step (the queue is lazily created). The trailing
+    /// formal PC is the live PC register (== <c>final.pc</c> for a non-deferred case).</summary>
+    public (ushort Word0, ushort Word1) FinalPrefetch =>
+        _fetchQueue?.FinalPrefetch ?? ((ushort)0, (ushort)0);
+
     /// <summary>Set/clear the SR supervisor (S) bit. A test/host convenience for M4.1 (the real toggle is
     /// the exception/RTE sequence in M4.5d). Keeps the banking tests independent of SR-bit-layout knowledge.</summary>
     public void SetSupervisorMode(bool supervisor) =>
@@ -143,6 +151,12 @@ public sealed partial class M68000Cpu
         // (so a same-or-lower interrupt does not re-fire).
         SR = (ushort)(((uint)SR & 0xF8FFu) | ((uint)level << 8));
         _iplLevel = 0;   // the device de-asserts on acknowledge (the synthetic model).
+        // M4.5d-2a (review Finding 2): the acknowledge set PC to the handler (a non-sequential transfer), but
+        // Step returns here WITHOUT seeding the queue. Reseed it from the handler PC so FinalPrefetch reflects
+        // the handler's prefetch, not the previous instruction's stale queue. (Synthetic-only in 2a — no vector
+        // exercises an async interrupt; the acknowledge-cycle trace is 2b. Null-safe: the queue is lazily created
+        // by the generated Step, so a pre-first-Step interrupt has nothing to reseed.)
+        _fetchQueue?.Reseed(PC);
         return true;
     }
 
