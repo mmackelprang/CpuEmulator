@@ -326,6 +326,16 @@ internal static class CpuEmitter
             {
                 sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
             }
+            sb.AppendLine();
+            sb.AppendLine("    // M4.5c: the shift/bit/BCD/Scc/CMPM/data-movement op bodies — hand-written M68000Cpu.* partials.");
+            foreach (var name in new[] {
+                "AslrReg","LslrReg","RolrReg","RoxlrReg","ShiftMem",
+                "Btst","Bchg","Bclr","Bset","BtstStatic","BchgStatic","BclrStatic","BsetStatic",
+                "Abcd","Sbcd","Nbcd","Scc","CmpM",
+                "Swap","MoveQ","Exg","Lea","Pea","Tas","MoveM","MoveP" })
+            {
+                sb.AppendLine($"    partial void {name}Execute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg);");
+            }
         }
 
         // ── The IM-expressibility contract (M3.2 Ground truth C.3 — DOCUMENTED, no code) ──────────
@@ -4277,6 +4287,33 @@ internal static class CpuEmitter
                 "MULS" => "MulSExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 "DIVU" => "DivUExecute(__operword, __r, __size, __srcMode, __srcReg)",
                 "DIVS" => "DivSExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                // ── M4.5c: shift/rotate, bit, BCD, Scc, CMPM, data-movement. All take (__operword,__r,__size,__srcMode,__srcReg). ──
+                "ASLR_REG"     => "AslrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "LSLR_REG"     => "LslrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ROLR_REG"     => "RolrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ROXLR_REG"    => "RoxlrRegExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SHIFT_MEM"    => "ShiftMemExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BTST"         => "BtstExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCHG"         => "BchgExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCLR"         => "BclrExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BSET"         => "BsetExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BTST_STATIC"  => "BtstStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCHG_STATIC"  => "BchgStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BCLR_STATIC"  => "BclrStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "BSET_STATIC"  => "BsetStaticExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "ABCD"         => "AbcdExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SBCD"         => "SbcdExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "NBCD"         => "NbcdExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "Scc"          => "SccExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "CMPM"         => "CmpMExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "SWAP"         => "SwapExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEQ"        => "MoveQExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "EXG"          => "ExgExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "LEA"          => "LeaExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "PEA"          => "PeaExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "TAS"          => "TasExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEM"        => "MoveMExecute(__operword, __r, __size, __srcMode, __srcReg)",
+                "MOVEP"        => "MovePExecute(__operword, __r, __size, __srcMode, __srcReg)",   // optional (DC5) — INCLUDED
                 _ => null,
             };
             if (hook is null) continue;
