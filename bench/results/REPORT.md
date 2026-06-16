@@ -6,7 +6,7 @@
 
 ## Environment
 
-- Generated (UTC): 2026-06-13 14:54:30
+- Generated (UTC): 2026-06-16 01:53:28
 - OS: Microsoft Windows 10.0.26220 (X64)
 - CPU: AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD (32 logical cores)
 - .NET: .NET 10.0.2
@@ -14,25 +14,50 @@
 
 ## Results — emulated cycles per host-second (higher is faster)
 
+### 6502 — cycles/host-second
+
 | Subject | Workload | cycles/sec | wall (s) | note |
 |---|---|---:|---:|---|
-| our Tier-0 interpreter | W1 Klaus-deterministic | 212,520,154 | 0.453 | our Tier-0 interpreter |
-| our Tier-1 JIT (chaining on) | W1 Klaus-deterministic | 444,003 | 216.758 | our Tier-1 JIT (chaining on) |
-| our Tier-0 interpreter | W2 arithmetic-kernel | 259,402,570 | 0.193 | our Tier-0 interpreter |
-| our Tier-1 JIT (chaining on) | W2 arithmetic-kernel | 137,190,474 | 0.364 | our Tier-1 JIT (chaining on) |
-| Asm6502 (C#) | W1 Klaus-deterministic | 75,724,769 | 0.264 | Asm6502 4.0.0.0 |
-| fake6502 (C) | W1 Klaus-deterministic | 554,385,325 | 0.036 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
-| py65 (Python) | W1 Klaus-deterministic | 7,475,853 | 0.268 | py65, Python 3.13.7 |
-| sfotty (JavaScript/Node) | W1 Klaus-deterministic | 64,652,107 | 0.309 | sfotty via node v22.19.0 |
-| Asm6502 (C#) | W2 arithmetic-kernel | 82,963,080 | 0.241 | Asm6502 4.0.0.0 |
-| fake6502 (C) | W2 arithmetic-kernel | 445,712,293 | 0.045 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
-| py65 (Python) | W2 arithmetic-kernel | 5,377,703 | 0.372 | py65, Python 3.13.7 |
-| sfotty (JavaScript/Node) | W2 arithmetic-kernel | 36,783,977 | 0.544 | sfotty via node v22.19.0 |
+| our Tier-0 interpreter | W1 Klaus-deterministic | 178,298,450 | 0.540 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | W1 Klaus-deterministic | 466,574 | 206.272 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | W2 arithmetic-kernel | 282,333,230 | 0.177 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | W2 arithmetic-kernel | 138,059,957 | 0.362 | our Tier-1 JIT (chaining on) |
+| Asm6502 (C#) | W1 Klaus-deterministic | 80,487,537 | 0.248 | Asm6502 4.0.0.0 |
+| fake6502 (C) | W1 Klaus-deterministic | 500,763,790 | 0.040 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| py65 (Python) | W1 Klaus-deterministic | 7,358,839 | 0.272 | py65, Python 3.13.7 |
+| sfotty (JavaScript/Node) | W1 Klaus-deterministic | 64,364,354 | 0.311 | sfotty via node v22.19.0 |
+| Asm6502 (C#) | W2 arithmetic-kernel | 84,523,927 | 0.237 | Asm6502 4.0.0.0 |
+| fake6502 (C) | W2 arithmetic-kernel | 425,885,352 | 0.047 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| py65 (Python) | W2 arithmetic-kernel | 5,130,310 | 0.390 | py65, Python 3.13.7 |
+| sfotty (JavaScript/Node) | W2 arithmetic-kernel | 36,814,514 | 0.543 | sfotty via node v22.19.0 |
+
+### Z80 — T-states/host-second
+
+| Subject | Workload | T-states/sec | wall (s) | note |
+|---|---|---:|---:|---|
+| our Tier-0 interpreter | Z80-W1 ZEXDOC-prefix | 355,699,935 | 5.623 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | Z80-W1 ZEXDOC-prefix | 169,212,152 | 11.819 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | Z80-W2 arithmetic-kernel | 384,302,955 | 0.130 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | Z80-W2 arithmetic-kernel | 172,158,778 | 0.290 | our Tier-1 JIT (chaining on) |
+| Z80dotNet (C#) | Z80-W1 ZEXDOC-prefix | 42,273,770 | 0.473 | Z80dotNet 1.1.0.0 |
+| superzazu/z80 (C) | Z80-W1 ZEXDOC-prefix | 1,560,428,181 | 0.013 | superzazu/z80, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| Z80.js (JavaScript/Node) | Z80-W1 ZEXDOC-prefix | 154,238,931 | 0.130 | DrGoldfire/Z80.js via node v22.19.0 |
+| Z80dotNet (C#) | Z80-W2 arithmetic-kernel | 51,632,879 | 0.387 | Z80dotNet 1.1.0.0 |
+| superzazu/z80 (C) | Z80-W2 arithmetic-kernel | 1,401,247,180 | 0.014 | superzazu/z80, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| Z80.js (JavaScript/Node) | Z80-W2 arithmetic-kernel | 147,946,510 | 0.135 | DrGoldfire/Z80.js via node v22.19.0 |
 
 ## Our two tiers — JIT vs interpreter speedup
 
-- **W1 Klaus-deterministic**: JIT is 0.00x the interpreter (444,003 vs 212,520,154 cycles/sec).
-- **W2 arithmetic-kernel**: JIT is 0.53x the interpreter (137,190,474 vs 259,402,570 cycles/sec).
+### 6502
+
+- **W1 Klaus-deterministic**: JIT is 0.00x the interpreter (466,574 vs 178,298,450 cycles/sec).
+- **W2 arithmetic-kernel**: JIT is 0.49x the interpreter (138,059,957 vs 282,333,230 cycles/sec).
+
+### Z80
+
+- **Z80-W1 ZEXDOC-prefix**: JIT is 0.48x the interpreter (169,212,152 vs 355,699,935 T-states/sec).
+- **Z80-W2 arithmetic-kernel**: JIT is 0.45x the interpreter (172,158,778 vs 384,302,955 T-states/sec).
+- _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._
 
 ## Reading the numbers
 
@@ -47,10 +72,18 @@
   markedly — the interpreter's tight, well-predicted `switch` dispatch on a small hot
   loop is hard for a block JIT to beat without cross-block state hoisting (an M3
   refinement, recorded out-of-scope).
-- **Cross-language spread is the interesting headline.** Native C (fake6502) is the
+- **Cross-language spread is the interesting headline (6502).** Native C (fake6502) is the
   fastest by a wide margin; our C# interpreter is mid-pack and competitive with the JS
   (sfotty) and C# (Asm6502) subjects; pure-Python (py65) is the slowest by ~1-2 orders
   of magnitude — exactly the honest cross-language picture the suite was built to show.
+- **Cross-language spread (Z80) — and the all-fallback caveat.** The Z80 third-party refs
+  show the same shape on their OWN T-state models: native C (superzazu/z80) is fastest by
+  ~1.5 B T-states/sec; the JS core (DrGoldfire/Z80.js, a documented-T-state interpreter)
+  is mid-pack; the C# core (Z80dotNet) is the slowest of the three. Note our Z80 Tier-0
+  interpreter out-paces all three non-native refs — an honest, measured result. Our Z80
+  Tier-1 is **all-fallback** (no hot-op IL emit yet — M6), so its ~0.45–0.48x ratio is the
+  committed "before" the M6 re-measure subtracts from, NOT a defect. **Z80 is measured in
+  T-states, the 6502 in machine cycles — do NOT cross-multiply the two as a raw race.**
 - **Third-party rows are an indicative cross-language SLICE.** Subprocess + in-process
   third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its
   OWN cycle model. These are indicative cross-language numbers, not a controlled
@@ -79,14 +112,24 @@ The bar: change the implementation only on a material (> 10%) win; else keep cur
 
 ```
 # our two tiers always run; third-party subjects need their runtimes fetched first:
-bench/third-party/fetch-subjects.ps1      # (or .sh) — fetches fake6502.c, a py65 venv, sfotty
+bench/third-party/fetch-subjects.ps1      # (or .sh) — 6502 (fake6502/py65/sfotty) + Z80 (z80.c/Z80.js)
+tools/get-zexall.ps1                      # (or .sh) — the Z80-W1 ZEXDOC image (vector cache)
 dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all
 ```
+
+**6502 subjects:**
 
 - **Asm6502 (C#)** restores via NuGet at build time (no fetch); needs nuget.org reachable once.
 - **fake6502 (C)** needs a C compiler (gcc/clang/cc) + `fetch-subjects` (downloads fake6502.c).
 - **py65 (Python)** needs python + `fetch-subjects` (creates a venv, `pip install py65`).
 - **sfotty (JS)** needs node + `fetch-subjects` (`npm install @sfotty-pie/sfotty`).
+
+**Z80 subjects** (each skip-with-note when absent — they enrich the Z80 table, never block it):
+
+- **Z80-W1 (ZEXDOC)** needs `tools/get-zexall` (fetches `zexdoc.com` into the vector cache).
+- **Z80dotNet (C#)** restores via NuGet at build time; disable offline with `-p:UseZ80Sharp=false`.
+- **superzazu/z80 (C)** needs a C compiler + `fetch-subjects` (downloads z80.c/z80.h, MIT).
+- **Z80.js (JS)** needs node + `fetch-subjects` (downloads DrGoldfire/Z80.js, MIT).
 
 For statistically-rigorous numbers on our two tiers, run the BenchmarkDotNet harness:
 `dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn`.

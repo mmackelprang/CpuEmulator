@@ -11,18 +11,37 @@ namespace CpuEmulator.Benchmarks;
 /// check, NOT a replacement for BDN's warmup/measurement windows.</summary>
 public static class BenchHarness
 {
-    /// <summary>One measured row in the report.</summary>
-    public sealed record Row(string Subject, string Workload, AdapterResult Result);
+    /// <summary>One measured row in the report. <see cref="Architecture"/> groups + labels the row by
+    /// CPU in the report (6502 → "cycles", Z80 → "T-states"); it defaults to "mos6502" so existing
+    /// callers + tests that do not thread an architecture stay on the 6502 path.</summary>
+    public sealed record Row(string Subject, string Workload, AdapterResult Result,
+                             string Architecture = "mos6502");
 
-    /// <summary>The default third-party adapter set (the four shims). Our two tiers are measured
-    /// separately (always); these are opt-in + degrade gracefully.</summary>
-    public static IReadOnlyList<IEmulatorAdapter> DefaultAdapters() =>
-    [
-        new Asm6502Adapter(),
-        new Fake6502Adapter(),
-        new Py65Adapter(),
-        new JsEmulatorAdapter(),
-    ];
+    /// <summary>The default third-party adapter set (the four 6502 shims) — kept for back-compat;
+    /// delegates to <see cref="AdaptersFor"/> for the 6502.</summary>
+    public static IReadOnlyList<IEmulatorAdapter> DefaultAdapters() => AdaptersFor("mos6502");
+
+    /// <summary>The third-party adapter set for an architecture. The 6502 returns the existing four
+    /// shims; the Z80 returns the cross-language set (Z80dotNet C# in-process, superzazu/z80 C
+    /// subprocess, DrGoldfire Z80.js node subprocess — Tasks A6/A7/A8). Each adapter Probes for its
+    /// runtime/source + degrades to a skip-with-note row when absent (the load-bearing invariant: a
+    /// missing toolchain degrades exactly one row, never blocks the baseline).</summary>
+    public static IReadOnlyList<IEmulatorAdapter> AdaptersFor(string architecture) => architecture switch
+    {
+        "z80" =>
+        [
+            new Z80SharpAdapter(),   // A6 — C# in-process (Z80dotNet)
+            new Z80CAdapter(),       // A7 — C subprocess (superzazu/z80, compiled-once-cached)
+            new Z80JsAdapter(),      // A8 — JS node subprocess (DrGoldfire/Z80.js) — optional
+        ],
+        _ =>
+        [
+            new Asm6502Adapter(),
+            new Fake6502Adapter(),
+            new Py65Adapter(),
+            new JsEmulatorAdapter(),
+        ],
+    };
 
     /// <summary>Measure one tier on one workload with a Stopwatch pass; self-verifies via the tier
     /// runner (which throws on a cycle/trap divergence — so a wrong number never reaches a row). A
@@ -63,7 +82,7 @@ public static class BenchHarness
             {
                 r = AdapterResult.Skipped($"adapter threw in Probe/Measure: {ex.Message}");
             }
-            rows.Add(new Row(a.Name, w.Name, r));
+            rows.Add(new Row(a.Name, w.Name, r, w.Architecture));
         }
         return rows;
     }

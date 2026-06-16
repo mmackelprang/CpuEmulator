@@ -41,6 +41,48 @@ public class BenchHarnessSmokeTests
     }
 
     [Fact]
+    public void The_two_Z80_tiers_run_and_agree_on_the_W2_cycle_count()
+    {
+        // The Z80-W2 kernel on BOTH our tiers: a wiring smoke (Ran==true + the two tiers agree on the
+        // cycle count) — NOT a throughput assertion (D5). Uses the real Z80ArithmeticKernel; both tiers
+        // run it to the same fixed cap, so they reach the same T-state count (bounded by the
+        // one-instruction overshoot at the cap boundary, identical for both — mirrors the 6502 W2 pin).
+        var z80w2 = Z80Workloads.Z80ArithmeticKernel();
+
+        long interpCycles = Tier0.Run(z80w2);
+        long jitCycles = Tier1.Run(z80w2);
+        Assert.True(interpCycles >= z80w2.FixedCycleCap, $"Z80 interpreter ran {interpCycles}, expected >= the cap");
+        Assert.Equal(interpCycles, jitCycles);
+
+        var t0 = BenchHarness.MeasureTier("z80 interpreter", Tier0.Run, z80w2);
+        var t1 = BenchHarness.MeasureTier("z80 jit", Tier1.Run, z80w2);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"Z80 Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"Z80 Tier-1 row: {t1}");
+    }
+
+    [Fact]
+    public void The_two_Z80_tiers_compose_on_the_W1_prefix_when_the_binary_is_present()
+    {
+        // Z80-W1 (ZEXDOC prefix) is gated on the ZEX binary at runtime (no custom attribute): absent =>
+        // the test still passes (the W1 wiring is the runner's job; the routine suite must not depend on
+        // a fetched binary). When present, run a TINY bounded window on both tiers and assert the wiring
+        // composes (Ran==true) — NOT throughput, NOT the full 2B-T-state window (that would be far too
+        // slow for the routine suite).
+        var w1 = Z80Workloads.Z80ZexPrefixOrNull();
+        if (w1 is null) return;   // skip-with-note equivalent: ZEX binary not fetched
+
+        // A tiny window: clone the workload with a small cap so the smoke stays fast. The driver runs
+        // real ZEX code + services BDOS; we only need it to compose + advance, not to close the full
+        // committed window.
+        var tiny = w1 with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+
+        var t0 = BenchHarness.MeasureTier("z80 interpreter", Tier0.Run, tiny);
+        var t1 = BenchHarness.MeasureTier("z80 jit", Tier1.Run, tiny);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"Z80-W1 Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"Z80-W1 Tier-1 row: {t1}");
+    }
+
+    [Fact]
     public void An_absent_adapter_is_skipped_with_a_note()
     {
         var w2 = Workloads.ArithmeticKernel();

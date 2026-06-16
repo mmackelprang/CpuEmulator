@@ -32,6 +32,35 @@ fetch_fake() {
 fetch_fake fake6502.c
 fetch_fake fake6502.h
 
+# ── superzazu/z80 (C) — the Z80 cross-language C anchor (single-file: z80.h + z80.c) ──────────
+mkdir -p "$CACHE/z80c"
+fetch_z80c() {
+  local name="$1"
+  if [ ! -f "$CACHE/z80c/$name" ]; then
+    echo "fetching $name ..."
+    curl -fsSL "https://raw.githubusercontent.com/superzazu/z80/master/$name" \
+      -o "$CACHE/z80c/$name" \
+      && echo "  -> $CACHE/z80c/$name" \
+      || echo "  !! $name fetch failed (no network?) — the Z80 C adapter will skip-with-note"
+  else
+    echo "$name already present"
+  fi
+}
+fetch_z80c z80.h
+fetch_z80c z80.c
+
+# ── DrGoldfire/Z80.js (JS) — the OPTIONAL Z80 cross-language node subject (MIT, single file) ───
+mkdir -p "$CACHE/z80js"
+if [ ! -f "$CACHE/z80js/Z80.js" ]; then
+  echo "fetching Z80.js ..."
+  curl -fsSL "https://raw.githubusercontent.com/DrGoldfire/Z80.js/master/Z80.js" \
+    -o "$CACHE/z80js/Z80.js" \
+    && echo "  -> $CACHE/z80js/Z80.js" \
+    || echo "  !! Z80.js fetch failed (no network?) — the Z80 JS adapter will skip-with-note"
+else
+  echo "Z80.js already present"
+fi
+
 # ── py65 (Python) ───────────────────────────────────────────────────────────────
 if command -v python >/dev/null 2>&1; then
   if [ ! -d "$CACHE/py65venv" ]; then

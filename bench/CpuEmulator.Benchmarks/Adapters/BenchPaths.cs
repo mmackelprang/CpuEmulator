@@ -50,4 +50,13 @@ internal static class BenchPaths
 
     public static string Fake6502Source => Path.Combine(Cache, "fake6502", "fake6502.c");
     public static string SfottyPackageDir => Path.Combine(Cache, "node_modules", "@sfotty-pie", "sfotty");
+
+    /// <summary>The fetched superzazu/z80 single-file C source (the Z80 cross-language C anchor — the
+    /// fake6502.c discipline: fetched-not-vendored). Both z80.c + z80.h live in &lt;cache&gt;/z80c.</summary>
+    public static string Z80CSource => Path.Combine(Cache, "z80c", "z80.c");
+
+    /// <summary>The fetched DrGoldfire/Z80.js single source file (the optional JS Z80 subject — the
+    /// MIT GitHub core, fetched-not-vendored into &lt;cache&gt;/z80js/Z80.js by fetch-subjects; NOT the
+    /// unrelated npm `z80` package). The runner loads it via node's vm.</summary>
+    public static string Z80JsSource => Path.Combine(Cache, "z80js", "Z80.js");
 }

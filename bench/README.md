@@ -2,9 +2,11 @@
 
 The comparative cross-language benchmark deliverable (design spec §9 item 9). It measures
 **emulated CPU cycles per host wall-clock second** across our two tiers — the Tier-0 interpreter and
-the Tier-1 IL-JIT — and, opt-in, third-party 6502 emulators in C#, C, Python, and JavaScript, behind
-thin adapter shims that **skip-with-a-note when their runtime is absent**. The committed report ships
-with whatever ran in the generating environment plus instructions to populate the rest.
+the Tier-1 IL-JIT — for each wired CPU (**6502** and **Z80**), and, opt-in, third-party emulators of
+that CPU in C#, C, Python, and/or JavaScript, behind thin adapter shims that **skip-with-a-note when
+their runtime is absent**. The committed report ships with whatever ran in the generating environment
+plus instructions to populate the rest. Results are grouped per-CPU with the correct cycle-unit label
+(6502 = machine cycles; **Z80 = T-states**, which are NOT cross-architecture comparable as raw numbers).
 
 > **Honesty first.** Our two tiers are in-process C# and always run. Third-party subjects are opt-in
 > and degrade gracefully — an absent runtime is a skip-with-note, never a crash and never a fabricated
@@ -17,7 +19,8 @@ with whatever ran in the generating environment plus instructions to populate th
 dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report
 
 # Add the third-party subjects (fetch their runtimes first):
-bench/third-party/fetch-subjects.ps1        # or .sh — fetches fake6502.c+.h, a py65 venv, sfotty
+bench/third-party/fetch-subjects.ps1        # or .sh — fetches fake6502, py65, sfotty (6502) + z80.c, Z80.js (Z80)
+tools/get-zexall.ps1                         # or .sh — fetches zexdoc.com for the Z80-W1 workload (into the vector cache)
 dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all
 
 # Statistically-rigorous numbers on our two tiers (BenchmarkDotNet warmup/measurement windows):
@@ -33,9 +36,11 @@ The generated report is [`results/REPORT.md`](results/REPORT.md).
 
 | Dimension | Rule |
 |---|---|
-| **Metric** | Emulated CPU cycles per host wall-clock second (cycles/sec). The absolute wall-clock for the run is reported too, so a reader can sanity-check. |
-| **Workloads** | **W1 (Klaus-deterministic):** the Klaus 6502 functional-test image run to its `$3469` success trap — 96,241,367 cycles of identical work, the integration-realistic mix (loads/stores/branches/ADC/SBC/SMC). Loaded from the shared vector cache (NOT vendored — the TomHarte-vector pattern); absent ⇒ W1 is skipped. **W2 (arithmetic kernel):** a tight, hand-written ADC/SBC + branch loop committed as a `byte[]` in `Workloads.cs`, run for a fixed cycle window — ADC/SBC + branch heavy, isolating the decimal-arm + chaining payoff from the I/O-free hot path. |
-| **Subjects** | **(a) our Tier-0 interpreter, (b) our Tier-1 JIT (chaining on)** — always run. **(c) third-party:** Asm6502 (C#, in-process), fake6502 (C, compiled shim), py65 (Python subprocess), sfotty (JS via node) — opt-in, behind adapter shims, skipped-with-note when absent. |
+| **Metric** | Emulated CPU cycles per host wall-clock second (cycles/sec). The absolute wall-clock for the run is reported too, so a reader can sanity-check. **The Z80 cycle unit is "T-states"** — its own cycle model; **NOT cross-architecture comparable** to the 6502's machine cycles as a raw number (see the T-states note below). The report groups results by CPU and labels each section's unit. |
+| **Workloads (6502)** | **W1 (Klaus-deterministic):** the Klaus 6502 functional-test image run to its `$3469` success trap — 96,241,367 cycles of identical work, the integration-realistic mix (loads/stores/branches/ADC/SBC/SMC). Loaded from the shared vector cache (NOT vendored — the TomHarte-vector pattern); absent ⇒ W1 is skipped. **W2 (arithmetic kernel):** a tight, hand-written ADC/SBC + branch loop committed as a `byte[]` in `Workloads.cs`, run for a fixed cycle window — ADC/SBC + branch heavy, isolating the decimal-arm + chaining payoff from the I/O-free hot path. |
+| **Workloads (Z80)** | **Z80-W1 (ZEXDOC-prefix):** the ZEXDOC instruction-set exerciser run to a fixed, **committed-and-frozen T-state window** (`Z80W1WindowTStates = 2,000,000,000`, NOT run-to-banner) — a deterministic slice of real ZEX code (the `adc/sbc hl,rr` exerciser: every register-pair × both ops × the full flag matrix + CRC accumulation), the Klaus-W1 analog. The driver services the CP/M BDOS CALL host-side (fn-2/fn-9 + RET) + honors the warm-boot sentinel, the same convention `CpmBdosHost` proves. Loaded from the shared vector cache (`zex/zexdoc.com`, NOT vendored); absent ⇒ Z80-W1 is skipped (run `tools/get-zexall`). **Z80-W2 (arithmetic kernel):** a tight, hand-written ADD/SUB + `DJNZ` loop committed as a `byte[]` in `Workloads.cs`, run for a fixed cap (`Z80W2CycleCap = 50,000,000` T-states) — the DJNZ taken branch is the hot chain edge a future block-JIT stresses. **These two window constants are FROZEN: the M6 re-measure (the "after") reuses them byte-identically — see "Baseline → re-measure (M6)" below.** |
+| **Subjects (6502)** | **(a) our Tier-0 interpreter, (b) our Tier-1 JIT (chaining on)** — always run. **(c) third-party:** Asm6502 (C#, in-process), fake6502 (C, compiled shim), py65 (Python subprocess), sfotty (JS via node) — opt-in, behind adapter shims, skipped-with-note when absent. |
+| **Subjects (Z80)** | **(a) our Tier-0 interpreter, (b) our Tier-1 JIT** — always run. **(c) third-party cross-language refs:** Z80dotNet (C#, in-process, NuGet `Z80dotNet`, MIT), superzazu/z80 (C, compiled shim, MIT), Z80.js (JS via node, DrGoldfire/Z80.js, MIT) — opt-in, behind adapter shims, skipped-with-note when absent. The third-party refs **enrich** the Z80 table; they **never block** it — a missing toolchain degrades exactly one row, and the 6502+Z80 our-tiers baseline always commits. |
 | **Harness for our tiers** | **BenchmarkDotNet** (`--bdn`): its warmup + measurement windows, statistical reporting, and environment capture (CPU, OS, .NET) are the methodology. A lighter warmed-`Stopwatch` pass (`--report`) produces the headline report rows + the smoke-test check. |
 | **Harness for third-party** | Each adapter runs the SAME workload image, measures the same metric in the subject's natural runner (in-process for C#, a compiled-shim subprocess for C, a python/node subprocess for the scripting subjects), with a warmup pass excluded from the measured window. |
 | **Environment metadata** | The report header records the host (CPU, core count, OS, .NET version) and, per third-party subject, its detected version or "not run — adapter absent (reason)". |
@@ -56,6 +61,22 @@ The generated report is [`results/REPORT.md`](results/REPORT.md).
   `not run — subject diverged`, never as a fast-but-wrong number. The cycles/sec each subject reports
   uses **its own** cycle model. These are therefore **indicative cross-language** numbers, not a
   controlled microbenchmark — honesty over false precision.
+- **The Z80 unit is "T-states" — do NOT cross-multiply it against 6502 machine cycles.** 6502 cycles
+  and Z80 T-states are different clock models; only the **per-CPU ratios** (our JIT-vs-interpreter, and
+  the within-CPU cross-language spread) are meaningful comparisons. The cross-architecture raw cycles/sec
+  rows are NOT a "6502 vs Z80 race" — the report keeps them in separate, per-CPU-labeled sections to
+  make that explicit. Each Z80 subject (ours + the third-party refs) uses its OWN T-state model (some,
+  like Z80.js, use the documented per-opcode counts rather than gate-level timing) — indicative
+  cross-language, not a controlled microbench.
+- **The Z80 Tier-1 JIT is currently ALL-FALLBACK** (no hot-op IL emit yet — that is the deferred M6
+  "5-3b hot-op emission"). So the Z80 JIT-vs-interpreter ratio is ≈ 1.0× minus block-dispatch overhead —
+  this is the **honest "before"** the M6 re-measure subtracts from, not a defect. The report states this
+  caveat automatically under the Z80 speedup pairs. (The 6502 already commits its all-fallback-equivalent
+  row too — capturing the "before" is the whole point of the before/after exercise.)
+- **The headline is the per-CPU before/after RATIO (machine-independent).** A ratio cancels host speed,
+  so the M6 speedup claim survives running "before" and "after" on different machines/years. The absolute
+  cycles/sec rows are useful sanity checks + the cross-language spread; re-measure on the same canonical
+  host (recorded in `## Environment`) for directly-comparable absolutes.
 
 ### Verification-in-the-adapter (the honesty mechanism)
 
@@ -71,6 +92,8 @@ principle). `bench/third-party/fetch-subjects.{sh,ps1}` populates a cache dir
 (`~/.cache/cpuemulator/bench`, override with `CPUEMULATOR_BENCHCACHE`). Each adapter probes for its
 runtime/source and skips-with-note if absent — so the suite works even on a box with none of them.
 
+**6502 subjects:**
+
 | Subject | Lang | How it runs | Populate it |
 |---|---|---|---|
 | **our Tier-0 interpreter** | C# | in-process, always | — |
@@ -80,14 +103,51 @@ runtime/source and skips-with-note if absent — so the suite works even on a bo
 | **py65** | Python | a `python` subprocess over `py65_runner.py` | python + `fetch-subjects` (creates a venv, `pip install py65`). py65 is pure-Python — the slowest subject by orders of magnitude, an honest cross-language data point. |
 | **sfotty** | JS | a `node` subprocess over `sfotty_runner.mjs` (`@sfotty-pie/sfotty`, a cycle-exact JS 6502) | node + `fetch-subjects` (`npm install @sfotty-pie/sfotty`). |
 
+**Z80 subjects** (the cross-language Z80 refs; each skip-with-note when absent — they enrich the Z80
+table but never block it):
+
+| Subject | Lang | License | How it runs | Populate it |
+|---|---|---|---|---|
+| **our Tier-0 interpreter** | C# | — | in-process, always | — |
+| **our Tier-1 JIT** (all-fallback) | C# | — | in-process, always | — |
+| **Z80dotNet** | C# | MIT | in-process (Konamiman's cycle-accurate C# Z80, NuGet `Z80dotNet`) | restores via NuGet at build time; needs nuget.org reachable once. Disable offline with `-p:UseZ80Sharp=false`. |
+| **superzazu/z80** | C | MIT | a `gcc`/`clang`/`cc`-compiled native shim run as a subprocess | a C compiler + `fetch-subjects` (downloads `z80.c`/`z80.h` from `superzazu/z80` into `<cache>/z80c`). |
+| **Z80.js** | JS | MIT | a `node` subprocess over `z80js_runner.mjs` (DrGoldfire/Z80.js — an instruction interpreter using documented per-opcode T-state counts) | node + `fetch-subjects` (downloads `Z80.js` from `DrGoldfire/Z80.js` into `<cache>/z80js`). |
+
+The Z80-W1 ZEXDOC image is fetched separately into the **vector** cache (not the bench cache) by
+`tools/get-zexall.{ps1,sh}` (→ `<vectors>/zex/zexdoc.com`); absent ⇒ all Z80-W1 rows skip-with-note,
+Z80-W2 still runs.
+
 ### Adding a new subject
 
 Implement `IEmulatorAdapter` (see `IEmulatorAdapter.cs`): a `Name`, a side-effect-free `Probe(out
 reason)` that returns false-with-a-note when the runtime/source is absent, and a `Measure(workload)`
 that runs the workload to its termination condition over a warmed window and self-verifies against
-`ExpectedCycles`. Add it to `BenchHarness.DefaultAdapters()`. For a scripting subject, drop a glue
-runner in `bench/third-party/` that prints `CYCLES <n>` + `WALL_SECONDS <f>` and reuse
-`SubprocessRunner`.
+`ExpectedCycles`. Add it to the right `BenchHarness.AdaptersFor(architecture)` set. For a scripting
+subject, drop a glue runner in `bench/third-party/` that prints `CYCLES <n>` + `WALL_SECONDS <f>` and
+reuse `SubprocessRunner` (pass `bdosMode: true` for a CP/M Z80-W1-style workload so the runner services
+the BDOS CALL host-side).
+
+## Baseline → re-measure (M6)
+
+This committed report is the **"before"** half of a before/after speedup story. The **"after"** is a
+re-run once the JIT's hot-op IL emit lands (milestone **M6**; for Z80 specifically the deferred "5-3b
+hot-op emission"). The re-measure is a CONTRACT, not a fresh design:
+
+- **Same workload bytes, byte-identical.** The frozen constants — `Workloads.KlausExpectedCycles`,
+  `Workloads.ArithKernelCycleCap`, the 6502 W2 kernel bytes, `Z80Workloads.Z80W1WindowTStates`,
+  `Z80Workloads.Z80W2CycleCap`, the Z80-W2 kernel bytes — MUST NOT change between the baseline commit
+  and the M6 re-measure. Retuning a window would void the comparison. A `git diff` of the workload
+  constants between the two commits must show no change.
+- **Same metric** (cycles/sec, per-CPU), **same command** (`dotnet run -c Release --project
+  bench/CpuEmulator.Benchmarks.Runner -- --report --all`), **same canonical host** where feasible (the
+  `## Environment` block in `results/REPORT.md` records it). If a different host is used, the **per-CPU
+  before/after ratio still holds** (it cancels host speed); only the absolute cycles/sec rows need the
+  same host to be directly comparable.
+- **The all-fallback rows are the "before".** Today every non-6502 JIT (and the 6502 on its current
+  invalidation strategy) is the honest all-fallback/recompilation-thrash baseline. M6 re-measures the
+  IDENTICAL rows; the delta IS the demonstrated speedup. CPUs that have NOT yet got hot-op emit at
+  re-measure time show ≈ 1.0× honestly.
 
 ## The two M2 revisit gates (Task 9)
 

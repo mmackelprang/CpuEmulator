@@ -1,6 +1,4 @@
-using CpuEmulator.Core;
-using CpuEmulator.Core.Specification;
-using CpuEmulator.Cpus.Mos6502;
+using CpuEmulator.Benchmarks.Drivers;
 using CpuEmulator.Jit;
 
 namespace CpuEmulator.Benchmarks;
@@ -40,57 +38,46 @@ internal static class TierRunner
     // runs away or stalls is caught by the bound + the parked-early check).
     private const long BulkSlice = 8_000_000;
 
+    // The per-architecture drivers. Each later CPU (68000, 8086) adds one line here, never re-touches
+    // the shared loop below. Keyed by BenchWorkload.Architecture.
+    private static readonly IReadOnlyDictionary<string, ITierDriver> Drivers =
+        new Dictionary<string, ITierDriver>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["mos6502"] = new Mos6502TierDriver(),
+            ["z80"] = new Z80TierDriver(),
+        };
+
     public static long Run(BenchWorkload w, bool jit, JitOptions options)
     {
-        var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        space.MapMemory(w.LoadAddress, (byte[])w.Image.Clone(), writable: true);
-        var inner = new Mos6502Cpu(space, UndefinedOpcodePolicy.Nop) { PC = w.StartPc, S = 0xFD, P = 0x34 };
+        if (!Drivers.TryGetValue(w.Architecture, out var driver))
+            throw new InvalidOperationException(
+                $"{w.Name}: no tier driver registered for architecture '{w.Architecture}'.");
 
-        // The target cycle window: the fixed cap (W2) or the expected anchor (W1). Both tiers run the
-        // SAME number of cycles of the SAME work — the fair like-for-like throughput window.
+        ITierInstance instance = jit ? driver.CreateTier1(w, options) : driver.CreateTier0(w);
+
+        // The target cycle window: the fixed cap (W2 / the Z80 windows) or the expected anchor (6502
+        // W1). Both tiers run the SAME number of cycles of the SAME work — the fair like-for-like
+        // throughput window. `trap` (a parked-PC success trap that VerifyTrap gates) is the 6502 W1
+        // termination; capped workloads (everything else) park only as an early-stop signal.
         long target = w.FixedCycleCap ?? w.ExpectedCycles;
-
-        if (!jit)
-            return RunInterpreter(inner, w, target);
-        return RunJit(inner, space, options, w, target);
-    }
-
-    private static long RunInterpreter(Mos6502Cpu inner, BenchWorkload w, long target)
-    {
         bool trap = w.FixedCycleCap is null;
-        while (inner.CycleCount < target)
+
+        while (instance.CycleCount < target)
         {
-            ushort before = inner.PC;
-            inner.Step();
-            // W1: if it parks at the success trap exactly at/just before the anchor, stop (a correct
-            // run reaches the trap here). A park BEFORE the anchor at the wrong PC is a divergence.
-            if (trap && inner.PC == before)
+            instance.AdvanceSlice(Math.Min(BulkSlice, target - instance.CycleCount));
+            // A parked slice ends the run: for a trap workload (6502 W1) VerifyTrap gates the park PC
+            // (a park elsewhere is a divergence-throw); for a capped workload (Z80 W1's warm-boot) it
+            // is just an early stop below the window. The per-tier park CONDITION (interp: PC
+            // unchanged; JIT: PC unchanged AND below target) lives in the instance, preserving the
+            // original RunInterpreter / RunJit semantics byte-for-byte.
+            if (instance.ParkedThisSlice)
             {
-                VerifyTrap(inner.CycleCount, inner.PC, w);
-                return inner.CycleCount;
+                if (trap)
+                    VerifyTrap(instance.CycleCount, instance.CurrentPc, w);
+                return instance.CycleCount;
             }
         }
-        return inner.CycleCount;
-    }
-
-    private static long RunJit(Mos6502Cpu inner, AddressSpace space, JitOptions options, BenchWorkload w, long target)
-    {
-        var jitCpu = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, options: options);
-        bool trap = w.FixedCycleCap is null;
-        while (inner.CycleCount < target)
-        {
-            long budget = Math.Min(BulkSlice, target - inner.CycleCount);
-            ushort before = inner.PC;
-            jitCpu.Run(ref budget);
-            // W1: a parked trap (PC unchanged across a slice that did no further work) means the run
-            // reached the success trap — stop. (The exact-cycle anchor is the functional test's gate.)
-            if (trap && inner.PC == before && inner.CycleCount < target)
-            {
-                VerifyTrap(inner.CycleCount, inner.PC, w);
-                return inner.CycleCount;
-            }
-        }
-        return inner.CycleCount;
+        return instance.CycleCount;
     }
 
     /// <summary>Sanity-gate a W1 park: it must be at the success trap. A park elsewhere means the

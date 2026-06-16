@@ -30,6 +30,38 @@ function Get-Fake([string]$name) {
 Get-Fake 'fake6502.c'
 Get-Fake 'fake6502.h'
 
+# superzazu/z80 (C) — the Z80 cross-language C anchor (single-file: z80.h + z80.c)
+$z80cDir = Join-Path $cache 'z80c'
+New-Item -ItemType Directory -Force -Path $z80cDir | Out-Null
+function Get-Z80c([string]$name) {
+    $dst = Join-Path $z80cDir $name
+    if (-not (Test-Path $dst)) {
+        Write-Host "fetching $name ..."
+        try {
+            Invoke-WebRequest -UseBasicParsing `
+                -Uri "https://raw.githubusercontent.com/superzazu/z80/master/$name" `
+                -OutFile $dst
+            Write-Host "  -> $dst"
+        } catch { Write-Host "  !! $name fetch failed — the Z80 C adapter will skip-with-note" }
+    } else { Write-Host "$name already present" }
+}
+Get-Z80c 'z80.h'
+Get-Z80c 'z80.c'
+
+# DrGoldfire/Z80.js (JS) — the OPTIONAL Z80 cross-language node subject (MIT, single file)
+$z80jsDir = Join-Path $cache 'z80js'
+New-Item -ItemType Directory -Force -Path $z80jsDir | Out-Null
+$z80jsDst = Join-Path $z80jsDir 'Z80.js'
+if (-not (Test-Path $z80jsDst)) {
+    Write-Host 'fetching Z80.js ...'
+    try {
+        Invoke-WebRequest -UseBasicParsing `
+            -Uri 'https://raw.githubusercontent.com/DrGoldfire/Z80.js/master/Z80.js' `
+            -OutFile $z80jsDst
+        Write-Host "  -> $z80jsDst"
+    } catch { Write-Host '  !! Z80.js fetch failed — the Z80 JS adapter will skip-with-note' }
+} else { Write-Host 'Z80.js already present' }
+
 # py65 (Python)
 if (Get-Command python -ErrorAction SilentlyContinue) {
     $venv = Join-Path $cache 'py65venv'

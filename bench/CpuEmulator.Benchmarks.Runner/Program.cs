@@ -34,6 +34,12 @@ if (w1 is not null) workloads.Add(w1);
 else Console.WriteLine("W1 (Klaus) skipped — image not in the vector cache (run tools/get-klaus).");
 workloads.Add(Workloads.ArithmeticKernel());
 
+// The Z80 workloads: Z80-W1 (ZEXDOC prefix) only when its binary is present; Z80-W2 (kernel) always.
+var z80w1 = Z80Workloads.Z80ZexPrefixOrNull();
+if (z80w1 is not null) workloads.Add(z80w1);
+else Console.WriteLine("Z80-W1 (ZEXDOC prefix) skipped — zexdoc.com not in the vector cache (run tools/get-zexall).");
+workloads.Add(Z80Workloads.Z80ArithmeticKernel());
+
 var tierRows = new List<BenchHarness.Row>();
 var adapterRows = new List<BenchHarness.Row>();
 
@@ -43,18 +49,18 @@ foreach (var w in workloads)
 
     var t0 = BenchHarness.MeasureTier("our Tier-0 interpreter", Tier0.Run, w);
     Console.WriteLine($"  Tier-0 interpreter : {Describe(t0)}");
-    tierRows.Add(new BenchHarness.Row("our Tier-0 interpreter", w.Name, t0));
+    tierRows.Add(new BenchHarness.Row("our Tier-0 interpreter", w.Name, t0, w.Architecture));
 
     var t1 = BenchHarness.MeasureTier("our Tier-1 JIT (chaining on)", Tier1.Run, w);
     Console.WriteLine($"  Tier-1 JIT         : {Describe(t1)}");
-    tierRows.Add(new BenchHarness.Row("our Tier-1 JIT (chaining on)", w.Name, t1));
+    tierRows.Add(new BenchHarness.Row("our Tier-1 JIT (chaining on)", w.Name, t1, w.Architecture));
 
     if (all)
     {
-        foreach (var row in BenchHarness.MeasureAdapters(BenchHarness.DefaultAdapters(), w))
+        foreach (var row in BenchHarness.MeasureAdapters(BenchHarness.AdaptersFor(w.Architecture), w))
         {
             Console.WriteLine($"  {row.Subject,-26}: {Describe(row.Result)}");
-            adapterRows.Add(row);
+            adapterRows.Add(row);   // MeasureAdapters now sets Architecture from the workload
         }
     }
 }

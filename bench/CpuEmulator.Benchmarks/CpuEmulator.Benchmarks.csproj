@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CpuEmulator.Core\CpuEmulator.Core.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Jit\CpuEmulator.Jit.csproj" />
   </ItemGroup>
 
@@ -38,6 +39,23 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(UseAsm6502)' == 'true'">
     <PackageReference Include="Asm6502" Version="4.0.2" />
+  </ItemGroup>
+
+  <!--
+    Z80dotNet (Konamiman, MIT, NuGet `Z80dotNet`) is the in-process third-party Z80 subject — the
+    cross-language C# anchor for the Z80 section (mirrors Asm6502 for the 6502). It exposes a
+    steppable core (ExecuteNextInstruction), a T-state surface (TStatesElapsedSinceReset), a settable
+    Memory + Registers (PC/SP/AF/BC/DE/HL), and a host-serviceable BDOS boundary — the fit-check the
+    plan (Task A6) requires. Guarded by HAS_Z80SHARP so the bench still BUILDS when the package cannot
+    be restored offline: disable with `-p:UseZ80Sharp=false`, and the Z80SharpAdapter then compiles
+    out + skips-with-note. Default on (small package, restores whenever nuget.org is up).
+  -->
+  <PropertyGroup>
+    <UseZ80Sharp Condition="'$(UseZ80Sharp)' == ''">true</UseZ80Sharp>
+    <DefineConstants Condition="'$(UseZ80Sharp)' == 'true'">$(DefineConstants);HAS_Z80SHARP</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseZ80Sharp)' == 'true'">
+    <PackageReference Include="Z80dotNet" Version="1.1.0" />
   </ItemGroup>
 
 </Project>

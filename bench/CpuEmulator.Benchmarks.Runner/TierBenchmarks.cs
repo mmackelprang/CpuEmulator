@@ -14,12 +14,16 @@ public class TierBenchmarks
 {
     private BenchWorkload? _w1;
     private BenchWorkload _w2 = null!;
+    private BenchWorkload? _z80w1;
+    private BenchWorkload _z80w2 = null!;
 
     [GlobalSetup]
     public void Setup()
     {
         _w1 = Workloads.KlausOrNull();
         _w2 = Workloads.ArithmeticKernel();
+        _z80w1 = Z80Workloads.Z80ZexPrefixOrNull();
+        _z80w2 = Z80Workloads.Z80ArithmeticKernel();
     }
 
     // W2 — the arithmetic kernel (always available; the headline emit/chaining comparison).
@@ -36,7 +40,25 @@ public class TierBenchmarks
     [Benchmark]
     public long Jit_Klaus() => Tier1.Run(RequireW1());
 
+    // Z80-W2 — the arithmetic kernel (always available; the all-fallback Z80 emit/chaining comparison).
+    [Benchmark]
+    public long Interpreter_Z80Kernel() => Tier0.Run(_z80w2);
+
+    [Benchmark]
+    public long Jit_Z80Kernel() => Tier1.Run(_z80w2);
+
+    // Z80-W1 — ZEXDOC prefix (only when the image is present; otherwise these throw + BDN flags them).
+    [Benchmark]
+    public long Interpreter_Z80Zex() => Tier0.Run(RequireZ80W1());
+
+    [Benchmark]
+    public long Jit_Z80Zex() => Tier1.Run(RequireZ80W1());
+
     private BenchWorkload RequireW1() =>
         _w1 ?? throw new InvalidOperationException(
             "W1 Klaus image not in the vector cache — run tools/get-klaus.ps1 (or .sh).");
+
+    private BenchWorkload RequireZ80W1() =>
+        _z80w1 ?? throw new InvalidOperationException(
+            "Z80-W1 zexdoc.com not in the vector cache — run tools/get-zexall.ps1 (or .sh).");
 }
