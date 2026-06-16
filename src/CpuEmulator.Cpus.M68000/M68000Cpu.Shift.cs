@@ -147,4 +147,33 @@ public sealed partial class M68000Cpu
         };
         SR = (ushort)((SR & 0xFF00) | ccr);
     }
+
+    // ── Task 4: ASL/ASR/LSL/LSR register form. bit 8 (dr): 0 = right, 1 = left. The dataset ROW picks the shift
+    //    FAMILY; bit 8 picks the direction. ───────────────────────────────────────────────────────────────────
+    partial void AslrRegExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => ShiftRotateExecute((operword & 0x0100u) != 0 ? ShiftKind.Asl : ShiftKind.Asr, operword, r, size, srcMode, srcReg, memoryForm: false);
+    partial void LslrRegExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => ShiftRotateExecute((operword & 0x0100u) != 0 ? ShiftKind.Lsl : ShiftKind.Lsr, operword, r, size, srcMode, srcReg, memoryForm: false);
+
+    // ── Task 5: ROL/ROR/ROXL/ROXR register form. ───────────────────────────────────────────────────────────
+    partial void RolrRegExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => ShiftRotateExecute((operword & 0x0100u) != 0 ? ShiftKind.Rol : ShiftKind.Ror, operword, r, size, srcMode, srcReg, memoryForm: false);
+    partial void RoxlrRegExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+        => ShiftRotateExecute((operword & 0x0100u) != 0 ? ShiftKind.Roxl : ShiftKind.Roxr, operword, r, size, srcMode, srcReg, memoryForm: false);
+
+    // ── Task 6: the memory-by-1 shift form (SHIFT_MEM). .w only, count 1. ───────────────────────────────────
+    partial void ShiftMemExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
+    {
+        // .w memory shift-by-1. bits 10-9: 00=AS, 01=LS, 10=ROX, 11=RO. bit 8: 1=left, 0=right.
+        bool left = (operword & 0x0100u) != 0;
+        uint cls = (operword >> 9) & 3u;
+        ShiftKind kind = cls switch
+        {
+            0u => left ? ShiftKind.Asl  : ShiftKind.Asr,
+            1u => left ? ShiftKind.Lsl  : ShiftKind.Lsr,
+            2u => left ? ShiftKind.Roxl : ShiftKind.Roxr,
+            _  => left ? ShiftKind.Rol  : ShiftKind.Ror,
+        };
+        ShiftRotateExecute(kind, operword, r, size: 1u /* .w */, srcMode, srcReg, memoryForm: true);
+    }
 }

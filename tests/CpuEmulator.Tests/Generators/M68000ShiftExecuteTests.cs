@@ -21,19 +21,19 @@ public class M68000ShiftExecuteTests
 
     // ── Task 4: ASL/ASR/LSL/LSR register form ──────────────────────────────────────────────────────────────
     [Fact]
-    public void Asl_w_imm1_shifts_left_and_sets_carry_from_msb()
+    public void Asl_w_imm1_sets_V_when_msb_changes()
     {
         // ASL.w #1,D0 = 0xE340. bits: 1110 ccc=001 dr=1(left) ss=01(.w) i/r=0 type=00 reg=000.
         var (cpu, _) = Build((0x1000, 0xE3), (0x1001, 0x40));
         cpu.SetRegister("PC", 0x1000);
-        cpu.SetRegister("D0", 0x0000C001);   // .w 0xC001 -> <<1 = 0x8002, msb-out=1, msb changed -> V
+        cpu.SetRegister("D0", 0x00004001);   // .w 0x4001 -> <<1 = 0x8002; bit15 0->1 (V set); C = old bit15 = 0
         cpu.Step();
         Assert.Equal(0x00008002u, (uint)cpu.GetRegister("D0"));
         uint sr = (uint)cpu.GetRegister("SR") & 0x1F;
-        Assert.Equal(0x10u, sr & 0x10);   // X = C = last bit out (1)
         Assert.Equal(0x08u, sr & 0x08);   // N (result msb set)
         Assert.Equal(0x02u, sr & 0x02);   // V (msb changed during shift)
-        Assert.Equal(0x01u, sr & 0x01);   // C
+        Assert.Equal(0x00u, sr & 0x01);   // C = old bit15 = 0
+        Assert.Equal(0x00u, sr & 0x10);   // X = C = 0
     }
 
     [Fact]
@@ -79,8 +79,8 @@ public class M68000ShiftExecuteTests
     [Fact]
     public void Rol_b_rotates_and_sets_C_not_X()
     {
-        // ROL.b #1,D0 = 0xE118. 1110 ccc=000(imm1) dr=1(left) ss=00(.b) i/r=0 type=11(RO) reg=000.
-        var (cpu, _) = Build((0x1000, 0xE1), (0x1001, 0x18));
+        // ROL.b #1,D0 = 0xE318. 1110 ccc=001(imm count 1) dr=1(left) ss=00(.b) i/r=0 type=11(RO) reg=000.
+        var (cpu, _) = Build((0x1000, 0xE3), (0x1001, 0x18));
         cpu.SetRegister("PC", 0x1000);
         cpu.SetRegister("D0", 0x00000081);   // 0b10000001 rol1 = 0b00000011 = 0x03; C = old msb = 1
         cpu.SetRegister("SR", 0x0000);
@@ -94,8 +94,8 @@ public class M68000ShiftExecuteTests
     [Fact]
     public void Roxl_b_rotates_through_X()
     {
-        // ROXL.b #1,D0 = 0xE110. 1110 ccc=000(imm1) dr=1(left) ss=00(.b) i/r=0 type=10(ROX) reg=000.
-        var (cpu, _) = Build((0x1000, 0xE1), (0x1001, 0x10));
+        // ROXL.b #1,D0 = 0xE310. 1110 ccc=001(imm count 1) dr=1(left) ss=00(.b) i/r=0 type=10(ROX) reg=000.
+        var (cpu, _) = Build((0x1000, 0xE3), (0x1001, 0x10));
         cpu.SetRegister("PC", 0x1000);
         cpu.SetRegister("D0", 0x00000080);   // 0b10000000 roxl1 with X=1 -> 0b00000001; new X/C = old msb = 1
         cpu.SetRegister("SR", 0x0010);       // X set going in
