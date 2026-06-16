@@ -1,76 +1,68 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace CpuEmulator.Tests.TomHarte;
 
 /// <summary>
-/// M4.5d-2a (ADR 0008 §5, plan §3 T4): the PC/PREFETCH-axis green sweep — the queue END STATE gate. Runs the
-/// M4.5d-1 + M4.5a-c vector files with <c>pcPrefetchAxis: true, assertExceptions: true</c>, asserting the
-/// prefetch-queue's observable state (<c>final.pc</c> + both <c>final.prefetch</c> words) ON TOP OF the data
-/// axis, but WITHOUT the per-transaction trace / cycle-count diff (the 2a ceiling — cycle-exactness is 2b).
+/// M4.5d-2a (ADR 0008 §5): the PC/PREFETCH-axis green sweep — the queue END STATE gate. Runs the M4.5d-1 +
+/// M4.5a-c vector files with <c>pcPrefetchAxis: true, assertExceptions: true</c>, asserting the prefetch-queue's
+/// observable state (<c>final.pc</c> + both <c>final.prefetch</c> words) ON TOP OF the data axis, but WITHOUT
+/// the per-transaction trace / cycle-count diff (the 2a ceiling — cycle-exactness is 2b).
 ///
-/// <para><b>Honesty (ADR 0008 §7).</b> 2a is "PC/prefetch-exact", NOT yet "cycle-exact". The flat <c>*4</c>
-/// cycle charge stands; <c>CycleCount == length</c> + the refill-interleaved bus trace are M4.5d-2b. The
-/// prefetch-queue model (the seam break) is reverse-engineered empirically per instruction-class (§8.1): the
-/// queue stays two words ahead of the formal PC, refilling one fresh word per consumed word; a control
-/// transfer reseeds it from the new PC. Every executed class below reconciles cleanly on this model — there
-/// is NO disclosed per-class PC/prefetch deferral in 2a. The address-error (vector 3) group-0 cases stay
-/// DEFERRED (their precise frame is M4.5d-2's T3 finalization + the trace-coupled bits are 2b); all other
-/// exception cases (TRAP/CHK-trap/TRAPV/ILLEGAL/privilege/÷0) assert on the data axis but their post-trap
-/// queue state (the handler's prefetch) is asserted here too via the reseed-from-handler-PC.</para>
+/// <para><b>Parallelism (test-infra, zero semantics change).</b> The two pre-split theories (the M4.5d-1
+/// control-flow families + the M4.5a-c data families, disjoint) are merged into ONE base body (they shared
+/// <c>RunPcPrefetchSweep</c> already) and split per-file: each in-scope file gets its OWN derived class (its own
+/// xUnit collection) so all 68 files distribute across cores. The body — including the CHK-in-range filter — is
+/// IDENTICAL to the pre-split body. The coverage guard asserts exact coverage of <see cref="CanonicalFiles"/>.</para>
+///
+/// <para><b>Honesty (ADR 0008 §7).</b> 2a is "PC/prefetch-exact", NOT yet "cycle-exact". The address-error
+/// (vector 3) group-0 cases stay DEFERRED (IsAddressErrorCase); all other exception cases assert.</para>
 /// </summary>
-public class M68000TimingAxisTomHarteTests
+public abstract class M68000TimingAxisTomHarteSweepBase
 {
-    // The M4.5d-1 control-flow + exception families (the branch/jump/return classes are the load-bearing
-    // reseed-on-transfer proof) + the to-CCR/SR + ÷0 re-run. UNLK's file is UNLINK.
-    public static IEnumerable<object[]> M45d1Files =>
+    public static readonly string[] CanonicalFiles =
     [
-        ["Bcc.json.gz"], ["BSR.json.gz"], ["DBcc.json.gz"],
-        ["JMP.json.gz"], ["JSR.json.gz"], ["RTS.json.gz"], ["RTR.json.gz"], ["RTE.json.gz"],
-        ["LINK.json.gz"], ["UNLINK.json.gz"],
-        ["TRAP.json.gz"], ["TRAPV.json.gz"], ["CHK.json.gz"], ["NOP.json.gz"],
-        ["ANDItoCCR.json.gz"], ["ANDItoSR.json.gz"],
-        ["ORItoCCR.json.gz"],  ["ORItoSR.json.gz"],
-        ["EORItoCCR.json.gz"], ["EORItoSR.json.gz"],
-        ["DIVU.json.gz"], ["DIVS.json.gz"],
-    ];
-
-    // The M4.5a-c data-movement / ALU / shift-bit-BCD corpus (the sequential refill proof across every EA mode
-    // + multi-extension-word forms). A representative cross-section of every class shape in scope.
-    public static IEnumerable<object[]> M45acFiles =>
-    [
+        // ---- the M4.5d-1 control-flow + exception families (reseed-on-transfer proof) + ÷0 re-run (22) ----
+        "Bcc.json.gz", "BSR.json.gz", "DBcc.json.gz",
+        "JMP.json.gz", "JSR.json.gz", "RTS.json.gz", "RTR.json.gz", "RTE.json.gz",
+        "LINK.json.gz", "UNLINK.json.gz",
+        "TRAP.json.gz", "TRAPV.json.gz", "CHK.json.gz", "NOP.json.gz",
+        "ANDItoCCR.json.gz", "ANDItoSR.json.gz",
+        "ORItoCCR.json.gz",  "ORItoSR.json.gz",
+        "EORItoCCR.json.gz", "EORItoSR.json.gz",
+        "DIVU.json.gz", "DIVS.json.gz",
+        // ---- the M4.5a-c data-movement / ALU / shift-bit-BCD corpus (sequential refill proof) (46) ----
         // MOVE family (M4.5a)
-        ["MOVE.b.json.gz"], ["MOVE.w.json.gz"], ["MOVE.l.json.gz"],
-        ["MOVEA.w.json.gz"], ["MOVEA.l.json.gz"],
-        ["MOVE.q.json.gz"],   // MOVEQ — corpus file is named MOVE.q (NOT MOVEQ); EA-less, data in operword 7-0
-        ["MOVEfromSR.json.gz"], ["MOVEtoSR.json.gz"], ["MOVEtoCCR.json.gz"],
-        ["MOVEfromUSP.json.gz"], ["MOVEtoUSP.json.gz"],
+        "MOVE.b.json.gz", "MOVE.w.json.gz", "MOVE.l.json.gz",
+        "MOVEA.w.json.gz", "MOVEA.l.json.gz",
+        "MOVE.q.json.gz",   // MOVEQ — corpus file is named MOVE.q (NOT MOVEQ); EA-less, data in operword 7-0
+        "MOVEfromSR.json.gz", "MOVEtoSR.json.gz", "MOVEtoCCR.json.gz",
+        "MOVEfromUSP.json.gz", "MOVEtoUSP.json.gz",
         // integer ALU (M4.5b)
-        ["ADD.b.json.gz"], ["ADD.w.json.gz"], ["ADD.l.json.gz"],
-        ["SUB.b.json.gz"], ["SUB.w.json.gz"], ["SUB.l.json.gz"],
-        ["AND.b.json.gz"], ["OR.w.json.gz"], ["EOR.l.json.gz"],
-        ["CMP.b.json.gz"], ["CMP.w.json.gz"], ["CMP.l.json.gz"],
-        ["NEG.w.json.gz"], ["NOT.l.json.gz"], ["CLR.b.json.gz"], ["TST.w.json.gz"],
-        ["MULU.json.gz"], ["MULS.json.gz"],
+        "ADD.b.json.gz", "ADD.w.json.gz", "ADD.l.json.gz",
+        "SUB.b.json.gz", "SUB.w.json.gz", "SUB.l.json.gz",
+        "AND.b.json.gz", "OR.w.json.gz", "EOR.l.json.gz",
+        "CMP.b.json.gz", "CMP.w.json.gz", "CMP.l.json.gz",
+        "NEG.w.json.gz", "NOT.l.json.gz", "CLR.b.json.gz", "TST.w.json.gz",
+        "MULU.json.gz", "MULS.json.gz",
         // shift/rotate + bit + BCD + Scc + data-movement (M4.5c)
-        ["ASL.w.json.gz"], ["LSR.w.json.gz"], ["ROL.w.json.gz"], ["ROXR.w.json.gz"],
-        ["BTST.json.gz"], ["BCHG.json.gz"], ["BCLR.json.gz"], ["BSET.json.gz"],
-        ["ABCD.json.gz"], ["NBCD.json.gz"], ["Scc.json.gz"],
-        ["SWAP.json.gz"], ["LEA.json.gz"], ["PEA.json.gz"], ["TAS.json.gz"],
-        ["MOVEM.w.json.gz"], ["MOVEM.l.json.gz"],
+        "ASL.w.json.gz", "LSR.w.json.gz", "ROL.w.json.gz", "ROXR.w.json.gz",
+        "BTST.json.gz", "BCHG.json.gz", "BCLR.json.gz", "BSET.json.gz",
+        "ABCD.json.gz", "NBCD.json.gz", "Scc.json.gz",
+        "SWAP.json.gz", "LEA.json.gz", "PEA.json.gz", "TAS.json.gz",
+        "MOVEM.w.json.gz", "MOVEM.l.json.gz",
     ];
 
-    [M68000TomHarteTheory]
-    [MemberData(nameof(M45d1Files))]
-    public void M45d1_family_is_PcPrefetch_green(string file) => RunPcPrefetchSweep(file);
+    protected abstract string VectorFile { get; }
+    public string FileForGuard => VectorFile;
 
-    [M68000TomHarteTheory]
-    [MemberData(nameof(M45acFiles))]
-    public void M45ac_family_is_PcPrefetch_green(string file) => RunPcPrefetchSweep(file);
-
-    private static void RunPcPrefetchSweep(string file)
+    [M68000TomHarteFact]
+    public void Family_is_PcPrefetch_green()
     {
+        string file = VectorFile;
         string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
         Assert.NotNull(dir);   // skipped at discovery when vectors are absent; present == not null (merge gate)
         string path = Path.Combine(dir, file);
@@ -111,5 +103,92 @@ public class M68000TimingAxisTomHarteTests
         uint ow = c.Initial.Prefetch[0];
         if ((ow & 0xF1C0u) != 0x4180u) return false;
         return !M68000TomHarteRunner.IsExceptionCase(c);
+    }
+}
+
+// ---- M4.5d-1 control-flow + exception families (22) ----
+public sealed class M68000Pc_Bcc       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "Bcc.json.gz"; }
+public sealed class M68000Pc_BSR       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "BSR.json.gz"; }
+public sealed class M68000Pc_DBcc      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "DBcc.json.gz"; }
+public sealed class M68000Pc_JMP       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "JMP.json.gz"; }
+public sealed class M68000Pc_JSR       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "JSR.json.gz"; }
+public sealed class M68000Pc_RTS       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "RTS.json.gz"; }
+public sealed class M68000Pc_RTR       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "RTR.json.gz"; }
+public sealed class M68000Pc_RTE       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "RTE.json.gz"; }
+public sealed class M68000Pc_LINK      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "LINK.json.gz"; }
+public sealed class M68000Pc_UNLINK    : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "UNLINK.json.gz"; }
+public sealed class M68000Pc_TRAP      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "TRAP.json.gz"; }
+public sealed class M68000Pc_TRAPV     : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "TRAPV.json.gz"; }
+public sealed class M68000Pc_CHK       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "CHK.json.gz"; }
+public sealed class M68000Pc_NOP       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "NOP.json.gz"; }
+public sealed class M68000Pc_ANDItoCCR : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ANDItoCCR.json.gz"; }
+public sealed class M68000Pc_ANDItoSR  : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ANDItoSR.json.gz"; }
+public sealed class M68000Pc_ORItoCCR  : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ORItoCCR.json.gz"; }
+public sealed class M68000Pc_ORItoSR   : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ORItoSR.json.gz"; }
+public sealed class M68000Pc_EORItoCCR : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "EORItoCCR.json.gz"; }
+public sealed class M68000Pc_EORItoSR  : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "EORItoSR.json.gz"; }
+public sealed class M68000Pc_DIVU      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "DIVU.json.gz"; }
+public sealed class M68000Pc_DIVS      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "DIVS.json.gz"; }
+// ---- M4.5a-c data families (46) ----
+public sealed class M68000Pc_MOVE_b      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVE.b.json.gz"; }
+public sealed class M68000Pc_MOVE_w      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVE.w.json.gz"; }
+public sealed class M68000Pc_MOVE_l      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVE.l.json.gz"; }
+public sealed class M68000Pc_MOVEA_w     : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEA.w.json.gz"; }
+public sealed class M68000Pc_MOVEA_l     : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEA.l.json.gz"; }
+public sealed class M68000Pc_MOVE_q      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVE.q.json.gz"; }
+public sealed class M68000Pc_MOVEfromSR  : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEfromSR.json.gz"; }
+public sealed class M68000Pc_MOVEtoSR    : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEtoSR.json.gz"; }
+public sealed class M68000Pc_MOVEtoCCR   : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEtoCCR.json.gz"; }
+public sealed class M68000Pc_MOVEfromUSP : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEfromUSP.json.gz"; }
+public sealed class M68000Pc_MOVEtoUSP   : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEtoUSP.json.gz"; }
+public sealed class M68000Pc_ADD_b       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ADD.b.json.gz"; }
+public sealed class M68000Pc_ADD_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ADD.w.json.gz"; }
+public sealed class M68000Pc_ADD_l       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ADD.l.json.gz"; }
+public sealed class M68000Pc_SUB_b       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "SUB.b.json.gz"; }
+public sealed class M68000Pc_SUB_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "SUB.w.json.gz"; }
+public sealed class M68000Pc_SUB_l       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "SUB.l.json.gz"; }
+public sealed class M68000Pc_AND_b       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "AND.b.json.gz"; }
+public sealed class M68000Pc_OR_w        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "OR.w.json.gz"; }
+public sealed class M68000Pc_EOR_l       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "EOR.l.json.gz"; }
+public sealed class M68000Pc_CMP_b       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "CMP.b.json.gz"; }
+public sealed class M68000Pc_CMP_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "CMP.w.json.gz"; }
+public sealed class M68000Pc_CMP_l       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "CMP.l.json.gz"; }
+public sealed class M68000Pc_NEG_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "NEG.w.json.gz"; }
+public sealed class M68000Pc_NOT_l       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "NOT.l.json.gz"; }
+public sealed class M68000Pc_CLR_b       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "CLR.b.json.gz"; }
+public sealed class M68000Pc_TST_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "TST.w.json.gz"; }
+public sealed class M68000Pc_MULU        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MULU.json.gz"; }
+public sealed class M68000Pc_MULS        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MULS.json.gz"; }
+public sealed class M68000Pc_ASL_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ASL.w.json.gz"; }
+public sealed class M68000Pc_LSR_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "LSR.w.json.gz"; }
+public sealed class M68000Pc_ROL_w       : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ROL.w.json.gz"; }
+public sealed class M68000Pc_ROXR_w      : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ROXR.w.json.gz"; }
+public sealed class M68000Pc_BTST        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "BTST.json.gz"; }
+public sealed class M68000Pc_BCHG        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "BCHG.json.gz"; }
+public sealed class M68000Pc_BCLR        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "BCLR.json.gz"; }
+public sealed class M68000Pc_BSET        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "BSET.json.gz"; }
+public sealed class M68000Pc_ABCD        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "ABCD.json.gz"; }
+public sealed class M68000Pc_NBCD        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "NBCD.json.gz"; }
+public sealed class M68000Pc_Scc         : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "Scc.json.gz"; }
+public sealed class M68000Pc_SWAP        : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "SWAP.json.gz"; }
+public sealed class M68000Pc_LEA         : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "LEA.json.gz"; }
+public sealed class M68000Pc_PEA         : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "PEA.json.gz"; }
+public sealed class M68000Pc_TAS         : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "TAS.json.gz"; }
+public sealed class M68000Pc_MOVEM_w     : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEM.w.json.gz"; }
+public sealed class M68000Pc_MOVEM_l     : M68000TimingAxisTomHarteSweepBase { protected override string VectorFile => "MOVEM.l.json.gz"; }
+
+/// <summary>Structural guard: the per-file derived classes cover EXACTLY the canonical PC/prefetch file list
+/// (the union of the pre-split M45d1Files + M45acFiles).</summary>
+public sealed class M68000TimingAxisTomHarteCoverageGuard
+{
+    [Fact]
+    public void Split_classes_cover_exactly_the_canonical_pcprefetch_file_list()
+    {
+        var expected = M68000TimingAxisTomHarteSweepBase.CanonicalFiles.OrderBy(x => x).ToArray();
+        var covered = typeof(M68000TimingAxisTomHarteSweepBase).Assembly.GetTypes()
+            .Where(t => t.IsSealed && !t.IsAbstract && typeof(M68000TimingAxisTomHarteSweepBase).IsAssignableFrom(t))
+            .Select(t => ((M68000TimingAxisTomHarteSweepBase)Activator.CreateInstance(t)!).FileForGuard)
+            .OrderBy(x => x).ToArray();
+        Assert.Equal(expected, covered);
     }
 }
