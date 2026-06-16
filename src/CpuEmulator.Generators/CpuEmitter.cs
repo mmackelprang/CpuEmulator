@@ -4184,13 +4184,19 @@ internal static class CpuEmitter
         sb.AppendLine("                }");
         sb.AppendLine("                extWords = immWords;");
         sb.AppendLine("            }");
-        sb.AppendLine("            // M4.5c: the static bit ops (BTST/BCHG/BCLR/BSET #imm) carry ONE LEADING bit-number");
-        sb.AppendLine("            // word (low byte = the bit#) BEFORE the EA's own words, exactly like the ALU immediate");
-        sb.AppendLine("            // forms. Fetch it first so ext[0] = bit#, ext[1..] = the EA's (the body ShiftExt's by 1).");
-        sb.AppendLine("            else if (IsStaticBitForm(f.OpIndex))");
+        sb.AppendLine("            // M4.5c: some ops carry a FIXED leading extension word BEFORE the EA's own words:");
+        sb.AppendLine("            //   • the static bit ops (BTST/BCHG/BCLR/BSET #imm) — the bit-number word (low byte);");
+        sb.AppendLine("            //   • MOVEM — the register-list mask word;  • MOVEP — the d16(An) displacement word.");
+        sb.AppendLine("            // Fetch it first so ext[0] = the fixed word, ext[1..] = the EA's (the body ShiftExt's by 1).");
+        sb.AppendLine("            else if (LeadingFixedWordCount(f.OpIndex) > 0)");
         sb.AppendLine("            {");
-        sb.AppendLine("                e0 = (ushort)stream.NextUnit();");
-        sb.AppendLine("                extWords = 1;");
+        sb.AppendLine("                int lead = LeadingFixedWordCount(f.OpIndex);");
+        sb.AppendLine("                for (int w = 0; w < lead; w++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    ushort lw = (ushort)stream.NextUnit();");
+        sb.AppendLine("                    switch (w) { case 0: e0 = lw; break; default: e1 = lw; break; }");
+        sb.AppendLine("                }");
+        sb.AppendLine("                extWords = lead;");
         sb.AppendLine("            }");
         sb.AppendLine("            int eaExt = ExtensionWordCount(eaMode, eaReg, size);      // M4.3a Task 4: operand-computed");
         sb.AppendLine("            for (int w = 0; w < eaExt; w++)");
@@ -4225,7 +4231,7 @@ internal static class CpuEmitter
         EmitExtensionWordCount(sb);       // ExtensionWordCount(mode, reg, size) — Task 4 (C5)
         EmitIsMoveFamily(sb, grammar);    // M4.5a: the two-EA MOVE/MOVEA length predicate (deferred D5)
         EmitIsImmediateForm(sb, grammar); // M4.5b: the leading-#imm-word ALU immediate-form predicate
-        EmitIsStaticBitForm(sb, grammar); // M4.5c: the leading-bit-number-word static-bit-op predicate
+        EmitLeadingFixedWordCount(sb, grammar); // M4.5c: the leading fixed-word count (static bit / MOVEM / MOVEP)
         EmitIsAddressRegVariant(sb, grammar); // M4.5b: the ADDA/SUBA/CMPA .w/.l size remap predicate
         EmitM68kEa(sb);                   // M4.3b: the EA-compute helper + the address-register accessors
 
@@ -4361,21 +4367,23 @@ internal static class CpuEmitter
             : string.Join(" || ", immIndices.Select(i => $"opIndex == {i}u")) + ";");
     }
 
-    /// <summary>M4.5c: the static bit ops (BTST/BCHG/BCLR/BSET with a #imm bit number) carry ONE leading
-    /// bit-number extension word (low byte = the bit#) before the EA's own words — the decode walk fetches it
-    /// first so ext[0] = bit#, then the EA's words follow (the body ShiftExt's by 1). Emitted from the dataset
+    /// <summary>M4.5c: the count of FIXED leading extension words an op carries BEFORE its EA's own words —
+    /// the decode walk fetches them first so ext[0..] = the fixed word(s), then the EA's words follow (the body
+    /// ShiftExt's by the count). The static bit ops (BTST/BCHG/BCLR/BSET #imm) carry one bit-number word; MOVEM
+    /// carries one register-list mask word; MOVEP carries one d16(An) displacement word. Emitted from the dataset
     /// operation names ON THE FIELD-GRAMMAR PATH ONLY (6502/Z80 never get it).</summary>
-    private static void EmitIsStaticBitForm(StringBuilder sb, FieldGrammarModel grammar)
+    private static void EmitLeadingFixedWordCount(StringBuilder sb, FieldGrammarModel grammar)
     {
         var idx = new System.Collections.Generic.List<int>();
         for (int i = 0; i < grammar.Ops.Length; i++)
-            if (grammar.Ops[i].Operation is "BTST_STATIC" or "BCHG_STATIC" or "BCLR_STATIC" or "BSET_STATIC")
+            if (grammar.Ops[i].Operation is "BTST_STATIC" or "BCHG_STATIC" or "BCLR_STATIC" or "BSET_STATIC"
+                                          or "MOVEM" or "MOVEP")
                 idx.Add(i);
         sb.AppendLine();
-        sb.Append("    private static bool IsStaticBitForm(uint opIndex) => ");
+        sb.Append("    private static int LeadingFixedWordCount(uint opIndex) => ");
         sb.AppendLine(idx.Count == 0
-            ? "false;"
-            : string.Join(" || ", idx.Select(i => $"opIndex == {i}u")) + ";");
+            ? "0;"
+            : "(" + string.Join(" || ", idx.Select(i => $"opIndex == {i}u")) + ") ? 1 : 0;");
     }
 
     /// <summary>M4.5b: the address-reg variants (ADDA/SUBA/CMPA) whose 1-bit opmode size field (bit 8: 0=.w,
