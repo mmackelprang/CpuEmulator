@@ -60,9 +60,24 @@ public sealed partial class M68000Cpu
     /// explicitly in the M4.5 TomHarte runner).</summary>
     public void Reset() { }
 
-    // ── The policy hooks the generated partial requires (inert in M4.1) ────────────────────────────────
-    public void SetIrqLine(bool asserted) { }   // the IPL-level interrupt model is M4.5d
-    public void SetNmiLine(bool asserted) { }   // the 68000 has no NMI line; level-7 is non-maskable (M4.5d)
+    // ── The policy hooks the generated partial requires (M4.5d-1, DD5: the thin IPL-level model) ──────────
+    // The 68000's real interrupt input is the 3-bit IPL line (0-7), set via SetInterruptLevel. The generic
+    // SetIrqLine/SetNmiLine shims map onto it so a generic caller still works: SetIrqLine(true) asserts a
+    // generic level-7 (NMI-equivalent); SetNmiLine likewise. No GENERATED caller asserts these in the test
+    // path (the synthetic IPL tests drive SetInterruptLevel directly) — they exist to satisfy the partial.
+    public void SetIrqLine(bool asserted) => _iplLevel = asserted ? 7 : 0;
+    public void SetNmiLine(bool asserted) { if (asserted) _iplLevel = 7; }   // level-7 is the non-maskable input
+
+    /// <summary>The pending interrupt priority level (0-7); 7 is non-maskable. M4.5d-1 (DD5): the thin
+    /// synthetic-tested IPL model; the acknowledge-cycle accuracy + the device-supplied vector are M4.5d-2.</summary>
+    private int _iplLevel;
+
+    /// <summary>Set the IPL input (0-7). The 68000 services the interrupt at the next Step when the level
+    /// exceeds the SR interrupt mask (or is level 7).</summary>
+    public void SetInterruptLevel(int level) => _iplLevel = level & 7;
+
+    /// <summary>The SR interrupt mask (bits 10-8).</summary>
+    private uint SrInterruptMask => (uint)((SR >> 8) & 7u);
 
     /// <summary>Program/data-bus byte read; charges one cycle (the cycle invariant). The wide big-endian
     /// Read16/Read32 the 68000 truly needs are M4.2 (this byte path keeps the generated Step compiling).</summary>
@@ -113,10 +128,24 @@ public sealed partial class M68000Cpu
     /// instruction table is empty in M4.1, so any Step would route here; M4.1 never calls Step.</summary>
     private void HandleUndefinedOpcode(byte opcode) { _cycles++; }
 
-    /// <summary>No interrupt servicing in M4.1 (the IPL-level policy is M4.5d). Returns false so the
-    /// generated Step never vectors.</summary>
-    private partial bool TryServiceInterrupt() => false;
+    /// <summary>The interrupt acknowledge (M4.5d-1, DD5): reuse RaiseException (the interrupt is "an exception
+    /// sourced by the IPL line"). Enter supervisor, push the (PC, SR) frame, set the mask to the serviced level,
+    /// vector through the autovector (24 + level). The generated Step calls this FIRST, so the acknowledge fires
+    /// before the fetch (the ADR 0004 §2 Decision 3 seam). DD5: autovector default; the device-supplied vector
+    /// + the acknowledge-cycle accuracy are M4.5d-2. NO TomHarte vector exercises this — synthetic-tested only.</summary>
+    private partial bool TryServiceInterrupt()
+    {
+        if (!InterruptPending) return false;
+        int level = _iplLevel;
+        ushort srAtFault = (ushort)(SR & 0xFFFF);
+        RaiseException(Vector.AutovectorBase + (uint)level, FrameKind.Small, srAtFault, PC);
+        // RaiseException entered supervisor + cleared trace; now set the SR interrupt mask to the serviced level
+        // (so a same-or-lower interrupt does not re-fire).
+        SR = (ushort)(((uint)SR & 0xF8FFu) | ((uint)level << 8));
+        _iplLevel = 0;   // the device de-asserts on acknowledge (the synthetic model).
+        return true;
+    }
 
-    /// <summary>Never pending in M4.1 (the IPL-level + SR-mask comparison is M4.5d).</summary>
-    public partial bool InterruptPending => false;
+    /// <summary>True when the IPL exceeds the SR interrupt mask (or is level 7, non-maskable). M4.5d-1 (DD5).</summary>
+    public partial bool InterruptPending => _iplLevel == 7 || (uint)_iplLevel > SrInterruptMask;
 }
