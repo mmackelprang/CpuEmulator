@@ -239,13 +239,26 @@ internal static class CpuEmitter
             // formal PC and the queue is RESEEDED from the new PC — so the queue END STATE is the asserted
             // final.prefetch and the trailing formal PC is the asserted final.pc.
             sb.AppendLine("        var __stream = _fetchQueue ??= new CpuEmulator.Core.Jit.M68000FetchStream(_bus);");
-            sb.AppendLine("        __stream.Seed(PC, _bus.Read16(PC), _bus.Read16(unchecked(PC + 2u)));");
+            // M4.5d-2b (ADR 0008 §8.1): seed the queue via the UNTRACED inner-memory peek (SeedPeek), NOT two
+            // _bus.Read16 calls. The corpus places the operword + next word in initial.prefetch (the runner writes
+            // them into the bus); the real 68000 already HOLDS them in its queue and does NOT re-fetch them, so
+            // those reads must NOT appear in the per-transaction bus trace. The old Seed(PC, _bus.Read16(PC),
+            // _bus.Read16(PC+2)) form issued two phantom traced fetches that polluted bus.Trace (which suspended
+            // the trace-coupled timing axis in 2a). SeedPeek reads the two words through IAddressSpace.TryPeek8 —
+            // invisible to the tracing bus — so the trace begins clean with the first REFILL read (NextUnit).
+            sb.AppendLine("        __stream.SeedPeek(PC);");
             sb.AppendLine("        __stream.BeginInstruction();");
+            sb.AppendLine("        _pendingIdle = 0;   // reset the per-instruction idle accumulator (flushed after the body)");
             sb.AppendLine("        var __r = Decode(__stream);");
             sb.AppendLine("        uint __operword = __r.Operword;               // the operword the fetch read once");
-            sb.AppendLine("        // 2a leaves the FLAT *4 cycle charge in place (cycle-exactness is 2b — ADR 0008 §3). 2a asserts");
-            sb.AppendLine("        // the queue STATE (final.pc + final.prefetch), NOT CycleCount == length.");
-            sb.AppendLine("        _cycles += __stream.UnitsConsumed * 4;");
+            sb.AppendLine("        // M4.5d-2b (ADR 0008 §3): the per-transaction cycle model. The decode walk's prefetch REFILL");
+            sb.AppendLine("        // reads (NextUnit's _bus.Read16 at the frontier) are REAL 4-clock word bus cycles that the");
+            sb.AppendLine("        // tracing bus records — charge 4 per refill (RefillCount, set by the walk). Operand reads/writes");
+            sb.AppendLine("        // add their own 4-clock charges via the WordBus helpers in the op body; the internal/idle");
+            sb.AppendLine("        // ([\"n\",N]) cycles are accumulated by the body into _pendingIdle and flushed below. The sum");
+            sb.AppendLine("        // equals the case's length (Σ transaction cycles) — the T6 per-class reconciliation. T5 wires the");
+            sb.AppendLine("        // refill+idle MACHINERY; NOP (one refill, zero idle) is the cycle-exact end-to-end proof.");
+            sb.AppendLine("        _cycles += __stream.RefillCount * 4;");
             sb.AppendLine("        // PC-relative EAs (d16(PC)/d8(PC,Xn)) are based on the address of the FIRST extension word");
             sb.AppendLine("        // = operword address + 2 (the operword is at the pre-advance PC). Capture it BEFORE the");
             sb.AppendLine("        // advance so ComputeEa's PcForEa reads the right base (the live PC moves past the whole insn).");
@@ -277,6 +290,8 @@ internal static class CpuEmitter
             sb.AppendLine("        }");
             sb.AppendLine("        _eaPcBase = 0u;   // clear the PC-relative base so the synthetic ComputeEaProbe's");
             sb.AppendLine("                          // \": PC\" fallback is valid again after a Step (review finding).");
+            sb.AppendLine("        IdleCycles(_pendingIdle);   // M4.5d-2b: flush the body's internal/idle ([\"n\",N]) clocks (0 for");
+            sb.AppendLine("                                    // a register-only class like NOP; T6 populates it per-class).");
             // M4.5d-2a: after the body, if the live PC diverged from the queue's formal PC, a non-sequential
             // control transfer happened (branch/jump/return/exception set PC) — RESEED the queue from the new
             // PC so final.prefetch is [word@PC, word@(PC+2)] (the corpus's taken-branch/target prefetch). For a

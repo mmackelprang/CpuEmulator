@@ -99,6 +99,25 @@ public sealed partial class M68000Cpu
     //    ends == the case's length (Σ transaction cycles — validated by the TomHarte gate). ────────────────
     private const int WordAccessCycles = 4;   // a word bus cycle is 4 clocks on the 68000 (S0-S7)
 
+    /// <summary>M4.5d-2b (ADR 0008 §3): charge <paramref name="n"/> IDLE clocks — the corpus <c>["n", N]</c>
+    /// slots (internal/dead bus cycles where the 68000 does no bus access). Idle cycles advance CycleCount ONLY;
+    /// they produce NO bus access, so they emit NO trace entry (the runner's DiffBusTrace filters idle out of the
+    /// EXPECTED list, so the emit side must simply not touch the bus). This is the FieldGrammar-path idle
+    /// primitive — the analogue of the generated <c>IdleCycle()</c> the HaltOp/6502 path uses, but parameterized
+    /// for the multi-clock 68000 idle runs and not tied to the halted latch. The generated Step flushes the
+    /// per-instruction idle accumulator through it (the prefetch refills are charged separately via
+    /// <c>4 * RefillCount</c>, the operand accesses via the WordBus helpers).</summary>
+    private void IdleCycles(int n) => _cycles += n;
+
+    /// <summary>M4.5d-2b: the per-instruction IDLE-cycle accumulator the op bodies declare and the generated Step
+    /// flushes (via <see cref="IdleCycles"/>) after the body runs. An op body adds the internal/dead cycles its
+    /// instruction class spends with the bus idle (the corpus <c>["n", N]</c> slots) with <c>_pendingIdle += N</c>;
+    /// the generated Step resets it to 0 at the start of each instruction and charges the total at the end. T5
+    /// wires the MACHINERY only — no body charges idle yet (NOP, the T5 proof, is register-only with zero idle),
+    /// so this stays 0 and NOP reconciles to its single 4-clock refill. The per-class idle reconciliation (e.g.
+    /// ADD.w Q,A2's <c>["n",4]</c>) is staged in T6.</summary>
+    private int _pendingIdle;
+
     private ushort ReadWordBus(uint address)
     {
         _cycles += WordAccessCycles;
