@@ -36,15 +36,23 @@ public static class ReportWriter
         sb.AppendLine();
 
         // ── The headline comparison: cycles/host-second per subject per workload ──────────────────
+        // Grouped by architecture so each CPU carries its own cycle-unit label (6502 = machine
+        // cycles; Z80 = T-states — NOT cross-architecture comparable as raw numbers, D4).
         sb.AppendLine("## Results — emulated cycles per host-second (higher is faster)");
         sb.AppendLine();
-        sb.AppendLine("| Subject | Workload | cycles/sec | wall (s) | note |");
-        sb.AppendLine("|---|---|---:|---:|---|");
-        foreach (var row in tierRows) sb.AppendLine(Format(row));
-        foreach (var row in adapterRows) sb.AppendLine(Format(row));
-        sb.AppendLine();
+        var allRows = tierRows.Concat(adapterRows).ToList();
+        foreach (string arch in ArchitectureOrder(allRows))
+        {
+            sb.AppendLine($"### {ArchLabel(arch)} — {UnitLabel(arch)}/host-second");
+            sb.AppendLine();
+            sb.AppendLine($"| Subject | Workload | {UnitLabel(arch)}/sec | wall (s) | note |");
+            sb.AppendLine("|---|---|---:|---:|---|");
+            foreach (var row in tierRows.Where(r => r.Architecture == arch)) sb.AppendLine(Format(row));
+            foreach (var row in adapterRows.Where(r => r.Architecture == arch)) sb.AppendLine(Format(row));
+            sb.AppendLine();
+        }
 
-        // ── Relative speedup of our two tiers (the JIT-vs-interpreter headline) ────────────────────
+        // ── Relative speedup of our two tiers (the JIT-vs-interpreter headline), grouped by CPU ─────
         AppendTierSpeedup(sb, tierRows);
 
         // ── Reading the numbers honestly (the findings the data shows) ─────────────────────────────
@@ -61,10 +69,18 @@ public static class ReportWriter
         sb.AppendLine("  markedly — the interpreter's tight, well-predicted `switch` dispatch on a small hot");
         sb.AppendLine("  loop is hard for a block JIT to beat without cross-block state hoisting (an M3");
         sb.AppendLine("  refinement, recorded out-of-scope).");
-        sb.AppendLine("- **Cross-language spread is the interesting headline.** Native C (fake6502) is the");
+        sb.AppendLine("- **Cross-language spread is the interesting headline (6502).** Native C (fake6502) is the");
         sb.AppendLine("  fastest by a wide margin; our C# interpreter is mid-pack and competitive with the JS");
         sb.AppendLine("  (sfotty) and C# (Asm6502) subjects; pure-Python (py65) is the slowest by ~1-2 orders");
         sb.AppendLine("  of magnitude — exactly the honest cross-language picture the suite was built to show.");
+        sb.AppendLine("- **Cross-language spread (Z80) — and the all-fallback caveat.** The Z80 third-party refs");
+        sb.AppendLine("  show the same shape on their OWN T-state models: native C (superzazu/z80) is fastest by");
+        sb.AppendLine("  ~1.5 B T-states/sec; the JS core (DrGoldfire/Z80.js, a documented-T-state interpreter)");
+        sb.AppendLine("  is mid-pack; the C# core (Z80dotNet) is the slowest of the three. Note our Z80 Tier-0");
+        sb.AppendLine("  interpreter out-paces all three non-native refs — an honest, measured result. Our Z80");
+        sb.AppendLine("  Tier-1 is **all-fallback** (no hot-op IL emit yet — M6), so its ~0.45–0.48x ratio is the");
+        sb.AppendLine("  committed \"before\" the M6 re-measure subtracts from, NOT a defect. **Z80 is measured in");
+        sb.AppendLine("  T-states, the 6502 in machine cycles — do NOT cross-multiply the two as a raw race.**");
         sb.AppendLine("- **Third-party rows are an indicative cross-language SLICE.** Subprocess + in-process");
         sb.AppendLine("  third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its");
         sb.AppendLine("  OWN cycle model. These are indicative cross-language numbers, not a controlled");
@@ -97,14 +113,24 @@ public static class ReportWriter
         sb.AppendLine();
         sb.AppendLine("```");
         sb.AppendLine("# our two tiers always run; third-party subjects need their runtimes fetched first:");
-        sb.AppendLine("bench/third-party/fetch-subjects.ps1      # (or .sh) — fetches fake6502.c, a py65 venv, sfotty");
+        sb.AppendLine("bench/third-party/fetch-subjects.ps1      # (or .sh) — 6502 (fake6502/py65/sfotty) + Z80 (z80.c/Z80.js)");
+        sb.AppendLine("tools/get-zexall.ps1                      # (or .sh) — the Z80-W1 ZEXDOC image (vector cache)");
         sb.AppendLine("dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all");
         sb.AppendLine("```");
+        sb.AppendLine();
+        sb.AppendLine("**6502 subjects:**");
         sb.AppendLine();
         sb.AppendLine("- **Asm6502 (C#)** restores via NuGet at build time (no fetch); needs nuget.org reachable once.");
         sb.AppendLine("- **fake6502 (C)** needs a C compiler (gcc/clang/cc) + `fetch-subjects` (downloads fake6502.c).");
         sb.AppendLine("- **py65 (Python)** needs python + `fetch-subjects` (creates a venv, `pip install py65`).");
         sb.AppendLine("- **sfotty (JS)** needs node + `fetch-subjects` (`npm install @sfotty-pie/sfotty`).");
+        sb.AppendLine();
+        sb.AppendLine("**Z80 subjects** (each skip-with-note when absent — they enrich the Z80 table, never block it):");
+        sb.AppendLine();
+        sb.AppendLine("- **Z80-W1 (ZEXDOC)** needs `tools/get-zexall` (fetches `zexdoc.com` into the vector cache).");
+        sb.AppendLine("- **Z80dotNet (C#)** restores via NuGet at build time; disable offline with `-p:UseZ80Sharp=false`.");
+        sb.AppendLine("- **superzazu/z80 (C)** needs a C compiler + `fetch-subjects` (downloads z80.c/z80.h, MIT).");
+        sb.AppendLine("- **Z80.js (JS)** needs node + `fetch-subjects` (downloads DrGoldfire/Z80.js, MIT).");
         sb.AppendLine();
         sb.AppendLine("For statistically-rigorous numbers on our two tiers, run the BenchmarkDotNet harness:");
         sb.AppendLine("`dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn`.");
@@ -135,30 +161,71 @@ public static class ReportWriter
 
     private static void AppendTierSpeedup(StringBuilder sb, IReadOnlyList<BenchHarness.Row> tierRows)
     {
-        // Pair our interpreter + JIT rows per workload and report the JIT/interpreter ratio.
-        var byWorkload = tierRows.GroupBy(r => r.Workload);
-        bool any = false;
-        var lines = new StringBuilder();
-        foreach (var g in byWorkload)
+        // Pair our interpreter + JIT rows per workload and report the JIT/interpreter ratio — grouped
+        // by architecture so the all-fallback caveat attaches to the Z80 (M6 target) only.
+        bool wroteHeading = false;
+        foreach (string arch in ArchitectureOrder(tierRows))
         {
-            var interp = g.FirstOrDefault(r => r.Subject.Contains("interpreter", StringComparison.OrdinalIgnoreCase) && r.Result.Ran);
-            var jit = g.FirstOrDefault(r => r.Subject.Contains("JIT", StringComparison.OrdinalIgnoreCase) && r.Result.Ran);
-            if (interp is not null && jit is not null && interp.Result.CyclesPerSecond > 0)
+            var lines = new StringBuilder();
+            bool any = false;
+            foreach (var g in tierRows.Where(r => r.Architecture == arch).GroupBy(r => r.Workload))
             {
-                double ratio = jit.Result.CyclesPerSecond / interp.Result.CyclesPerSecond;
-                lines.AppendLine($"- **{g.Key}**: JIT is {ratio:F2}x the interpreter " +
-                    $"({jit.Result.CyclesPerSecond:N0} vs {interp.Result.CyclesPerSecond:N0} cycles/sec).");
-                any = true;
+                var interp = g.FirstOrDefault(r => r.Subject.Contains("interpreter", StringComparison.OrdinalIgnoreCase) && r.Result.Ran);
+                var jit = g.FirstOrDefault(r => r.Subject.Contains("JIT", StringComparison.OrdinalIgnoreCase) && r.Result.Ran);
+                if (interp is not null && jit is not null && interp.Result.CyclesPerSecond > 0)
+                {
+                    double ratio = jit.Result.CyclesPerSecond / interp.Result.CyclesPerSecond;
+                    lines.AppendLine($"- **{g.Key}**: JIT is {ratio:F2}x the interpreter " +
+                        $"({jit.Result.CyclesPerSecond:N0} vs {interp.Result.CyclesPerSecond:N0} {UnitLabel(arch)}/sec).");
+                    any = true;
+                }
             }
-        }
-        if (any)
-        {
-            sb.AppendLine("## Our two tiers — JIT vs interpreter speedup");
+            if (!any) continue;
+
+            if (!wroteHeading)
+            {
+                sb.AppendLine("## Our two tiers — JIT vs interpreter speedup");
+                sb.AppendLine();
+                wroteHeading = true;
+            }
+            sb.AppendLine($"### {ArchLabel(arch)}");
             sb.AppendLine();
             sb.Append(lines);
+            // The all-fallback caveat: Z80 Tier-1 has no hot-op IL emit yet (M6), so its ratio is the
+            // committed "before" for the re-measure — emitted automatically under the Z80 pairs only.
+            if (string.Equals(arch, "z80", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine("- _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x " +
+                    "minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._");
+            }
             sb.AppendLine();
         }
     }
+
+    /// <summary>The architectures present in the rows, in a stable display order (6502 first, then
+    /// Z80, then anything else alphabetically) so the report sections are deterministic.</summary>
+    private static IEnumerable<string> ArchitectureOrder(IEnumerable<BenchHarness.Row> rows)
+    {
+        var present = rows.Select(r => r.Architecture).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        int Rank(string a) => a.ToLowerInvariant() switch { "mos6502" => 0, "z80" => 1, _ => 2 };
+        return present.OrderBy(Rank).ThenBy(a => a, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The human-facing CPU label for a section heading.</summary>
+    private static string ArchLabel(string arch) => arch.ToLowerInvariant() switch
+    {
+        "mos6502" => "6502",
+        "z80" => "Z80",
+        _ => arch,
+    };
+
+    /// <summary>The cycle-unit label for an architecture — Z80 cycles are T-states; 6502 cycles are
+    /// machine cycles. They are NOT cross-architecture comparable as raw numbers (D4).</summary>
+    private static string UnitLabel(string arch) => arch.ToLowerInvariant() switch
+    {
+        "z80" => "T-states",
+        _ => "cycles",
+    };
 
     private static string CpuName()
     {

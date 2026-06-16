@@ -24,7 +24,13 @@ public readonly record struct AdapterResult(
 /// kernel). Exactly one of <see cref="SuccessTrapPc"/> / <see cref="FixedCycleCap"/> is the
 /// termination condition. <see cref="ExpectedCycles"/> lets an adapter verify the subject actually
 /// did the work (a diverged subject that finishes at a different cycle count is caught + reported as
-/// Ran=false, never a fast-but-wrong number).</summary>
+/// Ran=false, never a fast-but-wrong number).
+/// <para><see cref="Architecture"/> selects the per-CPU <c>ITierDriver</c> ("mos6502" / "z80"); it
+/// also keys the third-party adapter set (<c>BenchHarness.AdaptersFor</c>) + the report grouping +
+/// the cycle-unit label. <see cref="UsesCpmBdos"/> tells the Z80 driver to service the CP/M BDOS
+/// CALL boundary (fn-2/fn-9 + host RET) + honor the warm-boot sentinel — true only for the ZEXDOC
+/// prefix workload; the Z80 arithmetic kernel + the two 6502 workloads leave it false. Both new
+/// params default to the 6502's values so the two existing 6502 workloads are unchanged.</para></summary>
 public sealed record BenchWorkload(
     string Name,
     byte[] Image,
@@ -32,7 +38,9 @@ public sealed record BenchWorkload(
     ushort StartPc,
     ushort SuccessTrapPc,
     long? FixedCycleCap,
-    long ExpectedCycles);
+    long ExpectedCycles,
+    string Architecture = "mos6502",
+    bool UsesCpmBdos = false);
 
 /// <summary>A benchmark subject: our two tiers and each third-party emulator implement this. The
 /// harness calls <see cref="Probe"/> first; only if it returns true does it call <see cref="Measure"/>.
