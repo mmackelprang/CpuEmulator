@@ -497,7 +497,13 @@ public sealed partial class M68000Cpu
         uint dn = (ow >> 9) & 7u;
         uint divisorW = ReadEaOperand(srcMode, srcReg, 1u, r.ExtensionWords) & 0xFFFFu;   // .w divisor
         if (divisorW == 0u)
-            return;   // DETECT ÷0; DEFER the vector-5 exception to M4.5d (no write, no CCR change)
+        {
+            // M4.5d-1 (ADR 0008 §3.2): the ÷0 detect-and-defer comes due — vector 5. The detection point is
+            // UNCHANGED (the divisor read + the == 0 test); only the action changes from "return, let the runner
+            // defer" to "raise vector 5, then return" (no Dn write, no CCR change before the trap).
+            RaiseException(Vector.DivideByZero, FrameKind.Small, (ushort)(SR & 0xFFFF), PC);
+            return;
+        }
 
         uint dividend = DataReg(dn);
         uint quotient, remainder;
