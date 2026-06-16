@@ -96,7 +96,15 @@ public sealed partial class M68000Cpu
         }
 
         // All other modes: mask is D0..A7 (forward); compute the base ONCE (pureEa), walk ascending.
+        // PC-relative EAs (mode 7 reg 2/3) base off the FIRST extension word's address — but MOVEM's first
+        // extension word is the register-list MASK, so the displacement sits one word LATER. The generated Step
+        // sets _eaPcBase = operword+2 (correct for a single-disp insn); bump it by 2 here so ComputeEa's PcForEa
+        // points at the displacement word, then restore. (Read-only source: MOVEM PC-relative is mem->regs only.)
+        bool pcRel = srcMode == 7u && (srcReg == 2u || srcReg == 3u);
+        uint savedPcBase = _eaPcBase;
+        if (pcRel && _eaPcBase != 0u) _eaPcBase += 2u;
         uint ea = ComputeEa(srcMode, srcReg, opSize, eaExt, pureEa: true);
+        if (pcRel) _eaPcBase = savedPcBase;
         uint cursor = ea;
         for (int i = 0; i < 16; i++)
         {

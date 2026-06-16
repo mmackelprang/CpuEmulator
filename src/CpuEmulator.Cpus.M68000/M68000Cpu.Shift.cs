@@ -133,6 +133,14 @@ public sealed partial class M68000Cpu
         }
         uint result = v & mask;
 
+        // The non-rotating shifts (ASL/ASR/LSL/LSR) clear C/X when the count exceeds the operand width: the
+        // operand bits are fully shifted out, and the 68000 reports the carry-out as 0 (vector-confirmed — for
+        // ASR-of-negative the result is sign-filled but C=0). The rotates (ROL/ROR/ROXL/ROXR) wrap, so count
+        // beyond the width still has a meaningful last-bit-out and is NOT capped here.
+        int widthBits = size == 0u ? 8 : size == 1u ? 16 : 32;
+        bool isRotate = kind is ShiftKind.Rol or ShiftKind.Ror or ShiftKind.Roxl or ShiftKind.Roxr;
+        if (!isRotate && count > widthBits) lastBitOut = false;
+
         if (memoryForm) WriteResolvedDest(dest, size, result);
         else SetDataRegPartial(targetDn, result, size);
 

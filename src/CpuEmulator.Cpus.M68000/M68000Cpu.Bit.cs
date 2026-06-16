@@ -23,13 +23,32 @@ public sealed partial class M68000Cpu
         public static byte BitTestProbe(uint operand, int bit, byte oldCcr) => BitTest(operand, bit, oldCcr);
     }
 
-    /// <summary>The bit-op driver. bitNumber pre-resolved (dynamic or static); writes is false only for BTST.</summary>
+    /// <summary>The bit-op driver. bitNumber pre-resolved (dynamic or static); writes is false only for BTST.
+    /// leadingExtWords = the count of fixed words BEFORE the EA's own (1 for the static forms — the bit-number
+    /// word — so a PC-relative EA's displacement sits one word later than _eaPcBase assumes).</summary>
     private void BitOpExecute(BitKind kind, int bitNumber, uint srcMode, uint srcReg,
-        CpuEmulator.Core.Jit.ExtensionWords ext)
+        CpuEmulator.Core.Jit.ExtensionWords ext, int leadingExtWords = 0)
     {
         bool isReg = srcMode == 0u;                    // Dn target -> .l, bit mod 32; memory -> .b, bit mod 8
         uint size = isReg ? 2u : 0u;
         int bit = isReg ? (bitNumber & 31) : (bitNumber & 7);
+
+        // BTST may target a non-alterable source — #imm (mode 7 reg 4) or PC-relative (mode 7 reg 2/3) — which
+        // is read-only, .b, bit mod 8. Read the operand directly (no writable dest); the alterable forms take the
+        // RMW path. Only BTST allows these (BCHG/BCLR/BSET are DataAlterable).
+        bool readOnlySource = kind == BitKind.Tst && srcMode == 7u && (srcReg == 4u || srcReg == 2u || srcReg == 3u);
+        if (readOnlySource)
+        {
+            // PC-relative bases off the displacement word; for the STATIC form the bit-number word precedes it,
+            // so bump _eaPcBase past those leading words (the generated Step set it to operword+2).
+            bool pcRel = srcReg == 2u || srcReg == 3u;
+            uint savedPcBase = _eaPcBase;
+            if (pcRel && leadingExtWords > 0 && _eaPcBase != 0u) _eaPcBase += (uint)(2 * leadingExtWords);
+            uint immOperand = ReadEaOperand(srcMode, srcReg, 0u, ext) & 0xFFu;
+            if (pcRel) _eaPcBase = savedPcBase;
+            SR = (ushort)((SR & 0xFF00) | BitCcr.BitTest(immOperand, bit, (byte)(SR & 0xFF)));
+            return;
+        }
 
         AluDest dest = ResolveEaDest(srcMode, srcReg, size, ext, out uint operand);   // address-once read
         SR = (ushort)((SR & 0xFF00) | BitCcr.BitTest(operand, bit, (byte)(SR & 0xFF))); // Z from the tested bit
@@ -55,13 +74,14 @@ public sealed partial class M68000Cpu
     partial void BsetExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
         => BitOpExecute(BitKind.Set, (int)DataReg((operword >> 9) & 7u), srcMode, srcReg, r.ExtensionWords);
 
-    // Static: bit# = the LEADING extension word low byte; the EA's words follow (ShiftExt by 1).
+    // Static: bit# = the LEADING extension word low byte; the EA's words follow (ShiftExt by 1). Only BTST_STATIC
+    // permits a read-only PC-relative source; leadingExtWords:1 corrects its PC base for the bit-number word.
     partial void BtstStaticExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
-        => BitOpExecute(BitKind.Tst, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1));
+        => BitOpExecute(BitKind.Tst, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1), leadingExtWords: 1);
     partial void BchgStaticExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
-        => BitOpExecute(BitKind.Chg, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1));
+        => BitOpExecute(BitKind.Chg, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1), leadingExtWords: 1);
     partial void BclrStaticExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
-        => BitOpExecute(BitKind.Clr, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1));
+        => BitOpExecute(BitKind.Clr, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1), leadingExtWords: 1);
     partial void BsetStaticExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
-        => BitOpExecute(BitKind.Set, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1));
+        => BitOpExecute(BitKind.Set, (int)(r.ExtensionWords[0] & 0xFFu), srcMode, srcReg, ShiftExt(r.ExtensionWords, 1), leadingExtWords: 1);
 }
