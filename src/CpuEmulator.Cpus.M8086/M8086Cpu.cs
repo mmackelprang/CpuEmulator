@@ -7,12 +7,13 @@ namespace CpuEmulator.Cpus.M8086;
 /// compile and proves the register model synthetically (the AX/AH/AL partial-write hazard via the
 /// generated pair-views, and the 20-bit little-endian bus round-trip up to 0xFFFFF).
 ///
-/// It is NOT an interpreter. There is NO decode, NO effective-address calculation, NO segmentation
-/// resolution (the seg&lt;&lt;4 + offset → 20-bit physical address), NO op body, and NO interrupt
-/// machinery — those are M5.2–M5.6. The instruction table is empty (mirroring the 68000's M4.1
-/// foundation), so M5.1 never meaningfully calls Step: any byte would route to
-/// <see cref="HandleUndefinedOpcode"/>. The interrupt hooks below are inert — the real interrupt seam
-/// (the maskable IRQ line gated by IF, the NMI vector, and the INT/INTO/divide vectors) is M5.5d.</summary>
+/// It is NOT an interpreter. As of M5.4 the generated Step DOES decode (the dataset-driven
+/// <c>X86DecodeStructure</c> now drives the byte-granular variable-length walk), but there are still NO op
+/// BODIES: every Insn row carries an empty Op[], so each decoded opcode routes to
+/// <see cref="HandleUndefinedOpcode"/> — the op bodies + the effective-address/segmentation execution path
+/// are M5.5. The interrupt hooks below are inert — the real interrupt seam (the maskable IRQ line gated by
+/// IF, the NMI vector, and the INT/INTO/divide vectors) is M5.5d. The TomHarte 8088 data-axis gate that
+/// drives this CPU is M5.5; M5.4 ships only the loader/runner scaffold + the dataset/spec.</summary>
 public sealed partial class M8086Cpu
 {
     /// <summary>The single program/data bus (the 8086 is von Neumann — code and data share the address

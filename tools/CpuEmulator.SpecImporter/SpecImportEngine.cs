@@ -62,4 +62,24 @@ public static class SpecImportEngine
         File.WriteAllText(outputPath, source);
         return report;
     }
+
+    /// <summary>Run the x86 arm on pre-loaded objects (the disjoint 8086 pipeline — M5.4).</summary>
+    public static (string Source, X86Report Report) RunX86(
+        X86Dataset dataset,
+        X86Config  config,
+        string datasetPath = "tools/CpuEmulator.SpecImporter/data/m8086-opcodes.json",
+        string configPath  = "tools/CpuEmulator.SpecImporter/data/m8086-x86-config.json",
+        string outputPath  = "src/CpuEmulator.Cpus.M8086/M8086Spec.cs")
+        => X86Emitter.Emit(dataset, config, datasetPath, configPath, outputPath);
+
+    /// <summary>Run the x86 arm from file paths; loads, validates, emits, writes.</summary>
+    public static X86Report RunX86FromFiles(
+        string datasetPath, string configPath, string outputPath)
+    {
+        var dataset = X86Dataset.Load(datasetPath);
+        var config  = X86Config.Load(configPath);
+        var (source, report) = X86Emitter.Emit(dataset, config, datasetPath, configPath, outputPath);
+        File.WriteAllText(outputPath, source);
+        return report;
+    }
 }

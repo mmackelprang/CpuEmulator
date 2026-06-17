@@ -1,0 +1,40 @@
+{
+  "architecture": "m8086",
+  "namespace": "CpuEmulator.Cpus.M8086",
+  "specClassName": "M8086Spec",
+  "registers": [
+    { "name": "AH", "bits": 8 },
+    { "name": "AL", "bits": 8 },
+    { "name": "BH", "bits": 8 },
+    { "name": "BL", "bits": 8 },
+    { "name": "CH", "bits": 8 },
+    { "name": "CL", "bits": 8 },
+    { "name": "DH", "bits": 8 },
+    { "name": "DL", "bits": 8 },
+    { "name": "AX", "bits": 16, "highHalf": "AH", "lowHalf": "AL" },
+    { "name": "BX", "bits": 16, "highHalf": "BH", "lowHalf": "BL" },
+    { "name": "CX", "bits": 16, "highHalf": "CH", "lowHalf": "CL" },
+    { "name": "DX", "bits": 16, "highHalf": "DH", "lowHalf": "DL" },
+    { "name": "SP", "bits": 16, "role": "StackPointer" },
+    { "name": "BP", "bits": 16 },
+    { "name": "SI", "bits": 16 },
+    { "name": "DI", "bits": 16 },
+    { "name": "CS", "bits": 16 },
+    { "name": "DS", "bits": 16 },
+    { "name": "ES", "bits": 16 },
+    { "name": "SS", "bits": 16 },
+    { "name": "IP", "bits": 16, "role": "ProgramCounter" },
+    { "name": "FLAGS", "bits": 16, "role": "Status" }
+  ],
+  "flags": [
+    { "name": "C", "bit": 0 },
+    { "name": "P", "bit": 2 },
+    { "name": "H", "bit": 4 },
+    { "name": "Z", "bit": 6 },
+    { "name": "S", "bit": 7 },
+    { "name": "T", "bit": 8 },
+    { "name": "I", "bit": 9 },
+    { "name": "Df", "bit": 10 },
+    { "name": "V", "bit": 11 }
+  ]
+}
