@@ -256,3 +256,169 @@ public static class Z80Workloads
             UsesCpmBdos: false);
     }
 }
+
+/// <summary>The two 68000 benchmark workloads (Milestone B), mirroring the 6502/Z80 W1/W2 shape with
+/// one structural difference: the 68000 board is 16 MiB (R4), so each workload carries a SMALL image (a
+/// few words) copied at <see cref="BenchWorkload.LoadAddress"/> by <c>M68000TierDriver</c> — NOT a 16
+/// MiB byte[]. The 68000 is big-endian + word-decoded, so each opword is two bytes, high-byte first.
+/// <list type="bullet">
+/// <item><b>m68k-W2 (arithmetic/branch kernel):</b> a tight hand-written ALU + DBcc-style branch loop
+/// committed as a byte[], run to a FROZEN cycle cap (with a FROZEN instruction cap for the
+/// cycle-axis-independent instructions/sec window). The taken back-edge is the hot chain edge a future
+/// block-JIT stresses (the 6502/Z80 W2 rationale).</item>
+/// <item><b>m68k-W1 (deterministic mixed-instruction stream):</b> Option A (the plan's default) — a
+/// larger hand-written synthetic MIXED kernel (MOVE variants, ALU reg/EA, shift, Bcc/DBcc, JSR/RTS,
+/// LINK/UNLK), run to a FROZEN instruction cap. Dependency-free + deterministic, so it ALWAYS runs (the
+/// 68000 has no in-repo Klaus/ZEX-equivalent runnable exerciser — the 680x0 SingleStep vectors are
+/// per-instruction cases, not a runnable stream). Option B (a fetchable 68000 exerciser) is a future
+/// enhancement (§8 Q2); the baseline ships on Option A regardless.</item>
+/// </list>
+/// The 68000 cycle/timing axis is PARTIAL on `main` (M4.5d-2b foundation; the 2b-continuation is
+/// deferred, R5): <c>CycleCount</c> is exact for the cycle-exact families, not the whole ISA — so the
+/// trustworthy headline is INSTRUCTIONS/sec (data-axis-correct on the merged M4.6 core); cycles/sec is
+/// reported with the timing-axis caveat (ReportWriter, B4). These window constants are FROZEN: the M6
+/// re-measure (Milestone C) reuses them byte-identically — a git diff of them must show no change.</summary>
+public static class M68000Workloads
+{
+    public const ushort M68000LoadAddress = 0x1000;   // a low address so the ushort PC view stays exact
+
+    /// <summary>The committed-and-FROZEN m68k-W2 cycle cap, in 68000 cycles (the cycles/sec window —
+    /// caveated: the 68000 cycle axis is partial, B4). PINNED at 50,000,000 (mirrors the 6502/Z80 W2
+    /// cap order of magnitude). The M6 re-measure reuses this EXACT value; do NOT retune it.</summary>
+    public const long M68000W2CycleCap = 50_000_000;
+
+    /// <summary>The committed-and-FROZEN m68k-W2 instruction cap (the cycle-axis-INDEPENDENT
+    /// instructions/sec window — the 68000 baseline's trustworthy headline). PINNED at 50,000,000
+    /// (the recommended start, the 6502/Z80 W2 order of magnitude). The TierRunner drives by the cycle
+    /// cap; this instruction cap is recorded as the frozen window the instructions/sec metric reports
+    /// over, and the M6 re-measure reuses it byte-identically; do NOT retune it.</summary>
+    public const long M68000W2InstructionCap = 50_000_000;
+
+    /// <summary>The committed-and-FROZEN m68k-W1 instruction cap (the deterministic mixed stream's
+    /// frozen window). PINNED at 50,000,000. The M6 re-measure reuses it byte-identically; do NOT
+    /// retune it.</summary>
+    public const long M68000W1InstructionCap = 50_000_000;
+
+    /// <summary>m68k-W2 — the arithmetic/branch kernel. A tight ALU + branch inner loop at
+    /// <see cref="M68000LoadAddress"/> with a BRA back-edge so it spins forever (the cap terminates it).
+    /// Assembled + verified against the merged M68000Cpu (the loop advances + D0/D1 evolve sanely).
+    /// <code>
+    ///   D0 = accumulator, D1 = inner counter
+    ///   0x1000  MOVEQ #0,D0        7000           D0 = 0
+    ///   0x1002  MOVE.W #$0100,D1   323C 0100      D1 = 256 (inner counter)
+    ///   inner (0x1006):
+    ///   0x1006  ADDQ.W #7,D0       5E40           D0 += 7   (ALU + flags)
+    ///   0x1008  SUBQ.W #3,D0       5740           D0 -= 3
+    ///   0x100A  EORI.W #$5A5A,D0   0A40 5A5A      D0 ^= 0x5A5A  (mix)
+    ///   0x100E  SUBQ.W #1,D1       5341           D1--
+    ///   0x1010  BNE.S inner        66F4           loop inner (the taken back-edge — the hot chain edge)
+    ///   0x1012  BRA.S start        60EC           restart forever (the cap terminates)
+    /// </code></summary>
+    public static BenchWorkload ArithmeticKernel()
+    {
+        var code = new List<byte>();
+        void W(ushort opword) { code.Add((byte)(opword >> 8)); code.Add((byte)(opword & 0xFF)); }
+
+        const ushort baseAddr = M68000LoadAddress;
+        int start = code.Count;                 // 0x1000
+        W(0x7000);                              // MOVEQ #0,D0
+        W(0x323C); W(0x0100);                   // MOVE.W #$0100,D1
+        int inner = code.Count;                 // 0x1006
+        W(0x5E40);                              // ADDQ.W #7,D0
+        W(0x5740);                              // SUBQ.W #3,D0
+        W(0x0A40); W(0x5A5A);                   // EORI.W #$5A5A,D0
+        W(0x5341);                              // SUBQ.W #1,D1
+        // BNE.S inner — 8-bit displacement from (this opword address + 2) to the inner label.
+        int bnePc = code.Count + 2;             // the PC the 68000 uses as the branch base
+        sbyte bneDisp = (sbyte)(inner - bnePc);
+        W((ushort)(0x6600 | (byte)bneDisp));    // BNE.S inner
+        // BRA.S start — restart the whole kernel forever (the cap terminates the run).
+        int braPc = code.Count + 2;
+        sbyte braDisp = (sbyte)(start - braPc);
+        W((ushort)(0x6000 | (byte)braDisp));    // BRA.S start
+
+        return new BenchWorkload(
+            Name: "m68k-W2 arithmetic-kernel",
+            Image: code.ToArray(),
+            LoadAddress: baseAddr,
+            StartPc: baseAddr,
+            SuccessTrapPc: 0x0000,                 // unused — W2 terminates by the cycle cap
+            FixedCycleCap: M68000W2CycleCap,
+            ExpectedCycles: M68000W2CycleCap,
+            Architecture: "m68000",
+            UsesCpmBdos: false);
+    }
+
+    /// <summary>m68k-W1 — the deterministic MIXED-instruction kernel (Option A — dependency-free, always
+    /// runs). A broader spread than W2's tight hot loop: data moves, ALU on a data register, a shift, a
+    /// subroutine call/return, and a DBcc-style counted back-edge — a representative integration-realistic
+    /// 68000 stream. Assembled + verified against the merged M68000Cpu (the loop advances; the subroutine
+    /// returns; D-registers evolve sanely). Run to <see cref="M68000W1InstructionCap"/> via the shared cap.
+    /// <code>
+    ///   D0/D1/D2 scratch, A0 scratch; the inner loop spins forever (the cap terminates it).
+    ///   0x1000  MOVEQ #0,D0        7000           D0 = 0
+    ///   0x1002  MOVE.W #$0200,D2   343C 0200      D2 = 512 (outer counter — DBF target below)
+    ///   outer (0x1006):
+    ///   0x1006  MOVE.L D0,D1       2200           D1 = D0   (data move, long)
+    ///   0x1008  ADDI.W #$1234,D1   0641 1234      D1 += 0x1234  (ALU immediate to Dn)
+    ///   0x100C  LSL.W #3,D1        E749           D1 <<= 3      (shift)
+    ///   0x100E  ADD.W D1,D0        D041           D0 += D1      (ALU reg-to-reg)
+    ///   0x1010  BSR.S sub          6104           call sub (push return, the stack path)
+    ///   0x1012  EORI.W #$00FF,D0   0A40 00FF      D0 ^= 0x00FF  (mix)
+    ///   0x1016  DBF D2,outer       51CA FFEE      D2--; branch to outer while D2 != -1 (counted loop)
+    ///   0x101A  BRA.S start        60E4           restart forever (the cap terminates)
+    ///   sub (0x101C):
+    ///   0x101C  ADDQ.L #1,D0       5280           D0 += 1
+    ///   0x101E  RTS                4E75           return
+    /// </code></summary>
+    public static BenchWorkload MixedKernel()
+    {
+        var code = new List<byte>();
+        void W(ushort opword) { code.Add((byte)(opword >> 8)); code.Add((byte)(opword & 0xFF)); }
+
+        const ushort baseAddr = M68000LoadAddress;
+        int start = code.Count;                 // 0x1000
+        W(0x7000);                              // MOVEQ #0,D0
+        W(0x343C); W(0x0200);                   // MOVE.W #$0200,D2
+        int outer = code.Count;                 // 0x1006
+        W(0x2200);                              // MOVE.L D0,D1
+        W(0x0641); W(0x1234);                   // ADDI.W #$1234,D1
+        W(0xE749);                              // LSL.W #3,D1
+        W(0xD041);                              // ADD.W D1,D0
+        // BSR.S sub — 8-bit displacement from (opword address + 2) to the sub label (filled after we know it).
+        int bsrOpIndex = code.Count;            // byte index of the BSR opword
+        W(0x6100);                              // BSR.S (displacement patched below)
+        W(0x0A40); W(0x00FF);                   // EORI.W #$00FF,D0
+        // DBF D2,outer — DBcc with cc=F (false → never terminates early; pure counted back-edge). The
+        // 16-bit displacement follows the opword and is measured from (opword address + 2).
+        int dbfOpAddr = code.Count;             // byte index (== address offset) of the DBF opword
+        W(0x51CA);                              // DBF (DBRA) D2
+        int dbfDispBase = dbfOpAddr + 2;        // the PC base for the 16-bit displacement
+        short dbfDisp = (short)(outer - dbfDispBase);
+        W((ushort)dbfDisp);                     // DBF 16-bit displacement word
+        // BRA.S start — restart the whole kernel forever.
+        int braPc = code.Count + 2;
+        sbyte braDisp = (sbyte)(start - braPc);
+        W((ushort)(0x6000 | (byte)braDisp));    // BRA.S start
+        int sub = code.Count;                   // 0x101C
+        W(0x5280);                              // ADDQ.L #1,D0
+        W(0x4E75);                              // RTS
+
+        // Patch the BSR.S displacement now that the sub label is known.
+        int bsrPc = bsrOpIndex + 2;             // PC base = opword address + 2
+        sbyte bsrDisp = (sbyte)(sub - bsrPc);
+        code[bsrOpIndex] = 0x61;
+        code[bsrOpIndex + 1] = (byte)bsrDisp;
+
+        return new BenchWorkload(
+            Name: "m68k-W1 mixed-kernel",
+            Image: code.ToArray(),
+            LoadAddress: baseAddr,
+            StartPc: baseAddr,
+            SuccessTrapPc: 0x0000,                 // unused — W1 terminates by the (instruction-bounded) cycle cap
+            FixedCycleCap: M68000W2CycleCap,       // the TierRunner drives by a cycle cap; the instruction cap
+            ExpectedCycles: M68000W2CycleCap,      // (M68000W1InstructionCap) is the frozen instructions/sec window
+            Architecture: "m68000",
+            UsesCpmBdos: false);
+    }
+}
