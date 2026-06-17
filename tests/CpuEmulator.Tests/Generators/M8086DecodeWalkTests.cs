@@ -66,6 +66,11 @@ public class M8086DecodeWalkTests
                     new X86Opcode(0x81, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit),         // imm16 (w=1)
                     new X86Opcode(0x83, HasModRm: true, RegIsExtension: true, WBit: 0, SBit: 1, Immediate: X86ImmediateRule.SWBit), // imm8 sign-ext (s=1)
                     new X86Opcode(0xFE, HasModRm: true, RegIsExtension: true),      // INC/DEC group — ModR/M, no imm
+                    // M5.5b: the F6/F7 split-immediate group. ImmediateRegMask: 3 ⇒ only reg 0/1 (TEST) consume the
+                    // immediate (per the WBit rule); reg 2..7 (NOT/NEG/MUL/IMUL/DIV/IDIV) consume NONE — the carrier
+                    // extension under proof. F6 w=0 ⇒ imm8 for TEST; F7 w bit0=1 ⇒ imm16 for TEST.
+                    new X86Opcode(0xF6, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit, ImmediateRegMask: 3),
+                    new X86Opcode(0xF7, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit, ImmediateRegMask: 3),
                 ]);
 
             // One matching Insn row per declared opcode (the cross-check requires each). The op bodies are
@@ -89,6 +94,11 @@ public class M8086DecodeWalkTests
                 Insn(0x83, subfield: 0, "ADD83", AddrMode.Implied, []),
                 Insn(0xFE, subfield: 0, "INC",   AddrMode.Implied, []),
                 Insn(0xFE, subfield: 1, "DEC",   AddrMode.Implied, []),
+                // M5.5b: the F6/F7 split-immediate group rows (TEST /0 has imm; DIV /6 does not).
+                Insn(0xF6, subfield: 0, "TEST6", AddrMode.Implied, []),
+                Insn(0xF6, subfield: 6, "DIV6",  AddrMode.Implied, []),
+                Insn(0xF7, subfield: 0, "TEST7", AddrMode.Implied, []),
+                Insn(0xF7, subfield: 6, "DIV7",  AddrMode.Implied, []),
             ];
         }
 
@@ -217,6 +227,52 @@ public class M8086DecodeWalkTests
         Assert.Equal(3, Decode(0x80, modrmReg0, 0xAA).Length);
         Assert.Equal(4, Decode(0x81, modrmReg0, 0xAA, 0xBB).Length);
         Assert.Equal(3, Decode(0x83, modrmReg0, 0xAA).Length);   // s-bit → imm8, NOT imm16
+    }
+
+    // ── M5.5b: the F6/F7 split immediate — ImmediateRegMask gates the immediate PER ModR/M reg subfield ──
+
+    [Fact]
+    public void F6_consumes_an_imm8_only_for_TEST_reg0_and_no_immediate_for_DIV_reg6()
+    {
+        // F6 is the byte unary group (w=0 ⇒ imm8 for TEST when gated on). ImmediateRegMask: 3 ⇒ reg 0/1 only.
+        // F6 /0 (TEST r/m8,imm8), mod=11 register direct (no disp): 1 opcode + 1 modrm + 1 imm8 = 3.
+        byte modrmReg0 = 0b11_000_000;   // mod=11, reg=000 (TEST), r/m=000
+        Assert.Equal(3, Decode(0xF6, modrmReg0, 0x7F).Length);   // the imm8 is consumed
+        Assert.Equal((0xF6u << 3) | 0u, Decode(0xF6, modrmReg0, 0x7F).OperationKey);
+        Assert.Equal("TEST6", DescriptorFor(Decode(0xF6, modrmReg0, 0x7F).OperationKey).Mnemonic);
+
+        // F6 /6 (DIV r/m8), mod=11: 1 opcode + 1 modrm + NO immediate = 2. The gate withholds the imm.
+        byte modrmReg6 = 0b11_110_000;   // mod=11, reg=110 (DIV), r/m=000
+        Assert.Equal(2, Decode(0xF6, modrmReg6).Length);          // no immediate consumed
+        Assert.Equal((0xF6u << 3) | 6u, Decode(0xF6, modrmReg6).OperationKey);
+        Assert.Equal("DIV6", DescriptorFor(Decode(0xF6, modrmReg6).OperationKey).Mnemonic);
+    }
+
+    [Fact]
+    public void F7_consumes_an_imm16_only_for_TEST_reg0_and_no_immediate_for_DIV_reg6()
+    {
+        // F7 is the word unary group (w bit0=1 ⇒ imm16 for TEST when gated on). ImmediateRegMask: 3 ⇒ reg 0/1.
+        // F7 /0 (TEST r/m16,imm16), mod=11: 1 opcode + 1 modrm + 2 imm16 = 4.
+        byte modrmReg0 = 0b11_000_000;   // mod=11, reg=000 (TEST), r/m=000
+        Assert.Equal(4, Decode(0xF7, modrmReg0, 0x34, 0x12).Length);   // imm16 consumed
+        Assert.Equal("TEST7", DescriptorFor(Decode(0xF7, modrmReg0, 0x34, 0x12).OperationKey).Mnemonic);
+
+        // F7 /6 (DIV r/m16), mod=11: 1 opcode + 1 modrm + NO immediate = 2.
+        byte modrmReg6 = 0b11_110_000;   // mod=11, reg=110 (DIV), r/m=000
+        Assert.Equal(2, Decode(0xF7, modrmReg6).Length);               // no immediate consumed
+        Assert.Equal("DIV7", DescriptorFor(Decode(0xF7, modrmReg6).OperationKey).Mnemonic);
+    }
+
+    [Fact]
+    public void F6_split_immediate_advances_discovery_correctly_past_a_no_immediate_member()
+    {
+        // The un-fakeable proof the length is right: a DIV /6 (2 bytes) followed by a NOP must decode the NOP
+        // at the right offset. If the gate wrongly consumed a phantom imm8, the NOP would be mis-located.
+        byte modrmReg6 = 0b11_110_000;   // DIV r/m8 (reg=110), mod=11
+        byte[] program = [0xF6, modrmReg6, 0x90];   // F6 /6 (no imm) then NOP
+        int firstLen = Decode(program).Length;
+        Assert.Equal(2, firstLen);
+        Assert.Equal(0x90u, Decode(program[firstLen..]).OperationKey);
     }
 
     // ── Property 4: opcode-group keying — (opcode << 3) | reg distinguishes the group members ─────────

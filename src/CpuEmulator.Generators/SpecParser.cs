@@ -1155,19 +1155,20 @@ internal static class SpecParser
         ExpressionSyntax expression, Location loc,
         ImmutableArray<DiagnosticInfo>.Builder diagnostics)
     {
-        if (GetCreationArgumentSyntaxes(expression) is not { } cargs || cargs.Count < 1 || cargs.Count > 6)
+        if (GetCreationArgumentSyntaxes(expression) is not { } cargs || cargs.Count < 1 || cargs.Count > 7)
         {
             diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
-                "X86Opcode takes (Value [, HasModRm, RegIsExtension, WBit, SBit, Immediate])"));
+                "X86Opcode takes (Value [, HasModRm, RegIsExtension, WBit, SBit, Immediate, ImmediateRegMask])"));
             return null;
         }
-        string[] order = ["Value", "HasModRm", "RegIsExtension", "WBit", "SBit", "Immediate"];
-        var slot = new ExpressionSyntax?[6];
+        // M5.5b: ImmediateRegMask is the 7th slot (the F6/F7 split-immediate carrier; see X86Opcode).
+        string[] order = ["Value", "HasModRm", "RegIsExtension", "WBit", "SBit", "Immediate", "ImmediateRegMask"];
+        var slot = new ExpressionSyntax?[7];
         for (int i = 0; i < cargs.Count; i++)
         {
             string? name = cargs[i].NameColon?.Name.Identifier.Text;
             int idx = name is null ? i : System.Array.IndexOf(order, name);
-            if (idx < 0 || idx >= 6 || slot[idx] is not null)
+            if (idx < 0 || idx >= 7 || slot[idx] is not null)
             {
                 diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
                     $"unexpected or duplicate X86Opcode argument '{name ?? "#" + i}'"));
@@ -1192,6 +1193,7 @@ internal static class SpecParser
 
         bool hasModRm = false, regIsExtension = false;
         int wbit = -1, sbit = -1;
+        int immRegMask = -1;   // M5.5b: -1 ⇒ all regs / not reg-gated (the per-opcode-byte default).
         var immediate = X86ImmediateRuleKind.None;
 
         if (slot[1] is { } hm)
@@ -1231,6 +1233,13 @@ internal static class SpecParser
             if ((int)immediate < 0)
                 return RejectX86Opcode(loc, "Immediate must be an X86ImmediateRule.* member", diagnostics);
         }
+        // M5.5b: ImmediateRegMask — a literal int in [-1, 255] (the F6/F7 split-immediate carrier). -1 ⇒ all
+        // regs / not reg-gated (the existing per-opcode-byte behavior); a bitmask gates the immediate per reg.
+        if (slot[6] is { } irm)
+        {
+            if (LiteralInt(irm) is { } m and >= -1 and <= 255) immRegMask = m;
+            else { return RejectX86Opcode(loc, "ImmediateRegMask must be a literal int in [-1, 255]", diagnostics); }
+        }
 
         // A w/s-bit-driven immediate rule needs the bit position(s) it reads (else the walk cannot size the
         // immediate). The SWBit form reads BOTH the s and the w bit; the WBit form reads w.
@@ -1248,7 +1257,7 @@ internal static class SpecParser
             return RejectX86Opcode(loc,
                 $"opcode 0x{value:X2}: RegIsExtension requires HasModRm (the reg field is the ModR/M reg field)", diagnostics);
 
-        return new X86OpcodeModel((byte)value.Value, hasModRm, regIsExtension, wbit, sbit, immediate);
+        return new X86OpcodeModel((byte)value.Value, hasModRm, regIsExtension, wbit, sbit, immediate, immRegMask);
     }
 
     private static X86OpcodeModel? RejectX86Opcode(

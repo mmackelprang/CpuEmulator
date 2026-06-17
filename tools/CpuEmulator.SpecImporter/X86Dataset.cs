@@ -45,6 +45,7 @@ public sealed record X86OpcodeRow(
     int WBit,              // -1 ⇒ none
     int SBit,              // -1 ⇒ none
     X86ImmediateKind Immediate,
+    int ImmediateRegMask = -1,   // M5.5b: the F6/F7 split-immediate gate (-1 ⇒ all regs / not gated)
     string? Source = null);
 
 /// <summary>The x86 dataset: the prefix set + the opcode rows. Loaded from a single JSON object so the
@@ -84,6 +85,7 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
         public int? WBit { get; set; }
         public int? SBit { get; set; }
         public string? Immediate { get; set; }
+        public int? ImmediateRegMask { get; set; }   // M5.5b: the F6/F7 split-immediate gate
         public string? Source { get; set; }
     }
 
@@ -131,7 +133,9 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
         var seenKey = new HashSet<(byte, int)>();
         // The per-primary-opcode DECODE metadata must be CONSISTENT across a group's members (they share
         // one X86Opcode declaration). Record the first row's metadata for each opcode; later rows must match.
-        var metaByOpcode = new Dictionary<byte, (bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateKind Imm)>();
+        // M5.5b: ImmediateRegMask joins the tuple so a group's members must all declare it identically (e.g.
+        // all 8 F6 rows must carry immediateRegMask: 3 — they share the one X86Opcode declaration).
+        var metaByOpcode = new Dictionary<byte, (bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateKind Imm, int ImmRegMask)>();
         // An opcode byte is EITHER plain (one non-group row) OR a group (>=1 reg-extension row) — never both.
         // Mixing them is incoherent (the X86Opcode is declared once; the generator's CPUGEN016 then can't both
         // require a non-group Insn row AND a group Insn row for the one byte). Track each byte's group-ness.
@@ -149,6 +153,7 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
             bool regIsExtension = o.RegIsExtension ?? false;
             int wBit = o.WBit ?? -1;
             int sBit = o.SBit ?? -1;
+            int immRegMask = o.ImmediateRegMask ?? -1;   // M5.5b
             X86ImmediateKind imm = (o.Immediate ?? "None") switch
             {
                 "None"    => X86ImmediateKind.None,
@@ -179,6 +184,8 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
                     $"Immediate.SWBit needs both a WBit and an SBit position at {ctx}.");
             if (wBit is < -1 or > 7) throw new InvalidDataException($"WBit {wBit} out of range [-1,7] at {ctx}.");
             if (sBit is < -1 or > 7) throw new InvalidDataException($"SBit {sBit} out of range [-1,7] at {ctx}.");
+            if (immRegMask is < -1 or > 255)
+                throw new InvalidDataException($"ImmediateRegMask {immRegMask} out of range [-1,255] at {ctx}.");
 
             if (!seenKey.Add((opcode, subfield)))
                 throw new InvalidDataException(
@@ -190,14 +197,14 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
                     "opcode byte is EITHER plain OR a reg-extension group, never both.");
             groupedByOpcode[opcode] = regIsExtension;
 
-            var thisMeta = (hasModRm, regIsExtension, wBit, sBit, imm);
+            var thisMeta = (hasModRm, regIsExtension, wBit, sBit, imm, immRegMask);
             if (metaByOpcode.TryGetValue(opcode, out var firstMeta))
             {
                 if (firstMeta != thisMeta)
                     throw new InvalidDataException(
                         $"opcode 0x{opcode:X2} group members carry INCONSISTENT decode metadata at {ctx} " +
-                        "(HasModRm/RegIsExtension/WBit/SBit/Immediate must be identical across a group's rows — " +
-                        "they share one X86Opcode declaration).");
+                        "(HasModRm/RegIsExtension/WBit/SBit/Immediate/ImmediateRegMask must be identical across a " +
+                        "group's rows — they share one X86Opcode declaration).");
             }
             else
             {
@@ -205,7 +212,7 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
             }
 
             opcodes[i] = new X86OpcodeRow(
-                opcode, o.Mnemonic, subfield, hasModRm, regIsExtension, wBit, sBit, imm, o.Source);
+                opcode, o.Mnemonic, subfield, hasModRm, regIsExtension, wBit, sBit, imm, immRegMask, o.Source);
         }
 
         return new X86Dataset(prefixes, opcodes);
