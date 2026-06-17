@@ -95,14 +95,25 @@ public enum X86ImmediateRule
 /// walk reads it + the mod/rm-derived displacement). RegIsExtension: the ModR/M reg field EXTENDS the opcode
 /// (the 80/81/83/F6/F7/FE/FF/D0-D3/C0/C1/8F groups) — the key becomes (opcode&lt;&lt;3)|reg, reusing the
 /// existing OpcodeGroup key shape. WBit names the bit position of the operand-size w bit (-1 ⇒ none); SBit
-/// the sign-extend s bit (-1 ⇒ none); Immediate the immediate-length rule.</summary>
+/// the sign-extend s bit (-1 ⇒ none); Immediate the immediate-length rule.
+///
+/// <para><b>M5.5b — the F6/F7 split-immediate carrier (<see cref="ImmediateRegMask"/>).</b> The 8086
+/// immediate rule is normally PER-OPCODE-BYTE, but the F6/F7 unary group is the lone exception: reg=0/1 (TEST)
+/// take an immediate (per the <see cref="Immediate"/> rule), while reg=2..7 (NOT/NEG/MUL/IMUL/DIV/IDIV) take
+/// NONE. <see cref="ImmediateRegMask"/> is a bitmask of ModR/M reg values: bit <c>r</c> set ⇒ reg <c>r</c>
+/// consumes the immediate per the <see cref="Immediate"/> rule; an unset bit ⇒ that reg consumes no immediate
+/// regardless of the rule. The default <c>-1</c> means "all regs / not reg-gated" (the existing per-opcode-byte
+/// behavior used by EVERY non-F6/F7 opcode — byte-identical). F6/F7 declare
+/// <c>ImmediateRegMask: 0b00000011</c> (= 3 — reg 0 and 1 only). It is the ONLY consumer; without it the walk
+/// would consume a phantom immediate byte for NOT/NEG/MUL/IMUL/DIV/IDIV and corrupt the decode length.</para></summary>
 public sealed record X86Opcode(
     byte Value,
     bool HasModRm = false,
     bool RegIsExtension = false,
     int WBit = -1,
     int SBit = -1,
-    X86ImmediateRule Immediate = X86ImmediateRule.None);
+    X86ImmediateRule Immediate = X86ImmediateRule.None,
+    int ImmediateRegMask = -1);
 
 /// <summary>The 8086's byte-granular, variable-length, prefix-stacking decode SHAPE (ADR 0006 Decision 1).
 /// A sibling to <see cref="DecodeStructure"/> / <see cref="FieldGrammar"/>; declaring it opts the CPU into

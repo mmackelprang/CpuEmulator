@@ -110,9 +110,12 @@ internal sealed record X86PrefixModel(byte Value, X86PrefixRoleKind Role);
 /// <summary>One opcode row's x86 decode metadata (M5.2). Mirrors Core's X86Opcode. HasModRm ⇒ the walk reads
 /// the ModR/M byte + its mod/rm-derived displacement; RegIsExtension ⇒ the key is (opcode&lt;&lt;3)|reg
 /// (the OpcodeGroup shape); WBit/SBit name the operand-size / sign-extend bit positions in the opcode byte
-/// (-1 ⇒ none); Immediate is the immediate-length rule.</summary>
+/// (-1 ⇒ none); Immediate is the immediate-length rule. M5.5b: ImmediateRegMask is the F6/F7 split-immediate
+/// carrier — a bitmask of ModR/M reg values for which the Immediate rule applies (-1 ⇒ all regs / not gated,
+/// the existing per-opcode-byte behavior every non-F6/F7 opcode uses).</summary>
 internal sealed record X86OpcodeModel(
-    byte Value, bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateRuleKind Immediate);
+    byte Value, bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateRuleKind Immediate,
+    int ImmediateRegMask = -1);
 
 /// <summary>The parsed x86 decode structure (M5.2, ADR 0006 Decision 1). ABSENT on the model ⇒ no x86-decode
 /// arm (the byte/prefix or field walk is unchanged). Carries the prefix set + per-opcode ModR/M / group /

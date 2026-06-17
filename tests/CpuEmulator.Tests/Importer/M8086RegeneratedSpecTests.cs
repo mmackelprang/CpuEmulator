@@ -34,20 +34,28 @@ public class M8086RegeneratedSpecTests
 
         Assert.Equal(source.Replace("\r\n", "\n"), committed.Replace("\r\n", "\n"));
 
-        // Counts pinned — bump deliberately when the dataset grows (the M68000 precedent). NOTE: the F6/F7
-        // unary group (TEST/NOT/NEG/MUL/IMUL/DIV/IDIV) is DEFERRED to M5.5b: its immediate is split per
-        // subfield (only TEST /0 takes an immediate), which the M5.2 carrier's per-OPCODE-byte immediate
-        // rule (s_x86Imm keyed by opcode, not group-key) cannot express without consuming a phantom byte for
-        // the non-TEST members. Declaring it would corrupt the decode length, so it is left out of the M5.4
-        // dataset (those opcodes resolve to the Undefined sentinel until the carrier + bodies land in M5.5b).
+        // Counts pinned — bump deliberately when the dataset grows (the M68000 precedent). M5.5b: the F6/F7
+        // unary group (TEST/NOT/NEG/MUL/IMUL/DIV/IDIV) is now RESTORED. Its immediate is split per subfield
+        // (only TEST /0,/1 take an immediate; NOT/NEG/MUL/IMUL/DIV/IDIV /2..7 take none) — which the M5.4
+        // carrier's per-OPCODE-byte immediate rule could not express without consuming a phantom byte for the
+        // non-TEST members. M5.5b adds the ImmediateRegMask carrier extension (a bitmask of ModR/M reg values
+        // for which the Immediate rule applies; F6/F7 declare 0b00000011 = 3), so the decode length is correct
+        // for every reg and the group is back in the dataset (+2 opcodes 213→215, +16 Insn rows 265→281).
         Assert.Equal(report.Instructions, dataset.Opcodes.Length);
         Assert.True(dataset.Prefixes.Length >= 6, $"expected >=6 prefixes, got {dataset.Prefixes.Length}");
         Assert.Equal(8, report.Prefixes);        // 26/2E/36/3E segment overrides + F0/F1 lock + F2/F3 repeat
-        Assert.Equal(213, report.Opcodes);       // unique primary opcodes the X86DecodeStructure declares
-        Assert.Equal(265, report.Instructions);  // Insn rows (group members fan out)
+        Assert.Equal(215, report.Opcodes);       // unique primary opcodes (M5.5b: +2 for F6/F7)
+        Assert.Equal(281, report.Instructions);  // Insn rows, group members fan out (M5.5b: +16 for F6/F7)
 
-        // The F6/F7 split-immediate group is intentionally ABSENT (deferred — see the note above).
-        Assert.DoesNotContain(dataset.Opcodes, o => o.Opcode is 0xF6 or 0xF7);
+        // M5.5b: the F6/F7 split-immediate group is now PRESENT as two reg-extension groups (each 8 members),
+        // every member declaring immediateRegMask: 3 (the per-subfield split immediate the carrier expresses).
+        foreach (byte group in new byte[] { 0xF6, 0xF7 })
+        {
+            var members = dataset.Opcodes.Where(o => o.Opcode == group).ToArray();
+            Assert.Equal(8, members.Length);                                       // reg 0..7
+            Assert.All(members, o => Assert.True(o.HasModRm && o.RegIsExtension));
+            Assert.All(members, o => Assert.Equal(3, o.ImmediateRegMask));         // the split-immediate gate
+        }
     }
 
     [Fact]
@@ -61,9 +69,9 @@ public class M8086RegeneratedSpecTests
         Assert.Contains(dataset.Prefixes, p => p.Role == X86PrefixKind.Lock && p.Value == 0xF0);
         Assert.Contains(dataset.Prefixes, p => p.Role == X86PrefixKind.Repeat && p.Value == 0xF3);
 
-        // The canonical opcode-group primaries (the reg-extends-opcode rows) present in the M5.4 dataset.
-        // (F6/F7 are deferred — their split immediate is an M5.5b carrier concern, see the note above.)
-        foreach (byte group in new byte[] { 0x80, 0x81, 0x83, 0xFE, 0xFF, 0xD0, 0xD1, 0xD2, 0xD3, 0x8F })
+        // The canonical opcode-group primaries (the reg-extends-opcode rows). M5.5b restored F6/F7 (their
+        // split immediate is now expressed by the ImmediateRegMask carrier — see the note above).
+        foreach (byte group in new byte[] { 0x80, 0x81, 0x83, 0xF6, 0xF7, 0xFE, 0xFF, 0xD0, 0xD1, 0xD2, 0xD3, 0x8F })
             Assert.Contains(dataset.Opcodes, o => o.Opcode == group && o.RegIsExtension);
 
         // A group's members carry CONSISTENT decode metadata + distinct subfields (the importer enforces this).

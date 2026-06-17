@@ -4400,11 +4400,16 @@ internal static class CpuEmitter
         var modRmOps = x86.Opcodes.Values.Where(o => o.HasModRm).Select(o => o.Value).ToList();
         var groupOps = x86.Opcodes.Values.Where(o => o.RegIsExtension).Select(o => o.Value).ToList();
         var immOps = x86.Opcodes.Values.Where(o => o.Immediate != X86ImmediateRuleKind.None).ToList();
+        // M5.5b: the F6/F7 split-immediate carrier. Only opcodes whose ImmediateRegMask != -1 are reg-gated;
+        // every other opcode is absent from this table and behaves EXACTLY as before (byte-identical).
+        var immRegMaskOps = x86.Opcodes.Values.Where(o => o.ImmediateRegMask != -1).ToList();
 
         string modRmSet = string.Join(", ", modRmOps.Select(v => $"0x{v:X2}"));
         string groupSet = string.Join(", ", groupOps.Select(v => $"0x{v:X2}"));
         string immEntries = string.Join(", ",
             immOps.Select(o => $"{{ 0x{o.Value:X2}, ({(int)o.Immediate}, {o.WBit}, {o.SBit}) }}"));
+        string immRegMaskEntries = string.Join(", ",
+            immRegMaskOps.Select(o => $"{{ 0x{o.Value:X2}, 0x{o.ImmediateRegMask:X2} }}"));
 
         sb.AppendLine();
         sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_x86Prefixes = new() {{ {prefixSet} }};");
@@ -4412,6 +4417,10 @@ internal static class CpuEmitter
         sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_x86RegIsExtension = new() {{ {groupSet} }};");
         sb.AppendLine("    // (immediate-rule, wBit, sBit) per opcode: rule 0=None,1=Fixed8,2=Fixed16,3=WBit,4=SWBit; bit -1 ⇒ absent.");
         sb.AppendLine($"    private static readonly System.Collections.Generic.Dictionary<uint, (int Rule, int WBit, int SBit)> s_x86Imm = new() {{ {immEntries} }};");
+        sb.AppendLine("    // M5.5b: the F6/F7 split-immediate gate — opcode → bitmask of ModR/M reg values for which the");
+        sb.AppendLine("    // Immediate rule applies (bit r set ⇒ reg r consumes the immediate; unset ⇒ no immediate). An");
+        sb.AppendLine("    // opcode ABSENT here is not reg-gated (consumes the immediate for every reg — the prior behavior).");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.Dictionary<uint, int> s_x86ImmRegMask = new() {{ {immRegMaskEntries} }};");
 
         sb.AppendLine();
         sb.AppendLine("    /// <summary>The generated x86 variable-length decode walk (M5.2, ADR 0006 Decision 1):");
@@ -4436,6 +4445,10 @@ internal static class CpuEmitter
         sb.AppendLine("        uint key = opcode;                                     // KeyShape.OpcodeByte (the default)");
         sb.AppendLine("        byte modrmByte = 0; byte operandCount = 0;");
         sb.AppendLine("        ushort dispVal = 0; ushort immVal = 0;                 // M5.5a: the captured disp/imm (0 when none)");
+        sb.AppendLine("        // M5.5b: HOIST the ModR/M reg field to walk scope (default 0) so the immediate step can read it");
+        sb.AppendLine("        //        for the F6/F7 split-immediate gate (s_x86ImmRegMask). F6/F7 always HaveModRm, so reg");
+        sb.AppendLine("        //        is assigned below before the gate consults it; non-ModR/M opcodes are never gated.");
+        sb.AppendLine("        uint reg = 0;");
         sb.AppendLine();
         sb.AppendLine("        // 2. ModR/M + the real 8086 16-bit displacement-length table.");
         sb.AppendLine("        if (s_x86HasModRm.Contains(opcode))");
@@ -4443,7 +4456,7 @@ internal static class CpuEmitter
         sb.AppendLine("            modrmByte = (byte)stream.NextUnit();               // the ModR/M byte");
         sb.AppendLine("            operandCount = 1;");
         sb.AppendLine("            uint mod = (uint)(modrmByte >> 6) & 3u;            // bits 7-6");
-        sb.AppendLine("            uint reg = (uint)(modrmByte >> 3) & 7u;            // bits 5-3");
+        sb.AppendLine("            reg = (uint)(modrmByte >> 3) & 7u;                 // bits 5-3 (walk-scoped — M5.5b)");
         sb.AppendLine("            uint rm  = (uint)modrmByte & 7u;                   // bits 2-0");
         sb.AppendLine("            // The reg field EXTENDS the opcode for the opcode-group rows (80/81/83/F6/F7/FE/FF/D0-D3/...):");
         sb.AppendLine("            // key = (opcode << 3) | reg, reusing the existing OpcodeGroup key shape. Otherwise reg is a");
@@ -4484,6 +4497,12 @@ internal static class CpuEmitter
         sb.AppendLine("                4 => ((opcode >> imm.SBit) & 1u) == 1u ? 1 : (((opcode >> imm.WBit) & 1u) == 1u ? 2 : 1),");
         sb.AppendLine("                _ => 0,");
         sb.AppendLine("            };");
+        sb.AppendLine("            // M5.5b: the F6/F7 split-immediate gate. If the opcode is reg-gated (in s_x86ImmRegMask) and");
+        sb.AppendLine("            //        the ModR/M reg field's bit is CLEAR, this reg takes NO immediate (immLen → 0) — the");
+        sb.AppendLine("            //        famous F6/F7 case where only TEST (/0,/1) carries an imm; NOT/NEG/MUL/IMUL/DIV/IDIV");
+        sb.AppendLine("            //        (/2../7) do not. An opcode ABSENT from the table is not gated (byte-identical prior).");
+        sb.AppendLine("            if (s_x86ImmRegMask.TryGetValue(opcode, out var immRegMask) && ((immRegMask >> (int)reg) & 1) == 0)");
+        sb.AppendLine("                immLen = 0;");
         sb.AppendLine("            // M5.5a: CAPTURE the immediate (not just consume). immLen==1 ⇒ zero-extended byte;");
         sb.AppendLine("            //        immLen==2 ⇒ little-endian lo|hi. (For the accumulator-direct A0-A3 moffs the");
         sb.AppendLine("            //        disp16 is carried HERE — those opcodes declare Immediate: Fixed16, no ModR/M.)");

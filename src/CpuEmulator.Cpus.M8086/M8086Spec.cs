@@ -2,8 +2,8 @@
 //   Tool    : CpuEmulator.SpecImporter (x86 arm)
 //   Dataset : tools/CpuEmulator.SpecImporter/data/m8086-opcodes.json
 //   Prefixes: 8
-//   Opcodes : 213
-//   Insns   : 265
+//   Opcodes : 215
+//   Insns   : 281
 //   Regenerate :
 //     dotnet run --project tools/CpuEmulator.SpecImporter -- \
 //       --x86 tools/CpuEmulator.SpecImporter/data/m8086-opcodes.json \
@@ -141,6 +141,8 @@ public static class M8086Spec
             new X86Opcode(0x85, HasModRm: true),
             new X86Opcode(0xA8, WBit: 0, Immediate: X86ImmediateRule.WBit),
             new X86Opcode(0xA9, WBit: 0, Immediate: X86ImmediateRule.WBit),
+            new X86Opcode(0xF6, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit, ImmediateRegMask: 3),
+            new X86Opcode(0xF7, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit, ImmediateRegMask: 3),
             new X86Opcode(0x80, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit),
             new X86Opcode(0x81, HasModRm: true, RegIsExtension: true, WBit: 0, Immediate: X86ImmediateRule.WBit),
             new X86Opcode(0x83, HasModRm: true, RegIsExtension: true, WBit: 0, SBit: 1, Immediate: X86ImmediateRule.SWBit),
@@ -358,6 +360,22 @@ public static class M8086Spec
         Insn(0x85, "TEST", AddrMode.Implied, []),
         Insn(0xA8, "TEST", AddrMode.Implied, []),
         Insn(0xA9, "TEST", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 0, "TEST", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 1, "TEST", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 2, "NOT", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 3, "NEG", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 4, "MUL", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 5, "IMUL", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 6, "DIV", AddrMode.Implied, []),
+        Insn(0xF6, subfield: 7, "IDIV", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 0, "TEST", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 1, "TEST", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 2, "NOT", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 3, "NEG", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 4, "MUL", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 5, "IMUL", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 6, "DIV", AddrMode.Implied, []),
+        Insn(0xF7, subfield: 7, "IDIV", AddrMode.Implied, []),
         Insn(0x80, subfield: 0, "ADD", AddrMode.Implied, []),
         Insn(0x80, subfield: 1, "OR", AddrMode.Implied, []),
         Insn(0x80, subfield: 2, "ADC", AddrMode.Implied, []),

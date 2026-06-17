@@ -123,9 +123,9 @@ public static class X86Emitter
     }
 
     /// <summary>Render one <c>X86Opcode(...)</c> creation, writing only the non-default fields (the carrier
-    /// defaults are HasModRm:false, RegIsExtension:false, WBit:-1, SBit:-1, Immediate:None).</summary>
+    /// defaults are HasModRm:false, RegIsExtension:false, WBit:-1, SBit:-1, Immediate:None, ImmediateRegMask:-1).</summary>
     private static string EmitX86Opcode(
-        byte opcode, (bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateKind Imm) m)
+        byte opcode, (bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateKind Imm, int ImmRegMask) m)
     {
         var args = new List<string> { $"0x{opcode:X2}" };
         if (m.HasModRm) args.Add("HasModRm: true");
@@ -133,6 +133,7 @@ public static class X86Emitter
         if (m.WBit != -1) args.Add($"WBit: {m.WBit}");
         if (m.SBit != -1) args.Add($"SBit: {m.SBit}");
         if (m.Imm != X86ImmediateKind.None) args.Add($"Immediate: X86ImmediateRule.{m.Imm}");
+        if (m.ImmRegMask != -1) args.Add($"ImmediateRegMask: {m.ImmRegMask}");   // M5.5b: the F6/F7 split immediate
         return $"new X86Opcode({string.Join(", ", args)})";
     }
 
@@ -147,10 +148,10 @@ public static class X86Emitter
     private static int CountUniqueOpcodes(X86Dataset dataset) =>
         UniqueOpcodesInOrder(dataset).Count();
 
-    private static (bool, bool, int, int, X86ImmediateKind) MetaFor(X86Dataset dataset, byte opcode)
+    private static (bool, bool, int, int, X86ImmediateKind, int) MetaFor(X86Dataset dataset, byte opcode)
     {
         // All rows for one opcode carry identical metadata (X86Dataset.Parse enforces this); take the first.
         var row = dataset.Opcodes.First(r => r.Opcode == opcode);
-        return (row.HasModRm, row.RegIsExtension, row.WBit, row.SBit, row.Immediate);
+        return (row.HasModRm, row.RegIsExtension, row.WBit, row.SBit, row.Immediate, row.ImmediateRegMask);
     }
 }
