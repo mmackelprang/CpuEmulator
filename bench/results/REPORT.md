@@ -12,6 +12,14 @@
 - .NET: .NET 10.0.2
 - Klaus workload (W1) available: yes
 
+> **68000 rows are INDICATIVE (Milestone B).** The 6502 + Z80 rows below are the clean-host baseline
+> (2026-06-16). The **68000 rows** were added in Milestone B and captured on **2026-06-17 on a
+> CONTENDED host** (a concurrent build/test was active), so their absolute throughput is INDICATIVE —
+> the per-CPU before/after RATIO is what matters (it cancels host speed). An authoritative clean-host
+> re-capture is a Coordinator follow-up; the numbers are re-measured anyway per the frozen-constant
+> re-measure contract. The 68000 wiring + smoke + frozen workloads (the actual deliverable) are
+> machine-independent.
+
 ## Results — emulated cycles per host-second (higher is faster)
 
 ### 6502 — cycles/host-second
@@ -46,6 +54,25 @@
 | superzazu/z80 (C) | Z80-W2 arithmetic-kernel | 1,401,247,180 | 0.014 | superzazu/z80, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
 | Z80.js (JavaScript/Node) | Z80-W2 arithmetic-kernel | 147,946,510 | 0.135 | DrGoldfire/Z80.js via node v22.19.0 |
 
+### 68000 — cycles/host-second
+
+> _Indicative numbers — captured 2026-06-17 on a contended host (see the Environment note above)._
+
+| Subject | Workload | guest-MIPS | cycles/sec | wall (s) | note |
+|---|---|---:|---:|---:|---|
+| our Tier-0 interpreter | m68k-W1 mixed-kernel | 13.7 | 97,436,998 | 0.513 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | m68k-W1 mixed-kernel | 10.0 | 71,032,262 | 0.704 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | m68k-W2 arithmetic-kernel | 13.7 | 65,744,456 | 0.761 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | m68k-W2 arithmetic-kernel | 9.2 | 44,227,153 | 1.131 | our Tier-1 JIT (chaining on) |
+
+> _68000 **cycles/sec is reported for completeness** but the cycle/timing axis is
+> PARTIAL on `main` (M4.5d-2b foundation; the 2b-continuation is deferred): `CycleCount`
+> is exact for the cycle-exact families, NOT the whole ISA. The 68000 baseline's
+> trustworthy headline is **guest-MIPS (instructions/sec)** — data-axis-correct on the
+> merged M4.6 core (each Step / each budget-1 Run is exactly one instruction). Full
+> cycle-exact 68000 cycles/sec gates on the M4.5d-2 timing axis (ADR 0008 §6); the
+> re-measure picks it up automatically when it lands._
+
 ## Our two tiers — JIT vs interpreter speedup
 
 ### 6502
@@ -58,6 +85,12 @@
 - **Z80-W1 ZEXDOC-prefix**: JIT is 0.48x the interpreter (169,212,152 vs 355,699,935 T-states/sec).
 - **Z80-W2 arithmetic-kernel**: JIT is 0.45x the interpreter (172,158,778 vs 384,302,955 T-states/sec).
 - _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._
+
+### 68000
+
+- **m68k-W1 mixed-kernel**: JIT is 0.73x the interpreter (10.0 vs 13.7 guest-MIPS).
+- **m68k-W2 arithmetic-kernel**: JIT is 0.67x the interpreter (9.2 vs 13.7 guest-MIPS).
+- _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
 
 ## Reading the numbers
 
@@ -84,6 +117,16 @@
   Tier-1 is **all-fallback** (no hot-op IL emit yet — M6), so its ~0.45–0.48x ratio is the
   committed "before" the M6 re-measure subtracts from, NOT a defect. **Z80 is measured in
   T-states, the 6502 in machine cycles — do NOT cross-multiply the two as a raw race.**
+- **68000 leads with guest-MIPS; cycles/sec is caveated (Milestone B).** The 68000 Tier-1 is
+  ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step), so its
+  ~0.67–0.73x guest-MIPS ratio is the committed "before" the later 68000 JIT-emit re-measure
+  subtracts from, NOT a defect. The headline is **guest-MIPS (instructions/sec)** because the
+  68000 cycle/timing axis is partial on `main` (only the cycle-exact families have trustworthy
+  cycles; the full axis gates on M4.5d-2, ADR 0008 §6); the cycles/sec column is reported with
+  that caveat and becomes fully cycle-exact automatically when the timing axis lands. The 68000
+  third-party head-to-head reference (Musashi) is a follow-up of the M6 comparison framework;
+  the 68000 section ships its two-tier baseline regardless. **The 68000 absolute numbers above
+  are INDICATIVE (contended host) — the RATIO is the machine-independent deliverable.**
 - **Third-party rows are an indicative cross-language SLICE.** Subprocess + in-process
   third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its
   OWN cycle model. These are indicative cross-language numbers, not a controlled
@@ -130,6 +173,13 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report 
 - **Z80dotNet (C#)** restores via NuGet at build time; disable offline with `-p:UseZ80Sharp=false`.
 - **superzazu/z80 (C)** needs a C compiler + `fetch-subjects` (downloads z80.c/z80.h, MIT).
 - **Z80.js (JS)** needs node + `fetch-subjects` (downloads DrGoldfire/Z80.js, MIT).
+
+**68000 subjects** (Milestone B — our two tiers always; the head-to-head reference is a follow-up):
+
+- **our Tier-0 interpreter + our Tier-1 JIT (all-fallback)** are in-process C# and always run — no fetch.
+- **m68k-W1 + m68k-W2** are dependency-free hand-written kernels (committed `byte[]` in `Workloads.cs`) — always run.
+- **Musashi (C)** — the planned head-to-head 68000 reference (a follow-up of the M6 comparison framework);
+  it will skip-with-note when its compiler/source is absent, mirroring superzazu/z80.
 
 For statistically-rigorous numbers on our two tiers, run the BenchmarkDotNet harness:
 `dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn`.

@@ -2,10 +2,12 @@
 
 The emulator ships a **comparative cross-language benchmark suite** that measures emulated CPU cycles
 per host wall-clock second across our two execution tiers — the Tier-0 interpreter and the Tier-1
-IL-JIT — for each wired CPU (**6502** and **Z80**), and, opt-in, third-party emulators of that CPU in
-C#, C, Python, and/or JavaScript. Results are grouped per-CPU; the 6502 unit is machine cycles and the
-**Z80 unit is "T-states"** (a different clock model — the two are NOT comparable as raw numbers; only
-the per-CPU ratios + the within-CPU cross-language spread are).
+IL-JIT — for each wired CPU (**6502**, **Z80**, and **68000**), and, opt-in, third-party emulators of
+that CPU in C#, C, Python, and/or JavaScript. Results are grouped per-CPU; the 6502 unit is machine
+cycles, the **Z80 unit is "T-states"**, and the 68000 has its own cycle model (different clock models —
+NOT comparable as raw numbers; only the per-CPU ratios + the within-CPU cross-language spread are). The
+68000 additionally reports **guest-MIPS (instructions/sec)** — the cross-CPU-comparable, cycle-axis-
+independent metric it leads with (see below).
 
 The full methodology, fairness rules, honesty caveats, and per-subject instructions live in
 **[`bench/README.md`](../../bench/README.md)**. The generated report is
@@ -36,22 +38,34 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
   the harness services the CP/M BDOS calls host-side). Z80-W2 is a tight hand-written ADD/SUB + `DJNZ`
   loop run to a 50,000,000-T-state cap (the DJNZ taken branch is the hot chain edge). These window
   constants are **frozen** — the M6 re-measure (below) reuses them byte-identically.
+- **68000 — two workloads (Milestone B).** m68k-W1 is a deterministic, hand-written **mixed** kernel
+  (MOVE variants, ALU reg/EA, a shift, `BSR`/`RTS`, a `DBF` counted loop) — the integration-realistic
+  stream (the 68000 has no in-repo Klaus/ZEX-equivalent runnable exerciser, so this synthetic mixed
+  kernel is dependency-free and always runs). m68k-W2 is a tight hand-written ALU + `BNE` branch loop.
+  Both run to frozen 50,000,000 caps. **The 68000 leads with guest-MIPS (instructions/sec)** because its
+  cycle/timing axis is **partial** on `main` (the M4.5d-2b foundation made 13 families cycle-exact; the
+  2b-continuation is deferred) — so `CycleCount` is exact for the cycle-exact families, not the whole
+  ISA. instructions/sec is data-axis-correct on the merged M4.6 core *right now* (each step / each
+  budget-1 JIT block is exactly one instruction); cycles/sec is reported alongside with a coverage
+  caveat and becomes fully cycle-exact automatically when the timing axis lands (ADR 0008 §6).
 - **Always-on subjects.** Per CPU, our Tier-0 interpreter (the baseline) and our Tier-1 JIT (the
   headline) are in-process C# and always run.
 - **Opt-in third-party subjects.** For the 6502: Asm6502 (C#), fake6502 (C), py65 (Python), sfotty
   (JS). For the Z80: Z80dotNet (C#), superzazu/z80 (C), Z80.js (JS) — all MIT-licensed. Each runs
   behind an adapter shim that skips-with-a-note when its runtime is absent — the report commits only
   measured data, never a fabricated number, and any single absent ref degrades exactly one row while
-  the 6502+Z80 our-tiers baseline always commits.
+  the our-tiers baseline always commits. (The 68000 head-to-head reference — Musashi — is a follow-up
+  task of the M6 comparison framework; the 68000 section ships its two-tier baseline regardless.)
 
 The per-CPU JIT-vs-interpreter comparison and the cross-language comparison table are in the generated
 report. **The honest measured finding is that the Tier-1 JIT is currently slower than the Tier-0
 interpreter** — on the 6502 (SMC-invalidation thrash on Klaus; per-instruction overhead on the tiny
-non-SMC kernel) and on the Z80, whose Tier-1 is **all-fallback** (no hot-op IL emit yet — the deferred
-M6 "5-3b hot-op emission"; a ratio ≈ 1.0× minus block overhead is expected). This all-fallback row is
-the deliberately-captured **"before"**: the [JIT speedup re-measure (M6)](#baseline--re-measure-m6)
-subtracts from it. The JIT's current value is correctness parity, not raw throughput. See also
-[the JIT tier guide](jit.md) for the accuracy contract, chaining, and the emitted decimal arms.
+non-SMC kernel), on the Z80, and on the 68000, whose Tier-1 is **all-fallback** (every op falls back to
+the interpreter Step — no hot-op IL emit yet; a ratio ≈ 1.0× minus block-dispatch overhead is expected).
+This all-fallback row is the deliberately-captured **"before"**: the
+[JIT speedup re-measure (M6)](#baseline--re-measure-m6) subtracts from it. The JIT's current value is
+correctness parity, not raw throughput. See also [the JIT tier guide](jit.md) for the accuracy contract,
+chaining, and the emitted decimal arms.
 
 ## Baseline → re-measure (M6)
 
