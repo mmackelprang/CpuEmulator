@@ -1,6 +1,6 @@
 # ADR 0009 — The device↔JIT contract and JIT-derived peripheral-design principles
 
-> **Status:** Proposed (drafted by Claude Architect; awaiting owner sign-off). No implementation now — this is a
+> **Status:** ACCEPTED (owner-approved 2026-06-17). No implementation now — this is a
 > cross-cutting design that constrains SP0's device contracts, SP1's peripherals/mappers, and the M6 JIT-optimization
 > work. It is deliberately authored **ahead** of SP0 (which is itself deferred until after M5 + M6 ship) so the device
 > contracts SP0 introduces are shaped by the JIT's existing fast/slow-path reality from the start, not retrofitted.
