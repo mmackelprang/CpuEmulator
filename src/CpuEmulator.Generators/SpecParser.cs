@@ -188,6 +188,7 @@ internal static class SpecParser
     {
         "C", "Z", "I", "D", "V", "N",
         "S", "H", "P", "Y", "X",   // M3.4a: Z80 flag names (additive)
+        "T", "Df",                 // M5 (8086): trap + direction flag names (additive)
     };
 
     /// <summary>Local variable names the emitter writes into opcode bodies (and Step/Run).
