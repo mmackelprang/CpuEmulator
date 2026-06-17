@@ -6,18 +6,21 @@
 
 ## Environment
 
-- Generated (UTC): 2026-06-16 01:53:28
+- Generated (UTC): 2026-06-17 20:39:47
 - OS: Microsoft Windows 10.0.26220 (X64)
 - CPU: AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD (32 logical cores)
 - .NET: .NET 10.0.2
 - Klaus workload (W1) available: yes
 
-> **68000 rows are INDICATIVE (Milestone B).** The 6502 + Z80 rows below are the clean-host baseline
-> (2026-06-16). The **68000 rows** were added in Milestone B and captured on **2026-06-17 on a
-> CONTENDED host** (a concurrent build/test was active), so their absolute throughput is INDICATIVE —
-> the per-CPU before/after RATIO is what matters (it cancels host speed). An authoritative clean-host
-> re-capture is a Coordinator follow-up; the numbers are re-measured anyway per the frozen-constant
-> re-measure contract. The 68000 wiring + smoke + frozen workloads (the actual deliverable) are
+> **W3 + Musashi rows are INDICATIVE; the 6502/Z80 W1/W2 numbers are the clean-host baseline.**
+> The **6502 + Z80 W1/W2 rows** below are the committed clean-host baseline (2026-06-16), preserved
+> verbatim (NOT clobbered). The **new W3 sieve-kernel rows** (all three CPUs), the **68000 W1/W2 +
+> W3 rows**, and the **head-to-head Musashi (C) rows** were captured on **2026-06-17 on a CONTENDED
+> host** (a concurrent build/test was active), so their absolute throughput is INDICATIVE — the
+> per-CPU before/after RATIO + the within-CPU cross-emulator spread are what matter (they cancel
+> host speed). An authoritative clean-host re-capture of the full set is a Coordinator follow-up; the
+> frozen-constant re-measure contract means the re-capture is byte-identical work. The wiring + smoke
+> + frozen workloads + the Musashi head-to-head adapter (the actual deliverable) are
 > machine-independent.
 
 ## Results — emulated cycles per host-second (higher is faster)
@@ -30,6 +33,8 @@
 | our Tier-1 JIT (chaining on) | W1 Klaus-deterministic | 466,574 | 206.272 | our Tier-1 JIT (chaining on) |
 | our Tier-0 interpreter | W2 arithmetic-kernel | 282,333,230 | 0.177 | our Tier-0 interpreter |
 | our Tier-1 JIT (chaining on) | W2 arithmetic-kernel | 138,059,957 | 0.362 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | W3 sieve-kernel | 206,913,227 | 0.242 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | W3 sieve-kernel | 129,249,870 | 0.387 | our Tier-1 JIT (chaining on) |
 | Asm6502 (C#) | W1 Klaus-deterministic | 80,487,537 | 0.248 | Asm6502 4.0.0.0 |
 | fake6502 (C) | W1 Klaus-deterministic | 500,763,790 | 0.040 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
 | py65 (Python) | W1 Klaus-deterministic | 7,358,839 | 0.272 | py65, Python 3.13.7 |
@@ -38,6 +43,10 @@
 | fake6502 (C) | W2 arithmetic-kernel | 425,885,352 | 0.047 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
 | py65 (Python) | W2 arithmetic-kernel | 5,130,310 | 0.390 | py65, Python 3.13.7 |
 | sfotty (JavaScript/Node) | W2 arithmetic-kernel | 36,814,514 | 0.543 | sfotty via node v22.19.0 |
+| Asm6502 (C#) | W3 sieve-kernel | 144,229,078 | 0.139 | Asm6502 4.0.0.0 |
+| fake6502 (C) | W3 sieve-kernel | 553,097,400 | 0.036 | fake6502, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| py65 (Python) | W3 sieve-kernel | 6,477,383 | 0.309 | py65, Python 3.13.7 |
+| sfotty (JavaScript/Node) | W3 sieve-kernel | 34,468,852 | 0.580 | sfotty via node v22.19.0 |
 
 ### Z80 — T-states/host-second
 
@@ -47,23 +56,31 @@
 | our Tier-1 JIT (chaining on) | Z80-W1 ZEXDOC-prefix | 169,212,152 | 11.819 | our Tier-1 JIT (chaining on) |
 | our Tier-0 interpreter | Z80-W2 arithmetic-kernel | 384,302,955 | 0.130 | our Tier-0 interpreter |
 | our Tier-1 JIT (chaining on) | Z80-W2 arithmetic-kernel | 172,158,778 | 0.290 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | Z80-W3 sieve-kernel | 396,716,537 | 0.126 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | Z80-W3 sieve-kernel | 215,825,487 | 0.232 | our Tier-1 JIT (chaining on) |
 | Z80dotNet (C#) | Z80-W1 ZEXDOC-prefix | 42,273,770 | 0.473 | Z80dotNet 1.1.0.0 |
 | superzazu/z80 (C) | Z80-W1 ZEXDOC-prefix | 1,560,428,181 | 0.013 | superzazu/z80, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
 | Z80.js (JavaScript/Node) | Z80-W1 ZEXDOC-prefix | 154,238,931 | 0.130 | DrGoldfire/Z80.js via node v22.19.0 |
 | Z80dotNet (C#) | Z80-W2 arithmetic-kernel | 51,632,879 | 0.387 | Z80dotNet 1.1.0.0 |
 | superzazu/z80 (C) | Z80-W2 arithmetic-kernel | 1,401,247,180 | 0.014 | superzazu/z80, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
 | Z80.js (JavaScript/Node) | Z80-W2 arithmetic-kernel | 147,946,510 | 0.135 | DrGoldfire/Z80.js via node v22.19.0 |
+| Z80dotNet (C#) | Z80-W3 sieve-kernel | 57,043,129 | 0.351 | Z80dotNet 1.1.0.0 |
+| superzazu/z80 (C) | Z80-W3 sieve-kernel | 1,660,302,175 | 0.012 | superzazu/z80, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| Z80.js (JavaScript/Node) | Z80-W3 sieve-kernel | 178,016,716 | 0.112 | DrGoldfire/Z80.js via node v22.19.0 |
 
 ### 68000 — cycles/host-second
 
-> _Indicative numbers — captured 2026-06-17 on a contended host (see the Environment note above)._
-
 | Subject | Workload | guest-MIPS | cycles/sec | wall (s) | note |
 |---|---|---:|---:|---:|---|
-| our Tier-0 interpreter | m68k-W1 mixed-kernel | 13.7 | 97,436,998 | 0.513 | our Tier-0 interpreter |
-| our Tier-1 JIT (chaining on) | m68k-W1 mixed-kernel | 10.0 | 71,032,262 | 0.704 | our Tier-1 JIT (chaining on) |
-| our Tier-0 interpreter | m68k-W2 arithmetic-kernel | 13.7 | 65,744,456 | 0.761 | our Tier-0 interpreter |
-| our Tier-1 JIT (chaining on) | m68k-W2 arithmetic-kernel | 9.2 | 44,227,153 | 1.131 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | m68k-W1 mixed-kernel | 13.6 | 96,579,744 | 0.518 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | m68k-W1 mixed-kernel | 9.7 | 69,213,483 | 0.722 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | m68k-W2 arithmetic-kernel | 13.2 | 63,312,016 | 0.790 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | m68k-W2 arithmetic-kernel | 9.9 | 47,446,883 | 1.054 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | m68k-W3 sieve-kernel | 12.9 | 109,840,863 | 0.455 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | m68k-W3 sieve-kernel | 9.6 | 81,532,711 | 0.613 | our Tier-1 JIT (chaining on) |
+| Musashi (C) | m68k-W1 mixed-kernel | 63.5 | 620,754,473 | 0.788 | Musashi v4.60, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| Musashi (C) | m68k-W2 arithmetic-kernel | 69.5 | 416,979,976 | 0.720 | Musashi v4.60, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
+| Musashi (C) | m68k-W3 sieve-kernel | 86.5 | 832,446,054 | 0.578 | Musashi v4.60, built with cc (Rev2, Built by MSYS2 project) 14.2.0 |
 
 > _68000 **cycles/sec is reported for completeness** but the cycle/timing axis is
 > PARTIAL on `main` (M4.5d-2b foundation; the 2b-continuation is deferred): `CycleCount`
@@ -79,17 +96,20 @@
 
 - **W1 Klaus-deterministic**: JIT is 0.00x the interpreter (466,574 vs 178,298,450 cycles/sec).
 - **W2 arithmetic-kernel**: JIT is 0.49x the interpreter (138,059,957 vs 282,333,230 cycles/sec).
+- **W3 sieve-kernel**: JIT is 0.62x the interpreter (129,249,870 vs 206,913,227 cycles/sec). _(indicative — contended host)_
 
 ### Z80
 
 - **Z80-W1 ZEXDOC-prefix**: JIT is 0.48x the interpreter (169,212,152 vs 355,699,935 T-states/sec).
 - **Z80-W2 arithmetic-kernel**: JIT is 0.45x the interpreter (172,158,778 vs 384,302,955 T-states/sec).
+- **Z80-W3 sieve-kernel**: JIT is 0.54x the interpreter (215,825,487 vs 396,716,537 T-states/sec). _(indicative — contended host)_
 - _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._
 
 ### 68000
 
-- **m68k-W1 mixed-kernel**: JIT is 0.73x the interpreter (10.0 vs 13.7 guest-MIPS).
-- **m68k-W2 arithmetic-kernel**: JIT is 0.67x the interpreter (9.2 vs 13.7 guest-MIPS).
+- **m68k-W1 mixed-kernel**: JIT is 0.72x the interpreter (9.7 vs 13.6 guest-MIPS).
+- **m68k-W2 arithmetic-kernel**: JIT is 0.75x the interpreter (9.9 vs 13.2 guest-MIPS).
+- **m68k-W3 sieve-kernel**: JIT is 0.74x the interpreter (9.6 vs 12.9 guest-MIPS).
 - _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
 
 ## Comparison — our emulator vs the best existing
@@ -105,6 +125,7 @@
 |---|---|---|---|---|
 | W1 Klaus-deterministic | fake6502 (C) 500,763,790 ‡ | 178,298,450 | 466,574 | 0.00× |
 | W2 arithmetic-kernel | fake6502 (C) 425,885,352 ‡ | 282,333,230 | 138,059,957 | 0.32× |
+| W3 sieve-kernel _(indicative)_ | fake6502 (C) 553,097,400 ‡ | 206,913,227 | 129,249,870 | 0.23× |
 
 ‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes).
 
@@ -114,6 +135,7 @@
 |---|---|---|---|---|
 | Z80-W1 ZEXDOC-prefix | superzazu/z80 (C) 1,560,428,181 ‡ | 355,699,935 | 169,212,152 † | 0.11× |
 | Z80-W2 arithmetic-kernel | superzazu/z80 (C) 1,401,247,180 ‡ | 384,302,955 | 172,158,778 † | 0.12× |
+| Z80-W3 sieve-kernel _(indicative)_ | superzazu/z80 (C) 1,660,302,175 ‡ | 396,716,537 | 215,825,487 † | 0.13× |
 
 ‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
 
@@ -121,22 +143,16 @@
 
 | Workload | Best existing | our Tier-0 (interp) | our Tier-1 (JIT) | Tier-1 vs best |
 |---|---|---|---|---|
-| m68k-W1 mixed-kernel | Musashi (C) [cited] | 13.7 MIPS | 10.0 MIPS † | — |
-| m68k-W2 arithmetic-kernel | Musashi (C) [cited] | 13.7 MIPS | 9.2 MIPS † | — |
+| m68k-W1 mixed-kernel | Musashi (C) 63.5 MIPS ‡ | 13.6 MIPS | 9.7 MIPS † | 0.15× |
+| m68k-W2 arithmetic-kernel | Musashi (C) 69.5 MIPS ‡ | 13.2 MIPS | 9.9 MIPS † | 0.14× |
+| m68k-W3 sieve-kernel | Musashi (C) 86.5 MIPS ‡ | 12.9 MIPS | 9.6 MIPS † | 0.11× |
 
 ‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
 
-- _[cited] Musashi (C) — https://github.com/kstenerud/Musashi_
-
 > _68000 cycles/sec is reported with the M4.5d-2-coverage caveat (the timing axis is
-> PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**. The cited
-> best-existing row is a published-context placeholder until the head-to-head Musashi
-> number lands (plan Task M4)._
-
-> _Comparison numbers mirror the committed baseline rows above — the 6502 + Z80 best-existing
-> cells are the clean-host (2026-06-16) head-to-head refs; the 68000 cells are the INDICATIVE
-> (contended-host, 2026-06-17) baseline. Regenerate on a clean host with
-> `dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all`._
+> PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**.
+> The best-existing column is the **head-to-head Musashi** reference, measured here on the
+> same workload bytes + host (plan Task M4a)._
 
 ## Reading the numbers
 
@@ -163,16 +179,6 @@
   Tier-1 is **all-fallback** (no hot-op IL emit yet — M6), so its ~0.45–0.48x ratio is the
   committed "before" the M6 re-measure subtracts from, NOT a defect. **Z80 is measured in
   T-states, the 6502 in machine cycles — do NOT cross-multiply the two as a raw race.**
-- **68000 leads with guest-MIPS; cycles/sec is caveated (Milestone B).** The 68000 Tier-1 is
-  ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step), so its
-  ~0.67–0.73x guest-MIPS ratio is the committed "before" the later 68000 JIT-emit re-measure
-  subtracts from, NOT a defect. The headline is **guest-MIPS (instructions/sec)** because the
-  68000 cycle/timing axis is partial on `main` (only the cycle-exact families have trustworthy
-  cycles; the full axis gates on M4.5d-2, ADR 0008 §6); the cycles/sec column is reported with
-  that caveat and becomes fully cycle-exact automatically when the timing axis lands. The 68000
-  third-party head-to-head reference (Musashi) is a follow-up of the M6 comparison framework;
-  the 68000 section ships its two-tier baseline regardless. **The 68000 absolute numbers above
-  are INDICATIVE (contended host) — the RATIO is the machine-independent deliverable.**
 - **Third-party rows are an indicative cross-language SLICE.** Subprocess + in-process
   third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its
   OWN cycle model. These are indicative cross-language numbers, not a controlled
@@ -219,13 +225,6 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report 
 - **Z80dotNet (C#)** restores via NuGet at build time; disable offline with `-p:UseZ80Sharp=false`.
 - **superzazu/z80 (C)** needs a C compiler + `fetch-subjects` (downloads z80.c/z80.h, MIT).
 - **Z80.js (JS)** needs node + `fetch-subjects` (downloads DrGoldfire/Z80.js, MIT).
-
-**68000 subjects** (Milestone B — our two tiers always; the head-to-head reference is a follow-up):
-
-- **our Tier-0 interpreter + our Tier-1 JIT (all-fallback)** are in-process C# and always run — no fetch.
-- **m68k-W1 + m68k-W2** are dependency-free hand-written kernels (committed `byte[]` in `Workloads.cs`) — always run.
-- **Musashi (C)** — the planned head-to-head 68000 reference (a follow-up of the M6 comparison framework);
-  it will skip-with-note when its compiler/source is absent, mirroring superzazu/z80.
 
 For statistically-rigorous numbers on our two tiers, run the BenchmarkDotNet harness:
 `dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn`.

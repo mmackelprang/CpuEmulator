@@ -55,6 +55,12 @@ internal static class BenchPaths
     /// fake6502.c discipline: fetched-not-vendored). Both z80.c + z80.h live in &lt;cache&gt;/z80c.</summary>
     public static string Z80CSource => Path.Combine(Cache, "z80c", "z80.c");
 
+    /// <summary>The fetched kstenerud/Musashi 68000 core source (the 68000 head-to-head C reference —
+    /// the fetched-not-vendored discipline). The full source set (m68k*.c/.h, m68k_in.c, softfloat/)
+    /// lives in &lt;cache&gt;/musashi; m68kops.h/m68kops.c are GENERATED there by Musashi's m68kmake
+    /// codegen (the MusashiAdapter runs that step), NOT fetched. m68kcpu.c is the probe sentinel.</summary>
+    public static string MusashiSource => Path.Combine(Cache, "musashi", "m68kcpu.c");
+
     /// <summary>The fetched DrGoldfire/Z80.js single source file (the optional JS Z80 subject — the
     /// MIT GitHub core, fetched-not-vendored into &lt;cache&gt;/z80js/Z80.js by fetch-subjects; NOT the
     /// unrelated npm `z80` package). The runner loads it via node's vm.</summary>

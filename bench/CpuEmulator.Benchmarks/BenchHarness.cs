@@ -34,12 +34,14 @@ public static class BenchHarness
             new Z80CAdapter(),       // A7 — C subprocess (superzazu/z80, compiled-once-cached)
             new Z80JsAdapter(),      // A8 — JS node subprocess (DrGoldfire/Z80.js) — optional
         ],
-        // The 68000 reference set (Milestone B has NO third-party 68000 subject yet — the our-tiers
-        // baseline always commits, R10). The Musashi head-to-head reference (or its cited fallback) is
-        // Task M4 of the comparison-framework milestone; it adds `new MusashiAdapter()` here, which
-        // skip-with-notes when its source/compiler is absent. Until then the 68000 section is our two
-        // tiers only — exactly the "before" baseline this milestone captures.
-        "m68000" => [],
+        // The 68000 reference set: Musashi (kstenerud/Musashi, MIT) is the HEAD-TO-HEAD C reference —
+        // a C subprocess (compiled-once-cached, including Musashi's m68kmake opcode-table codegen) run
+        // on the SAME workload bytes + host as our tiers. It skip-with-notes when its source (run
+        // bench/third-party/fetch-subjects) or a C compiler is absent, leaving the cited published
+        // placeholder in place; when it runs, the merged comparison-table generator promotes this
+        // measured ‡ row over the cited Musashi row automatically (it gates cited rows on
+        // cpuHasHeadToHead — no generator change needed).
+        "m68000" => [ new MusashiAdapter() ],
         _ =>
         [
             new Asm6502Adapter(),
