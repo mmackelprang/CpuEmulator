@@ -11,11 +11,18 @@
 //     --diff <other>  --review-report <path.md>
 //   dotnet run --project tools/CpuEmulator.SpecImporter -- \
 //     --field-grammar <dataset>  --config <config>  --out <spec>
+//   dotnet run --project tools/CpuEmulator.SpecImporter -- \
+//     --x86 <dataset>  --config <config>  --out <spec>
 //
 // The --field-grammar arm is the disjoint 68000 field-pattern pipeline (M4.4a): it ingests a
 // per-family FieldGrammar dataset + a state-model config and emits a spec whose populated
 // Decode68k FieldGrammar makes the generator emit the word-granular decode walk. It NEVER touches
 // the opcode-row arm above (the 6502/Z80 specs stay byte-identical).
+//
+// The --x86 arm is the disjoint 8086 opcode-table pipeline (M5.4): it ingests an x86 opcode dataset
+// (the prefix set + per-opcode ModR/M/group/immediate metadata) + a state-model config (with register
+// pair-views) and emits a spec whose populated X86DecodeStructure makes the generator emit the
+// byte-granular variable-length decode walk. It NEVER touches the opcode-row or field-grammar arms.
 //
 // Exit codes:
 //   0 = success
@@ -39,6 +46,7 @@ public static class Program
         bool    report            = false;
         bool    validateOnly      = false;
         string? fieldGrammarPath  = null;
+        string? x86Path           = null;
         string? configPath        = null;
 
         // Plain loop argument parsing — no external packages required.
@@ -76,6 +84,10 @@ public static class Program
                     if (++i >= args.Length) return Fail("--field-grammar requires a value.");
                     fieldGrammarPath = args[i];
                     break;
+                case "--x86":
+                    if (++i >= args.Length) return Fail("--x86 requires a value.");
+                    x86Path = args[i];
+                    break;
                 case "--config":
                     if (++i >= args.Length) return Fail("--config requires a value.");
                     configPath = args[i];
@@ -101,11 +113,27 @@ public static class Program
             catch (InvalidDataException ex) { return Fail($"Data error: {ex.Message}"); }
         }
 
-        // --config is only meaningful in the FieldGrammar arm (handled above). If it reached here,
-        // --field-grammar was absent, so the flag has no effect — reject it rather than silently ignore
-        // (the arg loop's contract is that unrecognized flag combinations fail loudly).
+        // ── x86 arm (the 8086 opcode-table pipeline; disjoint from the opcode-row + field-grammar arms) ──
+        if (x86Path is not null)
+        {
+            if (configPath is null) return Fail("--x86 requires --config.");
+            if (outputPath is null) return Fail("--x86 requires --out.");
+            try
+            {
+                var x86Report = SpecImportEngine.RunX86FromFiles(x86Path, configPath, outputPath);
+                Console.WriteLine(x86Report.ToString());
+                return 0;
+            }
+            catch (FileNotFoundException ex) { return Fail($"File not found: {ex.FileName ?? ex.Message}"); }
+            catch (DirectoryNotFoundException) { return Fail("File not found."); }
+            catch (InvalidDataException ex) { return Fail($"Data error: {ex.Message}"); }
+        }
+
+        // --config is only meaningful in the FieldGrammar / x86 arms (handled above). If it reached here,
+        // both --field-grammar and --x86 were absent, so the flag has no effect — reject it rather than
+        // silently ignore (the arg loop's contract is that unrecognized flag combinations fail loudly).
         if (configPath is not null)
-            return Fail("--config is only valid with --field-grammar.");
+            return Fail("--config is only valid with --field-grammar or --x86.");
 
         // Mutual-exclusion check: --validate-only and --out are incompatible
         // (validate-only mode never writes a spec file by design).
