@@ -144,7 +144,10 @@ public class M8086RegisterStateTests
     [Fact]
     public void Bus_wraps_above_the_20bit_space()
     {
-        // AddressMask = (1 << 20) - 1, so 0x100000 wraps to 0x00000 (the 8086's 1 MB address wrap).
+        // NOTE: this exercises AddressSpace's OWN 20-bit mask (AddressMask = (1 << 20) - 1), proving the
+        // bus the 8086 host wires is configured for 1 MB — it does NOT go through M8086Cpu's address path
+        // (the CPU-level seg<<4 + offset crossing 0xFFFFF is M5.3). The constructor call below is only an
+        // arg-validation smoke (the bus is exercised directly).
         var bus = NewBus();
         _ = new M8086Cpu(bus);
         bus.Write8(0x100000, 0x5A);
