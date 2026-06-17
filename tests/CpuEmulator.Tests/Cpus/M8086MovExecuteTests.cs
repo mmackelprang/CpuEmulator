@@ -259,4 +259,44 @@ public class M8086MovExecuteTests
         cpu.Step();
         Assert.Equal(0xF00Du, cpu.GetRegister("BX"));
     }
+
+    // ── The 8086 segment-relative word wrap at offset 0xFFFF (M5.5a MEDIUM-2 pre-merge review). A word write/read
+    //    whose offset is 0xFFFF wraps the SECOND byte's OFFSET within the 64 KB segment (high byte → offset 0x0000),
+    //    NOT the physical address. With DS=0x1000: Physical(DS,0xFFFF)=0x1FFFF, +1=0x20000, Physical(DS,0x0000)=
+    //    0x10000 — all three distinct, so the assertion that the high byte lands at 0x10000 (and NOT at 0x20000)
+    //    proves the wrap is segment-relative, not physical. ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void Mov_A3_word_to_offset_FFFF_wraps_within_segment()
+    {
+        // A3 FF FF = MOV [0xFFFF], AX  (moffs16, default DS). AX=0xABCD.
+        var cpu = NewCpu(out var bus);
+        cpu.SetRegister("DS", 0x1000);
+        cpu.SetRegister("AX", 0xABCD);
+        LoadCode(bus, 0x0000, 0x0000, 0xA3, 0xFF, 0xFF);
+        cpu.Step();
+
+        uint loPhys = M8086Cpu.Physical(0x1000, 0xFFFF);   // 0x1FFFF
+        uint hiPhys = M8086Cpu.Physical(0x1000, 0x0000);   // 0x10000 (the segment-relative wrap target)
+        Assert.NotEqual(hiPhys, (loPhys + 1) & 0xFFFFF);   // the three addresses are genuinely distinct
+        Assert.Equal((byte)0xCD, bus.Read8(loPhys));       // LE low byte at offset 0xFFFF
+        Assert.Equal((byte)0xAB, bus.Read8(hiPhys));        // LE high byte wrapped to offset 0x0000
+        // It must NOT have written the high byte at the PHYSICAL successor (0x20000) — that would be a flat wrap.
+        Assert.Equal((byte)0x00, bus.Read8((loPhys + 1) & 0xFFFFF));
+    }
+
+    [Fact]
+    public void Mov_A1_word_from_offset_FFFF_wraps_within_segment()
+    {
+        // A1 FF FF = MOV AX, [0xFFFF]  (moffs16, default DS). The word's high byte lives at offset 0x0000.
+        var cpu = NewCpu(out var bus);
+        cpu.SetRegister("DS", 0x1000);
+        uint loPhys = M8086Cpu.Physical(0x1000, 0xFFFF);   // 0x1FFFF
+        uint hiPhys = M8086Cpu.Physical(0x1000, 0x0000);   // 0x10000 (the segment-relative wrap target)
+        bus.Write8(loPhys, 0xCD);   // LE low byte at offset 0xFFFF
+        bus.Write8(hiPhys, 0xAB);   // LE high byte at offset 0x0000 (the wrap)
+        LoadCode(bus, 0x0000, 0x0000, 0xA1, 0xFF, 0xFF);
+        cpu.Step();
+        Assert.Equal(0xABCDu, cpu.GetRegister("AX"));   // recombined segment-relative word
+    }
 }

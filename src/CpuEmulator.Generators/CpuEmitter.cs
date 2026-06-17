@@ -555,20 +555,28 @@ internal static class CpuEmitter
         // 6502 OperationKey == opcode (≤ 0xFF) so the emitted arms are textually identical.
         bool keyedDispatch = model.Decode is not null || model.FieldGrammar is not null || model.X86Decode is not null;
         string execParam = keyedDispatch ? "uint opcode" : "byte opcode";
-        sb.AppendLine();
-        sb.AppendLine($"    private void Execute({execParam})");
-        sb.AppendLine("    {");
-        sb.AppendLine("        switch (opcode)");
-        sb.AppendLine("        {");
-        foreach (var instruction in model.Instructions)
-            sb.AppendLine($"            case 0x{instruction.OperationKey:X2}: Op{instruction.OperationKey:X2}(); break;");
-        sb.AppendLine("            default:");
-        sb.AppendLine(keyedDispatch
-            ? "                HandleUndefinedOpcode(unchecked((byte)opcode));"
-            : "                HandleUndefinedOpcode(opcode);");
-        sb.AppendLine("                break;");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
+        // M5.5a (HIGH-2 pre-merge review): for an x86 CPU the generic Execute switch is DEAD — the x86 Step routes
+        // through ExecuteX86 (not Execute), yet the 8086 spec carries 265 Insn(...) rows (for the descriptor table /
+        // disassembler) which would otherwise emit a 265-case Execute switch over 265 dead Op{key}() stubs. A future
+        // caller of Execute would silently mis-execute MOV (no register change, a spurious ReadBus). The 68000 (zero
+        // Insn rows) emits no such stubs; match that. Gated on X86Decode so 6502/Z80/68000 emit Execute byte-identically.
+        if (model.X86Decode is null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"    private void Execute({execParam})");
+            sb.AppendLine("    {");
+            sb.AppendLine("        switch (opcode)");
+            sb.AppendLine("        {");
+            foreach (var instruction in model.Instructions)
+                sb.AppendLine($"            case 0x{instruction.OperationKey:X2}: Op{instruction.OperationKey:X2}(); break;");
+            sb.AppendLine("            default:");
+            sb.AppendLine(keyedDispatch
+                ? "                HandleUndefinedOpcode(unchecked((byte)opcode));"
+                : "                HandleUndefinedOpcode(opcode);");
+            sb.AppendLine("                break;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+        }
 
         // M5.5a (ADR 0006 Decision 2): the x86-specific execute dispatch. The x86 Step arm routes through
         // THIS (not the generic Execute) so the resolved key dispatches the MOV family to the hand-written
@@ -634,9 +642,16 @@ internal static class CpuEmitter
         // etc. are byte-identical method names). `structured` = a declared DecodeStructure (the Z80);
         // the degenerate (6502) CPU passes false so its register/implied bodies are byte-identical.
         // (A FieldGrammar CPU has zero instruction rows in M4.3a, so this loop is empty.)
-        bool structured = model.Decode is not null;
-        foreach (var instruction in model.Instructions)
-            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags, structured);
+        // M5.5a (HIGH-2 pre-merge review): skipped for an x86 CPU — its MOV bodies live in MovExecute (dispatched by
+        // ExecuteX86), and the non-MOV families have no body in M5.5a; the only thing that referenced these Op{key}()
+        // methods was the now-elided generic Execute switch (the descriptor table + disassembler use the Instructions
+        // metadata / DescriptorFor, NOT the Op methods). Gated on X86Decode so 6502/Z80/68000 emit byte-identically.
+        if (model.X86Decode is null)
+        {
+            bool structured = model.Decode is not null;
+            foreach (var instruction in model.Instructions)
+                EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags, structured);
+        }
 
         // M5.3 (ADR 0005 Decision 2 / ADR 0006 Decision 2): the 8086 ModR/M effective-address layer — the
         // 16-bit (mod, r/m) offset table + the default-segment rule. Emitted only for the 8086 architecture

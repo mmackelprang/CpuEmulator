@@ -24,7 +24,10 @@ internal static class M8088TomHarteRunner
     /// <param name="opcodeHex">The file's opcode (e.g. "88") — keys the flags-mask lookup. The reg-field lookup
     /// is null here: the only MOV group opcodes are C6/C7 (reg=0) and MOV writes no flags, so the mask path is
     /// exercised but the result is moot (MOV asserts no flag changes — any reasonable mask passes).</param>
-    public static string? RunCase(M8088TomHarteCase c, M8088Metadata metadata, string opcodeHex)
+    /// <param name="regField">For an opcode-GROUP form (M5.5b ALU 0x80/0x81/0x83), the caller passes the ModR/M
+    /// reg subfield (e.g. (c.Bytes[1] >> 3) &amp; 7) so the per-subgroup flags-mask is selected; null for plain
+    /// opcodes and the MOV family.</param>
+    public static string? RunCase(M8088TomHarteCase c, M8088Metadata metadata, string opcodeHex, int? regField = null)
     {
         // 20-bit physical address space, little-endian (the 8086/8088 default — NO BigEndian), per ADR 0005 D2.
         // Map the WHOLE 1 MB as writable RAM up front: AddressSpace silently drops a Write8 to an UNMAPPED page
@@ -60,7 +63,7 @@ internal static class M8088TomHarteRunner
 
         // (b)/(c) read back the 14 registers; compute the expected merged-final regs.
         var expected = c.MergedFinalRegs();
-        ushort flagsMask = metadata.FlagsMask(opcodeHex, regField: null);
+        ushort flagsMask = metadata.FlagsMask(opcodeHex, regField);
 
         // (d) compare each register. FLAGS is mask-aware (both sides ANDed with the defined-flag mask).
         string? regMismatch =

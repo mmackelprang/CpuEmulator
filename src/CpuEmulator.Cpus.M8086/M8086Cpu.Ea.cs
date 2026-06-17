@@ -13,7 +13,7 @@ namespace CpuEmulator.Cpus.M8086;
 ///     <c>DefaultSegmentForX86Rm</c> picks SS for BP-based forms, DS otherwise) threaded with the
 ///     segment-OVERRIDE prefix the M5.2 decode walk accumulated (<see cref="ResolveSegment"/>);</item>
 ///   <item>the EA-operand byte/word read+write helpers over the resolved physical address
-///     (<see cref="ReadEaByte"/>/<see cref="WriteEaByte"/>/<see cref="ReadEaWord"/>/<see cref="WriteEaWord"/>).</item>
+///     (<see cref="ReadEaByte"/>/<see cref="WriteEaByte"/>/<see cref="ReadEaWordPhysical"/>/<see cref="WriteEaWordPhysical"/>).</item>
 /// </list>
 ///
 /// The bus is UNCHANGED — the flat 20-bit little-endian <see cref="IAddressSpace"/> is the physical bus
@@ -86,19 +86,28 @@ public sealed partial class M8086Cpu
     /// <summary>Write one byte to the resolved physical EA. Charges one cycle.</summary>
     internal void WriteEaByte(uint physical, byte value) => WriteBus(physical, value);
 
-    /// <summary>Read one 16-bit word from the resolved physical EA — LITTLE-ENDIAN, two byte cycles (low byte
-    /// at the lower address). The word's two bytes wrap WITHIN the 20-bit space independently (the bus masks
-    /// each access). Charges two cycles.</summary>
-    internal ushort ReadEaWord(uint physical)
+    /// <summary>Read one 16-bit word from a PHYSICAL EA — LITTLE-ENDIAN, two byte cycles (low byte at the lower
+    /// address), incrementing the PHYSICAL address (<c>(physical + 1) &amp; 0xFFFFF</c>). Charges two cycles.
+    /// <para>DOES NOT implement the 8086 segment-relative offset wrap — do NOT use for data operands: at segment
+    /// offset 0xFFFF the 8086 wraps the OFFSET within the 64 KB segment (the high byte lands at offset 0x0000),
+    /// NOT the physical address. The wrapped variants in M8086Cpu.Mov.cs (ReadEaWordWrapped/WriteEaWordWrapped)
+    /// are the correct data-operand helpers. This physical-increment form exists only to back the M5.3 synthetic
+    /// EA proof.</para></summary>
+    internal ushort ReadEaWordPhysical(uint physical)
     {
         byte lo = ReadBus(physical);
         byte hi = ReadBus((physical + 1) & 0xFFFFF);
         return (ushort)(lo | (hi << 8));
     }
 
-    /// <summary>Write one 16-bit word to the resolved physical EA — LITTLE-ENDIAN, two byte cycles (low byte
-    /// at the lower address). Charges two cycles.</summary>
-    internal void WriteEaWord(uint physical, ushort value)
+    /// <summary>Write one 16-bit word to a PHYSICAL EA — LITTLE-ENDIAN, two byte cycles (low byte at the lower
+    /// address), incrementing the PHYSICAL address (<c>(physical + 1) &amp; 0xFFFFF</c>). Charges two cycles.
+    /// <para>DOES NOT implement the 8086 segment-relative offset wrap — do NOT use for data operands: at segment
+    /// offset 0xFFFF the 8086 wraps the OFFSET within the 64 KB segment (the high byte lands at offset 0x0000),
+    /// NOT the physical address. The wrapped variants in M8086Cpu.Mov.cs (ReadEaWordWrapped/WriteEaWordWrapped)
+    /// are the correct data-operand helpers. This physical-increment form exists only to back the M5.3 synthetic
+    /// EA proof.</para></summary>
+    internal void WriteEaWordPhysical(uint physical, ushort value)
     {
         WriteBus(physical, (byte)value);
         WriteBus((physical + 1) & 0xFFFFF, (byte)(value >> 8));
