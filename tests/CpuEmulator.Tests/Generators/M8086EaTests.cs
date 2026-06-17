@@ -263,11 +263,11 @@ public class M8086EaTests
     {
         var cpu = NewCpu();
         uint phys = M8086Cpu.Physical(0x1000, 0x0010);   // 0x10010
-        cpu.WriteEaWord(phys, 0xBEEF);
+        cpu.WriteEaWordPhysical(phys, 0xBEEF);
         // Little-endian: low byte at the lower address.
         Assert.Equal((byte)0xEF, cpu.ReadEaByte(phys));
         Assert.Equal((byte)0xBE, cpu.ReadEaByte(phys + 1));
-        Assert.Equal((ushort)0xBEEF, cpu.ReadEaWord(phys));
+        Assert.Equal((ushort)0xBEEF, cpu.ReadEaWordPhysical(phys));
     }
 
     // ── Part G: the generator wiring — the x86 Step emits the (CS<<4)+IP segmented fetch when CS exists ──

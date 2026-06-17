@@ -383,7 +383,10 @@ internal static class CpuEmitter
                 sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}));        // flat fetch (the synthetic decode fixture has no segment regs)");
             sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + __r.Length));");
             sb.AppendLine("        _cycles += __r.Length;          // one cycle per consumed byte (the fetch stream does not charge)");
-            sb.AppendLine("        Execute(__r.OperationKey);");
+            // M5.5a: dispatch through ExecuteX86 (the x86-specific switch that routes the MOV family to the
+            // hand-written MovExecute body, threading the full DecodeResult so the body has the captured
+            // ModR/M + disp + imm + segment-override). Non-MOV keys fall to HandleUndefinedOpcode (M5.5b-d).
+            sb.AppendLine("        ExecuteX86(__r.OperationKey, __r);");
         }
         else if (model.Decode is null)
         {
@@ -552,28 +555,103 @@ internal static class CpuEmitter
         // 6502 OperationKey == opcode (≤ 0xFF) so the emitted arms are textually identical.
         bool keyedDispatch = model.Decode is not null || model.FieldGrammar is not null || model.X86Decode is not null;
         string execParam = keyedDispatch ? "uint opcode" : "byte opcode";
-        sb.AppendLine();
-        sb.AppendLine($"    private void Execute({execParam})");
-        sb.AppendLine("    {");
-        sb.AppendLine("        switch (opcode)");
-        sb.AppendLine("        {");
-        foreach (var instruction in model.Instructions)
-            sb.AppendLine($"            case 0x{instruction.OperationKey:X2}: Op{instruction.OperationKey:X2}(); break;");
-        sb.AppendLine("            default:");
-        sb.AppendLine(keyedDispatch
-            ? "                HandleUndefinedOpcode(unchecked((byte)opcode));"
-            : "                HandleUndefinedOpcode(opcode);");
-        sb.AppendLine("                break;");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
+        // M5.5a (HIGH-2 pre-merge review): for an x86 CPU the generic Execute switch is DEAD — the x86 Step routes
+        // through ExecuteX86 (not Execute), yet the 8086 spec carries 265 Insn(...) rows (for the descriptor table /
+        // disassembler) which would otherwise emit a 265-case Execute switch over 265 dead Op{key}() stubs. A future
+        // caller of Execute would silently mis-execute MOV (no register change, a spurious ReadBus). The 68000 (zero
+        // Insn rows) emits no such stubs; match that. Gated on X86Decode so 6502/Z80/68000 emit Execute byte-identically.
+        if (model.X86Decode is null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"    private void Execute({execParam})");
+            sb.AppendLine("    {");
+            sb.AppendLine("        switch (opcode)");
+            sb.AppendLine("        {");
+            foreach (var instruction in model.Instructions)
+                sb.AppendLine($"            case 0x{instruction.OperationKey:X2}: Op{instruction.OperationKey:X2}(); break;");
+            sb.AppendLine("            default:");
+            sb.AppendLine(keyedDispatch
+                ? "                HandleUndefinedOpcode(unchecked((byte)opcode));"
+                : "                HandleUndefinedOpcode(opcode);");
+            sb.AppendLine("                break;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+        }
+
+        // M5.5a (ADR 0006 Decision 2): the x86-specific execute dispatch. The x86 Step arm routes through
+        // THIS (not the generic Execute) so the resolved key dispatches the MOV family to the hand-written
+        // MovExecute body, threading the full DecodeResult (the captured ModR/M + disp + imm + segment-
+        // override the body needs). The MOV-family keys are DATA-DRIVEN from the spec (every Instruction
+        // whose Mnemonic == "MOV") so the case list tracks the spec, not a hard-coded literal. Every other
+        // (non-MOV) key falls to HandleUndefinedOpcode — the M5.5b-d families have no body yet, so they MUST
+        // continue routing to the undefined-opcode hook (scope is MOV-family only). Gated on X86Decode so
+        // 6502/Z80/68000 never emit it (byte-identical). The synthetic x86-decode fixture has no Mnemonic
+        // "MOV" rows (its MOVs are named MOVRM/MOVMR/...), so its ExecuteX86 is all-default + an unimplemented
+        // MovExecute partial — every key routes to HandleUndefinedOpcode there, as before.
+        //
+        // The C6/C7 reg=0 rows are OPCODE-GROUP keys ((opcode<<3)|reg, here 0x630/0x638). On the real 8086 the
+        // C6/C7 reg field is a DON'T-CARE — every reg value (0-7) executes MOV r/m,imm (the silicon ignores it;
+        // the TomHarte 8088 vectors exercise reg 0-7 and expect MOV). The spec only carries the reg=0 row, so
+        // for a group MOV key we expand the dispatch to ALL eight reg subfields of that opcode, routing each to
+        // MovExecute (which normalizes the key to the reg=0 form). A plain (non-group, key <= 0xFF) MOV key
+        // dispatches its single case unchanged.
+        if (model.X86Decode is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5a: the x86 execute dispatch — routes the MOV family to the hand-written");
+            sb.AppendLine("    /// MovExecute body (with the full DecodeResult), everything else to HandleUndefinedOpcode.</summary>");
+            sb.AppendLine("    private void ExecuteX86(uint key, CpuEmulator.Core.Jit.DecodeResult r)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        switch (key)");
+            sb.AppendLine("        {");
+            foreach (var movKey in model.Instructions
+                         .Where(i => i.Mnemonic == "MOV")
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+            {
+                if (movKey > 0xFFu)
+                {
+                    // An opcode-group MOV key ((opcode<<3)|reg). The C6/C7 reg field is a don't-care on the
+                    // 8086 ⇒ expand to all eight reg subfields of this opcode (the vectors hit reg 0-7).
+                    uint groupOpcode = movKey >> 3;
+                    for (uint reg = 0; reg < 8; reg++)
+                    {
+                        uint k = (groupOpcode << 3) | reg;
+                        sb.AppendLine($"            case 0x{k:X}u: MovExecute(0x{k:X}u, r); break;");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"            case 0x{movKey:X}u: MovExecute(0x{movKey:X}u, r); break;");
+                }
+            }
+            sb.AppendLine("            default:");
+            sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)key));");
+            sb.AppendLine("                break;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5a: the MOV-family op bodies — implemented by the hand-written M8086Cpu.Mov");
+            sb.AppendLine("    /// partial. Classic `partial void` (implicitly private): elided when unimplemented (the synthetic");
+            sb.AppendLine("    /// x86-decode fixture has no MOV rows, so its ExecuteX86 dispatches nothing here), implemented by");
+            sb.AppendLine("    /// M8086Cpu.Mov.cs for the real 8086.</summary>");
+            sb.AppendLine("    partial void MovExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+        }
 
         // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
         // etc. are byte-identical method names). `structured` = a declared DecodeStructure (the Z80);
         // the degenerate (6502) CPU passes false so its register/implied bodies are byte-identical.
         // (A FieldGrammar CPU has zero instruction rows in M4.3a, so this loop is empty.)
-        bool structured = model.Decode is not null;
-        foreach (var instruction in model.Instructions)
-            EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags, structured);
+        // M5.5a (HIGH-2 pre-merge review): skipped for an x86 CPU — its MOV bodies live in MovExecute (dispatched by
+        // ExecuteX86), and the non-MOV families have no body in M5.5a; the only thing that referenced these Op{key}()
+        // methods was the now-elided generic Execute switch (the descriptor table + disassembler use the Instructions
+        // metadata / DescriptorFor, NOT the Op methods). Gated on X86Decode so 6502/Z80/68000 emit byte-identically.
+        if (model.X86Decode is null)
+        {
+            bool structured = model.Decode is not null;
+            foreach (var instruction in model.Instructions)
+                EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags, structured);
+        }
 
         // M5.3 (ADR 0005 Decision 2 / ADR 0006 Decision 2): the 8086 ModR/M effective-address layer — the
         // 16-bit (mod, r/m) offset table + the default-segment rule. Emitted only for the 8086 architecture
@@ -4344,12 +4422,20 @@ internal static class CpuEmitter
         sb.AppendLine("        // 1. Stack 0..N prefix bytes. The 8086 ignores all but the last of a redundant class, but the");
         sb.AppendLine("        //    LENGTH counts every prefix byte — so consume them all here. (The accumulated segment-");
         sb.AppendLine("        //    override / repeat / lock roles are threaded to the EA layer + string-op body in M5.3/M5.5d.)");
+        sb.AppendLine("        // M5.5a: remember the LAST segment-override prefix byte (26 ES / 2E CS / 36 SS / 3E DS) seen");
+        sb.AppendLine("        //        in the prefix stack (the other prefixes — F0 LOCK / F2 F3 REP — are not overrides).");
+        sb.AppendLine("        //        The op body turns this raw byte into the X86SegmentOverride enum (0 ⇒ no override).");
+        sb.AppendLine("        byte segOverride = 0;");
         sb.AppendLine("        uint b = stream.NextUnit();                            // the first byte");
         sb.AppendLine("        while (s_x86Prefixes.Contains(b))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (b == 0x26u || b == 0x2Eu || b == 0x36u || b == 0x3Eu) segOverride = (byte)b;");
         sb.AppendLine("            b = stream.NextUnit();                             // stack the prefix, read the next byte");
+        sb.AppendLine("        }");
         sb.AppendLine("        uint opcode = b;                                       // the opcode byte (after any prefixes)");
         sb.AppendLine("        uint key = opcode;                                     // KeyShape.OpcodeByte (the default)");
         sb.AppendLine("        byte modrmByte = 0; byte operandCount = 0;");
+        sb.AppendLine("        ushort dispVal = 0; ushort immVal = 0;                 // M5.5a: the captured disp/imm (0 when none)");
         sb.AppendLine();
         sb.AppendLine("        // 2. ModR/M + the real 8086 16-bit displacement-length table.");
         sb.AppendLine("        if (s_x86HasModRm.Contains(opcode))");
@@ -4374,7 +4460,16 @@ internal static class CpuEmitter
         sb.AppendLine("                2u => 2,                   // disp16");
         sb.AppendLine("                _  => 0,                   // mod=11 register direct");
         sb.AppendLine("            };");
-        sb.AppendLine("            for (int i = 0; i < dispLen; i++) stream.NextUnit();   // consume the displacement bytes");
+        sb.AppendLine("            // M5.5a: CAPTURE the displacement (not just consume). disp8 ⇒ sign-extended to 16 bits;");
+        sb.AppendLine("            //        disp16 ⇒ little-endian lo|hi; dispLen==0 ⇒ disp stays 0.");
+        sb.AppendLine("            if (dispLen == 1)");
+        sb.AppendLine("                dispVal = unchecked((ushort)(sbyte)stream.NextUnit());");
+        sb.AppendLine("            else if (dispLen == 2)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                byte dlo = (byte)stream.NextUnit();");
+        sb.AppendLine("                byte dhi = (byte)stream.NextUnit();");
+        sb.AppendLine("                dispVal = (ushort)(dlo | (dhi << 8));");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        // 3. The immediate operand, whose length the opcode + its w/s bits dictate.");
@@ -4389,14 +4484,25 @@ internal static class CpuEmitter
         sb.AppendLine("                4 => ((opcode >> imm.SBit) & 1u) == 1u ? 1 : (((opcode >> imm.WBit) & 1u) == 1u ? 2 : 1),");
         sb.AppendLine("                _ => 0,");
         sb.AppendLine("            };");
-        sb.AppendLine("            for (int i = 0; i < immLen; i++) stream.NextUnit();    // consume the immediate bytes");
+        sb.AppendLine("            // M5.5a: CAPTURE the immediate (not just consume). immLen==1 ⇒ zero-extended byte;");
+        sb.AppendLine("            //        immLen==2 ⇒ little-endian lo|hi. (For the accumulator-direct A0-A3 moffs the");
+        sb.AppendLine("            //        disp16 is carried HERE — those opcodes declare Immediate: Fixed16, no ModR/M.)");
+        sb.AppendLine("            if (immLen == 1)");
+        sb.AppendLine("                immVal = (ushort)stream.NextUnit();");
+        sb.AppendLine("            else if (immLen == 2)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                byte ilo = (byte)stream.NextUnit();");
+        sb.AppendLine("                byte ihi = (byte)stream.NextUnit();");
+        sb.AppendLine("                immVal = (ushort)(ilo | (ihi << 8));");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        // 4. Length is a COMPUTED OUTPUT of the walk (UnitsConsumed × UnitBytes), never a field read.");
-        sb.AppendLine("        //    The ModR/M byte is surfaced on Operands.Lo (the proof-of-shape; the full mod/reg/r/m +");
-        sb.AppendLine("        //    segment-override EA descriptor is M5.3).");
+        sb.AppendLine("        //    The ModR/M byte is surfaced on Operands.Lo (the proof-of-shape); M5.5a additionally carries");
+        sb.AppendLine("        //    the captured disp/imm + the segment-override prefix byte on the X86Operands slot for the");
+        sb.AppendLine("        //    op bodies (the full mod/reg/r/m + segment EA resolution is the hand-written partial's job).");
         sb.AppendLine("        int length = stream.UnitsConsumed * stream.UnitBytes;");
-        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(modrmByte, 0, operandCount));");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(modrmByte, 0, operandCount), X86: new CpuEmulator.Core.Jit.X86Operands(modrmByte, dispVal, immVal, segOverride));");
         sb.AppendLine("    }");
 
         sb.AppendLine();
