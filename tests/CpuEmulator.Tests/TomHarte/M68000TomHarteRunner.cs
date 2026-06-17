@@ -210,10 +210,10 @@ internal static class M68000TomHarteRunner
 
     /// <summary>M4.6 tier-parity path: run one case through JittedCpu&lt;M68000Cpu&gt; (all-fallback) and diff
     /// the DATA axis against the case's final state — the byte-identical Tier-0-vs-Tier-1 gate. Mirrors
-    /// RunCase exactly except it drives Run(ref budget) (a one-instruction budget) instead of Step(). The
-    /// budget is the case length so the single fallback op completes; the JIT's block-entry interrupt check
-    /// + the fallback valve handle the synchronous mid-instruction vector (TRAP/÷0/privilege) authentically
-    /// (the exception-capable op bails to inner.Step). Returns null on pass / DeferredException for deferred /
+    /// RunCase exactly except it drives Run(ref budget) with a 1-cycle budget (so the budget-driven loop runs
+    /// EXACTLY ONE block == one instruction) instead of Step(); the JIT's block-entry interrupt check + the
+    /// fallback valve handle the synchronous mid-instruction vector (TRAP/÷0/privilege) authentically (the
+    /// exception-capable op bails to inner.Step). Returns null on pass / DeferredException for deferred /
     /// a formatted report on failure — the same contract as RunCase.</summary>
     public static string? RunCaseThroughJit(M68000TomHarteCase c, bool assertExceptions = false)
     {
