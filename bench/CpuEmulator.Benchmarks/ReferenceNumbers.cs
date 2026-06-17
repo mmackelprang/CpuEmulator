@@ -68,7 +68,12 @@ public static class ReferenceNumbers
             throw new InvalidDataException($"reference-numbers registry is not valid JSON: {ex.Message}", ex);
         }
 
-        if (dtos is null) return [];
+        // A file whose content is literally `null` (not a JSON array) is present-but-invalid — fail
+        // loud rather than silently treating it as an absent/empty registry (an intentionally-empty
+        // registry must be committed as `[]`, never `null`). The absent-file case returns [] in Load().
+        if (dtos is null)
+            throw new InvalidDataException(
+                "reference-numbers registry deserializes to null — expected a JSON array (commit `[]` for an empty registry).");
 
         var result = new List<ReferenceNumber>(dtos.Count);
         foreach (var d in dtos)

@@ -155,6 +155,52 @@ public class ComparisonTableWriterTests
         Assert.Contains("fake6502 (C)", md);
     }
 
+    // ── M5: the 6502 section's legend must NOT advertise the all-fallback † (the 6502 JIT is real) ──
+    [Fact]
+    public void RenderMarkdown_omits_the_all_fallback_dagger_legend_for_the_6502_section()
+    {
+        const string wl = "W2 arithmetic-kernel";
+        // 6502 tiers (cycle-only) + a head-to-head 6502 ref — NONE of these is all-fallback.
+        var tierRows = new List<BenchHarness.Row>
+        {
+            Tier0Cyc(wl, "mos6502", 200_000_000, 1.0),
+            Tier1Cyc(wl, "mos6502", 100_000_000, 1.0),
+        };
+        var adapterRows = new List<BenchHarness.Row>
+        {
+            new("fake6502 (C)", wl, AdapterResult.Measured(400_000_000, 1.0, "fake6502"), "mos6502"),
+        };
+
+        var model = ComparisonTableWriter.Build(tierRows, adapterRows, cited: []);
+        string md = ComparisonTableWriter.RenderMarkdown(model);
+
+        // The 6502 JIT is real (never all-fallback), so the section must not show a † cell NOR advertise
+        // the † legend fragment — a reader must not see a legend item for a marker that never appears.
+        Assert.DoesNotContain("†", md);
+        Assert.DoesNotContain("all-fallback", md);
+        // The other legend fragments are still present.
+        Assert.Contains("‡ = measured here", md);
+        Assert.Contains("[cited] = published context", md);
+    }
+
+    [Fact]
+    public void RenderMarkdown_keeps_the_all_fallback_dagger_legend_for_the_68000_section()
+    {
+        const string wl = "m68k-W2 arithmetic-kernel";
+        // The 68000 Tier-1 IS all-fallback → the † legend fragment must appear.
+        var tierRows = new List<BenchHarness.Row>
+        {
+            Tier0(wl, "m68000", 100_000_000, 20_000_000, 1.0),
+            Tier1(wl, "m68000", 60_000_000, 10_000_000, 1.0),
+        };
+
+        var model = ComparisonTableWriter.Build(tierRows, adapterRows: [], cited: []);
+        string md = ComparisonTableWriter.RenderMarkdown(model);
+
+        Assert.Contains("†", md);
+        Assert.Contains("all-fallback", md);
+    }
+
     // ── M3: JSON round-trip ───────────────────────────────────────────────────────────────────────
     [Fact]
     public void RenderJson_emits_valid_schema_with_hyphenated_kinds_and_cited_source()

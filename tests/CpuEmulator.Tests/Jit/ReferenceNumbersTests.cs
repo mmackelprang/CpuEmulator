@@ -62,6 +62,22 @@ public class ReferenceNumbersTests
     }
 
     [Fact]
+    public void Parse_of_literal_null_throws_present_but_invalid()
+    {
+        // A file whose content is literally `null` is present-but-invalid (not a JSON array) — it must
+        // throw, NOT silently degrade to an empty registry (an intentionally-empty registry is `[]`).
+        var ex = Assert.Throws<InvalidDataException>(() => ReferenceNumbers.Parse("null"));
+        Assert.Contains("null", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_of_an_empty_array_returns_no_rows()
+    {
+        // The legitimately-empty registry: `[]` parses to zero rows without throwing.
+        Assert.Empty(ReferenceNumbers.Parse("[]"));
+    }
+
+    [Fact]
     public void Load_finds_the_committed_m68000_Musashi_row_with_a_non_empty_source()
     {
         var rows = ReferenceNumbers.Load();

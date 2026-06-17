@@ -106,7 +106,7 @@
 | W1 Klaus-deterministic | fake6502 (C) 500,763,790 ‡ | 178,298,450 | 466,574 | 0.00× |
 | W2 arithmetic-kernel | fake6502 (C) 425,885,352 ‡ | 282,333,230 | 138,059,957 | 0.32× |
 
-‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes).
 
 ### Z80 — guest-MIPS (cross-CPU-comparable); T-states/sec in its own model
 

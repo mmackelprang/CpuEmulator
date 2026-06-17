@@ -265,10 +265,15 @@ public static class ComparisonTableWriter
             }
             sb.AppendLine();
 
-            // Legend (once per CPU sub-table).
-            sb.AppendLine("‡ = measured here, head-to-head (same workload bytes, same host). " +
-                          "[cited] = published context (see footnotes). " +
-                          "† = Tier-1 is all-fallback (no hot-op IL emit yet); the committed \"before\" for the re-measure.");
+            // Legend (once per CPU sub-table). The † fragment is emitted ONLY when this CPU actually
+            // has an all-fallback Tier-1 row (z80 / m68000) — the 6502 JIT is real, so its section
+            // never shows a † and must not advertise one in the legend.
+            bool anyAllFallback = cpu.Workloads.SelectMany(w => w.Rows).Any(r => r.AllFallback);
+            string legend = "‡ = measured here, head-to-head (same workload bytes, same host). " +
+                            "[cited] = published context (see footnotes).";
+            if (anyAllFallback)
+                legend += " † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed \"before\" for the re-measure.";
+            sb.AppendLine(legend);
             sb.AppendLine();
 
             // Cited footnotes (link each cited source present in this CPU's tables).
