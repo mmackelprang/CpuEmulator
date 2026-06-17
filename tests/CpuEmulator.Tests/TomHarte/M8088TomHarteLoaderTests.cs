@@ -173,14 +173,15 @@ public class M8088TomHarteLoaderTests
     [Fact]
     public void Runner_steps_and_diffs_against_the_merged_final_state()
     {
-        // M5.5a: the runner now Steps the real M8086Cpu + diffs the 14 registers + RAM against the merged
-        // final. The fixture is an ADD case (opcode 00, "add bh, cl") — ADD is OUT of the M5.5a MOV scope, so
-        // its body routes to HandleUndefinedOpcode (a no-op): IP still advances, but BX/FLAGS do not change.
-        // The runner therefore detects the mismatch and returns a non-null diff string — the proof that the
-        // Step + diff path (not the old NOT-EXECUTED sentinel) is wired and actually compares.
+        // M5.5b: the runner Steps the real M8086Cpu + diffs the 14 registers + RAM against the merged final.
+        // The fixture is an ADD case (opcode 00, "add bh, cl"). In M5.5a ADD had NO body (it routed to
+        // HandleUndefinedOpcode and the runner reported a mismatch); M5.5b adds the integer-ALU body, so ADD now
+        // EXECUTES correctly and the merged-final regs + RAM match byte-exact — the runner returns null (a clean
+        // pass). That null IS the proof the ALU body landed and the Step + diff path runs end-to-end on a real
+        // ALU op. (FLAGS compare is mask-aware; M8088Metadata.Empty ⇒ all-bits, so ADD's flags must match fully.)
         var c = M8088TomHarteLoader.LoadFile(FixturePath())[1];   // the register-form case (no RAM change)
         string? diff = M8088TomHarteRunner.RunCase(c, M8088Metadata.Empty, "00");
-        Assert.NotNull(diff);   // ADD has no body in M5.5a ⇒ the merged-final regs do not match ⇒ a diff
+        Assert.Null(diff);   // M5.5b: ADD now has a body ⇒ the merged-final state matches ⇒ no diff
     }
 
     /// <summary>Skip-gated real-vector proof: when the upstream 8088 v2 vectors are present, load
