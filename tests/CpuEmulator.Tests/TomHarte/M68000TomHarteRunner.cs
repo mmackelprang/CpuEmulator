@@ -222,11 +222,16 @@ internal static class M68000TomHarteRunner
             var a = got[i];
             AccessWidth ew = e.SizeTag == ".b" ? AccessWidth.Byte
                            : e.SizeTag == ".w" ? AccessWidth.Word : AccessWidth.Long;
-            if (a.Address != e.Address || a.IsRead != e.IsRead || a.Width != ew || a.Value != e.Value)
+            // M4.5d-2b: the 68000 has a 24-bit address bus (A23..A0); the upper byte of a computed EA is NOT
+            // driven onto the pins, so the corpus records 24-bit addresses. The interpreter's EA math is full
+            // 32-bit (e.g. -(A6) with A6 = 0xF05F160E yields 0xF05F160C), so mask the recorded address to 24
+            // bits before the comparison — matching the bus the real chip drives.
+            uint gotAddr = a.Address & 0xFFFFFFu;
+            if (gotAddr != e.Address || a.IsRead != e.IsRead || a.Width != ew || a.Value != e.Value)
             {
                 problems.Add($"bus trace diverges at access {i + 1}: expected " +
                     $"{(e.IsRead ? "R" : "W")}{e.SizeTag} {e.Address:X6}={e.Value:X} got " +
-                    $"{(a.IsRead ? "R" : "W")} {a.Address:X6}={a.Value:X} (w {a.Width})");
+                    $"{(a.IsRead ? "R" : "W")} {gotAddr:X6}={a.Value:X} (w {a.Width})");
                 break;
             }
         }

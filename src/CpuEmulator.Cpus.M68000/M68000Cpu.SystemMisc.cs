@@ -46,6 +46,12 @@ public sealed partial class M68000Cpu
         uint an = (operword >> 9) & 7u;                                            // dest An (bits 11-9)
         uint ea = ComputeEa(srcMode, srcReg, 2u, r.ExtensionWords, pureEa: true);  // address only (no write-back)
         SetAreg(an, ea);                                                            // whole An; no CCR
+        // M4.5d-2b: LEA is refills-lead (no operand bus access — its reads are all prefetch refills, flushed
+        // after the body). The only timing delta is the INDEX addressing mode's address-calc internal cycles:
+        // LEA (d8,An,Xn)/(d8,PC,Xn) = 12 vs d16(An)/(d16,PC) = 8 — a +4 internal-cycle idle (the brief-index add;
+        // double the data ops' +2 because the address IS the result, computed on the internal ALU). The simple
+        // modes ((An)=4, d16=8, abs.W=8, abs.L=12) are pure refills, no idle.
+        if (srcMode == 6u || (srcMode == 7u && srcReg == 3u)) Idle(4);
     }
 
     partial void PeaExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)

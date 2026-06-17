@@ -64,6 +64,11 @@ public sealed partial class M68000Cpu
         // is captured as a resolved descriptor so the write does NOT recompute a memory EA (the read-modify-
         // write DOUBLE-COMPUTE fix: ComputeEa(pureEa:false) does the (An)+/-(An) write-back, so calling it again
         // for the write would advance An a SECOND time and write to the wrong address — ADR 0007 finding #2).
+        // M4.5d-2b: the EXTENSION-word prefetch refills LEAD the operand access (the F…F prefix); flush them
+        // before the read. Only the LAST refill (the operword-frontier overlap) defers into the operand sequence
+        // (issued below, between read and write). A register/imm EA has a single pending refill, so this leads
+        // nothing — that one refill flushes after the body (the F shape).
+        LeadRefills();
         uint a, b;
         AluDest dest;
         switch (shape)
@@ -116,9 +121,30 @@ public sealed partial class M68000Cpu
         }
 
         uint result = aluFn(a, b, xIn, size) & mask;
+        // M4.5d-2b (the deferred-refill seam, ADR 0008 §8.1): for a MEMORY-EA op the prefetch refill overlaps the
+        // operand microcycle and lands BETWEEN the operand read and the write-back in the corpus trace (the RMW
+        // OFO shape — e.g. CLR.b (An) = read, refill, write — or OF for a read-only / Dn-dest op like TST/CMP/
+        // ADD (An),Dn). The operand read already happened above (ResolveEaDest/ReadEaOperand); issue the deferred
+        // refill HERE so it precedes any write-back. A register/immediate EA (Dn/An/#imm — no bus access) issues
+        // no early refill; its single operword refill flushes after the body (the F shape). The EA-calc idle
+        // (predecrement/index) is charged for the memory EA too. LEA/PEA/MOVEM/MUL/DIV are NOT routed through this
+        // driver, so their bespoke timing is unaffected.
+        if (IsMemoryEa(srcMode, srcReg))
+        {
+            EaCalcIdle(srcMode, srcReg);
+            Refill();   // the prefetch refill that overlaps the operand access (between read and write)
+        }
         if (writesResult) WriteResolvedDest(dest, size, result);
         SR = (ushort)((SR & 0xFF00) | ccrRule(a, b, result, size, xIn, oldCcr));
     }
+
+    /// <summary>M4.5d-2b: true when an EA mode performs a BUS access (a memory dereference) — i.e. NOT a
+    /// register (Dn mode 0 / An mode 1) and NOT an immediate (mode 7 reg 4, read from the extension words). The
+    /// memory modes are (An)/(An)+/-(An)/d16(An)/d8(An,Xn) (modes 2-6) and the mode-7 memory sub-modes abs.W/
+    /// abs.L/d16(PC)/d8(PC,Xn) (reg 0/1/2/3). Drives the deferred-refill + EA-calc-idle placement in the ALU
+    /// driver (a memory EA gets the interleaved refill; a register/imm EA does not).</summary>
+    private static bool IsMemoryEa(uint mode, uint reg)
+        => mode is >= 2u and <= 6u || (mode == 7u && reg <= 3u);
 
     /// <summary>A resolved ALU destination: either a data register (Dn) or an already-computed memory address.
     /// Capturing the memory address ONCE (at read time) is the read-modify-write double-compute fix (ADR 0007
@@ -403,19 +429,26 @@ public sealed partial class M68000Cpu
     //    address-once form: for (An)+/-(An) (modes 3/4) compute the EA ONCE so An advances exactly once. ───────
     partial void ClrExecute(uint operword, CpuEmulator.Core.Jit.DecodeResult r, uint size, uint srcMode, uint srcReg)
     {
+        // M4.5d-2b: CLR is a read-modify-write; the EXTENSION-word refills LEAD the read, then the operword
+        // refill overlaps and lands BETWEEN the dummy read and the write (the OFO / FOFO / FFOFO shapes), with
+        // the predecrement/index EA-calc idle charged first. A Dn dest is register-only (F shape — the operword
+        // refill flushes after the body; no early refill).
+        bool memEa = IsMemoryEa(srcMode, srcReg);
+        if (memEa) { LeadRefills(); EaCalcIdle(srcMode, srcReg); }
         if (srcMode is 3u or 4u)
         {
             uint ea = ComputeEa(srcMode, srcReg, size, r.ExtensionWords, pureEa: false);   // single write-back
             switch (size)
             {
-                case 0u: _ = ReadByteAt(ea); WriteByteAt(ea, 0); break;
-                case 1u: _ = ReadWordBus(ea); WriteWordBus(ea, 0); break;
-                default: _ = ReadLongBus(ea); WriteLongBus(ea, 0); break;
+                case 0u: _ = ReadByteAt(ea); Refill(); WriteByteAt(ea, 0); break;
+                case 1u: _ = ReadWordBus(ea); Refill(); WriteWordBus(ea, 0); break;
+                default: _ = ReadLongBus(ea); Refill(); WriteLongBus(ea, 0); break;
             }
         }
         else
         {
             _ = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);   // dummy read (Dn/simple-memory)
+            if (memEa) Refill();                                          // refill between read and write (OFO)
             WriteEaOperand(srcMode, srcReg, size, 0u, r.ExtensionWords);  // write 0
         }
         byte ccr = (byte)(SR & 0xFF);

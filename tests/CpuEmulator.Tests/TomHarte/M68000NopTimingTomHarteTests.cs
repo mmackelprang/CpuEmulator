@@ -17,7 +17,8 @@ namespace CpuEmulator.Tests.TomHarte;
 /// <list type="bullet">
 /// <item>the <b>untraced seed</b> (M68000FetchStream.SeedPeek via IAddressSpace.TryPeek8) — proven by the trace
 /// being EXACTLY one access (if the seed reads leaked, the trace would carry two phantom fetches at PC/PC+2);</item>
-/// <item>the <b>refill cycle charge</b> (<c>4 * RefillCount</c>) — proven by <c>CycleCount == 4</c>; and</item>
+/// <item>the <b>refill cycle charge</b> (the deferred refill flushed via FlushRefills at 4 clocks) — proven by
+/// <c>CycleCount == 4</c>; and</item>
 /// <item>the <b>idle primitive</b> (IdleCycles flushing _pendingIdle == 0 for a register-only class) — proven by
 /// there being NO extra idle cycles inflating the count past 4.</item>
 /// </list>
