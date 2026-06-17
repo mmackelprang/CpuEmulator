@@ -246,11 +246,15 @@ internal static class M68000TomHarteRunner
         cpu.SetRegister("PC", s.Pc);
         cpu.SetRegister("SR", s.Sr);
 
-        // One instruction through Tier-1. The budget is the case's cycle length so the single fallback op
-        // (which charges its real cycles via inner.Step) completes within one Run iteration; overshoot is
-        // bounded by one instruction (JittedCpu.Run exits at the block boundary). A floor keeps a zero-length
-        // edge case from no-op'ing the Run loop.
-        long budget = System.Math.Max(c.Length, 1);
+        // EXACTLY ONE instruction through Tier-1. JittedCpu.Run is a budget-driven loop — `while (budget > 0)`
+        // runs another block each iteration — so the budget must be sized so the loop runs ONCE. A 1-cycle
+        // budget does that: the check passes once (1 > 0), the single fallback op charges the instruction's
+        // cycle cost (driving budget <= 0 — every 68000 instruction costs >= 1 cycle), and the loop exits.
+        // (The case's c.Length is NOT a valid budget here: the M4 interpreter charges a FLAT UnitsConsumed*4,
+        // which is LESS than the real c.Length for most multi-cycle ops, so a c.Length budget would leave the
+        // loop positive and run a SECOND, garbage instruction at the advanced PC — corrupting the data axis.
+        // The data-axis result is produced entirely by the one fallback Step, identical to RunCase's Step.)
+        long budget = 1;
         jit.Run(ref budget);
 
         var problems = new System.Collections.Generic.List<string>();
