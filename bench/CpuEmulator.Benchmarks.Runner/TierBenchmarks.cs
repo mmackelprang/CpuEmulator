@@ -16,6 +16,8 @@ public class TierBenchmarks
     private BenchWorkload _w2 = null!;
     private BenchWorkload? _z80w1;
     private BenchWorkload _z80w2 = null!;
+    private BenchWorkload _m68kw1 = null!;
+    private BenchWorkload _m68kw2 = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -24,6 +26,8 @@ public class TierBenchmarks
         _w2 = Workloads.ArithmeticKernel();
         _z80w1 = Z80Workloads.Z80ZexPrefixOrNull();
         _z80w2 = Z80Workloads.Z80ArithmeticKernel();
+        _m68kw1 = M68000Workloads.MixedKernel();
+        _m68kw2 = M68000Workloads.ArithmeticKernel();
     }
 
     // W2 — the arithmetic kernel (always available; the headline emit/chaining comparison).
@@ -53,6 +57,21 @@ public class TierBenchmarks
 
     [Benchmark]
     public long Jit_Z80Zex() => Tier1.Run(RequireZ80W1());
+
+    // 68000-W2 — the ALU/branch kernel (Milestone B; always available; the all-fallback 68000
+    // emit/chaining comparison — the "before" baseline for the later 68000 hot-op emit).
+    [Benchmark]
+    public long Interpreter_M68000Kernel() => Tier0.Run(_m68kw2);
+
+    [Benchmark]
+    public long Jit_M68000Kernel() => Tier1.Run(_m68kw2);
+
+    // 68000-W1 — the deterministic mixed stream (Milestone B; always available).
+    [Benchmark]
+    public long Interpreter_M68000Mixed() => Tier0.Run(_m68kw1);
+
+    [Benchmark]
+    public long Jit_M68000Mixed() => Tier1.Run(_m68kw1);
 
     private BenchWorkload RequireW1() =>
         _w1 ?? throw new InvalidOperationException(
