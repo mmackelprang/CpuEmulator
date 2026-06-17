@@ -1,0 +1,12 @@
+[
+  {
+    "cpu": "m68000",
+    "subject": "Musashi (C)",
+    "guestMips": null,
+    "cyclesPerSecond": null,
+    "note": "Published context only — a fast native C 68000 interpreter (used by MAME-class projects). No directly-comparable published guest-MIPS/cycles-sec figure on this suite's workloads; head-to-head Musashi integration is deferred (plan Task M4). This row marks the 'best existing' column as a cited placeholder until the head-to-head number lands.",
+    "source": "https://github.com/kstenerud/Musashi",
+    "measuredOn": "n/a — repository/project reference, not a measured figure on this suite",
+    "citedDate": "2026-06-17"
+  }
+]
