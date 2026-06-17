@@ -34,6 +34,12 @@ public static class BenchHarness
             new Z80CAdapter(),       // A7 — C subprocess (superzazu/z80, compiled-once-cached)
             new Z80JsAdapter(),      // A8 — JS node subprocess (DrGoldfire/Z80.js) — optional
         ],
+        // The 68000 reference set (Milestone B has NO third-party 68000 subject yet — the our-tiers
+        // baseline always commits, R10). The Musashi head-to-head reference (or its cited fallback) is
+        // Task M4 of the comparison-framework milestone; it adds `new MusashiAdapter()` here, which
+        // skip-with-notes when its source/compiler is absent. Until then the 68000 section is our two
+        // tiers only — exactly the "before" baseline this milestone captures.
+        "m68000" => [],
         _ =>
         [
             new Asm6502Adapter(),
@@ -59,6 +65,31 @@ public static class BenchHarness
             long cycles = run(w);
             sw.Stop();
             return AdapterResult.Measured(cycles, sw.Elapsed.TotalSeconds, tierName);
+        }
+        catch (Exception ex)
+        {
+            return AdapterResult.Skipped($"tier run failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Measure one tier capturing BOTH cycles AND the guest instruction count (Task B2). Same
+    /// warmed-Stopwatch pass as <see cref="MeasureTier"/>; the row carries instructions/sec when the
+    /// driver attributes a per-instruction count (the 68000) and 0 ("not reported") otherwise (the
+    /// 6502/Z80 W2 JIT path) — additive, so the existing cycles/sec is unchanged. The 68000 baseline
+    /// leads with instructions/sec because its cycle axis is partial on `main` (M4.5d-2 gating).</summary>
+    public static AdapterResult MeasureTierCounted(string tierName, Func<BenchWorkload, TierRunResult> run, BenchWorkload w)
+    {
+        try
+        {
+            bool warmup = w.FixedCycleCap is not null;   // W2 (short) warms; W1 (long) self-warms
+            if (warmup) run(w);
+            var sw = Stopwatch.StartNew();
+            TierRunResult r = run(w);
+            sw.Stop();
+            double wall = sw.Elapsed.TotalSeconds;
+            return r.Instructions > 0
+                ? AdapterResult.MeasuredWithInstructions(r.Cycles, r.Instructions, wall, tierName)
+                : AdapterResult.Measured(r.Cycles, wall, tierName);
         }
         catch (Exception ex)
         {

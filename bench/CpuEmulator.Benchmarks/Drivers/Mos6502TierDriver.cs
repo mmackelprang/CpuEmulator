@@ -45,6 +45,9 @@ public sealed class Mos6502TierDriver : ITierDriver
         private bool _parked;
 
         public long CycleCount => cpu.CycleCount;
+        // 6502 cycles/sec is the committed metric; the 6502 does not report a guest-instruction count
+        // (Task B2 — "not reported" = 0; guest-MIPS renders "—" for it). The 68000 leads with it instead.
+        public long InstructionCount => 0;
         public ushort CurrentPc => cpu.PC;
         public bool ParkedThisSlice => _parked;
 
@@ -65,6 +68,9 @@ public sealed class Mos6502TierDriver : ITierDriver
         private bool _parked;
 
         public long CycleCount => cpu.CycleCount;
+        // The W2 JIT path advances by one LARGE budgeted Run, so it cannot attribute a per-instruction
+        // count (Task B2 — "not reported" = 0; guest-MIPS renders "—" for it).
+        public long InstructionCount => 0;
         public ushort CurrentPc => cpu.PC;
         public bool ParkedThisSlice => _parked;
 

@@ -19,6 +19,19 @@ public interface ITierInstance
     /// <summary>The emulated cycle count consumed so far (6502 machine cycles; Z80 T-states).</summary>
     long CycleCount { get; }
 
+    /// <summary>The number of GUEST INSTRUCTIONS retired so far (Task B2 — the cycle-axis-independent
+    /// metric). Each <c>Step()</c> and each budget-1 <c>JittedCpu.Run</c> iteration is exactly one
+    /// instruction. This is additive: it does NOT change any committed cycles/sec. The 68000 LEADS
+    /// with it (it drives by a budget-1 advance, so each instruction is counted) because its cycle
+    /// axis is partial on `main` (M4.5d-2 gating, ADR 0008 §6) while its INSTRUCTION count is
+    /// data-axis-correct on the merged M4.6 core right now. The 6502/Z80 W2 JIT path advances by a
+    /// single LARGE budgeted Run (the fair throughput window) and so cannot cheaply attribute a
+    /// per-instruction count — those drivers leave this 0 ("not reported"); the normalization layer
+    /// (M1) then renders "—" for their guest-MIPS cell, ranking them by cycles/sec within their CPU.
+    /// Leaving it 0 keeps the existing 6502/Z80 numbers byte-identical (the count is recorded, never
+    /// used in the existing math).</summary>
+    long InstructionCount { get; }
+
     /// <summary>Advance ONE slice, bounded by <paramref name="maxCycles"/> emulated cycles (the
     /// runner passes <c>min(BulkSlice, target - CycleCount)</c>). A Tier-0 instance may step a single
     /// instruction; a Tier-1 instance runs <c>JittedCpu.Run</c> with that budget. After the call,

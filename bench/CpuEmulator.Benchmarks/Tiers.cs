@@ -13,6 +13,11 @@ public static class Tier0
 {
     /// <summary>Run the workload on the Tier-0 interpreter; return the emulated cycle count.</summary>
     public static long Run(BenchWorkload w) => TierRunner.Run(w, jit: false, new JitOptions());
+
+    /// <summary>Run the workload on the Tier-0 interpreter; return BOTH the cycle count and the guest
+    /// instruction count (Task B2). InstructionCount is 0 for drivers that do not attribute a
+    /// per-instruction count (the 6502/Z80 W2 JIT path; the interpreter path may also leave it 0).</summary>
+    public static TierRunResult RunCounted(BenchWorkload w) => TierRunner.RunCounted(w, jit: false, new JitOptions());
 }
 
 public static class Tier1
@@ -24,7 +29,17 @@ public static class Tier1
     /// <summary>Run the workload on the Tier-1 JIT with explicit options (used by the dispatch /
     /// chaining micro-bench in Task 9 — e.g. DisableChaining).</summary>
     public static long Run(BenchWorkload w, JitOptions options) => TierRunner.Run(w, jit: true, options);
+
+    /// <summary>Run the workload on the Tier-1 JIT (chaining ON); return BOTH the cycle count and the
+    /// guest instruction count (Task B2).</summary>
+    public static TierRunResult RunCounted(BenchWorkload w) => TierRunner.RunCounted(w, jit: true, new JitOptions());
 }
+
+/// <summary>The outcome of one counted tier run (Task B2): the emulated cycle count AND the guest
+/// instruction count over the same window. <see cref="Instructions"/> is 0 when the driver does not
+/// attribute a per-instruction count (the 6502/Z80 W2 JIT path advances by one large budgeted Run);
+/// the 68000 driver reports a real count (it advances by a budget-1 Run / Step).</summary>
+public readonly record struct TierRunResult(long Cycles, long Instructions);
 
 internal static class TierRunner
 {
@@ -45,9 +60,17 @@ internal static class TierRunner
         {
             ["mos6502"] = new Mos6502TierDriver(),
             ["z80"] = new Z80TierDriver(),
+            ["m68000"] = new M68000TierDriver(),   // Milestone B — the 68000 tier driver (the reserved seam)
         };
 
-    public static long Run(BenchWorkload w, bool jit, JitOptions options)
+    /// <summary>Run a tier to its termination window, returning the emulated cycle count (back-compat
+    /// entry point — the smoke test + the BDN harness use it).</summary>
+    public static long Run(BenchWorkload w, bool jit, JitOptions options) => RunCounted(w, jit, options).Cycles;
+
+    /// <summary>Run a tier to its termination window, returning BOTH the cycle count and the guest
+    /// instruction count (Task B2). The instruction count is harvested from the live instance after
+    /// the same window the cycle count measures — additive, never changing the cycle math.</summary>
+    public static TierRunResult RunCounted(BenchWorkload w, bool jit, JitOptions options)
     {
         if (!Drivers.TryGetValue(w.Architecture, out var driver))
             throw new InvalidOperationException(
@@ -74,10 +97,10 @@ internal static class TierRunner
             {
                 if (trap)
                     VerifyTrap(instance.CycleCount, instance.CurrentPc, w);
-                return instance.CycleCount;
+                return new TierRunResult(instance.CycleCount, instance.InstructionCount);
             }
         }
-        return instance.CycleCount;
+        return new TierRunResult(instance.CycleCount, instance.InstructionCount);
     }
 
     /// <summary>Sanity-gate a W1 park: it must be at the success trap. A park elsewhere means the
