@@ -26,4 +26,13 @@ public enum Flag
     P = 10,
     Y = 11,
     X = 12,
+    // ── M5 (8086) additions (ADR 0005 Decision 3). Six 8086 flags reuse existing members (C=CF,
+    //    P=PF, Z=ZF, S=SF, V=OF, I=IF) at 8086 bit positions assigned per-spec via FlagLayout; AF
+    //    reuses H (the BCD half-carry — semantically identical). Two are genuinely new: ──────────────
+    /// <summary>8086 TF — the trap (single-step) flag. New vocabulary; no prior CPU has it.</summary>
+    T = 13,
+    /// <summary>8086 DF — the direction flag (string-op address step: 0 ⇒ inc, 1 ⇒ dec). Distinct
+    /// from the 6502 decimal flag D (different bit, different meaning) — a separate member by
+    /// design (ADR 0005 Decision 3).</summary>
+    Df = 14,
 }
