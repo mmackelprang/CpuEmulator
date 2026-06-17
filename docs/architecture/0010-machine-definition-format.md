@@ -1,6 +1,9 @@
 # ADR 0010 — The machine-definition format (config-over-code: declarative manifest + code peripherals)
 
-> **Status:** Proposed (drafted by Claude Architect; awaiting owner sign-off). No implementation now — this ADR
+> **Status:** ACCEPTED (owner-approved 2026-06-17). Acceptance included one required addition over the originally-drafted
+> seven decisions: **Decision 8 — artifact-ingestion tooling** (the pipeline that gets ROMs and disk images *into* the
+> raw bytes / raw sectors the loader and devices expect; the manifest's `rom`+`sha256` reference of Decision 4 covers
+> only the *reference*, not how the artifact reaches the right format + place). No implementation now — this ADR
 > formalizes the **config-over-code** layer for the emulated-computer arc, decided HYBRID by the owner: a declarative
 > **JSON manifest** defines the machine's *wiring/composition* (CPU choice, memory map, device instances, interrupt
 > wiring, clock/refresh, per-device timing tier), while device *behavior* stays **code** (`IPeripheral` components
@@ -495,6 +498,200 @@ boundaries — is the cheap insurance. **Consequences.** *Good:* no premature lo
 manifest mechanically. *Bad / accepted:* SP0 carries four small factoring constraints whose payoff is deferred to SP1
 (acceptable — they are good practice independent of the loader).
 
+### Decision 8 — Artifact-ingestion tooling: normalize user-supplied ROMs/disk images to the raw bytes + raw sectors the loader expects, verify against the manifest, cache in an artifact store
+
+*(Added at owner acceptance, 2026-06-17.)* Decision 4 covers how the manifest *references* an artifact (a relative path
++ `sha256`, hash-verified at load). It is silent on the prior problem: **how does an artifact get into the right *format*
+and *place* to be referenced in the first place?** A real machine's ROMs and disk images arrive in many *source* formats
+that are **not** what the loader and devices consume, and the gap between "the file the user has" and "the bytes the
+loader needs" is exactly where a `MACHGEN010` (missing / hash-mismatch) lands today with no tooling to resolve it. This
+decision adds the **artifact-ingestion pipeline** — the artifact analogue of the test-vector fetch scripts
+(`tools/get-test-vectors-*.{ps1,sh}`) + the `MACHGEN` manifest validator — to close that gap.
+
+**8.1 — The need (what the loader/devices require vs. what artifacts arrive as).** The loader's two consumers each need a
+*normalized* shape:
+
+- **ROM regions** (Decision 4 `memory[]` + `RomRef` params) need **raw bytes**, length-exact to the declared region
+  `size` — the byte array handed to `WithRom(kind, base, bytes)` / `IComponentBuildContext.Rom(name)`.
+- **Disk-backed devices** need **raw sectors** behind SP0's `IBlockDevice` (`SectorSize`/`SectorCount`/`ReadSector`/
+  `WriteSector`, SP0 §4.3) via the `DiskImage` adapter (LBA → file offset). SP0 §4.3 explicitly defers "image-format
+  quirks (ATR headers, etc.)" to "SP1+" and uses a **raw** sector image for the demo — *this decision is that deferred
+  SP1+ work named*.
+
+Real artifacts deviate from those normalized shapes in routine ways the tooling must absorb:
+
+- **Disk images** in container formats — Atari **ATR** (16-byte header + sectors, with the 128-byte-first-3-sectors
+  boot quirk), C64 **D64** (track/sector geometry, not LBA-linear), PC **IMG/IMA** (usually already raw, sometimes with
+  geometry metadata), **DSK** (several incompatible layouts under one extension), and already-raw images. All must be
+  normalized to the linear LBA sector layout `DiskImage` reads.
+- **ROMs with headers/footers** (an iNES-style header, a checksum footer) that must be **stripped** to leave pure code
+  bytes.
+- **Interleaved or split ROM sets** — a machine ROM shipped as two/four chips (even/odd, or low/high halves) that must
+  be **de-interleaved and/or joined** into the single contiguous image the region expects, or conversely one image that
+  must be **split** to feed two regions.
+- **Byte-swapped ROMs** — notably some **68000** ROM dumps are word-byte-swapped relative to the big-endian bus
+  (consistent with ADR 0003's BE bus); the tooling must **de-swap** them.
+
+The normalization is *exactly* the kind of deterministic, testable transform that belongs in tooling, not in a device's
+hot path or in config: the manifest stays a static wiring description (Decision 1), the device consumes already-correct
+bytes/sectors, and the conversion is a one-time pre-load step with a known input hash → known output hash.
+
+**8.2 — The pipeline (acquire → convert/normalize → verify → cache).** Four stages, mirroring the test-vector fetch
+discipline (idempotent, cache-first, fail-loud):
+
+1. **Acquire** — accept user-supplied artifacts (the common case: the user owns the ROM/disk and points the tool at it);
+   *optionally* fetch **freely-licensed** artifacts from public sources (the same posture as the existing
+   `get-test-vectors-*`/`get-zexall`/`get-klaus` scripts, which fetch public test corpora — never copyrighted ROMs).
+2. **Convert / normalize** — run the source through the matching **format adapter** (8.3): strip headers/footers,
+   de-interleave / de-swap, split/join ROM sets, and convert a disk container (ATR/D64/IMG/DSK) → raw linear sectors.
+   The output is the normalized shape from 8.1.
+3. **Verify** — compute the `sha256` of the *normalized* output and check it against the manifest's reference
+   (Decision 4). A mismatch is a hard stop with the **same diagnostic discipline as the loader**: a `MACHGEN`-style
+   numbered diagnostic (e.g. an `ARTGEN0NN` set, or a reused `MACHGEN010`/`MACHGEN013` — Open Question 13) naming the
+   artifact, the expected hash, the actual hash, and the adapter that produced it. This is the artifact-side analogue of
+   the test-vector scripts checking `$LASTEXITCODE` so "a failed clone cannot report success" (the documented Z80-script
+   finding in `tools/get-test-vectors-68000.ps1`).
+4. **Cache** — write the verified, normalized artifact into an **artifact store** keyed by content (so a re-resolve is a
+   cache hit, and two manifests referencing the same ROM share one copy). The store is the analogue of the test-vector
+   cache `~/.cache/cpuemulator/vectors` (root overridable via env var — `get-test-vectors-*` honor
+   `$CPUEMULATOR_TESTVECTORS`): the artifact store is **`~/.cache/cpuemulator/artifacts`** (root overridable via a
+   parallel **`CPUEMULATOR_ARTIFACTS`** env var; Open Question 12 settles the in-store layout — leaning
+   `artifacts/<sha256>` content-addressed, with a thin `by-name/` index for human inspection).
+
+**8.3 — Format adapters: a small id → converter registry, parallel to the component registry.** A converter library keyed
+by **artifact type**, structurally parallel to Decision 2's `ComponentRegistry` (id → descriptor → factory). An adapter
+declares the source format it consumes and emits the normalized target. Shapes (additive; live alongside the loader, not
+in `CpuEmulator.Core`'s runtime — the converters are *tooling*, not a runtime peripheral path):
+
+```csharp
+namespace CpuEmulator.Machines.Artifacts;   // tooling-side; converters, not runtime peripherals
+
+public enum ArtifactTarget { RawRom, RawSectors }   // the two normalized shapes (8.1)
+
+/// <summary>What a converter produces: the normalized bytes (RawRom) or the normalized linear sector
+/// image (RawSectors), plus the geometry a DiskImage/IBlockDevice needs (SP0 §4.3).</summary>
+public sealed record NormalizedArtifact(
+    ArtifactTarget Target,
+    byte[]  Bytes,                      // RawRom: code bytes; RawSectors: linear LBA-ordered sector image
+    int?    SectorSize  = null,         // RawSectors only → IBlockDevice.SectorSize
+    long?   SectorCount = null,         // RawSectors only → IBlockDevice.SectorCount
+    string? Notes       = null);        // e.g. "stripped 16-byte ATR header; 720 × 128-byte sectors"
+
+/// <summary>A registered artifact converter. The registry resolves a source-format id to this — the
+/// artifact analogue of ComponentDescriptor (Decision 2).</summary>
+public sealed record ArtifactAdapter(
+    string Id,                          // source-format id, e.g. "atr", "d64", "img", "dsk", "rom-raw",
+                                        //   "rom-headered", "rom-interleaved", "rom-byteswapped-68k"
+    string DisplayName,
+    ArtifactTarget Target,              // what it normalizes TO
+    Func<ReadOnlySpan<byte>, ConvertOptions, NormalizedArtifact> Convert);
+
+public sealed class ArtifactAdapterRegistry          // same Register / TryResolve / All shape as ComponentRegistry
+{
+    public void Register(ArtifactAdapter adapter);
+    public bool TryResolve(string id, out ArtifactAdapter adapter);
+    public IReadOnlyCollection<ArtifactAdapter> All { get; }   // for "--list" + "unknown format: did you mean…"
+}
+```
+
+The adapters sit **behind the same `IBlockDevice` / `DiskImage` seam SP0 defines** (SP0 §4.3): a disk adapter's job ends
+at producing the raw linear sector image; the `DiskImage` adapter maps LBA → offset into *that*; the machine-specific
+controller (SIO/810, µPD765) sits on top translating the guest protocol. The ROM adapters' job ends at producing the
+length-exact byte array `WithRom`/`Rom(name)` consume. Nothing in the adapter library touches the runtime bus — it is a
+pre-load transform, exactly as the spec-importer is a pre-build transform.
+
+**8.4 — Manifest integration (`--check` / `--prepare`): resolve + verify every referenced artifact, report what's
+missing and how to obtain it.** A tool that, given a machine manifest, walks every `rom`+`sha256` reference (Decision 4)
+and reports artifact readiness — the artifact analogue of the test-vector fetch scripts + the `MACHGEN` manifest
+validator (Open Question 4's `--validate`/`--describe` family, extended):
+
+- **`--check <manifest>`** — read-only. For each referenced artifact: present in the store and hash-matches → OK;
+  present-but-mismatched → loud (wrong ROM version, the Decision 4 silent-wrong-ROM bug caught early); absent → reported
+  as *missing*, naming the expected `sha256` and (for freely-licensed artifacts) where to obtain it, and (for
+  user-supplied artifacts) the source format(s) the tool can normalize from. No construction, no `Machine` build — a
+  pure lint, like `--validate`.
+- **`--prepare <manifest> [--from <file>=<adapter-id> …]`** — run the pipeline (8.2): normalize the user's supplied
+  source files through the named adapters, verify against the manifest hashes, and populate the artifact store so a
+  subsequent load (or `--check`) is all-green. Idempotent (cache-first), batch-diagnostic (reports *all* artifact
+  problems in one pass, like the `MACHGEN` validator's all-diagnostics-not-fail-fast behavior, §3.3).
+
+**8.5 — Legal / copyright posture (stated explicitly).** The tooling **does NOT bundle copyrighted ROMs.** It
+**converts and verifies user-supplied artifacts** (the user provides the ROM/disk they own), and may **fetch only
+freely-licensed artifacts** from public sources — the *identical* posture to the existing test-vector fetch, which pulls
+public test corpora (SingleStepTests, zexall, Klaus) and never ships proprietary bytes. The manifest's `sha256`
+references (Decision 4) are what make this work: a machine is **reproducible and tamper-evident without shipping the
+bytes** — the repo ships the manifest + the expected hashes + the converters; the user supplies the artifact they are
+entitled to, and the hash tells them (and a reviewer) whether it is the right one. No copyrighted data enters the
+repository or the cache from the project's side at any point.
+
+**8.6 — Cross-platform (NOT PowerShell-only).** Provide the tooling **cross-platform**. The test-vector fetch hit a
+**PowerShell deny-rule wall** in this environment (the harness blocks some PowerShell invocations; the `.ps1` scripts
+each ship a `.sh` sibling — `get-test-vectors-*.sh`, `get-zexall.sh`, `get-klaus.sh` — for exactly this reason). The
+conversion/verification logic is more than a clone-and-move, so prefer a **portable approach**: a **.NET tool**
+(`dotnet` is already the toolchain; a `CpuEmulator.Tools.Artifacts` console project or a `dotnet`-run target keeps the
+adapters in C#, unit-testable against known input→output hash pairs, and runs identically on Windows/macOS/Linux),
+optionally complemented by thin `git`/`sh` wrappers for the *fetch-only* (freely-licensed) acquire step (the part the
+existing scripts already do well). **Do not make the artifact tooling PowerShell-only** — that reintroduces the exact
+wall we already hit.
+
+**8.7 — Rollout (SP1, with the loader; an SP1 dependency).** The conversion tooling lands at **SP1**, alongside the
+loader, the registries, and the `MACHGEN` validator (Decision 7): SP1's first real machine (Atari 800) is the first to
+need a *real* OS ROM and a *real* disk image (ATR), so it is the first to need the adapters. **SP0 needs none** — SP0's
+single `DemoMachine` uses a synthetic/raw image (`DemoDisk` on a raw sector image, SP0 §4.3) and a built/synthetic demo
+ROM, so it references no external artifact and needs no conversion. Record this as an **SP1 dependency**: the SP1 loader
+is not *useful* on a real machine without the artifact tooling to feed it (a manifest that references an OS ROM is
+inert until `--prepare` can normalize + place that ROM), even though the loader and the tooling are separable
+deliverables.
+
+**Rationale.**
+- It closes the Decision-4 gap *without* widening the manifest: the reference stays path+hash; the *fulfillment* is
+  tooling. The manifest does not gain a "how to convert" surface (that would be behavior creeping into config, Decision
+  1's bright line) — the conversion is named by an adapter id at `--prepare` time, not declared in the machine file.
+- It reuses three proven disciplines wholesale: the **cache-first fetch** pattern (`~/.cache/cpuemulator/...`, env-var
+  override, idempotent), the **batch numbered-diagnostic** validation (`MACHGEN`/CPUGEN — all problems in one pass), and
+  the **legal posture** of the test-vector scripts (public/free only; the user supplies what they own).
+- It keeps the conversion in **testable C#** (the adapters are pure `bytes → NormalizedArtifact` functions with
+  ground-truth input/output hash pairs — the same oracle discipline the CPU side uses), behind the **`IBlockDevice`/
+  `DiskImage` seam SP0 already cut**, so the runtime never sees a non-normalized artifact.
+
+**Alternatives considered.**
+- **(A) Require pre-converted artifacts only (no tooling; user must hand the loader raw bytes / raw sectors).**
+  *Rejected.* This is the de-facto SP0 state (Decision 4 + SP0's raw demo image) and is fine for a synthetic demo, but
+  it pushes ATR/D64/header-strip/de-interleave/byte-swap onto every user by hand for every real machine — error-prone,
+  unreproducible, and exactly the friction that makes an emulator "works on the author's machine only." The hash would
+  catch a *wrong* result but offers no *path* to a right one. Tooling turns "you figure out the format" into a named,
+  tested converter.
+- **(B) Inline / base64 the converted artifact in the manifest.** *Rejected — already rejected by Decision 4(A).* Bloats
+  the manifest, kills diffability, and bakes potentially-copyrighted bytes into the repo. The artifact store
+  (out-of-band, content-addressed, user-populated) is the deliberate inverse.
+- **(C) Convert inside the device/loader at runtime (the controller sniffs ATR vs. raw and adapts on the fly).**
+  *Rejected.* It smears format-detection into the hot runtime path and the device contract, makes the device's behavior
+  depend on an un-normalized input it should never see, and defeats the `sha256` reproducibility guarantee (you can no
+  longer pin "exactly these bytes" if the device transforms them at load). Normalize once, ahead of load; the device
+  consumes only the normalized shape — the same separation as spec-import-then-build.
+- **(D) Adopt an existing tool's format database (MAME-style ROM sets / DAT files).** *Deferred / YAGNI.* The handful of
+  ROMs a few machines need does not justify importing a large external format catalog and its conventions; the small
+  id→converter registry (8.3) covers the in-tree machines (Atari, PC). Revisit only if a shared, large ROM library
+  emerges (the same trigger as Decision 4(C)'s deferred content-addressed store — to which 8.2's content-addressed cache
+  is in fact the down payment).
+
+**Consequences.**
+- *Good:* real machines become *usable*, not just *definable* — the loader (Decision 5) has something to load on a real
+  ROM; a manifest's path+hash reference (Decision 4) gains a fulfillment path.
+- *Good:* the conversion is reproducible, tested, and tamper-evident (verify-against-manifest-hash), and shares the
+  test-vector cache/diagnostic/legal disciplines — one mental model across vectors and artifacts.
+- *Good:* it stays behind the SP0 `IBlockDevice`/`DiskImage` and `WithRom` seams (no runtime change), and keeps
+  conversion out of the manifest (no behavior-in-config creep, Decision 1 intact).
+- *Bad / accepted:* a new converter library + adapter registry is real surface to maintain (one adapter per source
+  format the in-tree machines actually use — initially a small set: ATR, raw/headered ROM, a 68000 byte-swap; D64/DSK/
+  split-set added when a machine needs them). The id→converter shape (8.3) keeps it parallel to the component registry,
+  so it is one more registry pattern, not a new paradigm.
+- *Bad / accepted:* the user still must *supply* copyrighted artifacts out-of-band (the legal posture, 8.5) — `--prepare`
+  cannot conjure an OS ROM; it can only normalize + verify one the user provides. This is intended (it is the whole
+  reason the bytes are not in the repo) but it is a real setup step, surfaced clearly by `--check`.
+- *Bad / accepted:* a content-addressed cache can accumulate stale entries across manifest revisions; a `--gc`/prune is
+  an obvious future affordance (Open Question 12), unbudgeted until the cache actually bloats.
+
 ---
 
 ## 3. Concrete schema + surfaces
@@ -610,7 +807,10 @@ two-line model does not express — flagged as Open Question 5, to be resolved a
   fastmem/MMIO seams + the component capabilities, so a manifest cannot express an ADR-0009-illegal composition.
 - The loader is **additive** (Decision 5): one `Machine` semantics, all builder invariants inherited, a clean parity
   test against `Breadboard6502`.
-- ROM references are **reproducible and tamper-evident** (Decision 4).
+- ROM references are **reproducible and tamper-evident** (Decision 4), and there is a **fulfillment path** for them:
+  artifact-ingestion tooling (Decision 8) normalizes user-supplied ROMs/disk images to the raw bytes / raw sectors the
+  loader and `IBlockDevice` consume, verifies them against the manifest hashes, and caches them — reusing the
+  test-vector cache/diagnostic/legal disciplines and shipping cross-platform (not PowerShell-only).
 
 **Bad / accepted costs.**
 - A machine's definition is **split across a manifest + its code components** (Decision 1) — read in two places,
@@ -620,6 +820,9 @@ two-line model does not express — flagged as Open Question 5, to be resolved a
 - **Variant manifests can drift** absent a DRY mechanism (Decision 6 / Open Question 1).
 - **Nothing is built until SP1**; SP0 carries four small config-readiness constraints (Decision 7 §2.6) whose payoff is
   deferred.
+- The **artifact-ingestion tooling is a new converter library + adapter registry** to maintain (Decision 8), and the
+  user must still **supply copyrighted artifacts out-of-band** (the deliberate legal posture, 8.5) — `--prepare`
+  normalizes + verifies what the user provides; it does not (and legally cannot) conjure proprietary ROMs.
 
 **Reversibility.** High. The loader is a pure front-end to `MachineBuilder`; if the manifest format proves wrong, the
 hand-coded path still works unchanged and a v2 schema (`cpuemu.machine/2`) can supersede v1 with the version tag already
@@ -666,6 +869,33 @@ runtime types are the registries and the loader, both additive and behind no exi
    home for `DemoMachine` (SP0 §3); the loader + registries presumably live there or in a sibling `CpuEmulator.Config`.
    And does a JSON-Schema file ship alongside `cpuemu.machine/1` for editor validation? Deferred to SP1's project
    layout.
+9. **Artifact source-format detection vs. explicit declaration (Decision 8.3/8.4).** Does `--prepare` *sniff* the source
+   format (ATR header magic, D64 file size, iNES magic) and pick the adapter automatically, or require the user to name
+   the adapter (`--from cart.bin=rom-byteswapped-68k`)? Leaning *sniff-with-explicit-override*: auto-detect where the
+   format is self-identifying (ATR/iNES), require an explicit id where it is ambiguous (a raw `.bin` could be raw,
+   headered, interleaved, or byte-swapped — the bytes alone do not say). Confirm against the Atari ATR + OS-ROM set at
+   SP1.
+10. **Which adapters ship at SP1, and in what order (Decision 8.3/8.7).** SP1 (Atari 800) needs minimally: an **ATR** →
+    raw-sectors adapter and a **raw/headered ROM** adapter (the OS ROM); a **68000 byte-swap** adapter is SP3-era (the
+    PC is 8086/little-endian; a 68000 *machine* is post-arc). D64/DSK/split-set adapters are added per machine that
+    needs them. Confirm the SP1 minimum set against the real Atari artifacts; do not build adapters for formats no
+    in-tree machine uses (YAGNI, Decision 8(D)).
+11. **Disk *write-back* and the cache (Decision 8.2/8.4).** SP0's `IBlockDevice` is read/write (`WriteSector`); a guest
+    that writes to a disk mutates the sector image. Does a converted-then-mutated disk image write back to the cache
+    (and if so, does that break the content-addressed `sha256` identity), stay in a per-session scratch copy, or require
+    an explicit "save disk" affordance? Leaning *scratch copy by default, explicit export to a new artifact* (the cache
+    entry is the pristine normalized image; mutations are a session overlay) — confirm against the first writable-disk
+    machine at SP1.
+12. **Artifact-store layout + lifecycle (Decision 8.2).** `~/.cache/cpuemulator/artifacts` is the root (env-override
+    `CPUEMULATOR_ARTIFACTS`); the in-store layout (leaning `artifacts/<sha256>` content-addressed + a `by-name/` index)
+    and a prune/`--gc` story for stale entries are unsettled. Resolve at SP1 alongside the loader's project layout
+    (Open Question 8) — the store likely lives beside the loader.
+13. **Artifact-tooling diagnostic numbering (Decision 8.2 step 3).** Do artifact problems get their own numbered set
+    (`ARTGEN0NN`, fully parallel to `MACHGEN`/CPUGEN), or extend the `MACHGEN` set (the loader already owns
+    `MACHGEN010` for a missing/mismatched ROM at *load* time; `--check`/`--prepare` run *before* load)? Leaning a
+    distinct **`ARTGEN0NN`** set for the tooling stage (missing source, unknown adapter id, post-convert hash mismatch,
+    region/length mismatch), with the loader's `MACHGEN010` remaining the *load-time* backstop when the store is
+    unprepared. Confirm at SP1.
 
 ---
 
@@ -676,8 +906,16 @@ components referenced by id). The format is JSON (Decision 3), consistent with t
 referenced by path + `sha256` (Decision 4); the loader is a pure front-end to `MachineBuilder` producing the same
 `Machine` the hand-coded path does (Decision 5), with `Breadboard6502` as the parity reference. Validation mirrors
 CPUGEN as a `MACHGEN0NN` diagnostic set (Decision 2). The manifest is consistent with ADR 0009 by construction: its
-vocabulary is exactly the builder's fastmem/MMIO seams + the device capability interfaces (§3.2). Rollout is YAGNI-
-disciplined: SP0 keeps one hand-coded machine and only owes config-readiness (Decision 7); the loader arrives at SP1
-where a second machine + first variant make it pay. Designer: the only UX-adjacent surface is the optional authoring CLI
-(`--validate`/`--list`/`--describe`, Open Question 4) — no end-user UI. Planner can expand §2/§3 into SP1 loader +
-registry + validator tasks once the owner signs off.*
+vocabulary is exactly the builder's fastmem/MMIO seams + the device capability interfaces (§3.2). **Artifact-ingestion
+tooling (Decision 8, added at owner acceptance)** turns the manifest's path+`sha256` reference (Decision 4) into a
+fulfillment path: user-supplied ROMs/disk images (ATR/D64/IMG/DSK, headered/interleaved/byte-swapped ROMs) are
+**normalized** to raw bytes (ROM regions) and raw sectors (`IBlockDevice`/`DiskImage`, SP0 §4.3) by a small id→converter
+adapter registry (parallel to the component registry), **verified** against the manifest hashes, and **cached** in
+`~/.cache/cpuemulator/artifacts` — reusing the test-vector scripts' cache-first/batch-diagnostic/public-or-free-only
+disciplines, shipping cross-platform (a .NET tool, not PowerShell-only, after the test-vector PowerShell-deny-wall), via
+a `--check`/`--prepare` step. It lands at SP1 with the loader (SP0's synthetic demo needs none) and is an SP1 dependency.
+Rollout is YAGNI-disciplined: SP0 keeps one hand-coded machine and only owes config-readiness (Decision 7); the loader
++ artifact tooling arrive at SP1 where a second machine + first variant + first real ROM/disk make them pay. Designer:
+the only UX-adjacent surface is the optional authoring/preparation CLI (`--validate`/`--list`/`--describe`, Open
+Question 4; `--check`/`--prepare`, Decision 8.4) — no end-user UI. Planner can expand §2/§3 + Decision 8 into SP1 loader
++ registry + validator + artifact-tooling tasks now that the owner has signed off.*
