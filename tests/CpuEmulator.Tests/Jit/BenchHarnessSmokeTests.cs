@@ -124,6 +124,67 @@ public class BenchHarnessSmokeTests
     }
 
     [Fact]
+    public void The_two_6502_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
+    {
+        // W3 — the 6502 Sieve compute kernel (Dhrystone-class) on BOTH our tiers: a wiring smoke
+        // (Ran==true + the two tiers agree on the cycle count), NOT a throughput assertion. A TINY
+        // bounded window keeps the routine suite fast (the committed 50M-cycle window is the runner's
+        // job). Both tiers run the same deterministic kernel to the same cap, so they reach the same
+        // cycle count (bounded by the one-instruction overshoot at the cap boundary, identical for both).
+        var sieve = Workloads.SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+
+        long interpCycles = Tier0.Run(sieve);
+        long jitCycles = Tier1.Run(sieve);
+        Assert.True(interpCycles >= sieve.FixedCycleCap, $"6502 Sieve interpreter ran {interpCycles}, expected >= the cap");
+        Assert.Equal(interpCycles, jitCycles);
+
+        var t0 = BenchHarness.MeasureTier("6502 interpreter", Tier0.Run, sieve);
+        var t1 = BenchHarness.MeasureTier("6502 jit", Tier1.Run, sieve);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"6502 Sieve Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"6502 Sieve Tier-1 row: {t1}");
+    }
+
+    [Fact]
+    public void The_two_Z80_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
+    {
+        // Z80-W3 — the Z80 Sieve compute kernel (Dhrystone-class) on BOTH our tiers: a wiring smoke
+        // (Ran==true + the two tiers agree on the T-state count), NOT a throughput assertion. A TINY
+        // bounded window keeps the routine suite fast. Both tiers run the same kernel to the same cap,
+        // so they reach the same T-state count (one-instruction overshoot at the cap, identical for both).
+        var sieve = Z80Workloads.Z80SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+
+        long interpCycles = Tier0.Run(sieve);
+        long jitCycles = Tier1.Run(sieve);
+        Assert.True(interpCycles >= sieve.FixedCycleCap, $"Z80 Sieve interpreter ran {interpCycles}, expected >= the cap");
+        Assert.Equal(interpCycles, jitCycles);
+
+        var t0 = BenchHarness.MeasureTier("z80 interpreter", Tier0.Run, sieve);
+        var t1 = BenchHarness.MeasureTier("z80 jit", Tier1.Run, sieve);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"Z80 Sieve Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"Z80 Sieve Tier-1 row: {t1}");
+    }
+
+    [Fact]
+    public void The_two_68000_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
+    {
+        // m68k-W3 — the 68000 Sieve compute kernel (Dhrystone-class) on BOTH our tiers: a wiring smoke
+        // (Ran==true + the two tiers agree on the cycle count), NOT a throughput assertion. Both tiers
+        // run the all-fallback path (M4.6), so they reach the same cycle count on a TINY bounded window
+        // (the committed 50M-cycle window is the runner's job).
+        var sieve = M68000Workloads.SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+
+        long interpCycles = Tier0.Run(sieve);
+        long jitCycles = Tier1.Run(sieve);
+        Assert.True(interpCycles >= sieve.FixedCycleCap, $"68000 Sieve interpreter ran {interpCycles}, expected >= the cap");
+        Assert.Equal(interpCycles, jitCycles);
+
+        var t0 = BenchHarness.MeasureTier("m68000 interpreter", Tier0.Run, sieve);
+        var t1 = BenchHarness.MeasureTier("m68000 jit", Tier1.Run, sieve);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"68000 Sieve Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"68000 Sieve Tier-1 row: {t1}");
+    }
+
+    [Fact]
     public void An_absent_adapter_is_skipped_with_a_note()
     {
         var w2 = Workloads.ArithmeticKernel();

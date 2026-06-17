@@ -14,20 +14,26 @@ public class TierBenchmarks
 {
     private BenchWorkload? _w1;
     private BenchWorkload _w2 = null!;
+    private BenchWorkload _sieve = null!;
     private BenchWorkload? _z80w1;
     private BenchWorkload _z80w2 = null!;
+    private BenchWorkload _z80sieve = null!;
     private BenchWorkload _m68kw1 = null!;
     private BenchWorkload _m68kw2 = null!;
+    private BenchWorkload _m68ksieve = null!;
 
     [GlobalSetup]
     public void Setup()
     {
         _w1 = Workloads.KlausOrNull();
         _w2 = Workloads.ArithmeticKernel();
+        _sieve = Workloads.SieveKernel();
         _z80w1 = Z80Workloads.Z80ZexPrefixOrNull();
         _z80w2 = Z80Workloads.Z80ArithmeticKernel();
+        _z80sieve = Z80Workloads.Z80SieveKernel();
         _m68kw1 = M68000Workloads.MixedKernel();
         _m68kw2 = M68000Workloads.ArithmeticKernel();
+        _m68ksieve = M68000Workloads.SieveKernel();
     }
 
     // W2 — the arithmetic kernel (always available; the headline emit/chaining comparison).
@@ -36,6 +42,13 @@ public class TierBenchmarks
 
     [Benchmark]
     public long Jit_ArithKernel() => Tier1.Run(_w2);
+
+    // W3 — the Sieve compute kernel (Dhrystone-class; always available; integer/branch/memory-heavy).
+    [Benchmark]
+    public long Interpreter_6502Sieve() => Tier0.Run(_sieve);
+
+    [Benchmark]
+    public long Jit_6502Sieve() => Tier1.Run(_sieve);
 
     // W1 — Klaus (only when the image is present; otherwise these throw + BDN flags them).
     [Benchmark]
@@ -51,6 +64,13 @@ public class TierBenchmarks
     [Benchmark]
     public long Jit_Z80Kernel() => Tier1.Run(_z80w2);
 
+    // Z80-W3 — the Sieve compute kernel (Dhrystone-class; always available).
+    [Benchmark]
+    public long Interpreter_Z80Sieve() => Tier0.Run(_z80sieve);
+
+    [Benchmark]
+    public long Jit_Z80Sieve() => Tier1.Run(_z80sieve);
+
     // Z80-W1 — ZEXDOC prefix (only when the image is present; otherwise these throw + BDN flags them).
     [Benchmark]
     public long Interpreter_Z80Zex() => Tier0.Run(RequireZ80W1());
@@ -65,6 +85,13 @@ public class TierBenchmarks
 
     [Benchmark]
     public long Jit_M68000Kernel() => Tier1.Run(_m68kw2);
+
+    // 68000-W3 — the Sieve compute kernel (Dhrystone-class; always available; the all-fallback path).
+    [Benchmark]
+    public long Interpreter_M68000Sieve() => Tier0.Run(_m68ksieve);
+
+    [Benchmark]
+    public long Jit_M68000Sieve() => Tier1.Run(_m68ksieve);
 
     // 68000-W1 — the deterministic mixed stream (Milestone B; always available).
     [Benchmark]

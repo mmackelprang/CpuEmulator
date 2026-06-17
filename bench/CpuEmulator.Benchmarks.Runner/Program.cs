@@ -33,12 +33,14 @@ var w1 = Workloads.KlausOrNull();
 if (w1 is not null) workloads.Add(w1);
 else Console.WriteLine("W1 (Klaus) skipped — image not in the vector cache (run tools/get-klaus).");
 workloads.Add(Workloads.ArithmeticKernel());
+workloads.Add(Workloads.SieveKernel());   // W3 — the Sieve compute kernel (Dhrystone-class); always runs
 
 // The Z80 workloads: Z80-W1 (ZEXDOC prefix) only when its binary is present; Z80-W2 (kernel) always.
 var z80w1 = Z80Workloads.Z80ZexPrefixOrNull();
 if (z80w1 is not null) workloads.Add(z80w1);
 else Console.WriteLine("Z80-W1 (ZEXDOC prefix) skipped — zexdoc.com not in the vector cache (run tools/get-zexall).");
 workloads.Add(Z80Workloads.Z80ArithmeticKernel());
+workloads.Add(Z80Workloads.Z80SieveKernel());   // Z80-W3 — the Sieve compute kernel; always runs
 
 // The 68000 workloads (Milestone B): both are dependency-free hand-written kernels (Option A — no
 // external exerciser), so both ALWAYS run. m68k-W1 is the deterministic mixed stream; m68k-W2 is the
@@ -47,6 +49,7 @@ workloads.Add(Z80Workloads.Z80ArithmeticKernel());
 // instructions/sec (its cycle axis is partial on `main`, M4.5d-2 gating — the ReportWriter caveat, B4).
 workloads.Add(M68000Workloads.MixedKernel());
 workloads.Add(M68000Workloads.ArithmeticKernel());
+workloads.Add(M68000Workloads.SieveKernel());   // m68k-W3 — the Sieve compute kernel; always runs
 
 var tierRows = new List<BenchHarness.Row>();
 var adapterRows = new List<BenchHarness.Row>();
