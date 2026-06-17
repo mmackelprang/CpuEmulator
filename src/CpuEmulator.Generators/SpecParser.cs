@@ -1239,6 +1239,15 @@ internal static class SpecParser
         if (immediate == X86ImmediateRuleKind.SWBit && (wbit < 0 || sbit < 0))
             return RejectX86Opcode(loc, $"opcode 0x{value:X2}: Immediate.SWBit requires both a WBit and an SBit position", diagnostics);
 
+        // RegIsExtension REQUIRES HasModRm: the reg field that extends the opcode (the group key
+        // (opcode<<3)|reg) IS the ModR/M reg field, so an opcode-group opcode necessarily carries a ModR/M
+        // byte. The generated walk only forms the group key INSIDE the HasModRm block — so a RegIsExtension
+        // opcode WITHOUT HasModRm would key as a plain byte and never match its group rows (silently routing
+        // to HandleUndefinedOpcode at run time). Reject the incoherent declaration at parse time (CPUGEN016).
+        if (regIsExtension && !hasModRm)
+            return RejectX86Opcode(loc,
+                $"opcode 0x{value:X2}: RegIsExtension requires HasModRm (the reg field is the ModR/M reg field)", diagnostics);
+
         return new X86OpcodeModel((byte)value.Value, hasModRm, regIsExtension, wbit, sbit, immediate);
     }
 

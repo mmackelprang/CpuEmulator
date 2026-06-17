@@ -89,6 +89,20 @@ public class M8086DecodeVocabularyTests
     }
 
     [Fact]
+    public void A_RegIsExtension_opcode_without_HasModRm_reports_CPUGEN016()
+    {
+        // RegIsExtension REQUIRES HasModRm: the reg field that extends the opcode IS the ModR/M reg field,
+        // so a group opcode necessarily carries a ModR/M byte. Declaring RegIsExtension without HasModRm is
+        // an incoherent encoding (the generated walk would never form the group key) — a CPUGEN016.
+        string source = GeneratorTestHost.ReplaceSection(
+            Spec,
+            "new X86Opcode(0x90),",
+            "new X86Opcode(0x90), new X86Opcode(0x80, RegIsExtension: true),");
+        var result = GeneratorTestHost.Run(source);
+        Assert.Contains(result.GeneratorDiagnostics, d => d.Id == "CPUGEN016");
+    }
+
+    [Fact]
     public void A_WBit_immediate_without_a_WBit_position_reports_CPUGEN016()
     {
         // Immediate.WBit needs a WBit position to read; omitting it is a CPUGEN016 (the walk could not size
