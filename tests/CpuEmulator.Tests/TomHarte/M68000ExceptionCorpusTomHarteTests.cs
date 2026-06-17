@@ -14,7 +14,10 @@ namespace CpuEmulator.Tests.TomHarte;
 /// <para><b>Parallelism (test-infra, zero semantics change).</b> Each in-scope file gets its OWN derived class;
 /// the body is IDENTICAL to the pre-split single-theory body (the silent skip-when-file-absent and the
 /// embedded-exception filter are preserved). The coverage guard asserts exact coverage of
-/// <see cref="CanonicalFiles"/>.</para></summary>
+/// <see cref="CanonicalFiles"/>.</para>
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para></summary>
 public abstract class M68000ExceptionCorpusTomHarteSweepBase
 {
     public static readonly string[] CanonicalFiles =
@@ -56,10 +59,14 @@ public abstract class M68000ExceptionCorpusTomHarteSweepBase
 
         var cases = M68000TomHarteLoader.LoadFile(path);
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int asserted = 0;        // embedded exception cases that ran + asserted on the data axis (the proof)
         int addrDeferred = 0;    // address-error cases still deferred (DD4 — M4.5d-2)
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             // Only the EMBEDDED exception cases are the subject here. Non-exception cases are covered by the
             // M4.5a/b/c default-flag sweeps — skip them so this sweep stays focused + fast.
             if (!M68000TomHarteRunner.IsExceptionCase(c)) continue;

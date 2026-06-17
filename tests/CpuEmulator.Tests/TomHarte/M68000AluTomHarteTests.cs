@@ -20,6 +20,9 @@ namespace CpuEmulator.Tests.TomHarte;
 /// sweep — NO v1 vector files exist for them (ADR 0007 D1). CMPM IS asserted (its cases are bundled in
 /// CMP.b/.w/.l + CMPA.l and flow through RunCase like any other case). Skip-when-absent but MUST run green with
 /// the vectors PRESENT for merge — a skip is not a mergeable state (ADR 0007 §6 gate 2).
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para>
 /// </summary>
 public abstract class M68000AluTomHarteSweepBase
 {
@@ -61,10 +64,14 @@ public abstract class M68000AluTomHarteSweepBase
 
         var cases = M68000TomHarteLoader.LoadFile(path);
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int executed = 0;     // non-exception ALU cases actually run + asserted on the data axis
         int deferred = 0;     // exception cases (DIVU/DIVS ÷0, address-error/privilege) — M4.5d, counted not asserted
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             string? r = M68000TomHarteRunner.RunCase(c);          // data axis (timingAxis: false)
             if (ReferenceEquals(r, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
             executed++;

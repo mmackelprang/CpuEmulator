@@ -14,7 +14,10 @@ namespace CpuEmulator.Tests.TomHarte;
 /// <para><b>Parallelism (test-infra, zero semantics change).</b> Each in-scope file gets its OWN derived class
 /// (its own xUnit collection); the assertion body — including the <see cref="M68000M45cTomHarteSweepBase"/>'s
 /// inconsistent-register-shift-vector filter — is IDENTICAL to the pre-split single-theory body. The coverage
-/// guard asserts exact coverage of <see cref="CanonicalFiles"/>.</para></summary>
+/// guard asserts exact coverage of <see cref="CanonicalFiles"/>.</para>
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para></summary>
 public abstract class M68000M45cTomHarteSweepBase
 {
     public static readonly string[] CanonicalFiles =
@@ -55,9 +58,13 @@ public abstract class M68000M45cTomHarteSweepBase
 
         var cases = M68000TomHarteLoader.LoadFile(path);
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int executed = 0, deferred = 0, inconsistent = 0;
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             if (IsInconsistentRegisterShiftVector(c)) { inconsistent++; continue; }   // corpus artifact (see below)
             string? rr = M68000TomHarteRunner.RunCase(c);            // data axis (timingAxis: false)
             if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }

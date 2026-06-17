@@ -15,6 +15,9 @@ namespace CpuEmulator.Tests.TomHarte;
 /// <para>Deferred cases (exception/address-error) are skipped via the runner's DeferredException sentinel —
 /// the timing axis only asserts the NON-trap executable cases (the trap-frame timing is T7/T8). The
 /// CHK-in-range UNPREDICTABLE-CCR cases are skipped (data-axis artifact, mirrors the 2a sweep).</para>
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para>
 /// </summary>
 public abstract class M68000TimingReconBase
 {
@@ -32,9 +35,13 @@ public abstract class M68000TimingReconBase
         Assert.NotEmpty(cases);
 
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int executed = 0, deferred = 0;
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             if (IsChkInRangeCase(c)) continue;
             // assertExceptions:true so the runner RUNS the exception cases on the data axis where modeled, but
             // the timing axis here still skips the deferred sentinel (address-error/group-0 frame timing = T8).

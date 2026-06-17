@@ -28,13 +28,6 @@ public class M68000JitTomHarteTests(ITestOutputHelper output)
     public static IEnumerable<object[]> AllDataAxisFiles =>
         M68000DataAxisCorpus.Files.Select(f => new object[] { f });
 
-    private static int ResolveSample()
-    {
-        if (System.Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full") return int.MaxValue;
-        return int.TryParse(System.Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
-            out int p) && p > 0 ? p : 200;
-    }
-
     [M68000TomHarteTheory]
     [MemberData(nameof(AllDataAxisFiles))]
     public void Family_is_tier_parity_green_through_the_JIT(string file)
@@ -45,7 +38,7 @@ public class M68000JitTomHarteTests(ITestOutputHelper output)
         Assert.True(File.Exists(path), $"vector file missing: {path}");
 
         var cases = M68000TomHarteLoader.LoadFile(path);
-        int sample = ResolveSample();
+        int sample = M68000TomHarteVectors.ResolveSampleSize();
         int run = 0, executed = 0, deferred = 0, excluded = 0;
         var failures = new List<string>();
         foreach (var c in cases)
