@@ -196,7 +196,9 @@ public sealed partial class M68000Cpu
         {
             case 0u: WriteByteAt(dest.Address, (byte)result); break;
             case 1u: WriteWordBus(dest.Address, (ushort)result); break;
-            default: WriteLongBus(dest.Address, result); break;
+            // M4.5d-2b: the .l read-modify-write writes back LOW WORD FIRST (W(addr+2) then W(addr)) — the
+            // 68000 RMW order, the reverse of a MOVE.l store. WriteResolvedDest is the ALU/CLR RMW write path.
+            default: WriteLongBusRmw(dest.Address, result); break;
         }
     }
 
@@ -440,15 +442,28 @@ public sealed partial class M68000Cpu
             uint ea = ComputeEa(srcMode, srcReg, size, r.ExtensionWords, pureEa: false);   // single write-back
             switch (size)
             {
+                // .l write-back is LOW-WORD-FIRST (the RMW order — W(ea+2) then W(ea)); see WriteLongBusRmw.
                 case 0u: _ = ReadByteAt(ea); Refill(); WriteByteAt(ea, 0); break;
                 case 1u: _ = ReadWordBus(ea); Refill(); WriteWordBus(ea, 0); break;
-                default: _ = ReadLongBus(ea); Refill(); WriteLongBus(ea, 0); break;
+                default: _ = ReadLongBus(ea); Refill(); WriteLongBusRmw(ea, 0); break;
+            }
+        }
+        else if (memEa)
+        {
+            // Simple memory EA (modes 2/5/6/7): resolve the address ONCE, dummy-read, refill (OFO), write 0 —
+            // the .l back-write low-word-first (RMW order). ComputeEa(pureEa:false) does no write-back for these
+            // modes, so a single compute is safe.
+            uint ea = ComputeEa(srcMode, srcReg, size, r.ExtensionWords, pureEa: false);
+            switch (size)
+            {
+                case 0u: _ = ReadByteAt(ea); Refill(); WriteByteAt(ea, 0); break;
+                case 1u: _ = ReadWordBus(ea); Refill(); WriteWordBus(ea, 0); break;
+                default: _ = ReadLongBus(ea); Refill(); WriteLongBusRmw(ea, 0); break;
             }
         }
         else
         {
-            _ = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);   // dummy read (Dn/simple-memory)
-            if (memEa) Refill();                                          // refill between read and write (OFO)
+            _ = ReadEaOperand(srcMode, srcReg, size, r.ExtensionWords);   // dummy read (Dn — register only)
             WriteEaOperand(srcMode, srcReg, size, 0u, r.ExtensionWords);  // write 0
         }
         byte ccr = (byte)(SR & 0xFF);

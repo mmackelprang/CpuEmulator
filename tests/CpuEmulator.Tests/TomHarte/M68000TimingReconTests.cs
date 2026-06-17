@@ -59,7 +59,13 @@ public abstract class M68000TimingReconBase
     }
 }
 
-// Families under active reconciliation (T6). Add a derived class per family as it is wired.
+// The families reconciled to FULL cycle-exactness on the timing axis (T6, this PR). Each [Fact] runs the whole
+// corpus file with timingAxis:true (the per-transaction trace + CycleCount == length) over its non-deferred
+// cases. As later rounds wire the remaining families (the data-dependent .l-register ALU idle, the two-EA MOVE,
+// MOVEM, MUL/DIV, the control-transfer reseeds, IPL, address-error), each is added here, then folded into the
+// T9 sweep flip when the whole set is green.
+//   GREEN (13): the refills-lead register/address-only classes (NOP/SWAP/MOVEQ/LEA), the read-only-EA + RMW
+//   single-EA .b/.w ALU (TST.w/CLR.b/NEG.w/CMP.w/CMP.b/AND.b/OR.w/ADD.b/SUB.b).
 public sealed class M68000Timing_NOP   : M68000TimingReconBase { protected override string VectorFile => "NOP.json.gz"; }
 public sealed class M68000Timing_SWAP  : M68000TimingReconBase { protected override string VectorFile => "SWAP.json.gz"; }
 public sealed class M68000Timing_MOVEq : M68000TimingReconBase { protected override string VectorFile => "MOVE.q.json.gz"; }
@@ -68,3 +74,8 @@ public sealed class M68000Timing_TST_w : M68000TimingReconBase { protected overr
 public sealed class M68000Timing_CLR_b : M68000TimingReconBase { protected override string VectorFile => "CLR.b.json.gz"; }
 public sealed class M68000Timing_NEG_w : M68000TimingReconBase { protected override string VectorFile => "NEG.w.json.gz"; }
 public sealed class M68000Timing_CMP_w : M68000TimingReconBase { protected override string VectorFile => "CMP.w.json.gz"; }
+public sealed class M68000Timing_CMP_b : M68000TimingReconBase { protected override string VectorFile => "CMP.b.json.gz"; }
+public sealed class M68000Timing_AND_b : M68000TimingReconBase { protected override string VectorFile => "AND.b.json.gz"; }
+public sealed class M68000Timing_OR_w  : M68000TimingReconBase { protected override string VectorFile => "OR.w.json.gz"; }
+public sealed class M68000Timing_ADD_b : M68000TimingReconBase { protected override string VectorFile => "ADD.b.json.gz"; }
+public sealed class M68000Timing_SUB_b : M68000TimingReconBase { protected override string VectorFile => "SUB.b.json.gz"; }

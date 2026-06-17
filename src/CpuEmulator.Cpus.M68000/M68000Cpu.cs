@@ -232,6 +232,18 @@ public sealed partial class M68000Cpu
         WriteWordBus(address + 2, (ushort)value);
     }
 
+    /// <summary>M4.5d-2b: write a long as two .w transactions LOW WORD FIRST (the high word at address+2 written
+    /// first, then the low word at address). This is the 68000 read-modify-write (NEG/NOT/CLR/single-EA ALU)
+    /// write-back order — vector-confirmed: a .l RMW traces W(addr+2) then W(addr) (e.g. ADD.l Dn,(An) =
+    /// R R F W(addr+2) W(addr)), the reverse of the data-fetch / MOVE.l store order. The cycle cost is identical
+    /// (two word writes); only the trace ORDER differs, so the RMW path uses this and the MOVE store keeps the
+    /// high-word-first <see cref="WriteLongBus"/>.</summary>
+    private void WriteLongBusRmw(uint address, uint value)
+    {
+        WriteWordBus(address + 2, (ushort)value);            // low word first (at the higher address)
+        WriteWordBus(address, (ushort)(value >> 16));        // then the high word
+    }
+
     // Test seams (mirror the generated ComputeEaProbe) — drive the wide path from synthetic unit tests.
     public ushort ReadWordBusProbe(uint a) => ReadWordBus(a);
     public uint ReadLongBusProbe(uint a) => ReadLongBus(a);
