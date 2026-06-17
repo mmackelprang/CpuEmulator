@@ -48,6 +48,43 @@ function Get-Z80c([string]$name) {
 Get-Z80c 'z80.h'
 Get-Z80c 'z80.c'
 
+# kstenerud/Musashi (C) — the 68000 head-to-head C reference (MIT)
+#   Provenance: https://github.com/kstenerud/Musashi (raw files from the `master` branch). The core +
+#   codegen inputs + softfloat are fetched; m68kops.h / m68kops.c are NOT fetched — they are GENERATED
+#   by Musashi's own m68kmake codegen tool, which the C# MusashiAdapter runs (compile-once-cached)
+#   before building the runner. A fetch failure leaves the row a skip-with-note.
+$musashiDir = Join-Path $cache 'musashi'
+New-Item -ItemType Directory -Force -Path $musashiDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $musashiDir 'softfloat') | Out-Null
+function Get-Musashi([string]$rel) {
+    $dst = Join-Path $musashiDir $rel
+    if (-not (Test-Path $dst)) {
+        Write-Host "fetching musashi/$rel ..."
+        try {
+            Invoke-WebRequest -UseBasicParsing `
+                -Uri "https://raw.githubusercontent.com/kstenerud/Musashi/master/$rel" `
+                -OutFile $dst
+            Write-Host "  -> $dst"
+        } catch { Write-Host "  !! $rel fetch failed — the Musashi adapter will skip-with-note" }
+    } else { Write-Host "musashi/$rel already present" }
+}
+# Core (+ headers) and the codegen inputs (m68kmake.c + m68k_in.c). m68kops.* are generated, not fetched.
+Get-Musashi 'm68k.h'
+Get-Musashi 'm68kcpu.h'
+Get-Musashi 'm68kconf.h'
+Get-Musashi 'm68kcpu.c'
+Get-Musashi 'm68kdasm.c'
+Get-Musashi 'm68kfpu.c'
+Get-Musashi 'm68kmmu.h'
+Get-Musashi 'm68kmake.c'
+Get-Musashi 'm68k_in.c'
+# SoftFloat (the FPU is dead code for our integer benchmark, but the core links against it).
+Get-Musashi 'softfloat/milieu.h'
+Get-Musashi 'softfloat/softfloat.h'
+Get-Musashi 'softfloat/softfloat.c'
+Get-Musashi 'softfloat/softfloat-macros'
+Get-Musashi 'softfloat/softfloat-specialize'
+
 # DrGoldfire/Z80.js (JS) — the OPTIONAL Z80 cross-language node subject (MIT, single file)
 $z80jsDir = Join-Path $cache 'z80js'
 New-Item -ItemType Directory -Force -Path $z80jsDir | Out-Null

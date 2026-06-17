@@ -47,7 +47,7 @@ internal static class SubprocessRunner
                 return AdapterResult.Skipped(
                     $"subject runner failed: {FirstLine(stderr) ?? FirstLine(stdout) ?? "non-zero exit"}");
 
-            if (!TryParse(stdout, out long cycles, out double wall))
+            if (!TryParse(stdout, out long cycles, out long instructions, out double wall))
                 return AdapterResult.Skipped($"unparseable runner output: {FirstLine(stdout) ?? "(empty)"}");
 
             // The cycle count the subject reports uses its OWN cycle model (cross-emulator models
@@ -56,7 +56,12 @@ internal static class SubprocessRunner
             // above) or reports a near-zero window, which the report shows transparently.
             if (cycles <= 0 || wall <= 0)
                 return AdapterResult.Skipped("subject produced no measurable window (likely diverged)");
-            return AdapterResult.Measured(cycles, wall, versionNote);
+            // A subject that ALSO prints an INSTRUCTIONS line (the 68000 head-to-head ref) carries
+            // guest-MIPS; one that prints only CYCLES (the 6502/Z80 subjects) is byte-for-byte
+            // unchanged on the cycles-only path.
+            return instructions > 0
+                ? AdapterResult.MeasuredWithInstructions(cycles, instructions, wall, versionNote)
+                : AdapterResult.Measured(cycles, wall, versionNote);
         }
         catch (Exception ex)
         {
@@ -68,9 +73,9 @@ internal static class SubprocessRunner
         }
     }
 
-    private static bool TryParse(string stdout, out long cycles, out double wall)
+    private static bool TryParse(string stdout, out long cycles, out long instructions, out double wall)
     {
-        cycles = 0; wall = 0;
+        cycles = 0; instructions = 0; wall = 0;
         bool gotCycles = false, gotWall = false;
         foreach (string line in stdout.Split('\n'))
         {
@@ -78,6 +83,12 @@ internal static class SubprocessRunner
             if (t.StartsWith("CYCLES ", StringComparison.Ordinal)
                 && long.TryParse(t.AsSpan(7), NumberStyles.Integer, CultureInfo.InvariantCulture, out cycles))
                 gotCycles = true;
+            // INSTRUCTIONS is OPTIONAL + additive: the 68000 head-to-head runner prints it (so its row
+            // carries guest-MIPS); the 6502/Z80 subjects do not, so instructions stays 0 ("not reported")
+            // and their cycles-only result is unchanged. Not required for a successful parse.
+            else if (t.StartsWith("INSTRUCTIONS ", StringComparison.Ordinal)
+                && long.TryParse(t.AsSpan(13), NumberStyles.Integer, CultureInfo.InvariantCulture, out instructions))
+            { /* captured — optional */ }
             else if (t.StartsWith("WALL_SECONDS ", StringComparison.Ordinal)
                 && double.TryParse(t.AsSpan(13), NumberStyles.Float, CultureInfo.InvariantCulture, out wall))
                 gotWall = true;
