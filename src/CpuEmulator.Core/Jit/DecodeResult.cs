@@ -15,9 +15,26 @@ public readonly record struct DecodeResult(
     int Length,          // COMPUTED OUTPUT: total bytes consumed by the walk (Ground truth B)
     DecodedOperands Operands,
     ExtensionWords ExtensionWords = default,   // M4.3b: the 68000 EA extension words (empty for 6502/Z80)
-    ushort Operword = 0);   // M4.5a: the 68000 operword the field walk read (0 for 6502/Z80 byte walks) —
+    ushort Operword = 0,   // M4.5a: the 68000 operword the field walk read (0 for 6502/Z80 byte walks) —
                             // lets the FieldGrammar Step dispatch without a second Read16 of PC (the field
                             // walk reads the operword exactly once via the fetch stream).
+    X86Operands X86 = default);   // M5.5a: the 8086's full disp/imm/segment-override carriage the x86 decode
+                                  // walk captured (the ModR/M byte + the sign-extended disp16 + the immediate +
+                                  // the raw segment-override prefix byte). Empty (X86Operands.None) for the
+                                  // 6502/Z80/68000 walks — they never set it, so their generation is byte-identical.
+
+/// <summary>The 8086's full per-instruction operand carriage the x86 decode walk captured (M5.5a). The
+/// byte/prefix (6502/Z80) and field (68000) walks never produce this — it defaults to <see cref="None"/>, so
+/// their generated Decode is byte-identical. <see cref="ModRm"/> is the raw ModR/M byte (also surfaced on
+/// <see cref="DecodedOperands.Lo"/>); <see cref="Disp"/> is the displacement, disp8 SIGN-EXTENDED to 16 bits
+/// (or the raw disp16, or 0 when none); <see cref="Imm"/> is the immediate, zero-extended (the body knows
+/// byte vs word — also the moffs disp16 for the accumulator-direct A0–A3 opcodes, which carry it in the
+/// immediate slot); <see cref="SegOverride"/> is the raw segment-override prefix byte (0x26/0x2E/0x36/0x3E)
+/// or 0 when no override is in force.</summary>
+public readonly record struct X86Operands(byte ModRm, ushort Disp, ushort Imm, byte SegOverride)
+{
+    public static readonly X86Operands None = default;
+}
 
 /// <summary>The 68000 EA extension words the field-decode walk consumed (M4.3b). A fixed inline buffer of
 /// up to 4 16-bit words (MOVE's two EAs at .l = 2 + 2). Empty (Count == 0) for the 6502/Z80 byte walks.
