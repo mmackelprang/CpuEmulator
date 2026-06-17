@@ -50,7 +50,8 @@ internal sealed record SpecModel(
     DecodeStructureModel? Decode = null,          // ABSENT (the 6502) ⇒ the degenerate walk
     FetchUnit FetchUnit = FetchUnit.Byte,
     EquatableArray<FlagBitModel> Flags = default,   // ABSENT (the 6502) ⇒ FlagBit enum fallback
-    FieldGrammarModel? FieldGrammar = null);        // M4.3a: ABSENT (6502/Z80/8086) ⇒ no field-decode arm
+    FieldGrammarModel? FieldGrammar = null,         // M4.3a: ABSENT (6502/Z80/8086) ⇒ no field-decode arm
+    X86DecodeModel? X86Decode = null);              // M5.2: ABSENT (6502/Z80/68000) ⇒ no x86-decode arm
 
 /// <summary>How a field op's size bits map to an OperandSize (M4.3a / C4). Standard: 00=b,01=w,10=l.
 /// Move (the MOVE outlier): 01=b,11=w,10=l. Mirrors Core.Specification.SizeEncoding.</summary>
@@ -92,6 +93,33 @@ internal sealed record DecodeStructureModel(
     EquatableArray<byte> ModRmOpcodes,
     EquatableArray<byte> SubFieldOpcodes,
     EquatableArray<PrefixByteModel> PrefixDetails = default);   // M3.4e-1b: per-prefix compound metadata
+
+// ── M5.2 (ADR 0006 Decision 1): the x86 byte-granular variable-length decode SHAPE. Mirrors Core's
+//    X86DecodeStructure/X86Prefix/X86Opcode + the two enums. ABSENT (6502/Z80/68000) ⇒ no x86-decode arm. ──
+
+/// <summary>An x86 prefix byte's role (M5.2). Mirrors Core.Specification.X86PrefixRole.</summary>
+internal enum X86PrefixRoleKind { SegmentOverride, Lock, Repeat }
+
+/// <summary>How an opcode's immediate-operand length is determined (M5.2). Mirrors
+/// Core.Specification.X86ImmediateRule.</summary>
+internal enum X86ImmediateRuleKind { None, Fixed8, Fixed16, WBit, SWBit }
+
+/// <summary>One x86 prefix byte + its role (M5.2). Mirrors Core's X86Prefix.</summary>
+internal sealed record X86PrefixModel(byte Value, X86PrefixRoleKind Role);
+
+/// <summary>One opcode row's x86 decode metadata (M5.2). Mirrors Core's X86Opcode. HasModRm ⇒ the walk reads
+/// the ModR/M byte + its mod/rm-derived displacement; RegIsExtension ⇒ the key is (opcode&lt;&lt;3)|reg
+/// (the OpcodeGroup shape); WBit/SBit name the operand-size / sign-extend bit positions in the opcode byte
+/// (-1 ⇒ none); Immediate is the immediate-length rule.</summary>
+internal sealed record X86OpcodeModel(
+    byte Value, bool HasModRm, bool RegIsExtension, int WBit, int SBit, X86ImmediateRuleKind Immediate);
+
+/// <summary>The parsed x86 decode structure (M5.2, ADR 0006 Decision 1). ABSENT on the model ⇒ no x86-decode
+/// arm (the byte/prefix or field walk is unchanged). Carries the prefix set + per-opcode ModR/M / group /
+/// immediate / w/s-bit metadata the variable-length walk consumes. Mirrors Core's X86DecodeStructure.</summary>
+internal sealed record X86DecodeModel(
+    EquatableArray<X86PrefixModel> Prefixes,
+    EquatableArray<X86OpcodeModel> Opcodes);
 
 internal sealed record InstructionModel(
     byte Opcode, string Mnemonic, string Mode, InstructionClass Class, EquatableArray<OpModel> Ops,

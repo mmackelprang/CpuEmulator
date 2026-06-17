@@ -423,17 +423,23 @@ internal static class SpecParser
         // field-decode arm; the byte/prefix walk is unchanged. Declaring it sets FetchUnit from the grammar.
         var fieldGrammar = ParseFieldGrammar(classDecl, diagnostics);
 
+        // Optional x86 byte-granular variable-length decode structure (M5.2, ADR 0006 Decision 1). ABSENT
+        // (6502/Z80/68000) ⇒ no x86-decode arm; the byte/field walk is unchanged. The 8086 declares it
+        // INSTEAD OF a DecodeStructure (it is a third, structurally distinct, byte-unit decode SHAPE).
+        var x86Decode = ParseX86Decode(classDecl, instructions, diagnostics);
+
         if (diagnostics.Count > 0)
             return new ParsedSpec(null, diagnostics.ToImmutable());
 
         // RECON-FINDING C1: the fetch unit flows from the declared grammar onto SpecModel.FetchUnit
         // (replacing the old hardcoded FetchUnit.Byte) so the emitter's field-decode branch can see it.
-        // A spec with NO grammar keeps FetchUnit.Byte (the 6502/Z80 default — byte-identical).
+        // A spec with NO grammar keeps FetchUnit.Byte (the 6502/Z80/8086 default — byte-identical; the
+        // x86 decode is byte-granular, so it leaves FetchUnit.Byte).
         FetchUnit fetchUnit = fieldGrammar?.FetchUnit ?? FetchUnit.Byte;
 
         var model = new SpecModel(ns, cpuName, architecture,
             LocationInfo.From(classDecl.Identifier.GetLocation()), registers, instructions, decode,
-            fetchUnit, flags, fieldGrammar);
+            fetchUnit, flags, fieldGrammar, x86Decode);
         return new ParsedSpec(model, diagnostics.ToImmutable());
     }
 
@@ -760,6 +766,14 @@ internal static class SpecParser
         if (field is null)
             return null;   // ABSENT — the 6502 default.
 
+        // M5.2: the Z80 names its DecodeStructure field "Decode"; the 8086 may ALSO name its
+        // X86DecodeStructure field "Decode" (the natural name). Discriminate by TYPE so a "Decode"-named
+        // X86DecodeStructure (parsed by ParseX86Decode, discovered by type) does NOT also fall into this
+        // by-name DecodeStructure path and report a spurious CPUGEN012. Only a "Decode" field whose declared
+        // type is DecodeStructure is the prefix/ModRm/sub-field walk; anything else is parsed elsewhere.
+        if (SimpleTypeName(field.Declaration.Type) is { } typeName && typeName != "DecodeStructure")
+            return null;
+
         Location loc = field.GetLocation();
         if (field.Declaration.Variables[0].Initializer?.Value is not { } init ||
             GetCreationArguments(init) is not { } args)
@@ -998,6 +1012,241 @@ internal static class SpecParser
         }
 
         return new FieldGrammarModel(fetchUnit, ops.ToImmutable());
+    }
+
+    /// <summary>Parse the optional x86 decode structure (M5.2, ADR 0006 Decision 1). ABSENT (the field is
+    /// discovered by the declared TYPE <c>X86DecodeStructure</c>; 6502/Z80/68000 declare none) ⇒ null (the
+    /// byte/field walk is unchanged). Present ⇒ a <c>new(Prefixes: [ new X86Prefix(0xNN, X86PrefixRole.*),
+    /// .. ], Opcodes: [ new X86Opcode(0xNN, HasModRm: .., ..), .. ])</c> creation parsed into the model. A
+    /// malformed structure / prefix / opcode reports CPUGEN016. Cross-checks: an opcode-group row
+    /// (<c>RegIsExtension: true</c>) must back at least one OpcodeGroup Insn row; a non-extension declared
+    /// opcode must back at least one non-group Insn row — so the structure and the table cannot drift.</summary>
+    private static X86DecodeModel? ParseX86Decode(
+        ClassDeclarationSyntax classDecl,
+        ImmutableArray<InstructionModel> instructions,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        var field = FindFieldByType(classDecl, "X86DecodeStructure");
+        if (field is null)
+            return null;   // ABSENT — the byte/field default (6502/Z80/68000).
+
+        Location loc = field.GetLocation();
+        if (field.Declaration.Variables[0].Initializer?.Value is not { } init ||
+            GetCreationArguments(init) is not { Count: 2 } args)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "expected new(Prefixes: [ new X86Prefix(0xNN, X86PrefixRole.*), .. ], Opcodes: [ new X86Opcode(0xNN, ..), .. ])"));
+            return null;
+        }
+
+        // Arg 0: the prefix set — a collection of X86Prefix(0xNN, X86PrefixRole.*) creations.
+        if (args[0] is not CollectionExpressionSyntax prefixColl)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "first argument must be a collection of X86Prefix(0xNN, X86PrefixRole.*) entries"));
+            return null;
+        }
+        var prefixes = ImmutableArray.CreateBuilder<X86PrefixModel>();
+        foreach (var element in prefixColl.Elements)
+        {
+            if (element is not ExpressionElementSyntax expr ||
+                ParseX86Prefix(expr.Expression, element.GetLocation(), diagnostics) is not { } p)
+                return null;   // ParseX86Prefix already reported CPUGEN016
+            prefixes.Add(p);
+        }
+
+        // Arg 1: the opcode set — a collection of X86Opcode(0xNN, ..) creations.
+        if (args[1] is not CollectionExpressionSyntax opsColl)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "second argument must be a collection of X86Opcode(0xNN, ..) entries"));
+            return null;
+        }
+        var opcodes = ImmutableArray.CreateBuilder<X86OpcodeModel>();
+        foreach (var element in opsColl.Elements)
+        {
+            if (element is not ExpressionElementSyntax expr ||
+                ParseX86Opcode(expr.Expression, element.GetLocation(), diagnostics) is not { } op)
+                return null;   // ParseX86Opcode already reported CPUGEN016
+            opcodes.Add(op);
+        }
+
+        // Cross-check: keep the decode metadata and the instruction table consistent (the ParseDecodeStructure
+        // discipline). A group opcode (reg-extends-opcode) must back at least one OpcodeGroup row; a plain
+        // declared opcode must back at least one non-group row. An orphan declaration is CPUGEN016.
+        foreach (var op in opcodes)
+        {
+            if (op.RegIsExtension)
+            {
+                if (!instructions.Any(i => i.Opcode == op.Value && i.KeyShape == KeyShape.OpcodeGroup))
+                {
+                    diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                        $"opcode-group 0x{op.Value:X2} (RegIsExtension) has no opcode-group Insn row"));
+                    return null;
+                }
+            }
+            else if (!instructions.Any(i => i.Opcode == op.Value && i.KeyShape != KeyShape.OpcodeGroup))
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                    $"opcode 0x{op.Value:X2} has no Insn row"));
+                return null;
+            }
+        }
+
+        return new X86DecodeModel(prefixes.ToImmutable(), opcodes.ToImmutable());
+    }
+
+    /// <summary>Parse one <c>X86Prefix(0xNN, X86PrefixRole.*)</c> creation (M5.2). Args positional or named;
+    /// literal byte + enum member only. Returns null (reports CPUGEN016) on any non-analyzable arg.</summary>
+    private static X86PrefixModel? ParseX86Prefix(
+        ExpressionSyntax expression, Location loc,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        if (GetCreationArgumentSyntaxes(expression) is not { } cargs || cargs.Count != 2)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "X86Prefix takes (Value, Role)"));
+            return null;
+        }
+        string[] order = ["Value", "Role"];
+        var slot = new ExpressionSyntax?[2];
+        for (int i = 0; i < cargs.Count; i++)
+        {
+            string? name = cargs[i].NameColon?.Name.Identifier.Text;
+            int idx = name is null ? i : System.Array.IndexOf(order, name);
+            if (idx < 0 || idx >= 2 || slot[idx] is not null)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                    $"unexpected or duplicate X86Prefix argument '{name ?? "#" + i}'"));
+                return null;
+            }
+            slot[idx] = cargs[i].Expression;
+        }
+        int? value = LiteralInt(slot[0]!);
+        string? roleName = EnumMemberName(slot[1]!, "X86PrefixRole");
+        if (value is not (>= 0 and <= 0xFF) || roleName is null)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "X86Prefix requires a literal 0xNN Value and an X86PrefixRole.* Role"));
+            return null;
+        }
+        X86PrefixRoleKind role = roleName switch
+        {
+            "SegmentOverride" => X86PrefixRoleKind.SegmentOverride,
+            "Lock" => X86PrefixRoleKind.Lock,
+            "Repeat" => X86PrefixRoleKind.Repeat,
+            _ => (X86PrefixRoleKind)(-1),
+        };
+        if ((int)role < 0)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                $"'{roleName}' is not a known X86PrefixRole member"));
+            return null;
+        }
+        return new X86PrefixModel((byte)value.Value, role);
+    }
+
+    /// <summary>Parse one <c>X86Opcode(Value [, HasModRm] [, RegIsExtension] [, WBit] [, SBit]
+    /// [, Immediate])</c> creation (M5.2). Value is required (a literal 0xNN); the rest are optional with
+    /// the record defaults (HasModRm/RegIsExtension = false, WBit/SBit = -1, Immediate = None). Args may be
+    /// positional or named; literals / enum members only (the constrained-DSL contract). Returns null
+    /// (reports CPUGEN016) on any non-analyzable / invalid arg.</summary>
+    private static X86OpcodeModel? ParseX86Opcode(
+        ExpressionSyntax expression, Location loc,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        if (GetCreationArgumentSyntaxes(expression) is not { } cargs || cargs.Count < 1 || cargs.Count > 6)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "X86Opcode takes (Value [, HasModRm, RegIsExtension, WBit, SBit, Immediate])"));
+            return null;
+        }
+        string[] order = ["Value", "HasModRm", "RegIsExtension", "WBit", "SBit", "Immediate"];
+        var slot = new ExpressionSyntax?[6];
+        for (int i = 0; i < cargs.Count; i++)
+        {
+            string? name = cargs[i].NameColon?.Name.Identifier.Text;
+            int idx = name is null ? i : System.Array.IndexOf(order, name);
+            if (idx < 0 || idx >= 6 || slot[idx] is not null)
+            {
+                diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                    $"unexpected or duplicate X86Opcode argument '{name ?? "#" + i}'"));
+                return null;
+            }
+            slot[idx] = cargs[i].Expression;
+        }
+        if (slot[0] is null)
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "X86Opcode requires a literal 0xNN Value"));
+            return null;
+        }
+
+        int? value = LiteralInt(slot[0]!);
+        if (value is not (>= 0 and <= 0xFF))
+        {
+            diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc,
+                "X86Opcode Value must be a literal 0xNN byte"));
+            return null;
+        }
+
+        bool hasModRm = false, regIsExtension = false;
+        int wbit = -1, sbit = -1;
+        var immediate = X86ImmediateRuleKind.None;
+
+        if (slot[1] is { } hm)
+        {
+            if (hm.IsKind(SyntaxKind.TrueLiteralExpression)) hasModRm = true;
+            else if (hm.IsKind(SyntaxKind.FalseLiteralExpression)) hasModRm = false;
+            else { return RejectX86Opcode(loc, "HasModRm must be a bool literal", diagnostics); }
+        }
+        if (slot[2] is { } rx)
+        {
+            if (rx.IsKind(SyntaxKind.TrueLiteralExpression)) regIsExtension = true;
+            else if (rx.IsKind(SyntaxKind.FalseLiteralExpression)) regIsExtension = false;
+            else { return RejectX86Opcode(loc, "RegIsExtension must be a bool literal", diagnostics); }
+        }
+        if (slot[3] is { } wb)
+        {
+            if (LiteralInt(wb) is { } w and >= -1 and <= 7) wbit = w;
+            else { return RejectX86Opcode(loc, "WBit must be a literal int in [-1, 7]", diagnostics); }
+        }
+        if (slot[4] is { } sb)
+        {
+            if (LiteralInt(sb) is { } s and >= -1 and <= 7) sbit = s;
+            else { return RejectX86Opcode(loc, "SBit must be a literal int in [-1, 7]", diagnostics); }
+        }
+        if (slot[5] is { } im)
+        {
+            string? immName = EnumMemberName(im, "X86ImmediateRule");
+            immediate = immName switch
+            {
+                "None" => X86ImmediateRuleKind.None,
+                "Fixed8" => X86ImmediateRuleKind.Fixed8,
+                "Fixed16" => X86ImmediateRuleKind.Fixed16,
+                "WBit" => X86ImmediateRuleKind.WBit,
+                "SWBit" => X86ImmediateRuleKind.SWBit,
+                _ => (X86ImmediateRuleKind)(-1),
+            };
+            if ((int)immediate < 0)
+                return RejectX86Opcode(loc, "Immediate must be an X86ImmediateRule.* member", diagnostics);
+        }
+
+        // A w/s-bit-driven immediate rule needs the bit position(s) it reads (else the walk cannot size the
+        // immediate). The SWBit form reads BOTH the s and the w bit; the WBit form reads w.
+        if (immediate == X86ImmediateRuleKind.WBit && wbit < 0)
+            return RejectX86Opcode(loc, $"opcode 0x{value:X2}: Immediate.WBit requires a WBit position", diagnostics);
+        if (immediate == X86ImmediateRuleKind.SWBit && (wbit < 0 || sbit < 0))
+            return RejectX86Opcode(loc, $"opcode 0x{value:X2}: Immediate.SWBit requires both a WBit and an SBit position", diagnostics);
+
+        return new X86OpcodeModel((byte)value.Value, hasModRm, regIsExtension, wbit, sbit, immediate);
+    }
+
+    private static X86OpcodeModel? RejectX86Opcode(
+        Location loc, string message, ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        diagnostics.Add(new DiagnosticInfo(SpecDiagnostics.InvalidX86Decode, loc, message));
+        return null;
     }
 
     /// <summary>Parse one <c>FieldOp(Mask, Match, Operation, SizeShift, SizeWidth, SizeEncoding, EaShift,

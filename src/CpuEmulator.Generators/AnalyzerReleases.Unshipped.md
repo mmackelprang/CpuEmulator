@@ -16,3 +16,4 @@ CPUGEN012 | CpuEmulator.Spec | Error | Invalid decode structure
 CPUGEN013 | CpuEmulator.Spec | Error | Invalid flag layout
 CPUGEN014 | CpuEmulator.Spec | Error | Invalid register pair view
 CPUGEN015 | CpuEmulator.Spec | Error | Invalid field grammar
+CPUGEN016 | CpuEmulator.Spec | Error | Invalid x86 decode structure
