@@ -25,6 +25,17 @@ internal static class M68000TomHarteVectors
         string dir = Path.Combine(root, "680x0", "v1");
         return Directory.Exists(dir) ? dir : null;
     }
+
+    /// <summary>The per-file case-sample cap for the 680x0 TomHarte sweeps. Mirrors the 6502/Z80 convention
+    /// (Mos6502TomHarteSweepBase / Z80TomHartePlaneBase): routine/CI runs cap the per-file case loop at
+    /// CPUEMULATOR_TOMHARTE_SAMPLE (default 200); CPUEMULATOR_UAT=full removes the cap (int.MaxValue) so the
+    /// substantive/milestone merge gate runs the full ~8065-case-per-file sweep. Caps the per-file case loop
+    /// ONLY — it does NOT change which files run, which cases are deferred/filtered, or what is asserted.</summary>
+    public static int ResolveSampleSize()
+    {
+        if (Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full") return int.MaxValue;
+        return int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"), out int p) && p > 0 ? p : 200;
+    }
 }
 
 /// <summary>TheoryAttribute that skips the whole theory at discovery when the 680x0 vectors are absent —

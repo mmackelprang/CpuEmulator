@@ -6,6 +6,20 @@ namespace CpuEmulator.Tests.Importer;
 [Collection("ConsoleIsolation")]
 public class FieldGrammarCliTests
 {
+    // Capture stdout/stderr by redirecting Console before calling Main, then restore the
+    // originals in finally. Without this, the negative-arg cases below write Program.Fail's
+    // "error: ..." to the test host's real stderr, which the parallel-collection runner reads
+    // as a host crash during teardown. Mirrors ValidateOnlyTests.RunMain.
+    private static int RunMain(params string[] args)
+    {
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
+        var outSw = new StringWriter();
+        var errSw = new StringWriter();
+        try { Console.SetOut(outSw); Console.SetError(errSw); return Program.Main(args); }
+        finally { Console.SetOut(originalOut); Console.SetError(originalErr); }
+    }
+
     [Fact]
     public void Field_grammar_mode_writes_a_spec_with_a_FieldGrammar()
     {
@@ -15,7 +29,7 @@ public class FieldGrammarCliTests
         string outPath = Path.Combine(Path.GetTempPath(), $"m68k-spec-{System.Guid.NewGuid():N}.cs");
         try
         {
-            int exit = Program.Main(["--field-grammar", dataset, "--config", config, "--out", outPath]);
+            int exit = RunMain("--field-grammar", dataset, "--config", config, "--out", outPath);
             Assert.Equal(0, exit);
             string written = File.ReadAllText(outPath);
             Assert.Contains("public static readonly FieldGrammar Decode68k = new(", written);
@@ -27,7 +41,7 @@ public class FieldGrammarCliTests
     [Fact]
     public void Field_grammar_requires_config()
     {
-        int exit = Program.Main(["--field-grammar", "x.json", "--out", "y.cs"]);
+        int exit = RunMain("--field-grammar", "x.json", "--out", "y.cs");
         Assert.Equal(1, exit);   // usage error: --config required
     }
 
@@ -36,8 +50,8 @@ public class FieldGrammarCliTests
     {
         // --config is only valid in the FieldGrammar arm; the opcode-row arm must reject it rather
         // than silently ignore it (the arg loop's "unknown combination fails loudly" contract).
-        int exit = Program.Main(["--dataset", "a.json", "--semantics", "b.json", "--out", "c.cs",
-                                 "--config", "x.json"]);
+        int exit = RunMain("--dataset", "a.json", "--semantics", "b.json", "--out", "c.cs",
+                           "--config", "x.json");
         Assert.Equal(1, exit);
     }
 }

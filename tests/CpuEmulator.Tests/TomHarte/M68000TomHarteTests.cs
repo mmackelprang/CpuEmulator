@@ -22,6 +22,9 @@ namespace CpuEmulator.Tests.TomHarte;
 /// EXCLUDED (out of M4.5a scope): MOVE.q (MOVEQ → M4.5b/c), MOVEM.w/.l + MOVEP.w/.l (system-misc → M4.5c).
 /// Skip-when-absent (vector-less environments) but MUST run green with the vectors PRESENT for merge — a skip is
 /// not a mergeable state.
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para>
 /// </summary>
 public abstract class M68000MoveTomHarteSweepBase
 {
@@ -54,10 +57,14 @@ public abstract class M68000MoveTomHarteSweepBase
         Assert.NotEmpty(cases);   // a present-but-empty file would silently pass — guard it
 
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int executed = 0;   // non-exception MOVE cases actually run + asserted on the data (or full) axis
         int deferred = 0;   // exception cases (M4.5d) — counted, not asserted (would be a drift false-positive)
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             string? r = M68000TomHarteRunner.RunCase(c, timingAxis);
             if (ReferenceEquals(r, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
             executed++;

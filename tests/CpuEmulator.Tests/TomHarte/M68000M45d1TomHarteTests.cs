@@ -14,7 +14,10 @@ namespace CpuEmulator.Tests.TomHarte;
 ///
 /// <para><b>Parallelism (test-infra, zero semantics change).</b> Each in-scope file gets its OWN derived class;
 /// the body — including the CHK-in-range filter — is IDENTICAL to the pre-split single-theory body. The coverage
-/// guard asserts exact coverage of <see cref="CanonicalFiles"/>.</para></summary>
+/// guard asserts exact coverage of <see cref="CanonicalFiles"/>.</para>
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para></summary>
 public abstract class M68000M45d1TomHarteSweepBase
 {
     public static readonly string[] CanonicalFiles =
@@ -51,9 +54,13 @@ public abstract class M68000M45d1TomHarteSweepBase
 
         var cases = M68000TomHarteLoader.LoadFile(path);
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int executed = 0, deferred = 0, unpredictable = 0;
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             // CHK on the IN-RANGE (no-trap) path leaves the CCR in a documented-UNPREDICTABLE state (the 68000
             // PRM: N/Z/V/C undefined when Dn is in [0,bound]). Those cases are a corpus artifact, so the sweep
             // excludes them — the CHK TRAP cases (deterministic CCR) ARE asserted on the data axis.

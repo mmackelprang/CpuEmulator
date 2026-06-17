@@ -20,6 +20,9 @@ namespace CpuEmulator.Tests.TomHarte;
 ///
 /// <para><b>Honesty (ADR 0008 §7).</b> 2a is "PC/prefetch-exact", NOT yet "cycle-exact". The address-error
 /// (vector 3) group-0 cases stay DEFERRED (IsAddressErrorCase); all other exception cases assert.</para>
+///
+/// <para>Routine/CI runs cap each file at a 200-case sample (CPUEMULATOR_TOMHARTE_SAMPLE); the authoritative
+/// substantive/milestone merge gate runs CPUEMULATOR_UAT=full (the full ~8065-case-per-file sweep).</para>
 /// </summary>
 public abstract class M68000TimingAxisTomHarteSweepBase
 {
@@ -72,9 +75,13 @@ public abstract class M68000TimingAxisTomHarteSweepBase
         Assert.NotEmpty(cases);
 
         var failures = new List<string>();
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        int run = 0;
         int executed = 0, deferred = 0, unpredictable = 0;
         foreach (var c in cases)
         {
+            if (run >= sampleSize) break;
+            run++;
             // CHK on the IN-RANGE (no-trap) path leaves the CCR documented-UNPREDICTABLE (PRM) — a corpus
             // artifact filtered on the data axis (M68000M45d1TomHarteTests). The PC/prefetch state IS exact
             // for them, but the data axis (asserted alongside) would spuriously fail, so mirror the filter.
