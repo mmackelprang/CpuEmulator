@@ -364,6 +364,19 @@ internal static class CpuEmitter
             sb.AppendLine("        }");
             sb.AppendLine("        else FlushRefills();");
         }
+        else if (model.X86Decode is not null)
+        {
+            // M5.2 (ADR 0006 Decision 1): the x86 byte-granular variable-length Step. Decode through the
+            // byte fetch stream over PC (the 8086's IP — the real CS:IP physical-address fetch + the EA/
+            // segment pipeline is M5.3/M5.5a), advance PC by the COMPUTED length, charge one cycle per
+            // consumed byte, and dispatch the resolved key. M5.2 is the decode SHAPE only: the synthetic
+            // fixture drives Decode() directly, and the real M8086Spec is still state-only (no X86Decode),
+            // so this branch is exercised only by the synthetic x86-decode CPU until the M5.5 op bodies land.
+            sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}));");
+            sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + __r.Length));");
+            sb.AppendLine("        _cycles += __r.Length;          // one cycle per consumed byte (the fetch stream does not charge)");
+            sb.AppendLine("        Execute(__r.OperationKey);");
+        }
         else if (model.Decode is null)
         {
             // Degenerate (6502): the byte-fetch Step is UNCHANGED (Ground truth E). The per-op bodies
@@ -529,7 +542,7 @@ internal static class CpuEmitter
         // walk resolved (the per-op methods are named by OperationKey to disambiguate prefixed/bare/
         // group rows that share an opcode byte). The case-label key is OperationKey in both — for the
         // 6502 OperationKey == opcode (≤ 0xFF) so the emitted arms are textually identical.
-        bool keyedDispatch = model.Decode is not null || model.FieldGrammar is not null;
+        bool keyedDispatch = model.Decode is not null || model.FieldGrammar is not null || model.X86Decode is not null;
         string execParam = keyedDispatch ? "uint opcode" : "byte opcode";
         sb.AppendLine();
         sb.AppendLine($"    private void Execute({execParam})");
@@ -3662,7 +3675,8 @@ internal static class CpuEmitter
         // identical (Ground truth E: "MINIMAL (body)"). A structured CPU's key is a uint, so the
         // parameter widens to express keys > 0xFF; the IMonitorSupport.Disassemble(byte,...) contract
         // stays stable (its explicit impl widens the byte to the key).
-        string opParam = (model.Decode is not null || model.FieldGrammar is not null) ? "uint opcode" : "byte opcode";
+        string opParam = (model.Decode is not null || model.FieldGrammar is not null || model.X86Decode is not null)
+            ? "uint opcode" : "byte opcode";
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Disassemble one instruction. Returns a human-readable string.</summary>");
         sb.AppendLine($"    public static string Disassemble({opParam}, byte operandLo, byte operandHi)");
@@ -3749,10 +3763,11 @@ internal static class CpuEmitter
     /// Reflection.Emit here; the JIT assembly is the only place that emits IL.</summary>
     private static void EmitJitDescriptors(StringBuilder sb, SpecModel model, FlagBitMap flags)
     {
-        // A declared DecodeStructure OR a word-granular FieldGrammar (M4.3a) keys descriptors on the
-        // opaque OperationKey via a dictionary (the field-decode DescriptorFor resolves through it). A
-        // FieldGrammar CPU has no instruction rows yet, so the dictionary is empty — but it must EXIST.
-        if (model.Decode is not null || model.FieldGrammar is not null)
+        // A declared DecodeStructure OR a word-granular FieldGrammar (M4.3a) OR an x86 decode structure
+        // (M5.2) keys descriptors on the opaque OperationKey via a dictionary (the field-decode / x86
+        // DescriptorFor resolves through it). A FieldGrammar CPU has no instruction rows yet, so the
+        // dictionary is empty — but it must EXIST.
+        if (model.Decode is not null || model.FieldGrammar is not null || model.X86Decode is not null)
         {
             EmitKeyedDescriptorTable(sb, model, flags);
             return;
@@ -3788,6 +3803,11 @@ internal static class CpuEmitter
         // A FieldGrammar-only CPU (M4.3a) declares no DecodeStructure, hence no ModRm opcodes; the field-
         // decode path computes length itself, so the keyed table is just the (empty, for M4.3a) row map.
         var modRm = model.Decode?.ModRmOpcodes.Values ?? System.Collections.Immutable.ImmutableArray<byte>.Empty;
+        // M5.2: the x86 ModR/M opcodes (the disp-length is the mid-stream byte → LengthRule.ModRmDetermined),
+        // keyed by the opcode value across BOTH plain (OpcodeByte) and group (OpcodeGroup) rows.
+        var x86ModRm = model.X86Decode is { } xd
+            ? new System.Collections.Generic.HashSet<byte>(xd.Opcodes.Values.Where(o => o.HasModRm).Select(o => o.Value))
+            : null;
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Key→descriptor table for a declared DecodeStructure (Ground truth C). Keyed on");
         sb.AppendLine("    /// the opaque OperationKey the walk computes; DescriptorFor consults this, never a raw");
@@ -3796,7 +3816,12 @@ internal static class CpuEmitter
         sb.AppendLine("    {");
         foreach (var insn in model.Instructions)
         {
-            bool isModRm = modRm.Contains(insn.Opcode) && insn.KeyShape == KeyShape.OpcodeByte;
+            // The 8086 ModR/M length is computed by the walk (LengthRule.ModRmDetermined) for any opcode the
+            // x86 decode marks HasModRm — whether it keys plainly or as an opcode-group. The Z80/synthetic
+            // ModRm path keeps its OpcodeByte-only rule (byte-identical for those CPUs).
+            bool isModRm = x86ModRm is not null
+                ? x86ModRm.Contains(insn.Opcode)
+                : modRm.Contains(insn.Opcode) && insn.KeyShape == KeyShape.OpcodeByte;
             sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm, flags)},");
         }
         sb.AppendLine("    };");
@@ -4093,6 +4118,14 @@ internal static class CpuEmitter
     /// output, never a field read (Ground truth B).</summary>
     private static void EmitDecodeWalk(StringBuilder sb, SpecModel model)
     {
+        // M5.2 (ADR 0006 Decision 1): the 8086's byte-granular, variable-length, prefix-stacking decode arm.
+        // A THIRD walk beside the byte/prefix walk (6502/Z80) and the word field walk (68000), gated entirely
+        // to the x86 path — so 6502/Z80/68000 emit byte-identically (the RegeneratedSpec seam proof).
+        if (model.X86Decode is not null)
+        {
+            EmitX86DecodeWalk(sb, model, model.X86Decode);
+            return;
+        }
         if (model.Decode is not null || model.FieldGrammar is not null)
         {
             EmitStructuredDecodeWalk(sb, model);
@@ -4242,6 +4275,118 @@ internal static class CpuEmitter
         sb.AppendLine("    /// DecodeStructure keys descriptors on the opaque OperationKey via a dictionary — a dense");
         sb.AppendLine("    /// [256] array cannot hold prefixed/bare/group rows that share an opcode byte. An unknown");
         sb.AppendLine("    /// key gets the Undefined sentinel.</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
+        sb.AppendLine("        => JitDescriptorsByKey.TryGetValue(operationKey, out var d)");
+        sb.AppendLine("            ? d : CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined((byte)operationKey);");
+    }
+
+    /// <summary>M5.2 (ADR 0006 Decision 1): the 8086's byte-granular, VARIABLE-LENGTH, prefix-stacking decode
+    /// walk — the third decode arm, beside the byte/prefix walk (6502/Z80) and the word field walk (68000),
+    /// reusing the opaque-key / computed-length / DecodeResult back-end UNCHANGED. The walk:
+    ///   1. stack 0..N known prefix bytes (accumulating the segment-override + repeat + lock state — carried
+    ///      for the M5.3 EA layer + the M5.5d string-op body);
+    ///   2. consume the opcode byte;
+    ///   3. if it carries a ModR/M operand, consume the ModR/M byte and compute the DISPLACEMENT length from
+    ///      the real 8086 16-bit table (mod=00 ⇒ 0 EXCEPT r/m=110 ⇒ disp16 direct; mod=01 ⇒ disp8;
+    ///      mod=10 ⇒ disp16; mod=11 ⇒ register, 0);
+    ///   4. consume the IMMEDIATE whose length the opcode + its w/s bits dictate;
+    ///   5. key = the opcode byte, OR (opcode &lt;&lt; 3) | reg for an opcode-group instruction (reusing the
+    ///      existing OpcodeGroup key shape); length = UnitsConsumed (UnitBytes == 1).
+    /// The ModR/M byte is surfaced on Operands.Lo (the proof-of-shape; the full mod/reg/r/m + segment-
+    /// override EA descriptor threading is M5.3). An unknown opcode resolves to the Undefined sentinel.</summary>
+    private static void EmitX86DecodeWalk(StringBuilder sb, SpecModel model, X86DecodeModel x86)
+    {
+        // The prefix set: any byte the walk stacks BEFORE the opcode. (The role — segment-override / lock /
+        // repeat — is carried for M5.3/M5.5d; M5.2 only needs the SET to stack them + count their length.)
+        string prefixSet = string.Join(", ", x86.Prefixes.Values.Select(p => $"0x{p.Value:X2}"));
+        // The per-opcode metadata. Emitted as compact tables keyed by the opcode byte:
+        //   s_x86HasModRm        — opcodes carrying a ModR/M byte (read it + the mod/rm-derived displacement);
+        //   s_x86RegIsExtension  — opcode-group opcodes (reg extends the opcode → key (opcode<<3)|reg);
+        //   s_x86Imm             — (rule, wBit, sBit) per opcode with an immediate operand.
+        var modRmOps = x86.Opcodes.Values.Where(o => o.HasModRm).Select(o => o.Value).ToList();
+        var groupOps = x86.Opcodes.Values.Where(o => o.RegIsExtension).Select(o => o.Value).ToList();
+        var immOps = x86.Opcodes.Values.Where(o => o.Immediate != X86ImmediateRuleKind.None).ToList();
+
+        string modRmSet = string.Join(", ", modRmOps.Select(v => $"0x{v:X2}"));
+        string groupSet = string.Join(", ", groupOps.Select(v => $"0x{v:X2}"));
+        string immEntries = string.Join(", ",
+            immOps.Select(o => $"{{ 0x{o.Value:X2}, ({(int)o.Immediate}, {o.WBit}, {o.SBit}) }}"));
+
+        sb.AppendLine();
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_x86Prefixes = new() {{ {prefixSet} }};");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_x86HasModRm = new() {{ {modRmSet} }};");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.HashSet<uint> s_x86RegIsExtension = new() {{ {groupSet} }};");
+        sb.AppendLine("    // (immediate-rule, wBit, sBit) per opcode: rule 0=None,1=Fixed8,2=Fixed16,3=WBit,4=SWBit; bit -1 ⇒ absent.");
+        sb.AppendLine($"    private static readonly System.Collections.Generic.Dictionary<uint, (int Rule, int WBit, int SBit)> s_x86Imm = new() {{ {immEntries} }};");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The generated x86 variable-length decode walk (M5.2, ADR 0006 Decision 1):");
+        sb.AppendLine("    /// prefix-stacking → opcode → real ModR/M disp-length table → opcode-group keying → immediate,");
+        sb.AppendLine("    /// with Length COMPUTED by consumption (UnitsConsumed × UnitBytes), never a field read.</summary>");
+        sb.AppendLine("    public static CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // 1. Stack 0..N prefix bytes. The 8086 ignores all but the last of a redundant class, but the");
+        sb.AppendLine("        //    LENGTH counts every prefix byte — so consume them all here. (The accumulated segment-");
+        sb.AppendLine("        //    override / repeat / lock roles are threaded to the EA layer + string-op body in M5.3/M5.5d.)");
+        sb.AppendLine("        uint b = stream.NextUnit();                            // the first byte");
+        sb.AppendLine("        while (s_x86Prefixes.Contains(b))");
+        sb.AppendLine("            b = stream.NextUnit();                             // stack the prefix, read the next byte");
+        sb.AppendLine("        uint opcode = b;                                       // the opcode byte (after any prefixes)");
+        sb.AppendLine("        uint key = opcode;                                     // KeyShape.OpcodeByte (the default)");
+        sb.AppendLine("        byte modrmByte = 0; byte operandCount = 0;");
+        sb.AppendLine();
+        sb.AppendLine("        // 2. ModR/M + the real 8086 16-bit displacement-length table.");
+        sb.AppendLine("        if (s_x86HasModRm.Contains(opcode))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            modrmByte = (byte)stream.NextUnit();               // the ModR/M byte");
+        sb.AppendLine("            operandCount = 1;");
+        sb.AppendLine("            uint mod = (uint)(modrmByte >> 6) & 3u;            // bits 7-6");
+        sb.AppendLine("            uint reg = (uint)(modrmByte >> 3) & 7u;            // bits 5-3");
+        sb.AppendLine("            uint rm  = (uint)modrmByte & 7u;                   // bits 2-0");
+        sb.AppendLine("            // The reg field EXTENDS the opcode for the opcode-group rows (80/81/83/F6/F7/FE/FF/D0-D3/...):");
+        sb.AppendLine("            // key = (opcode << 3) | reg, reusing the existing OpcodeGroup key shape. Otherwise reg is a");
+        sb.AppendLine("            // register operand and the key stays the opcode byte.");
+        sb.AppendLine("            if (s_x86RegIsExtension.Contains(opcode))");
+        sb.AppendLine("                key = (opcode << 3) | reg;                     // KeyShape.OpcodeGroup");
+        sb.AppendLine("            // The displacement length from (mod, r/m): the real 8086 table.");
+        sb.AppendLine("            //   mod=00 ⇒ 0  EXCEPT r/m=110 ⇒ 2 (disp16 DIRECT — the famous exception);");
+        sb.AppendLine("            //   mod=01 ⇒ 1 (disp8, sign-extended);  mod=10 ⇒ 2 (disp16);  mod=11 ⇒ 0 (register direct).");
+        sb.AppendLine("            int dispLen = mod switch");
+        sb.AppendLine("            {");
+        sb.AppendLine("                0u => rm == 6u ? 2 : 0,    // disp16 ONLY for mod=00,r/m=110 (the direct-address exception)");
+        sb.AppendLine("                1u => 1,                   // disp8");
+        sb.AppendLine("                2u => 2,                   // disp16");
+        sb.AppendLine("                _  => 0,                   // mod=11 register direct");
+        sb.AppendLine("            };");
+        sb.AppendLine("            for (int i = 0; i < dispLen; i++) stream.NextUnit();   // consume the displacement bytes");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        // 3. The immediate operand, whose length the opcode + its w/s bits dictate.");
+        sb.AppendLine("        if (s_x86Imm.TryGetValue(opcode, out var imm))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            int immLen = imm.Rule switch");
+        sb.AppendLine("            {");
+        sb.AppendLine("                1 => 1,                                                        // Fixed8");
+        sb.AppendLine("                2 => 2,                                                        // Fixed16");
+        sb.AppendLine("                3 => ((opcode >> imm.WBit) & 1u) == 1u ? 2 : 1,               // WBit: w=1 ⇒ 2, w=0 ⇒ 1");
+        sb.AppendLine("                // SWBit (the ALU-group sign-extend form): s=1 ⇒ 1 (a sign-extended imm8), else w drives 1/2.");
+        sb.AppendLine("                4 => ((opcode >> imm.SBit) & 1u) == 1u ? 1 : (((opcode >> imm.WBit) & 1u) == 1u ? 2 : 1),");
+        sb.AppendLine("                _ => 0,");
+        sb.AppendLine("            };");
+        sb.AppendLine("            for (int i = 0; i < immLen; i++) stream.NextUnit();    // consume the immediate bytes");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        // 4. Length is a COMPUTED OUTPUT of the walk (UnitsConsumed × UnitBytes), never a field read.");
+        sb.AppendLine("        //    The ModR/M byte is surfaced on Operands.Lo (the proof-of-shape; the full mod/reg/r/m +");
+        sb.AppendLine("        //    segment-override EA descriptor is M5.3).");
+        sb.AppendLine("        int length = stream.UnitsConsumed * stream.UnitBytes;");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(modrmByte, 0, operandCount));");
+        sb.AppendLine("    }");
+
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Resolve an operation-key to its descriptor (Ground truth C). The x86 decode keys");
+        sb.AppendLine("    /// descriptors on the opaque OperationKey via a dictionary (plain opcode OR (opcode&lt;&lt;3)|reg");
+        sb.AppendLine("    /// for the opcode-group rows). An unknown key gets the Undefined sentinel.</summary>");
         sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
         sb.AppendLine("        => JitDescriptorsByKey.TryGetValue(operationKey, out var d)");
         sb.AppendLine("            ? d : CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined((byte)operationKey);");

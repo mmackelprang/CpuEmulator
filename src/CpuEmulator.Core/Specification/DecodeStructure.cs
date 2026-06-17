@@ -58,3 +58,55 @@ public sealed record FieldOp(
 /// field extraction + operand-computed length. The Ops are matched in order; first (Mask, Match) hit wins;
 /// no hit ⇒ the illegal-instruction Undefined sentinel (the vector is M4.5).</summary>
 public sealed record FieldGrammar(FetchUnit FetchUnit, FieldOp[] Ops);
+
+// ── M5.2 (ADR 0006 Decision 1): the 8086's byte-granular, VARIABLE-LENGTH, prefix-stacking decode SHAPE. ──
+// A THIRD sibling carrier beside DecodeStructure (the Z80 one-prefix/synthetic-ModRm byte walk) and
+// FieldGrammar (the 68000 word-field walk). The 8086 length is the most input-dependent of the three CPUs:
+//   length = [0..N prefix bytes] + opcode(1) + [ModR/M(1) + disp(0/1/2)] + [imm(0/1/2)],
+// where the disp size comes from the ModR/M mod+r/m fields (the real 16-bit table — NOT the synthetic
+// `modrm & 3` placeholder DecodeStructure carries) and the immediate size comes from the opcode + its
+// w/s bits. ABSENT (6502/Z80/68000) ⇒ the existing byte or field walk, BYTE-IDENTICAL (this variant is
+// opt-in exactly as FetchUnit.Word is). These types are inert syntax carriers for the generator — record
+// equality and array mutation are unsupported usage.
+
+/// <summary>An x86 prefix byte's role (ADR 0006 Decision 1 / ADR 0005 Decision 2). The decode walk stacks
+/// 0..N prefix bytes, accumulating the segment-override / repeat / lock state the EA layer (M5.3) + the
+/// string-op body (M5.5d) consume. SegmentOverride: 26=ES, 2E=CS, 36=SS, 3E=DS. Lock: F0 (and the alias
+/// F1). Repeat: F3 (REP/REPE), F2 (REPNE).</summary>
+public enum X86PrefixRole { SegmentOverride, Lock, Repeat }
+
+/// <summary>One x86 prefix byte + its role (M5.2). Carried on an <see cref="X86DecodeStructure"/>; the
+/// decode walk treats any byte in this set as a prefix to stack BEFORE the opcode.</summary>
+public sealed record X86Prefix(byte Value, X86PrefixRole Role);
+
+/// <summary>How an opcode's immediate-operand length is determined (M5.2, ADR 0006 Decision 1). The 8086
+/// immediate length is opcode-driven and, for many ALU/MOV forms, modulated by the w / s bits packed in
+/// the opcode byte's low bits.</summary>
+public enum X86ImmediateRule
+{
+    None,        // no immediate operand (the operand is reg/mem/implied)
+    Fixed8,      // exactly 1 immediate byte regardless of w/s (e.g. INT n, the by-imm8 shift count)
+    Fixed16,     // exactly 2 immediate bytes (e.g. a near CALL/JMP rel16, RET imm16)
+    WBit,        // w=0 ⇒ 1 byte, w=1 ⇒ 2 bytes — the imm size follows the operand size (MOV/ALU imm)
+    SWBit,       // the ALU-group sign-extend form: s=1 ⇒ 1 byte (sign-extended), else w drives 1/2 bytes
+}
+
+/// <summary>One opcode row's x86 decode metadata (M5.2). HasModRm: the opcode carries a ModR/M byte (so the
+/// walk reads it + the mod/rm-derived displacement). RegIsExtension: the ModR/M reg field EXTENDS the opcode
+/// (the 80/81/83/F6/F7/FE/FF/D0-D3/C0/C1/8F groups) — the key becomes (opcode&lt;&lt;3)|reg, reusing the
+/// existing OpcodeGroup key shape. WBit names the bit position of the operand-size w bit (-1 ⇒ none); SBit
+/// the sign-extend s bit (-1 ⇒ none); Immediate the immediate-length rule.</summary>
+public sealed record X86Opcode(
+    byte Value,
+    bool HasModRm = false,
+    bool RegIsExtension = false,
+    int WBit = -1,
+    int SBit = -1,
+    X86ImmediateRule Immediate = X86ImmediateRule.None);
+
+/// <summary>The 8086's byte-granular, variable-length, prefix-stacking decode SHAPE (ADR 0006 Decision 1).
+/// A sibling to <see cref="DecodeStructure"/> / <see cref="FieldGrammar"/>; declaring it opts the CPU into
+/// the <c>EmitX86DecodeWalk</c> arm (prefix stacking → opcode → real ModR/M disp-length table → immediate)
+/// while REUSING the opaque-key / computed-length / DecodeResult back-end unchanged. ABSENT (6502/Z80/68000)
+/// ⇒ the byte or field walk is BYTE-IDENTICAL. Inert syntax carrier for the generator.</summary>
+public sealed record X86DecodeStructure(X86Prefix[] Prefixes, X86Opcode[] Opcodes);

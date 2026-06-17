@@ -68,6 +68,10 @@ internal static class SpecDiagnostics
         "CPUGEN015", "Invalid field grammar",
         "Field grammar is not analyzable: {0}");
 
+    public static readonly DiagnosticDescriptor InvalidX86Decode = Make(
+        "CPUGEN016", "Invalid x86 decode structure",
+        "x86 decode structure is not analyzable: {0}");
+
     public static DiagnosticDescriptor ById(string id) => id switch
     {
         "CPUGEN001" => MissingRegisters,
@@ -85,6 +89,7 @@ internal static class SpecDiagnostics
         "CPUGEN013" => InvalidFlagLayout,
         "CPUGEN014" => InvalidPairView,
         "CPUGEN015" => InvalidFieldGrammar,
+        "CPUGEN016" => InvalidX86Decode,
         _ => throw new System.ArgumentException($"Unknown diagnostic id '{id}'."),
     };
 }
