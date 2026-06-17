@@ -99,27 +99,16 @@ public sealed partial class M68000Cpu
     //    ends == the case's length (Σ transaction cycles — validated by the TomHarte gate). ────────────────
     private const int WordAccessCycles = 4;   // a word bus cycle is 4 clocks on the 68000 (S0-S7)
 
-    /// <summary>M4.5d-2b (ADR 0008 §3): charge <paramref name="n"/> IDLE clocks — the corpus <c>["n", N]</c>
-    /// slots (internal/dead bus cycles where the 68000 does no bus access). Idle cycles advance CycleCount ONLY;
-    /// they produce NO bus access, so they emit NO trace entry (the runner's DiffBusTrace filters idle out of the
-    /// EXPECTED list, so the emit side must simply not touch the bus). This is the FieldGrammar-path idle
-    /// primitive — the analogue of the generated <c>IdleCycle()</c> the HaltOp/6502 path uses, but parameterized
-    /// for the multi-clock 68000 idle runs and not tied to the halted latch. The generated Step flushes the
-    /// per-instruction idle accumulator through it (the prefetch refills charge themselves via <see cref="Refill"/>,
-    /// the operand accesses via the WordBus helpers).</summary>
-    private void IdleCycles(int n) => _cycles += n;
-
-    /// <summary>M4.5d-2b: the per-instruction IDLE-cycle accumulator the op bodies declare and the generated Step
-    /// flushes (via <see cref="IdleCycles"/>) after the body runs. An op body adds the internal/dead cycles its
-    /// instruction class spends with the bus idle (the corpus <c>["n", N]</c> slots) with <c>Idle(N)</c>; the
-    /// generated Step resets it to 0 at the start of each instruction and charges the total at the end. The
-    /// per-class idle reconciliation (e.g. the predecrement/index internal cycle, MULU/DIVU's long idle run) is
-    /// T6.</summary>
-    private int _pendingIdle;
+    // M4.5d-2b (PR #47 generator self-containment fix): IdleCycles(int), the _pendingIdle field, _reseededInBody,
+    // and FlushRefills() are now EMITTED by the generator (CpuEmitter, the FieldGrammar block) so any FieldGrammar
+    // CPU — including the synthetic Demo.FgwCpu test fixture — compiles. They are declared exactly once (generated);
+    // this hand-written partial no longer declares them. The op-body-only helpers below (Idle/Refill/LeadRefills/
+    // EaCalcIdle/PrefetchTarget/WriteLongBusRmw) stay hand-written: they are called only by hand-written op bodies,
+    // never by the generated Step, so they appear in no generated file.
 
     /// <summary>M4.5d-2b: an op body declares its internal/idle (<c>["n", N]</c>) clocks here. Accumulated into
-    /// <see cref="_pendingIdle"/> and flushed via <see cref="IdleCycles"/> after the body (the runner's
-    /// DiffBusTrace filters idle out of the expected trace, so idle adds cycles but no bus access).</summary>
+    /// the generated <c>_pendingIdle</c> and flushed via the generated <c>IdleCycles</c> after the body (the
+    /// runner's DiffBusTrace filters idle out of the expected trace, so idle adds cycles but no bus access).</summary>
     private void Idle(int n) => _pendingIdle += n;
 
     /// <summary>M4.5d-2b (the DEFERRED-REFILL seam, ADR 0008 §8.1): issue ONE deferred prefetch refill at THIS
@@ -155,26 +144,14 @@ public sealed partial class M68000Cpu
         }
     }
 
-    /// <summary>M4.5d-2b: flush ALL still-pending deferred refills as traced reads (in decode order). The
-    /// generated Step calls this after the body so any refill the body did not place explicitly trails the
-    /// operand accesses (the common <c>...F</c> / refills-lead tail). A refills-lead class needs NO explicit
-    /// <see cref="Refill"/> calls — the whole backlog flushes here in order.</summary>
-    private void FlushRefills()
-    {
-        while (_fetchQueue is not null && _fetchQueue.TryPopRefill(out uint addr))
-        {
-            _cycles += WordAccessCycles;
-            _ = _bus.Read16(addr);
-        }
-    }
+    // M4.5d-2b (PR #47 self-containment fix): FlushRefills() is now generated (see the note above) — the
+    // hand-written copy was dropped so it is declared exactly once.
 
-    /// <summary>M4.5d-2b: set by a control-transfer body that emitted its OWN target-prefetch reads (the two
-    /// queue-end words) at the points the corpus records them — e.g. JSR/BSR interleave those reads with the
-    /// return-PC push. The generated Step then recomputes the queue end state UNTRACED (ReseedPeek) instead of
-    /// re-reading (and re-tracing) the target words. Cleared by the Step after each use. The simple transfers
-    /// (Bcc-taken/JMP/DBcc-taken/RTS/RTR/RTE) leave this false and let the Step's traced Reseed emit the two
-    /// target reads.</summary>
-    private bool _reseededInBody;
+    // M4.5d-2b (PR #47 self-containment fix): _reseededInBody is now generated (see the note above) — the
+    // hand-written field was dropped so it is declared exactly once. PrefetchTarget (below) still SETS it; that
+    // resolves against the generated field in the same partial class. It is set by a control-transfer body that
+    // emitted its OWN target-prefetch reads (JSR/BSR); the generated Step then recomputes the queue end state
+    // UNTRACED (ReseedPeek) instead of re-reading the target words.
 
     /// <summary>M4.5d-2b: a control-transfer body calls this to emit the TWO target-prefetch reads (the queue
     /// end-state words at <paramref name="target"/> and <paramref name="target"/>+2) as TRACED 4-clock word bus

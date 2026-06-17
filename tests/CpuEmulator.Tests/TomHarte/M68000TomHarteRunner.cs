@@ -250,10 +250,16 @@ internal static class M68000TomHarteRunner
         // runs another block each iteration — so the budget must be sized so the loop runs ONCE. A 1-cycle
         // budget does that: the check passes once (1 > 0), the single fallback op charges the instruction's
         // cycle cost (driving budget <= 0 — every 68000 instruction costs >= 1 cycle), and the loop exits.
-        // (The case's c.Length is NOT a valid budget here: the M4 interpreter charges a FLAT UnitsConsumed*4,
-        // which is LESS than the real c.Length for most multi-cycle ops, so a c.Length budget would leave the
-        // loop positive and run a SECOND, garbage instruction at the advanced PC — corrupting the data axis.
-        // The data-axis result is produced entirely by the one fallback Step, identical to RunCase's Step.)
+        // (The case's c.Length is NOT a valid budget here: the interpreter's per-instruction cycle charge can be
+        // LESS than the real c.Length for the families whose cycle count is not yet reconciled — a c.Length
+        // budget would leave the loop positive and run a SECOND, garbage instruction at the advanced PC.)
+        //
+        // The ">= 1 cycle per instruction" invariant this relies on is GUARDED by the interpreter: M4.5d-2b's
+        // deferred-refill model would otherwise charge a non-idle TAKEN control transfer (e.g. JMP) ZERO cycles
+        // (it DISCARDS the backlogged prefetch on a transfer), which left budget==1 positive and ran a runaway
+        // (parity break) or spun forever (the ~10h hang seen in the PR #47 gate). The generated Step charges the
+        // consumed-word prefetch cost before discarding (CpuEmitter, the FormalPc != PC branch), restoring the
+        // >= 1-cycle floor for every instruction — so this 1-cycle budget runs exactly one instruction here.
         long budget = 1;
         jit.Run(ref budget);
 
