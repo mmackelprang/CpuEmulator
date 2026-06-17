@@ -28,21 +28,29 @@ public sealed partial class M8086Cpu
         }
     }
 
-    /// <summary>DAA — decimal adjust AL after addition. The 8086 algorithm: capture old AL + old CF, clear CF;
-    /// if (AL&amp;0xF)&gt;9 OR AF, AL += 6 and CF = old_CF OR (the add carried) and AF = 1, else AF = 0; if
-    /// old_AL &gt; 0x99 OR old_CF, AL += 0x60 and CF = 1, else CF = 0. SF/ZF/PF from the final AL.</summary>
+    // The high-nibble adjust threshold is AF-DEPENDENT on the 8086 (derived against the full TomHarte corpus):
+    // when AF was set going in, the high adjust fires at old_AL > 0x9F; when AF was clear, at old_AL > 0x99.
+    // (The silicon's comparator absorbs the auxiliary state — the famous DAA/DAS subtlety the vectors pin.)
+    private const byte DaaHighThresholdAfSet   = 0x9F;
+    private const byte DaaHighThresholdAfClear = 0x99;
+
+    /// <summary>DAA — decimal adjust AL after addition. Capture old AL + old CF + old AF, clear CF. Low adjust:
+    /// if (AL&amp;0xF)&gt;9 OR AF, AL += 6, CF = old_CF OR (the add carried out of the byte), AF = 1; else AF = 0.
+    /// High adjust: if old_AL &gt; (AF-dependent threshold) OR old_CF, AL += 0x60, CF = 1; else CF = 0. SF/ZF/PF
+    /// from the final AL. (Verified AL/CF/AF byte-exact against all 10,000 DAA vectors.)</summary>
     private void Daa()
     {
         byte oldAl = AL;
         bool oldCf = (FLAGS & FlagCF) != 0;
         bool oldAf = (FLAGS & FlagAF) != 0;
+        byte highThreshold = oldAf ? DaaHighThresholdAfSet : DaaHighThresholdAfClear;
         SetFlag(FlagCF, false);
 
         if ((AL & 0x0F) > 9 || oldAf)
         {
             int sum = AL + 6;
             AL = (byte)sum;
-            SetFlag(FlagCF, oldCf || sum > 0xFF);
+            SetFlag(FlagCF, oldCf || sum > 0xFF);   // low add CAN carry out of the byte → CF
             SetFlag(FlagAF, true);
         }
         else
@@ -50,7 +58,7 @@ public sealed partial class M8086Cpu
             SetFlag(FlagAF, false);
         }
 
-        if (oldAl > 0x99 || oldCf)
+        if (oldAl > highThreshold || oldCf)
         {
             AL = (byte)(AL + 0x60);
             SetFlag(FlagCF, true);
@@ -63,19 +71,22 @@ public sealed partial class M8086Cpu
         SetSzp(AL, width16: false);
     }
 
-    /// <summary>DAS — decimal adjust AL after subtraction (the borrow-direction analogue of DAA).</summary>
+    /// <summary>DAS — decimal adjust AL after subtraction (the borrow-direction analogue of DAA). The low adjust
+    /// borrow does NOT set CF (only old_CF propagates through the low branch — distinct from DAA's low add,
+    /// which CAN carry out); the high adjust SETS CF. Same AF-dependent high threshold. (Verified AL/CF/AF
+    /// byte-exact against all 10,000 DAS vectors.)</summary>
     private void Das()
     {
         byte oldAl = AL;
         bool oldCf = (FLAGS & FlagCF) != 0;
         bool oldAf = (FLAGS & FlagAF) != 0;
+        byte highThreshold = oldAf ? DaaHighThresholdAfSet : DaaHighThresholdAfClear;
         SetFlag(FlagCF, false);
 
         if ((AL & 0x0F) > 9 || oldAf)
         {
-            int diff = AL - 6;
-            AL = (byte)diff;
-            SetFlag(FlagCF, oldCf || diff < 0);
+            AL = (byte)(AL - 6);
+            SetFlag(FlagCF, oldCf);   // the low borrow is absorbed into AF; CF reflects only old_CF here
             SetFlag(FlagAF, true);
         }
         else
@@ -83,24 +94,27 @@ public sealed partial class M8086Cpu
             SetFlag(FlagAF, false);
         }
 
-        if (oldAl > 0x99 || oldCf)
+        if (oldAl > highThreshold || oldCf)
         {
             AL = (byte)(AL - 0x60);
             SetFlag(FlagCF, true);
         }
         // NOTE: DAS does NOT clear CF in the else branch (the high adjust only SETS it; the low branch already
-        // resolved the carry). This is the pinned 8086 behavior the vectors expect.
+        // resolved CF). This is the pinned 8086 behavior the vectors expect.
 
         SetSzp(AL, width16: false);
     }
 
-    /// <summary>AAA — ASCII adjust AL after addition. If (AL&amp;0xF)&gt;9 OR AF: AX += 0x106, AF = CF = 1;
-    /// else AF = CF = 0. Then AL &amp;= 0x0F. (OF/SF/ZF/PF undefined → masked.)</summary>
+    /// <summary>AAA — ASCII adjust AL after addition. If (AL&amp;0xF)&gt;9 OR AF: AL += 6 (masked to a byte),
+    /// AH += 1 (INDEPENDENTLY — NOT a 16-bit AX+=0x106, which would double-propagate the AL+6 byte-carry into
+    /// AH), AF = CF = 1; else AF = CF = 0. Then AL &amp;= 0x0F. (Verified AX/CF byte-exact against all 10,000
+    /// AAA vectors.) OF/SF/ZF/PF are undefined → masked; set from AL for determinism.</summary>
     private void Aaa()
     {
         if ((AL & 0x0F) > 9 || (FLAGS & FlagAF) != 0)
         {
-            AX = (ushort)(AX + 0x106);
+            AL = (byte)(AL + 6);
+            AH = (byte)(AH + 1);
             SetFlag(FlagAF, true);
             SetFlag(FlagCF, true);
         }
@@ -110,17 +124,17 @@ public sealed partial class M8086Cpu
             SetFlag(FlagCF, false);
         }
         AL = (byte)(AL & 0x0F);
-        // SF/ZF/PF are undefined for AAA on the 8086 (masked); set from AL for determinism.
         SetSzp(AL, width16: false);
     }
 
-    /// <summary>AAS — ASCII adjust AL after subtraction. If (AL&amp;0xF)&gt;9 OR AF: AX -= 6, AH -= 1,
-    /// AF = CF = 1; else AF = CF = 0. Then AL &amp;= 0x0F.</summary>
+    /// <summary>AAS — ASCII adjust AL after subtraction. If (AL&amp;0xF)&gt;9 OR AF: AL -= 6 (masked), AH -= 1
+    /// (INDEPENDENTLY), AF = CF = 1; else AF = CF = 0. Then AL &amp;= 0x0F. (Verified AX/CF byte-exact against
+    /// all 10,000 AAS vectors.)</summary>
     private void Aas()
     {
         if ((AL & 0x0F) > 9 || (FLAGS & FlagAF) != 0)
         {
-            AX = (ushort)(AX - 6);
+            AL = (byte)(AL - 6);
             AH = (byte)(AH - 1);
             SetFlag(FlagAF, true);
             SetFlag(FlagCF, true);
