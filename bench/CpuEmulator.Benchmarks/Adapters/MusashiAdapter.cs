@@ -42,10 +42,10 @@ public sealed class MusashiAdapter : IEmulatorAdapter
         }
         foreach (string cc in new[] { "cc", "gcc", "clang" })
         {
-            if (ProcessProbe.Exists(cc, "--version", out _))
+            if (ProcessProbe.Exists(cc, "--version", out string v))
             {
                 _cc = cc;
-                reason = ProcessProbe.Exists(cc, "--version", out string v) ? v : cc;
+                reason = string.IsNullOrEmpty(v) ? cc : v;
                 return true;
             }
         }

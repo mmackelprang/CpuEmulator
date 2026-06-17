@@ -217,6 +217,16 @@ public static class Workloads
         ushort pc = 0x0200;
         ushort start = pc;
         void Emit(params byte[] bytes) { foreach (byte b in bytes) image[pc++] = b; }
+        // Defensive guard on every hand-assembled 8-bit signed relative branch: compute the displacement
+        // d = target - (opcodeAddr + 2), assert it fits a signed byte (so a future edit that pushes a
+        // branch out of range FAILS LOUDLY rather than silently wrapping into a plausible-but-wrong image),
+        // then emit (byte)(sbyte)d. For the CURRENT (verified-1899-primes) kernel none of these can fire.
+        byte Rel8(int d, string name)
+        {
+            if ((sbyte)d != d)
+                throw new InvalidOperationException($"6502 sieve {name} displacement {d} out of signed-byte range");
+            return (byte)(sbyte)d;
+        }
 
         Emit(0xD8);                                            // CLD
 
@@ -229,10 +239,10 @@ public static class Workloads
         ushort clr = pc;
         Emit(0x91, 0x18);                                       // STA ($18),Y
         Emit(0xC8);                                             // INY
-        Emit(0xD0, (byte)(clr - (pc + 2)));                     // BNE clr
+        Emit(0xD0, Rel8(clr - (pc + 2), "BNE clr (inner)"));    // BNE clr
         Emit(0xE6, 0x19);                                       // INC $19  (next page)
         Emit(0xCA);                                             // DEX
-        Emit(0xD0, (byte)(clr - (pc + 2)));                     // BNE clr
+        Emit(0xD0, Rel8(clr - (pc + 2), "BNE clr (outer)"));    // BNE clr
         Emit(0xA9, 0x00);                                       // LDA #$00
         Emit(0x85, 0x10); Emit(0x85, 0x11);                     // i = 0
         Emit(0x85, 0x16); Emit(0x85, 0x17);                     // count = 0
@@ -269,23 +279,23 @@ public static class Workloads
         Emit(0xA5, 0x14); Emit(0xC9, (byte)(FlagEnd & 0xFF));   // LDA $14 ; CMP #lo(FEND)
         int bcsEndInnerAt = pc; Emit(0xB0, 0x00);               // BCS endinner (patched)
         ushort doclear = pc;
-        image[bccDoClearAt + 1] = (byte)(doclear - (bccDoClearAt + 2));   // patch BCC doclear
+        image[bccDoClearAt + 1] = Rel8(doclear - (bccDoClearAt + 2), "BCC doclear");   // patch BCC doclear
         Emit(0xA9, 0x00); Emit(0xA0, 0x00); Emit(0x91, 0x14);   // LDA #0 ; LDY #0 ; STA ($14),Y  flags[k]=0
         Emit(0x18);                                             // CLC
         Emit(0xA5, 0x14); Emit(0x65, 0x12); Emit(0x85, 0x14);   // kptr.lo += prime.lo
         Emit(0xA5, 0x15); Emit(0x65, 0x13); Emit(0x85, 0x15);   // kptr.hi += prime.hi + carry
         Emit(0x4C, (byte)(inner & 0xFF), (byte)(inner >> 8));   // JMP inner
         ushort endinner = pc;
-        image[bneEndInnerAt + 1] = (byte)(endinner - (bneEndInnerAt + 2));  // patch BNE endinner
-        image[bcsEndInnerAt + 1] = (byte)(endinner - (bcsEndInnerAt + 2));  // patch BCS endinner
+        image[bneEndInnerAt + 1] = Rel8(endinner - (bneEndInnerAt + 2), "BNE endinner");  // patch BNE endinner
+        image[bcsEndInnerAt + 1] = Rel8(endinner - (bcsEndInnerAt + 2), "BCS endinner");  // patch BCS endinner
         Emit(0xE6, 0x16);                                       // INC $16  (count.lo)
-        Emit(0xD0, 0x02);                                       // BNE cntdone (skip the hi carry)
+        Emit(0xD0, 0x02);                                       // BNE cntdone — fixed 2-byte skip over INC $17
         Emit(0xE6, 0x17);                                       // INC $17  (count.hi)
         // cntdone / notprime fall through together
         ushort notprime = pc;
-        image[beqNotPrimeAt + 1] = (byte)(notprime - (beqNotPrimeAt + 2));  // patch BEQ notprime
+        image[beqNotPrimeAt + 1] = Rel8(notprime - (beqNotPrimeAt + 2), "BEQ notprime");  // patch BEQ notprime
         Emit(0xE6, 0x10);                                       // INC $10  (i.lo)
-        Emit(0xD0, 0x02);                                       // BNE chkI (skip the hi carry)
+        Emit(0xD0, 0x02);                                       // BNE chkI — fixed 2-byte skip over INC $11
         Emit(0xE6, 0x11);                                       // INC $11  (i.hi)
         // chkI: if i >= SIZE -> wrap ; else JMP forI
         Emit(0xA5, 0x11); Emit(0xC9, (byte)(Size >> 8));        // LDA $11 ; CMP #hi(SIZE)
@@ -294,11 +304,11 @@ public static class Workloads
         Emit(0xA5, 0x10); Emit(0xC9, (byte)(Size & 0xFF));      // LDA $10 ; CMP #lo(SIZE)
         int bcsWrapAt = pc; Emit(0xB0, 0x00);                   // BCS wrap (patched)
         ushort contI = pc;
-        image[bccContIAt + 1] = (byte)(contI - (bccContIAt + 2));   // patch BCC contI
+        image[bccContIAt + 1] = Rel8(contI - (bccContIAt + 2), "BCC contI");   // patch BCC contI
         Emit(0x4C, (byte)(forI & 0xFF), (byte)(forI >> 8));     // JMP forI
         ushort wrap = pc;
-        image[bneWrapAt + 1] = (byte)(wrap - (bneWrapAt + 2));      // patch BNE wrap
-        image[bcsWrapAt + 1] = (byte)(wrap - (bcsWrapAt + 2));      // patch BCS wrap
+        image[bneWrapAt + 1] = Rel8(wrap - (bneWrapAt + 2), "BNE wrap");      // patch BNE wrap
+        image[bcsWrapAt + 1] = Rel8(wrap - (bcsWrapAt + 2), "BCS wrap");      // patch BCS wrap
         Emit(0x4C, (byte)(start & 0xFF), (byte)(start >> 8));   // JMP start  (loop the whole sieve forever)
 
         // Reset/IRQ/NMI vectors (a fresh CPU that resets lands at the kernel; the bench sets PC explicitly,
@@ -535,6 +545,16 @@ public static class Z80Workloads
         ushort pc = 0x0100;
         ushort start = pc;
         void Emit(params byte[] bytes) { foreach (byte b in bytes) image[pc++] = b; }
+        // Defensive guard on every hand-assembled 8-bit signed JR displacement: compute d, assert it fits
+        // a signed byte (so a future edit that pushes a JR out of range FAILS LOUDLY rather than silently
+        // wrapping into a plausible-but-wrong image), then emit (byte)(sbyte)d. (Absolute JP / JP cc are
+        // 16-bit and need no guard.) For the CURRENT (verified-1899-primes) kernel none of these can fire.
+        byte Rel8(int d, string name)
+        {
+            if ((sbyte)d != d)
+                throw new InvalidOperationException($"Z80 sieve {name} displacement {d} out of signed-byte range");
+            return (byte)(sbyte)d;
+        }
 
         // ── clear flags 0x4000..0x5FFF (8192 bytes; covers SIZE=8190) to 1 (true) ──
         Emit(0x21, (byte)(FlagBase & 0xFF), (byte)(FlagBase >> 8));   // LD HL,$4000
@@ -544,7 +564,7 @@ public static class Z80Workloads
         Emit(0x23);                                // INC HL
         Emit(0x0B);                                // DEC BC
         Emit(0x78); Emit(0xB1);                    // LD A,B ; OR C  (BC == 0 ?)
-        Emit(0x20, (byte)(clr - (pc + 2)));        // JR NZ,clr
+        Emit(0x20, Rel8(clr - (pc + 2), "JR NZ,clr"));  // JR NZ,clr
         Emit(0x21, 0x00, 0x00);                    // LD HL,0
         Emit(0x22, (byte)(IVar & 0xFF), (byte)(IVar >> 8));        // LD (i),HL = 0
         Emit(0x22, (byte)(CountVar & 0xFF), (byte)(CountVar >> 8)); // LD (count),HL = 0
@@ -581,9 +601,9 @@ public static class Z80Workloads
         int jrEndInnerAt = pc; Emit(0x30, 0x00);   // JR NC,endinner (patched)
         Emit(0x36, 0x00);                          // LD (HL),0  flags[k] = 0
         Emit(0x19);                                // ADD HL,DE  kptr += prime
-        Emit(0x18, (byte)(inner - (pc + 2)));      // JR inner
+        Emit(0x18, Rel8(inner - (pc + 2), "JR inner"));  // JR inner
         ushort endinner = pc;
-        image[jrEndInnerAt + 1] = (byte)(endinner - (jrEndInnerAt + 2));  // patch JR NC,endinner
+        image[jrEndInnerAt + 1] = Rel8(endinner - (jrEndInnerAt + 2), "JR NC,endinner");  // patch JR NC,endinner
         Emit(0x2A, (byte)(CountVar & 0xFF), (byte)(CountVar >> 8));  // LD HL,(count)
         Emit(0x23);                                // INC HL
         Emit(0x22, (byte)(CountVar & 0xFF), (byte)(CountVar >> 8));  // LD (count),HL
@@ -846,8 +866,19 @@ public static class M68000Workloads
         var code = new List<byte>();
         void W(ushort opword) { code.Add((byte)(opword >> 8)); code.Add((byte)(opword & 0xFF)); }
         // Patch a previously-emitted 16-bit displacement word (BSR/Bcc.W/BRA.W) at byte index `at` to the
-        // 16-bit signed displacement from (the opword address + 2) to the byte offset `target`.
-        void Patch16(int at, int target) { int disp = target - at; code[at] = (byte)((disp >> 8) & 0xFF); code[at + 1] = (byte)(disp & 0xFF); }
+        // 16-bit signed displacement from (the opword address + 2) to the byte offset `target`. All sieve
+        // branches are .W (16-bit), so they cannot overflow for this image size — but guard the displacement
+        // against the signed-short range anyway, so a future edit that pushes a branch out of range FAILS
+        // LOUDLY rather than silently truncating into a plausible-but-wrong image. For the CURRENT
+        // (verified-1899-primes) kernel this can never fire.
+        void Patch16(int at, int target)
+        {
+            int disp = target - at;
+            if ((short)disp != disp)
+                throw new InvalidOperationException($"68000 sieve .W branch at {at} displacement {disp} out of signed-short range");
+            code[at] = (byte)((disp >> 8) & 0xFF);
+            code[at + 1] = (byte)(disp & 0xFF);
+        }
 
         const ushort baseAddr = M68000LoadAddress; // 0x1000
         const ushort FlagBase = 0x2000;            // flag array base (clear of code + stack)

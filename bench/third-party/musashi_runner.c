@@ -46,10 +46,12 @@
 #ifdef _WIN32
 #include <windows.h>
 static double now_seconds(void) {
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
+    static LARGE_INTEGER freq;
+    static int freq_init = 0;
+    LARGE_INTEGER c;
+    if (!freq_init) { QueryPerformanceFrequency(&freq); freq_init = 1; }
     QueryPerformanceCounter(&c);
-    return (double)c.QuadPart / (double)f.QuadPart;
+    return (double)c.QuadPart / (double)freq.QuadPart;
 }
 #else
 static double now_seconds(void) {
