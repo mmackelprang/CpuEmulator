@@ -92,6 +92,52 @@
 - **m68k-W2 arithmetic-kernel**: JIT is 0.67x the interpreter (9.2 vs 13.7 guest-MIPS).
 - _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
 
+## Comparison — our emulator vs the best existing
+
+> guest-MIPS (millions of guest instructions / host wall-second) is the
+> cross-CPU-comparable headline; cycles/sec is the CPU's own unit (NOT cross-CPU
+> comparable). A cycle-only subject (no instruction count) is ranked by cycles/sec
+> within its CPU only.
+
+### 6502 — guest-MIPS (cross-CPU-comparable); cycles/sec in its own model
+
+| Workload | Best existing | our Tier-0 (interp) | our Tier-1 (JIT) | Tier-1 vs best |
+|---|---|---|---|---|
+| W1 Klaus-deterministic | fake6502 (C) 500,763,790 ‡ | 178,298,450 | 466,574 | 0.00× |
+| W2 arithmetic-kernel | fake6502 (C) 425,885,352 ‡ | 282,333,230 | 138,059,957 | 0.32× |
+
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+
+### Z80 — guest-MIPS (cross-CPU-comparable); T-states/sec in its own model
+
+| Workload | Best existing | our Tier-0 (interp) | our Tier-1 (JIT) | Tier-1 vs best |
+|---|---|---|---|---|
+| Z80-W1 ZEXDOC-prefix | superzazu/z80 (C) 1,560,428,181 ‡ | 355,699,935 | 169,212,152 † | 0.11× |
+| Z80-W2 arithmetic-kernel | superzazu/z80 (C) 1,401,247,180 ‡ | 384,302,955 | 172,158,778 † | 0.12× |
+
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+
+### 68000 — guest-MIPS (cross-CPU-comparable); cycles/sec in its own model
+
+| Workload | Best existing | our Tier-0 (interp) | our Tier-1 (JIT) | Tier-1 vs best |
+|---|---|---|---|---|
+| m68k-W1 mixed-kernel | Musashi (C) [cited] | 13.7 MIPS | 10.0 MIPS † | — |
+| m68k-W2 arithmetic-kernel | Musashi (C) [cited] | 13.7 MIPS | 9.2 MIPS † | — |
+
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+
+- _[cited] Musashi (C) — https://github.com/kstenerud/Musashi_
+
+> _68000 cycles/sec is reported with the M4.5d-2-coverage caveat (the timing axis is
+> PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**. The cited
+> best-existing row is a published-context placeholder until the head-to-head Musashi
+> number lands (plan Task M4)._
+
+> _Comparison numbers mirror the committed baseline rows above — the 6502 + Z80 best-existing
+> cells are the clean-host (2026-06-16) head-to-head refs; the 68000 cells are the INDICATIVE
+> (contended-host, 2026-06-17) baseline. Regenerate on a clean host with
+> `dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all`._
+
 ## Reading the numbers
 
 - **W1 is SMC-heavy (Klaus self-modifies); W2 is not.** On W1 our Tier-1 JIT is
