@@ -60,6 +60,69 @@
 >   whose value IS `final.pc`) and DEFERS them to M4.5d rather than asserting (asserting would be a drift
 >   false-positive). **M4.5b/c MUST keep this data/timing/exception axis split.**
 
+## M4.6 — DONE (the 68000 through the JIT — all-fallback data-axis tier parity)
+
+> **Status (PR for M4.6):** the functionally-finished 68000 interpreter (`M68000Cpu`, M4.5a–d-1) now runs
+> through the generic `JittedCpu<M68000Cpu>` as **all-fallback**, and is **byte-identical Tier-0 (interpreter)
+> vs Tier-1 (JIT) on the DATA axis** across the full family corpus — the same parity gate the Z80 uses (which
+> went through the generic seam with ZERO JIT-assembly change). **123 data-axis family files tier-parity green
+> through `JittedCpu<M68000Cpu>` (0 failed) at the CI sample**; `CPUEMULATOR_UAT=full` runs every case. The
+> 6502/Z80 stay byte-identical (`RegeneratedSpecTests` green; the 6502/Z80 JIT parity + JIT-infra gates green);
+> the 68000 INTERPRETER data-axis sweeps stay green (the JIT wiring touched no interpreter behavior). Per ADR
+> 0008 §6, M4.6 depended only on M4.5d-1 (PR #43), NOT on M4.5d-2 (the timing axis runs in parallel).
+>
+> **What the gate proves.** A green tier-parity sweep proves the GENERIC COMPILER (the discovery walk, the keyed
+> `DescriptorFor`, the per-CPU `BlockDelegate`, the data-driven register map, the cycle/budget/dispatch
+> machinery) drives the complete 68000 faithfully — the same proof M3.5-3a delivered for the Z80, now on the
+> 32-bit-register / 24-bit-address / big-endian / word-decode CPU. The 68000 is **all-fallback** (empty
+> `JitDescriptorsByKey` → every op `Undefined`/`NeedsFallback`/`EndsBlock`), so a JIT block IS the interpreter,
+> one instruction at a time; **no `BlockCompiler.Emit`/`Flow`/`Decimal` arm is reached; no 6502/Z80 emit logic
+> changed.**
+>
+> **The THREE wiring gaps closed (pure-plumbing path):**
+> - **GAP 1** — the `AdvanceCycles(long)` charge seam on a hand-written `M68000Cpu.Jit.cs` partial (increments
+>   the generated `_cycles` field; the generated `JitTarget.AdvanceCyclesMethod` resolved to it, was `null`).
+>   Mirrors `Z80Cpu.Jit.cs`. No emitted 68000 op calls it yet (all-fallback uses the `CycleCount` delta) — the
+>   handle must merely RESOLVE for the `BlockCompiler` ctor.
+> - **GAP 2** — `[assembly: InternalsVisibleTo("CpuEmulator.Jit")]` on `CpuEmulator.Cpus.M68000` (the JIT reaches
+>   the internal `AdvanceCycles` via `DynamicMethod(skipVisibility:true)`).
+> - **GAP 3** — the dispatcher's `ushort` PC cache key + byte-granular `BusFetchStream` (baked when the only CPUs
+>   were 16-bit-PC). **Documented as a known all-fallback-safe limitation**, PINNED by a guard test (the
+>   single-instruction-per-block invariant): in all-fallback mode the cache holds ≤1 block per single-instruction
+>   case, so the `(ushort)PC` truncation never aliases, and the mis-fetched decode key is discarded (the empty
+>   table routes every key to `Undefined`). The fallback `inner.Step()` sets the real 24-bit PC.
+>
+> **Decision A — RESOLVED = PURE PLUMBING (minimal).** The `uint`-key + per-CPU `IJitTarget.NewFetchStream`
+> widening is **deferred to M6** (the cross-arch JIT-optimization phase), where the 68000's hot ops are first
+> emitted as IL — at which point a 68000 block can statically continue past one instruction, the 24-bit PC
+> arithmetic in `EmitChainOrExit`/`EmitBudgetCheck` (`Conv_U2`) goes live, and the widening is load-bearing and
+> reviewed alongside the emit work it enables. The Task-2 **TRIPWIRE held**: the byte-granular `BusFetchStream`
+> does NOT make `M68000Cpu.Decode` throw (an unmatched operword yields the illegal sentinel `0xFFFFFFFF`, routed
+> to `Undefined`), so the minimal path was sufficient — no flip to the scoped widen.
+>
+> **Implementation finding (the one real bug the gate caught).** `JittedCpu.Run` is a budget-driven
+> `while (budget > 0)` loop; the M4 interpreter charges a FLAT `UnitsConsumed*4` cycles, which is LESS than the
+> case's real `c.Length` for most multi-cycle ops. So the original `Math.Max(c.Length,1)` budget left the loop
+> positive after one instruction and ran a SECOND, garbage instruction at the advanced PC. The runner uses a
+> **1-cycle budget** (`RunCaseThroughJit`) — every 68000 instruction charges ≥1 cycle, so the loop runs exactly
+> one block == one instruction, mirroring the interpreter's single `Step()`. The data-axis result is produced
+> entirely by the one fallback `Step`.
+>
+> **HONESTY carry-forwards (NOT overclaimed):**
+> - The IMMEDIATE forms (ADDI/SUBI/ANDI/ORI/EORI/CMPI) + QUICK forms (ADDQ/SUBQ) have NO dedicated v1 vector
+>   files (the M4.5b gap). Their tier parity is **TRANSITIVE** (their vector-proven reg↔EA counterparts go
+>   through the identical fallback), NOT vector-green — the JIT sweep can only assert parity on files that EXIST.
+> - The TIMING axis (final.pc/prefetch/trace/cycle) is NOT asserted through the JIT (gated on M4.5d-2) — same as
+>   the interpreter data-axis sweeps. The `RunCaseThroughJit` path is structured so a follow-on can flip it on.
+> - The per-transaction bus TRACE is NOT asserted under fastmem (the same scope the 6502/Z80 JIT sweeps disclose).
+> - The corpus-artifact cases the interpreter sweeps exclude (the ASL.b inconsistent-register-shift vectors + the
+>   CHK in-range UNPREDICTABLE-CCR cases) are excluded identically in the JIT sweep (`M68000DataAxisCorpus.IsExcludedCase`),
+>   so the JIT corpus is identical in EXECUTED cases to the interpreter corpus.
+>
+> **Downstream unblocked.** M4.6 done unblocks **M5** (the 8086 arc) and the **post-M5 cross-arch
+> JIT-optimization phase** (which folds in the deferred Z80 5-3b hot-op IL emission AND the 68000 hot-op emit +
+> the `uint`-key widening — all reviewed together where the emitter is built once for all three ISAs).
+
 ## What is NEXT — M4.5 (the interpreter) and beyond
 
 Per **ADR 0004 §3**, M4.5 splits family-by-family. Recommended order (highest-value/most-used first; each driven to TomHarte-green against the 124 vector files):
@@ -69,7 +132,7 @@ Per **ADR 0004 §3**, M4.5 splits family-by-family. Recommended order (highest-v
 3. **M4.5c — shift/rotate + bit + BCD + Scc + data-movement** (ASL/ASR/LSL/LSR/ROL/ROR/ROXL/ROXR reg/imm/memory-by-1, BTST/BCHG/BCLR/BSET dynamic+static, ABCD/SBCD/NBCD, Scc + the shared `EvaluateCondition`, CMPM, and the data-movement misc SWAP/EXG/LEA/PEA/MOVEQ/TAS/MOVEM/MOVEP). ✅ **DONE** — the ADR 0007 §7.1 verdict-(b) extension: BCD/bit slot into the merged `(AluFn,CcrRule,AluShape)` descriptor with new sibling CCR rules (`BcdCcr`/`BitCcr`, zero new shape), shift/rotate add ONE additive sibling driver (`ShiftRotateExecute` + the last-bit-out/msb-changed carrier + `ShiftCcr.Shift/Rotate/RotateX`); option (C) stands, the seam untouched. **Data axis TomHarte-green across all 42 dedicated v1 files (24 shift/rotate + 4 bit + 3 BCD + 1 Scc + 8 data-movement incl. MOVE.q + 2 MOVEP) PLUS the 51 ALU files re-run with the CMPM out-of-scope filter REMOVED — the bundled CMPM cases now ASSERT.** **HONESTY:** unlike M4.5b, NO vector-gap disclosure — every M4.5c core op has a dedicated vector file; CMPM (no dedicated file) asserts via the bundled `CMP.*`/`CMPA.l` files (the M4.5b honesty gap is CLOSED). Only the timing axis + exception cases (`IsExceptionCase`) are deferred. **The DC4 boundary was RATIFIED:** data-movement (SWAP/EXG/LEA/PEA/MOVEQ/TAS/MOVEM/MOVEP) landed in M4.5c; the stack/control/privileged/vectoring tail (LINK/UNLK, JMP/JSR/RTS/RTR/RTE, Bcc/BSR/DBcc, TRAP/TRAPV/CHK/ILLEGAL/RESET/STOP, ANDI/ORI/EORI-to-CCR/SR, NOP) moved to M4.5d. **Next = M4.5d (exceptions/branches/IPL/prefetch + the control/stack/privileged tail + the timing axis).**
 4. **M4.5d — exceptions + control:** the program-control branches (Bcc/BSR/DBcc), the **Address-Error exception** (vector 3; uses `BusAlignment.IsMisaligned` from M4.2 — check before a wide access, vector instead), other exceptions (illegal/privilege/TRAP/CHK/divide-by-zero), the **IPL-level interrupt line** (the additive contract growth from ADR 0004), the **prefetch-queue mechanism** (so the `final` prefetch can be asserted), and the **cycle-accurate write-back-vs-bus-access sequencing + the per-transaction trace gate**.
 
-Then: **M4.6** — the 68000 through the JIT (all-fallback, zero JIT-assembly change per the M3.5-3c findings; the generic seam is ready). Then **M5** — the entire 8086 milestone (needs its own Architect pass: segmentation, ModRM decode, the flag model, the instruction set; its own ADRs + multi-PR arc). Then the **final cross-arch JIT-optimization phase** (which also folds in the deferred Z80 5-3b hot-op IL emission) — **gated behind M5; checkpoint with the user before starting it.**
+Then: **M4.6** — the 68000 through the JIT (all-fallback, zero JIT-assembly change per the M3.5-3c findings; the generic seam is ready). ✅ **DONE** — byte-identical Tier-0-vs-Tier-1 data-axis parity across the full family corpus through `JittedCpu<M68000Cpu>` (see the "M4.6 — DONE" section above); pure plumbing (GAP 1 AdvanceCycles + GAP 2 InternalsVisibleTo + the documented all-fallback-safe `ushort`-key limitation); the `uint`-key + per-CPU fetch-stream widening deferred to M6. Then **M5** — the entire 8086 milestone (needs its own Architect pass: segmentation, ModRM decode, the flag model, the instruction set; its own ADRs + multi-PR arc). Then the **final cross-arch JIT-optimization phase** (which also folds in the deferred Z80 5-3b hot-op IL emission AND the 68000 hot-op emit + the `uint`-key widening) — **gated behind M5; checkpoint with the user before starting it.**
 
 ## Open just-in-time deferrals M4.5 MUST honor
 
