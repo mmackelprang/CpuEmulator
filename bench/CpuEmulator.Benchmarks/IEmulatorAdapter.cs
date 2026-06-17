@@ -5,18 +5,33 @@ namespace CpuEmulator.Benchmarks;
 /// <param name="CyclesPerSecond">valid only when Ran: emulated cycles / host wall-second.</param>
 /// <param name="WallSeconds">the measured window in seconds (valid only when Ran).</param>
 /// <param name="Note">a version string when Ran; the skip reason + populate-instruction otherwise.</param>
+/// <param name="InstructionsPerSecond">Task B2 — guest INSTRUCTIONS / host wall-second over the same
+/// window; the cycle-axis-independent metric the 68000 baseline leads with (its cycle axis is partial
+/// on `main`, M4.5d-2 gating). 0 means "not reported" — a cycle-only subject (a subprocess that prints
+/// only <c>CYCLES</c>, or the 6502/Z80 W2 JIT path that advances by one large budgeted Run and so does
+/// not attribute a per-instruction count). guest-MIPS (M1) normalizes off this field.</param>
 public readonly record struct AdapterResult(
     bool Ran,
     double CyclesPerSecond,
     double WallSeconds,
-    string Note)
+    string Note,
+    double InstructionsPerSecond = 0)
 {
     /// <summary>A skipped/absent subject: Ran=false with a clear reason + how to populate it.</summary>
     public static AdapterResult Skipped(string reason) => new(false, 0, 0, reason);
 
-    /// <summary>A measured subject: cycles/host-second over the warmed window.</summary>
+    /// <summary>A measured subject: cycles/host-second over the warmed window. No instruction count
+    /// (InstructionsPerSecond stays 0 — "not reported"), so guest-MIPS renders "—" for this row.</summary>
     public static AdapterResult Measured(long cycles, double wallSeconds, string note) =>
         new(true, wallSeconds > 0 ? cycles / wallSeconds : 0, wallSeconds, note);
+
+    /// <summary>A measured subject reporting BOTH cycles and instructions over the window (our tiers
+    /// that drive by a budget-1 advance — the 68000 — and any reference core that surfaces an
+    /// instruction count). The 68000 baseline leads with instructions/sec because the cycle axis is
+    /// partial (M4.5d-2 gating); guest-MIPS (M1) normalizes off the instructions field.</summary>
+    public static AdapterResult MeasuredWithInstructions(long cycles, long instructions, double wallSeconds, string note) =>
+        new(true, wallSeconds > 0 ? cycles / wallSeconds : 0, wallSeconds, note,
+            wallSeconds > 0 ? instructions / wallSeconds : 0);
 }
 
 /// <summary>A portable benchmark workload: the memory image, where it loads + starts, and how it

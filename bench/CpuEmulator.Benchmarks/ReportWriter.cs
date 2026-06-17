@@ -43,13 +43,35 @@ public static class ReportWriter
         var allRows = tierRows.Concat(adapterRows).ToList();
         foreach (string arch in ArchitectureOrder(allRows))
         {
+            // The instructions/sec (guest-MIPS) column is emitted ONLY for an architecture that has at
+            // least one row reporting an instruction count (the 68000 — its cycle-axis-independent
+            // headline). The 6502/Z80 tables are unchanged (no extra column), so their committed rows
+            // stay byte-identical (Task B2/B4 — additive).
+            bool hasInstructions = allRows.Any(r =>
+                string.Equals(r.Architecture, arch, StringComparison.OrdinalIgnoreCase) &&
+                r.Result.Ran && r.Result.InstructionsPerSecond > 0);
+
             sb.AppendLine($"### {ArchLabel(arch)} — {UnitLabel(arch)}/host-second");
             sb.AppendLine();
-            sb.AppendLine($"| Subject | Workload | {UnitLabel(arch)}/sec | wall (s) | note |");
-            sb.AppendLine("|---|---|---:|---:|---|");
-            foreach (var row in tierRows.Where(r => r.Architecture == arch)) sb.AppendLine(Format(row));
-            foreach (var row in adapterRows.Where(r => r.Architecture == arch)) sb.AppendLine(Format(row));
+            if (hasInstructions)
+            {
+                sb.AppendLine($"| Subject | Workload | guest-MIPS | {UnitLabel(arch)}/sec | wall (s) | note |");
+                sb.AppendLine("|---|---|---:|---:|---:|---|");
+            }
+            else
+            {
+                sb.AppendLine($"| Subject | Workload | {UnitLabel(arch)}/sec | wall (s) | note |");
+                sb.AppendLine("|---|---|---:|---:|---|");
+            }
+            foreach (var row in tierRows.Where(r => r.Architecture == arch)) sb.AppendLine(Format(row, hasInstructions));
+            foreach (var row in adapterRows.Where(r => r.Architecture == arch)) sb.AppendLine(Format(row, hasInstructions));
             sb.AppendLine();
+
+            // The 68000 timing-axis caveat (B4): instructions/sec is the trustworthy headline NOW;
+            // cycles/sec is reported with the M4.5d-2-coverage caveat and becomes fully cycle-exact
+            // automatically when the timing axis lands (ADR 0008 §6).
+            if (string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase))
+                AppendM68000TimingCaveat(sb);
         }
 
         // ── Relative speedup of our two tiers (the JIT-vs-interpreter headline), grouped by CPU ─────
@@ -149,14 +171,38 @@ public static class ReportWriter
         return path;
     }
 
-    private static string Format(BenchHarness.Row row)
+    private static string Format(BenchHarness.Row row, bool withInstructions)
     {
         var r = row.Result;
         if (!r.Ran)
-            return $"| {row.Subject} | {row.Workload} | _not run_ | — | {Escape(r.Note)} |";
+            return withInstructions
+                ? $"| {row.Subject} | {row.Workload} | — | _not run_ | — | {Escape(r.Note)} |"
+                : $"| {row.Subject} | {row.Workload} | _not run_ | — | {Escape(r.Note)} |";
         string cps = r.CyclesPerSecond.ToString("N0", CultureInfo.InvariantCulture);
         string wall = r.WallSeconds.ToString("F3", CultureInfo.InvariantCulture);
-        return $"| {row.Subject} | {row.Workload} | {cps} | {wall} | {Escape(r.Note)} |";
+        if (!withInstructions)
+            return $"| {row.Subject} | {row.Workload} | {cps} | {wall} | {Escape(r.Note)} |";
+        // guest-MIPS = millions of guest instructions / host wall-second; "—" when the subject reports
+        // no instruction count (cycle-only subjects rank by cycles/sec within their CPU — M1).
+        string mips = r.InstructionsPerSecond > 0
+            ? (r.InstructionsPerSecond / 1_000_000.0).ToString("N1", CultureInfo.InvariantCulture)
+            : "—";
+        return $"| {row.Subject} | {row.Workload} | {mips} | {cps} | {wall} | {Escape(r.Note)} |";
+    }
+
+    /// <summary>The 68000 timing-axis caveat (Task B4) — emitted automatically under the 68000 section.
+    /// The 68000's trustworthy headline is instructions/sec (guest-MIPS); cycles/sec is reported for
+    /// completeness with the M4.5d-2-coverage caveat.</summary>
+    private static void AppendM68000TimingCaveat(StringBuilder sb)
+    {
+        sb.AppendLine("> _68000 **cycles/sec is reported for completeness** but the cycle/timing axis is");
+        sb.AppendLine("> PARTIAL on `main` (M4.5d-2b foundation; the 2b-continuation is deferred): `CycleCount`");
+        sb.AppendLine("> is exact for the cycle-exact families, NOT the whole ISA. The 68000 baseline's");
+        sb.AppendLine("> trustworthy headline is **guest-MIPS (instructions/sec)** — data-axis-correct on the");
+        sb.AppendLine("> merged M4.6 core (each Step / each budget-1 Run is exactly one instruction). Full");
+        sb.AppendLine("> cycle-exact 68000 cycles/sec gates on the M4.5d-2 timing axis (ADR 0008 §6); the");
+        sb.AppendLine("> re-measure picks it up automatically when it lands._");
+        sb.AppendLine();
     }
 
     private static void AppendTierSpeedup(StringBuilder sb, IReadOnlyList<BenchHarness.Row> tierRows)
@@ -174,9 +220,22 @@ public static class ReportWriter
                 var jit = g.FirstOrDefault(r => r.Subject.Contains("JIT", StringComparison.OrdinalIgnoreCase) && r.Result.Ran);
                 if (interp is not null && jit is not null && interp.Result.CyclesPerSecond > 0)
                 {
-                    double ratio = jit.Result.CyclesPerSecond / interp.Result.CyclesPerSecond;
-                    lines.AppendLine($"- **{g.Key}**: JIT is {ratio:F2}x the interpreter " +
-                        $"({jit.Result.CyclesPerSecond:N0} vs {interp.Result.CyclesPerSecond:N0} {UnitLabel(arch)}/sec).");
+                    // The 68000 leads with guest-MIPS (its cycle axis is partial); report the ratio in
+                    // instructions/sec when both rows carry it, else fall back to the cycle unit.
+                    bool useMips = interp.Result.InstructionsPerSecond > 0 && jit.Result.InstructionsPerSecond > 0;
+                    if (useMips)
+                    {
+                        double ratio = jit.Result.InstructionsPerSecond / interp.Result.InstructionsPerSecond;
+                        lines.AppendLine($"- **{g.Key}**: JIT is {ratio:F2}x the interpreter " +
+                            $"({jit.Result.InstructionsPerSecond / 1_000_000.0:F1} vs " +
+                            $"{interp.Result.InstructionsPerSecond / 1_000_000.0:F1} guest-MIPS).");
+                    }
+                    else
+                    {
+                        double ratio = jit.Result.CyclesPerSecond / interp.Result.CyclesPerSecond;
+                        lines.AppendLine($"- **{g.Key}**: JIT is {ratio:F2}x the interpreter " +
+                            $"({jit.Result.CyclesPerSecond:N0} vs {interp.Result.CyclesPerSecond:N0} {UnitLabel(arch)}/sec).");
+                    }
                     any = true;
                 }
             }
@@ -191,12 +250,20 @@ public static class ReportWriter
             sb.AppendLine($"### {ArchLabel(arch)}");
             sb.AppendLine();
             sb.Append(lines);
-            // The all-fallback caveat: Z80 Tier-1 has no hot-op IL emit yet (M6), so its ratio is the
-            // committed "before" for the re-measure — emitted automatically under the Z80 pairs only.
+            // The all-fallback caveat: Z80 + 68000 Tier-1 have no hot-op IL emit yet (M6 / the later
+            // 68000 hot-op emit), so their ratio is the committed "before" for the re-measure — emitted
+            // automatically under those pairs.
             if (string.Equals(arch, "z80", StringComparison.OrdinalIgnoreCase))
             {
                 sb.AppendLine("- _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x " +
                     "minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._");
+            }
+            else if (string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine("- _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back " +
+                    "to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch " +
+                    "overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. " +
+                    "The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._");
             }
             sb.AppendLine();
         }
@@ -207,7 +274,7 @@ public static class ReportWriter
     private static IEnumerable<string> ArchitectureOrder(IEnumerable<BenchHarness.Row> rows)
     {
         var present = rows.Select(r => r.Architecture).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        int Rank(string a) => a.ToLowerInvariant() switch { "mos6502" => 0, "z80" => 1, _ => 2 };
+        int Rank(string a) => a.ToLowerInvariant() switch { "mos6502" => 0, "z80" => 1, "m68000" => 2, _ => 3 };
         return present.OrderBy(Rank).ThenBy(a => a, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -216,11 +283,13 @@ public static class ReportWriter
     {
         "mos6502" => "6502",
         "z80" => "Z80",
+        "m68000" => "68000",
         _ => arch,
     };
 
     /// <summary>The cycle-unit label for an architecture — Z80 cycles are T-states; 6502 cycles are
-    /// machine cycles. They are NOT cross-architecture comparable as raw numbers (D4).</summary>
+    /// machine cycles; the 68000 has its own cycle model. They are NOT cross-architecture comparable as
+    /// raw numbers (D4) — do NOT cross-multiply them. (guest-MIPS, M1, is the cross-CPU-comparable unit.)</summary>
     private static string UnitLabel(string arch) => arch.ToLowerInvariant() switch
     {
         "z80" => "T-states",

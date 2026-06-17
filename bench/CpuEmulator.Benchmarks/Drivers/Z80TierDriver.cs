@@ -61,6 +61,9 @@ public sealed class Z80TierDriver : ITierDriver
         }
 
         public long CycleCount => _cpu.CycleCount;
+        // Z80 cycles/sec (T-states) is the committed metric; the Z80 does not report a guest-instruction
+        // count (Task B2 — "not reported" = 0; guest-MIPS renders "—" for it). The 68000 leads with it.
+        public long InstructionCount => 0;
         public ushort CurrentPc => (ushort)_cpu.GetRegister("PC");
         public bool ParkedThisSlice => _parked;
 
