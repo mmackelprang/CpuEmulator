@@ -625,6 +625,35 @@ internal static class CpuEmitter
                     sb.AppendLine($"            case 0x{movKey:X}u: MovExecute(0x{movKey:X}u, r); break;");
                 }
             }
+
+            // M5.5b: the integer ALU + BCD families. Unlike the C6/C7 MOV (a homogeneous don't-care group that
+            // needs the 8-way reg expansion), every ALU/BCD GROUP member is its OWN Insn row carrying its exact
+            // (opcode<<3)|reg key + mnemonic — so we route ONE case per distinct OperationKey straight from the
+            // filtered instruction set, with NO blanket subfield expansion. This keeps the heterogeneous groups
+            // (FE/FF: /0 INC /1 DEC are ALU; FF /2..7 CALL/JMP/PUSH are M5.5c/d and have no Insn-mnemonic in the
+            // ALU set, so they are NOT routed here — they fall through to HandleUndefinedOpcode as required).
+            //   ALU: ADD/ADC/SUB/SBB/CMP/AND/OR/XOR/INC/DEC/TEST/NOT/NEG/MUL/IMUL/DIV/IDIV → AluExecute.
+            //   BCD: DAA/DAS/AAA/AAS/AAM/AAD → BcdExecute.
+            var aluMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "ADD", "ADC", "SUB", "SBB", "CMP", "AND", "OR", "XOR",
+                "INC", "DEC", "TEST", "NOT", "NEG", "MUL", "IMUL", "DIV", "IDIV",
+            };
+            var bcdMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "DAA", "DAS", "AAA", "AAS", "AAM", "AAD",
+            };
+            foreach (var aluKey in model.Instructions
+                         .Where(i => aluMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{aluKey:X}u: AluExecute(0x{aluKey:X}u, r); break;");
+            foreach (var bcdKey in model.Instructions
+                         .Where(i => bcdMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{bcdKey:X}u: BcdExecute(0x{bcdKey:X}u, r); break;");
+
             sb.AppendLine("            default:");
             sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)key));");
             sb.AppendLine("                break;");
@@ -636,6 +665,12 @@ internal static class CpuEmitter
             sb.AppendLine("    /// x86-decode fixture has no MOV rows, so its ExecuteX86 dispatches nothing here), implemented by");
             sb.AppendLine("    /// M8086Cpu.Mov.cs for the real 8086.</summary>");
             sb.AppendLine("    partial void MovExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5b: the integer ALU + unary (F6/F7) op bodies — implemented by M8086Cpu.Alu.cs.</summary>");
+            sb.AppendLine("    partial void AluExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5b: the BCD-adjust op bodies (DAA/DAS/AAA/AAS/AAM/AAD) — implemented by M8086Cpu.Bcd.cs.</summary>");
+            sb.AppendLine("    partial void BcdExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
         }
 
         // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
