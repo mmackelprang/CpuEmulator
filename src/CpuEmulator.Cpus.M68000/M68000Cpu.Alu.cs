@@ -67,8 +67,11 @@ public sealed partial class M68000Cpu
         // M4.5d-2b: the EXTENSION-word prefetch refills LEAD the operand access (the F…F prefix); flush them
         // before the read. Only the LAST refill (the operword-frontier overlap) defers into the operand sequence
         // (issued below, between read and write). A register/imm EA has a single pending refill, so this leads
-        // nothing — that one refill flushes after the body (the F shape).
+        // nothing — that one refill flushes after the body (the F shape). The predecrement/index EA-calc idle is
+        // charged here too (before the read) — idle batches into _pendingIdle, so the call site is cosmetic for
+        // the cycle COUNT, but keeping it pre-read matches CLR + the real microsequence.
         LeadRefills();
+        if (IsMemoryEa(srcMode, srcReg)) EaCalcIdle(srcMode, srcReg);
         uint a, b;
         AluDest dest;
         switch (shape)
@@ -130,10 +133,7 @@ public sealed partial class M68000Cpu
         // (predecrement/index) is charged for the memory EA too. LEA/PEA/MOVEM/MUL/DIV are NOT routed through this
         // driver, so their bespoke timing is unaffected.
         if (IsMemoryEa(srcMode, srcReg))
-        {
-            EaCalcIdle(srcMode, srcReg);
             Refill();   // the prefetch refill that overlaps the operand access (between read and write)
-        }
         if (writesResult) WriteResolvedDest(dest, size, result);
         SR = (ushort)((SR & 0xFF00) | ccrRule(a, b, result, size, xIn, oldCcr));
     }
