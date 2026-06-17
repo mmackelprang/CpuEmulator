@@ -77,6 +77,13 @@ public static class ReportWriter
         // ── Relative speedup of our two tiers (the JIT-vs-interpreter headline), grouped by CPU ─────
         AppendTierSpeedup(sb, tierRows);
 
+        // ── The headline comparison: our emulator vs the best existing (M6) ──────────────────────────
+        // Built inside Render so the existing Render(tierRows, adapterRows, klausAvailable) signature is
+        // unchanged (the smoke test stays green) and the section appears automatically. The cited
+        // registry is loaded here; a present-but-invalid registry degrades to a skip-with-note rather
+        // than failing the whole report (the cited-row mechanism is best-effort context, not a gate).
+        AppendComparison(sb, tierRows, adapterRows);
+
         // ── Reading the numbers honestly (the findings the data shows) ─────────────────────────────
         sb.AppendLine("## Reading the numbers");
         sb.AppendLine();
@@ -267,6 +274,32 @@ public static class ReportWriter
             }
             sb.AppendLine();
         }
+    }
+
+    /// <summary>Append the M6 comparison section (our emulator vs the best existing). Loads the cited
+    /// registry + builds the <see cref="ComparisonModel"/> here; on a present-but-invalid registry
+    /// (<see cref="InvalidDataException"/>) it skips the section with a note rather than failing the
+    /// whole report.</summary>
+    private static void AppendComparison(StringBuilder sb,
+                                         IReadOnlyList<BenchHarness.Row> tierRows,
+                                         IReadOnlyList<BenchHarness.Row> adapterRows)
+    {
+        IReadOnlyList<ReferenceNumber> cited;
+        try
+        {
+            cited = ReferenceNumbers.Load();
+        }
+        catch (InvalidDataException ex)
+        {
+            sb.AppendLine("## Comparison — our emulator vs the best existing");
+            sb.AppendLine();
+            sb.AppendLine($"> _Comparison section skipped — the cited published-numbers registry is invalid: {Escape(ex.Message)}._");
+            sb.AppendLine();
+            return;
+        }
+
+        var model = ComparisonTableWriter.Build(tierRows, adapterRows, cited);
+        sb.Append(ComparisonTableWriter.RenderMarkdown(model));
     }
 
     /// <summary>The architectures present in the rows, in a stable display order (6502 first, then

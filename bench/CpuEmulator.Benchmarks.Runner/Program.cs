@@ -80,6 +80,14 @@ if (flags.Contains("--report") || flags.Count == 0 || all)
     string md = ReportWriter.Render(tierRows, adapterRows, klausAvailable: w1 is not null);
     string path = ReportWriter.WriteDefault(md);
     Console.WriteLine($"\nReport written: {path}");
+
+    // The headline comparison (M6): the machine-readable twin of the REPORT.md comparison section.
+    // The cited registry reserves the 68000 "best existing" column as a [cited] placeholder until the
+    // head-to-head Musashi number lands (plan Task M4).
+    var cited = ReferenceNumbers.Load();
+    var model = ComparisonTableWriter.Build(tierRows, adapterRows, cited);
+    string cmpPath = ComparisonTableWriter.WriteComparisonJsonDefault(ComparisonTableWriter.RenderJson(model));
+    Console.WriteLine($"Comparison JSON written: {cmpPath}");
 }
 
 static string Describe(AdapterResult r) =>
