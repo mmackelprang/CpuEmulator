@@ -287,13 +287,23 @@ public static class ComparisonTableWriter
                 sb.AppendLine();
             }
 
-            // The 68000 cycle-axis caveat reminder.
+            // The 68000 cycle-axis caveat reminder. The "best-existing" clause is data-aware: once a
+            // head-to-head reference (Musashi) actually runs, the cited placeholder is gone (the gate in
+            // Build suppresses it), so the caveat states the head-to-head ref is present rather than
+            // promising a number that "has not landed yet".
             if (cpu.TimingAxisPartial)
             {
+                bool hasHeadToHead = cpu.Workloads
+                    .SelectMany(w => w.Rows)
+                    .Any(r => r.Kind == ComparisonRowKind.HeadToHead);
                 sb.AppendLine("> _68000 cycles/sec is reported with the M4.5d-2-coverage caveat (the timing axis is");
-                sb.AppendLine("> PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**. The cited");
-                sb.AppendLine("> best-existing row is a published-context placeholder until the head-to-head Musashi");
-                sb.AppendLine("> number lands (plan Task M4)._");
+                sb.AppendLine("> PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**.");
+                sb.AppendLine(hasHeadToHead
+                    ? "> The best-existing column is the **head-to-head Musashi** reference, measured here on the"
+                    : "> The cited best-existing row is a published-context placeholder until the head-to-head Musashi");
+                sb.AppendLine(hasHeadToHead
+                    ? "> same workload bytes + host (plan Task M4a)._"
+                    : "> number lands (plan Task M4)._");
                 sb.AppendLine();
             }
         }

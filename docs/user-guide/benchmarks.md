@@ -20,7 +20,7 @@ The full methodology, fairness rules, honesty caveats, and per-subject instructi
 dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report
 
 # Add the third-party subjects (fetch their runtimes first):
-bench/third-party/fetch-subjects.ps1        # or .sh — 6502 (fake6502/py65/sfotty) + Z80 (z80.c/Z80.js)
+bench/third-party/fetch-subjects.ps1        # or .sh — 6502 (fake6502/py65/sfotty) + Z80 (z80.c/Z80.js) + 68000 (Musashi)
 tools/get-zexall.ps1                         # or .sh — the Z80-W1 ZEXDOC image
 dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --report --all
 
@@ -30,19 +30,28 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
 
 ## What it measures
 
-- **6502 — two workloads.** W1 is the Klaus functional-test image run to its `$3469` success trap
+- **6502 — three workloads.** W1 is the Klaus functional-test image run to its `$3469` success trap
   (96,241,367 cycles — the integration-realistic mix). W2 is a tight, hand-written ADC/SBC + branch
-  arithmetic kernel that isolates the decimal-arm + chaining payoff from the I/O-free hot path.
-- **Z80 — two workloads.** Z80-W1 is the ZEXDOC instruction-set exerciser run to a fixed, frozen
+  arithmetic kernel that isolates the decimal-arm + chaining payoff from the I/O-free hot path. W3 is a
+  hand-written **Sieve of Eratosthenes** (the classic BYTE compute benchmark; SIZE=8190 → 1899
+  primes/pass) run to a fixed cycle window — a recognizable integer/branch/memory **compute** kernel
+  (Dhrystone-CLASS, NOT literal Dhrystone), the "all emulators run identical compute" workload. W2 and
+  W3 are committed `byte[]` kernels that are dependency-free and always run.
+- **Z80 — three workloads.** Z80-W1 is the ZEXDOC instruction-set exerciser run to a fixed, frozen
   T-state window (2,000,000,000 T-states — a deterministic slice of real ZEX code, the Klaus-W1 analog;
   the harness services the CP/M BDOS calls host-side). Z80-W2 is a tight hand-written ADD/SUB + `DJNZ`
-  loop run to a 50,000,000-T-state cap (the DJNZ taken branch is the hot chain edge). These window
-  constants are **frozen** — the M6 re-measure (below) reuses them byte-identically.
-- **68000 — two workloads (Milestone B).** m68k-W1 is a deterministic, hand-written **mixed** kernel
+  loop run to a 50,000,000-T-state cap (the DJNZ taken branch is the hot chain edge). Z80-W3 is the Z80
+  **Sieve of Eratosthenes** (SIZE=8190 → 1899 primes/pass) run to a 50,000,000-T-state cap — the
+  recognizable integer/branch/memory compute kernel (Dhrystone-CLASS, NOT literal Dhrystone),
+  dependency-free and always runs. These window constants are **frozen** — the M6 re-measure (below)
+  reuses them byte-identically.
+- **68000 — three workloads (Milestone B).** m68k-W1 is a deterministic, hand-written **mixed** kernel
   (MOVE variants, ALU reg/EA, a shift, `BSR`/`RTS`, a `DBF` counted loop) — the integration-realistic
   stream (the 68000 has no in-repo Klaus/ZEX-equivalent runnable exerciser, so this synthetic mixed
   kernel is dependency-free and always runs). m68k-W2 is a tight hand-written ALU + `BNE` branch loop.
-  Both run to frozen 50,000,000 caps. **The 68000 leads with guest-MIPS (instructions/sec)** because its
+  m68k-W3 is the 68000 **Sieve of Eratosthenes** (SIZE=8190 → 1899 primes/pass) — the recognizable
+  integer/branch/memory compute kernel (Dhrystone-CLASS, NOT literal Dhrystone), also dependency-free
+  and always runs. All three run to frozen 50,000,000 caps. **The 68000 leads with guest-MIPS (instructions/sec)** because its
   cycle/timing axis is **partial** on `main` (the M4.5d-2b foundation made 13 families cycle-exact; the
   2b-continuation is deferred) — so `CycleCount` is exact for the cycle-exact families, not the whole
   ISA. instructions/sec is data-axis-correct on the merged M4.6 core *right now* (each step / each
@@ -54,8 +63,12 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
   (JS). For the Z80: Z80dotNet (C#), superzazu/z80 (C), Z80.js (JS) — all MIT-licensed. Each runs
   behind an adapter shim that skips-with-a-note when its runtime is absent — the report commits only
   measured data, never a fabricated number, and any single absent ref degrades exactly one row while
-  the our-tiers baseline always commits. (The 68000 head-to-head reference — Musashi — is a follow-up
-  task of the M6 comparison framework; the 68000 section ships its two-tier baseline regardless.)
+  the our-tiers baseline always commits. The 68000 head-to-head reference — **Musashi** (C, MIT,
+  kstenerud/Musashi v4.60) — is now **integrated**: a compiled-once-cached C subprocess that runs the
+  same 68000 workload bytes on the same host and reports cycles/sec + guest-MIPS, skipping-with-a-note
+  when its compiler/source is absent. Indicative guest-MIPS on a contended host: m68k-W1 ≈ 63.5,
+  m68k-W2 ≈ 69.5, m68k-W3 ≈ 86.5 — indicative cross-language numbers, not a controlled microbench. The
+  68000 section ships its two-tier baseline regardless.
 
 The per-CPU JIT-vs-interpreter comparison and the cross-language comparison table are in the generated
 report. **The honest measured finding is that the Tier-1 JIT is currently slower than the Tier-0
