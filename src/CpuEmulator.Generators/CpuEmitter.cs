@@ -654,6 +654,63 @@ internal static class CpuEmitter
                          .Distinct())
                 sb.AppendLine($"            case 0x{bcdKey:X}u: BcdExecute(0x{bcdKey:X}u, r); break;");
 
+            // M5.5c: the shift/rotate group (D0-D3 /0..5,/7), the stack family (PUSH/POP/PUSHF/POPF, incl. the
+            // FF /6 group PUSH and the 8F /0 group POP), and the misc data-movement / flag-control ops. Each is
+            // its OWN Insn row carrying its exact (opcode<<3)|reg or plain key — one case per distinct
+            // OperationKey, NO subfield expansion (the D0-D3 /6 hole and FF /2..5 CALL/JMP have no in-scope
+            // mnemonic, so they correctly fall through to HandleUndefinedOpcode — M5.5d).
+            //   Shift/rotate: ROL/ROR/RCL/RCR/SHL/SHR/SAR → ShiftExecute.
+            //   Stack:        PUSH/POP/PUSHF/POPF          → StackExecute.
+            //   Misc:         XCHG/LEA/LDS/LES/XLAT/LAHF/SAHF/CBW/CWD + CLC/STC/CMC/CLD/STD/CLI/STI/NOP/HLT/WAIT
+            //                                              → MiscExecute.
+            var shiftMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "ROL", "ROR", "RCL", "RCR", "SHL", "SHR", "SAR",
+            };
+            var stackMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "PUSH", "POP", "PUSHF", "POPF",
+            };
+            var miscMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "XCHG", "LEA", "LDS", "LES", "XLAT", "LAHF", "SAHF", "CBW", "CWD",
+                "CLC", "STC", "CMC", "CLD", "STD", "CLI", "STI", "NOP", "HLT", "WAIT",
+            };
+            foreach (var shiftKey in model.Instructions
+                         .Where(i => shiftMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{shiftKey:X}u: ShiftExecute(0x{shiftKey:X}u, r); break;");
+            foreach (var stackKey in model.Instructions
+                         .Where(i => stackMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+            {
+                // 8F (POP r/m16) is a HOMOGENEOUS don't-care group like C6/C7 MOV: the 8086 ignores the ModR/M
+                // reg field and executes POP r/m16 for ALL reg values (the corpus exercises reg 0 AND reg 1).
+                // The spec carries only the 8F /0 row (key 0x478), so expand the dispatch to all eight reg
+                // subfields → StackExecute (which normalizes the key to the /0 form). Every OTHER stack key
+                // (the 50-5F/segment plains and the HETEROGENEOUS FF /6 PUSH) dispatches its single case — FF's
+                // other reg subfields are distinct ops (INC/DEC/CALL/JMP) and must NOT be expanded here.
+                if (stackKey >= 0x478u && stackKey <= 0x47Fu)   // an 8F (0x8F<<3 == 0x478) group key
+                {
+                    for (uint reg = 0; reg < 8; reg++)
+                    {
+                        uint k = 0x478u | reg;
+                        sb.AppendLine($"            case 0x{k:X}u: StackExecute(0x{k:X}u, r); break;");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"            case 0x{stackKey:X}u: StackExecute(0x{stackKey:X}u, r); break;");
+                }
+            }
+            foreach (var miscKey in model.Instructions
+                         .Where(i => miscMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{miscKey:X}u: MiscExecute(0x{miscKey:X}u, r); break;");
+
             sb.AppendLine("            default:");
             sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)key));");
             sb.AppendLine("                break;");
@@ -671,6 +728,15 @@ internal static class CpuEmitter
             sb.AppendLine();
             sb.AppendLine("    /// <summary>M5.5b: the BCD-adjust op bodies (DAA/DAS/AAA/AAS/AAM/AAD) — implemented by M8086Cpu.Bcd.cs.</summary>");
             sb.AppendLine("    partial void BcdExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5c: the shift/rotate op bodies (ROL/ROR/RCL/RCR/SHL/SHR/SAR) — implemented by M8086Cpu.Shift.cs.</summary>");
+            sb.AppendLine("    partial void ShiftExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5c: the stack op bodies (PUSH/POP/PUSHF/POPF) — implemented by M8086Cpu.Stack.cs.</summary>");
+            sb.AppendLine("    partial void StackExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5c: the misc data-movement / flag-control op bodies (XCHG/LEA/LDS/LES/XLAT/LAHF/SAHF/CBW/CWD/CLC/STC/CMC/CLD/STD/CLI/STI/NOP/HLT/WAIT) — implemented by M8086Cpu.Misc.cs.</summary>");
+            sb.AppendLine("    partial void MiscExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
         }
 
         // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
