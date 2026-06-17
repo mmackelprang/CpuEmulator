@@ -366,13 +366,21 @@ internal static class CpuEmitter
         }
         else if (model.X86Decode is not null)
         {
-            // M5.2 (ADR 0006 Decision 1): the x86 byte-granular variable-length Step. Decode through the
-            // byte fetch stream over PC (the 8086's IP — the real CS:IP physical-address fetch + the EA/
-            // segment pipeline is M5.3/M5.5a), advance PC by the COMPUTED length, charge one cycle per
-            // consumed byte, and dispatch the resolved key. M5.2 is the decode SHAPE only: the synthetic
-            // fixture drives Decode() directly, and the real M8086Spec is still state-only (no X86Decode),
-            // so this branch is exercised only by the synthetic x86-decode CPU until the M5.5 op bodies land.
-            sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}));");
+            // M5.2/M5.3 (ADR 0006 Decision 1 / ADR 0005 Decision 2): the x86 byte-granular variable-length
+            // Step. Decode through the byte fetch stream, advance PC (the 8086's IP) by the COMPUTED length,
+            // charge one cycle per consumed byte, and dispatch the resolved key.
+            //
+            // M5.3 resolves M5.2's DEFERRED-MEDIUM: the instruction fetch is the REAL 20-bit physical
+            // (CS<<4)+IP fetch when the spec declares the CS segment register — the segmented fetch stream
+            // forms (segment<<4)+offset masked to 20 bits, the 16-bit IP offset wrapping within the segment
+            // (the segment-relative wrap quirk). The bus stays the flat 20-bit LE AddressSpace (no rework).
+            // The M5.2 synthetic x86-decode fixture declares NO segment registers (only A/IP) — it falls back
+            // to the flat 16-bit fetch, so its decode SHAPE proof is unchanged (byte-identical generation).
+            bool hasCs = model.Registers.Any(r => r.Name == "CS");
+            if (hasCs)
+                sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}, CS));   // (CS<<4)+IP 20-bit physical fetch");
+            else
+                sb.AppendLine($"        var __r = Decode(new CpuEmulator.Core.Jit.AddressSpaceFetchStream(_bus, {pc}));        // flat fetch (the synthetic decode fixture has no segment regs)");
             sb.AppendLine($"        {pc} = unchecked(({pcType})({pc} + __r.Length));");
             sb.AppendLine("        _cycles += __r.Length;          // one cycle per consumed byte (the fetch stream does not charge)");
             sb.AppendLine("        Execute(__r.OperationKey);");
@@ -566,6 +574,14 @@ internal static class CpuEmitter
         bool structured = model.Decode is not null;
         foreach (var instruction in model.Instructions)
             EmitOpcodeMethod(sb, instruction, pc, pcType, statusReg, spReg, flags, structured);
+
+        // M5.3 (ADR 0005 Decision 2 / ADR 0006 Decision 2): the 8086 ModR/M effective-address layer — the
+        // 16-bit (mod, r/m) offset table + the default-segment rule. Emitted only for the 8086 architecture
+        // (the helper self-gates on model.Architecture == "m8086" + the BX/BP/SI/DI register file), so
+        // 6502/Z80/68000 and the M5.2 synthetic x86-decode fixture are byte-identical. The 20-bit physical
+        // resolution + the override threading live in the hand-written partial (M8086Cpu.Ea.cs); this emits
+        // the offset + default-segment data the partial consumes.
+        EmitX86Ea(sb, model);
     }
 
     private static void EmitOpcodeMethod(
@@ -4390,6 +4406,86 @@ internal static class CpuEmitter
         sb.AppendLine("    public static CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey)");
         sb.AppendLine("        => JitDescriptorsByKey.TryGetValue(operationKey, out var d)");
         sb.AppendLine("            ? d : CpuEmulator.Core.Jit.OpcodeDescriptor.Undefined((byte)operationKey);");
+    }
+
+    /// <summary>M5.3 (ADR 0005 Decision 2 / ADR 0006 Decision 2): emit the 8086 ModR/M effective-address
+    /// helpers — the 16-bit <c>(mod, r/m)</c> offset table (base BX/BP/none + index SI/DI/none + disp,
+    /// wrapped at 16 bits, with the <c>mod=00,r/m=110</c> ⇒ disp16 DIRECT exception) and the default-segment
+    /// rule (BP-based forms ⇒ SS, the rest ⇒ DS). NO write-back side effect (the 8086 has no <c>(An)+</c>/
+    /// <c>-(An)</c> — string ops step SI/DI in the body driven by DF, M5.5d; the EA is pure-functional, so it
+    /// is SIMPLER than the 68000's <c>ComputeEa</c>). The 20-bit physical resolution + the override threading
+    /// live in the hand-written partial (<c>M8086Cpu.Ea.cs</c>); this emits the offset + default-segment data
+    /// the partial consumes.
+    ///
+    /// <para>Reuses the base+signed-displacement seam (the <c>EmitZ80IndexedEa</c> shape the 68000 reused for
+    /// d16(An)/d8(An,Xn)): the caller passes the SIGN-EXTENDED displacement value (disp8 sign-extended to 16
+    /// bits, or the raw disp16) and the helper adds it, wrapping at 16 bits via ushort arithmetic.</para>
+    ///
+    /// <para>Emitted only when the model declares the 8086 base/index regs (BX/BP/SI/DI) — the M5.2 synthetic
+    /// decode fixture (A/IP only) skips it, keeping its decode-shape generation byte-identical. Public probe
+    /// wrappers let the M5.3 synthetic+unit proof drive each (mod,r/m) form + the default-segment rule.</para>
+    /// </summary>
+    private static void EmitX86Ea(StringBuilder sb, SpecModel model)
+    {
+        // Gate to the 8086 architecture (the EA layer is 8086-specific). 6502/Z80/68000 + the M5.2 synthetic
+        // x86-DECODE fixture (architecture "x86decodetest", A/IP only) all carry a different architecture
+        // string, so none gets this helper — their generation is byte-identical. (Belt-and-suspenders: also
+        // require the 8086 base/index register file, so a hypothetical state-incomplete 8086 spec can't emit
+        // a helper that references absent registers.)
+        if (model.Architecture != "m8086")
+            return;
+        bool hasEaRegs = model.Registers.Any(r => r.Name == "BX") && model.Registers.Any(r => r.Name == "BP")
+            && model.Registers.Any(r => r.Name == "SI") && model.Registers.Any(r => r.Name == "DI");
+        if (!hasEaRegs)
+            return;
+
+        sb.AppendLine();
+        sb.AppendLine("    // ── M5.3: the 8086 ModR/M effective-address layer (ADR 0005 D2 / ADR 0006 D2). ──────────────");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Compute the 16-bit ModR/M effective-address OFFSET from (mod, r/m) + the already-");
+        sb.AppendLine("    /// extracted, sign-extended displacement (disp8→disp16 by the caller, or the raw disp16). The");
+        sb.AppendLine("    /// real 8086 16-bit table: base(BX/BP/none) + index(SI/DI/none) + disp, ALL wrapping at 16 bits");
+        sb.AppendLine("    /// (the segment-relative wrap quirk — the sum never carries into the segment base). The");
+        sb.AppendLine("    /// mod=00,r/m=110 case is the disp16 DIRECT exception: base/index = 0, the offset IS the disp.");
+        sb.AppendLine("    /// NO write-back (the 8086 EA is pure-functional). disp is IGNORED for mod=11 (register direct,");
+        sb.AppendLine("    /// no memory EA — the caller does not call this for a register operand).</summary>");
+        sb.AppendLine("    private ushort ComputeX86Ea(uint mod, uint rm, ushort disp)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // The base+index per r/m (the disp16-direct exception zeroes both when mod=00,r/m=110).");
+        sb.AppendLine("        bool disp16Direct = mod == 0u && rm == 6u;");
+        sb.AppendLine("        int baseIndex = rm switch");
+        sb.AppendLine("        {");
+        sb.AppendLine("            0u => BX + SI,                          // [BX+SI]");
+        sb.AppendLine("            1u => BX + DI,                          // [BX+DI]");
+        sb.AppendLine("            2u => BP + SI,                          // [BP+SI]  (BP-based ⇒ SS default)");
+        sb.AppendLine("            3u => BP + DI,                          // [BP+DI]  (BP-based ⇒ SS default)");
+        sb.AppendLine("            4u => SI,                               // [SI]");
+        sb.AppendLine("            5u => DI,                               // [DI]");
+        sb.AppendLine("            6u => disp16Direct ? 0 : BP,            // [BP]  — but mod=00,r/m=110 is disp16 DIRECT");
+        sb.AppendLine("            _  => BX,                               // [BX]");
+        sb.AppendLine("        };");
+        sb.AppendLine("        // base + index + disp, wrapped at 16 bits (ushort) — the offset within the 64 KB segment.");
+        sb.AppendLine("        return unchecked((ushort)(baseIndex + (short)disp));");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The DEFAULT segment register VALUE for a (mod, r/m) memory operand (ADR 0005 D2): the");
+        sb.AppendLine("    /// BP-based forms default to SS, the rest to DS. BP-based = r/m ∈ {010, 011, 110} EXCEPT the");
+        sb.AppendLine("    /// mod=00,r/m=110 disp16-direct case (which has NO BP, so it defaults to DS). A segment-override");
+        sb.AppendLine("    /// prefix (decoded by the M5.2 walk) replaces this — the override threading is in the partial's");
+        sb.AppendLine("    /// EA helpers (M8086Cpu.Ea.cs); this returns the DEFAULT the override displaces.</summary>");
+        sb.AppendLine("    private ushort DefaultSegmentForX86Rm(uint mod, uint rm)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        bool disp16Direct = mod == 0u && rm == 6u;");
+        sb.AppendLine("        bool bpBased = !disp16Direct && (rm == 2u || rm == 3u || rm == 6u);");
+        sb.AppendLine("        return bpBased ? SS : DS;");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Thin public probe over <see cref=\"ComputeX86Ea\"/> so the M5.3 synthetic EA proof can");
+        sb.AppendLine("    /// drive each (mod, r/m) form + the disp16-direct exception + the 16-bit wrap directly.</summary>");
+        sb.AppendLine("    public ushort ComputeX86EaProbe(uint mod, uint rm, ushort disp) => ComputeX86Ea(mod, rm, disp);");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Thin public probe over <see cref=\"DefaultSegmentForX86Rm\"/> (the BP⇒SS default rule).</summary>");
+        sb.AppendLine("    public ushort DefaultSegmentForX86RmProbe(uint mod, uint rm) => DefaultSegmentForX86Rm(mod, rm);");
     }
 
     /// <summary>M4.3a (ADR 0004 Decision 1): the word-granular, field-decomposed decode walk. Fetches a
