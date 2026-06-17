@@ -27,7 +27,12 @@ internal static class M8088TomHarteRunner
     public static string? RunCase(M8088TomHarteCase c, M8088Metadata metadata, string opcodeHex)
     {
         // 20-bit physical address space, little-endian (the 8086/8088 default — NO BigEndian), per ADR 0005 D2.
+        // Map the WHOLE 1 MB as writable RAM up front: AddressSpace silently drops a Write8 to an UNMAPPED page
+        // and returns open-bus (0xFF) on a read there, so without the backing the initial-RAM install would be a
+        // no-op and the instruction fetch would read garbage. (The M5.4 scaffold never Stepped, so it never
+        // needed the backing; M5.5a does.)
         var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        bus.MapMemory(0, new byte[0x100000], writable: true);
         uint mask = bus.AddressMask;
         foreach (var cell in c.Initial.Ram)
             bus.Write8(cell.Address & mask, cell.Value);

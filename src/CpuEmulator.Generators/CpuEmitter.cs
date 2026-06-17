@@ -580,6 +580,13 @@ internal static class CpuEmitter
         // 6502/Z80/68000 never emit it (byte-identical). The synthetic x86-decode fixture has no Mnemonic
         // "MOV" rows (its MOVs are named MOVRM/MOVMR/...), so its ExecuteX86 is all-default + an unimplemented
         // MovExecute partial — every key routes to HandleUndefinedOpcode there, as before.
+        //
+        // The C6/C7 reg=0 rows are OPCODE-GROUP keys ((opcode<<3)|reg, here 0x630/0x638). On the real 8086 the
+        // C6/C7 reg field is a DON'T-CARE — every reg value (0-7) executes MOV r/m,imm (the silicon ignores it;
+        // the TomHarte 8088 vectors exercise reg 0-7 and expect MOV). The spec only carries the reg=0 row, so
+        // for a group MOV key we expand the dispatch to ALL eight reg subfields of that opcode, routing each to
+        // MovExecute (which normalizes the key to the reg=0 form). A plain (non-group, key <= 0xFF) MOV key
+        // dispatches its single case unchanged.
         if (model.X86Decode is not null)
         {
             sb.AppendLine();
@@ -593,7 +600,23 @@ internal static class CpuEmitter
                          .Where(i => i.Mnemonic == "MOV")
                          .Select(i => i.OperationKey)
                          .Distinct())
-                sb.AppendLine($"            case 0x{movKey:X}u: MovExecute(0x{movKey:X}u, r); break;");
+            {
+                if (movKey > 0xFFu)
+                {
+                    // An opcode-group MOV key ((opcode<<3)|reg). The C6/C7 reg field is a don't-care on the
+                    // 8086 ⇒ expand to all eight reg subfields of this opcode (the vectors hit reg 0-7).
+                    uint groupOpcode = movKey >> 3;
+                    for (uint reg = 0; reg < 8; reg++)
+                    {
+                        uint k = (groupOpcode << 3) | reg;
+                        sb.AppendLine($"            case 0x{k:X}u: MovExecute(0x{k:X}u, r); break;");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"            case 0x{movKey:X}u: MovExecute(0x{movKey:X}u, r); break;");
+                }
+            }
             sb.AppendLine("            default:");
             sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)key));");
             sb.AppendLine("                break;");

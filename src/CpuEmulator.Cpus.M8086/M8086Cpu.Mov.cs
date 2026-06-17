@@ -97,6 +97,37 @@ public sealed partial class M8086Cpu
         _    => X86SegmentOverride.None,
     };
 
+    /// <summary>Resolve a ModR/M memory operand to its (segment value, 16-bit offset) pair — the inputs the
+    /// 8086 word access needs to wrap the SECOND byte's offset at 16 bits (the segment-relative wrap quirk).
+    /// Mirrors <see cref="ResolveEaPhysical"/>'s composition (the generated <c>ComputeX86Ea</c> offset + the
+    /// <c>DefaultSegmentForX86Rm</c> default threaded with the override) but returns the parts, not the
+    /// collapsed physical.</summary>
+    private (ushort Segment, ushort Offset) ResolveEaSegOffset(uint mod, uint rm, ushort disp, X86SegmentOverride over)
+    {
+        ushort offset = ComputeX86Ea(mod, rm, disp);
+        ushort segment = ResolveSegment(DefaultSegmentForX86Rm(mod, rm), over);
+        return (segment, offset);
+    }
+
+    /// <summary>Read a 16-bit word at a (segment, offset) — LITTLE-ENDIAN, with the 8086 segment-relative wrap:
+    /// the SECOND byte's offset is <c>(offset + 1) &amp; 0xFFFF</c> (it wraps WITHIN the 64 KB segment, NOT in the
+    /// 20-bit physical space). The classic case is offset 0xFFFF, whose high byte lives at segment offset 0.
+    /// Charges two byte cycles via the EA byte helpers.</summary>
+    private ushort ReadEaWordWrapped(ushort segment, ushort offset)
+    {
+        byte lo = ReadEaByte(Physical(segment, offset));
+        byte hi = ReadEaByte(Physical(segment, (ushort)(offset + 1)));
+        return (ushort)(lo | (hi << 8));
+    }
+
+    /// <summary>Write a 16-bit word at a (segment, offset) — LITTLE-ENDIAN, with the same 8086 offset wrap as
+    /// <see cref="ReadEaWordWrapped"/>. Charges two byte cycles.</summary>
+    private void WriteEaWordWrapped(ushort segment, ushort offset, ushort value)
+    {
+        WriteEaByte(Physical(segment, offset), (byte)value);
+        WriteEaByte(Physical(segment, (ushort)(offset + 1)), (byte)(value >> 8));
+    }
+
     /// <summary>M5.5a: execute one MOV-family instruction. The generated <c>ExecuteX86</c> dispatches here with
     /// the resolved OperationKey + the full <see cref="CpuEmulator.Core.Jit.DecodeResult"/> (carrying the
     /// captured ModR/M byte, the sign-extended disp16, the immediate, and the segment-override prefix byte).
@@ -112,6 +143,12 @@ public sealed partial class M8086Cpu
         ushort disp = r.X86.Disp;
         X86SegmentOverride over = OverrideFromByte(r.X86.SegOverride);
 
+        // C6/C7 are opcode-group keys ((opcode<<3)|reg). On the 8086 the reg field is a DON'T-CARE — every reg
+        // value executes MOV r/m,imm — so NORMALIZE any C6 group key (0x630-0x637) to 0x630 and any C7 group
+        // key (0x638-0x63F) to 0x638 before dispatch. (The 88-BF plain keys are <= 0xFF, untouched.)
+        if (key >= 0x630u && key <= 0x637u) key = 0x630u;
+        else if (key >= 0x638u && key <= 0x63Fu) key = 0x638u;
+
         switch (key)
         {
             // ── 88-8B: the d/w-bit register/memory MOVs. ──────────────────────────────────────────────────
@@ -126,7 +163,7 @@ public sealed partial class M8086Cpu
             {
                 ushort src = Reg16(reg);
                 if (mod == 3u) SetReg16(rm, src);
-                else WriteEaWord(ResolveEaPhysical(mod, rm, disp, over), src);
+                else { var (seg, off) = ResolveEaSegOffset(mod, rm, disp, over); WriteEaWordWrapped(seg, off, src); }
                 break;
             }
             case 0x8Au:   // MOV r8, r/m8 — load the byte rm into reg8
@@ -137,7 +174,9 @@ public sealed partial class M8086Cpu
             }
             case 0x8Bu:   // MOV r16, r/m16 — load the word rm into reg16
             {
-                ushort src = mod == 3u ? Reg16(rm) : ReadEaWord(ResolveEaPhysical(mod, rm, disp, over));
+                ushort src;
+                if (mod == 3u) src = Reg16(rm);
+                else { var (seg, off) = ResolveEaSegOffset(mod, rm, disp, over); src = ReadEaWordWrapped(seg, off); }
                 SetReg16(reg, src);
                 break;
             }
@@ -147,12 +186,14 @@ public sealed partial class M8086Cpu
             {
                 ushort src = Sreg(reg & 3u);
                 if (mod == 3u) SetReg16(rm, src);
-                else WriteEaWord(ResolveEaPhysical(mod, rm, disp, over), src);
+                else { var (seg, off) = ResolveEaSegOffset(mod, rm, disp, over); WriteEaWordWrapped(seg, off, src); }
                 break;
             }
             case 0x8Eu:   // MOV Sreg, r/m16 — load the word rm into the segment register
             {
-                ushort src = mod == 3u ? Reg16(rm) : ReadEaWord(ResolveEaPhysical(mod, rm, disp, over));
+                ushort src;
+                if (mod == 3u) src = Reg16(rm);
+                else { var (seg, off) = ResolveEaSegOffset(mod, rm, disp, over); src = ReadEaWordWrapped(seg, off); }
                 SetSreg(reg & 3u, src);
                 break;
             }
@@ -168,7 +209,7 @@ public sealed partial class M8086Cpu
             case 0xA1u:   // MOV AX, moffs16
             {
                 ushort offset = r.X86.Imm;
-                AX = ReadEaWord(Physical(ResolveSegment(DS, over), offset));
+                AX = ReadEaWordWrapped(ResolveSegment(DS, over), offset);
                 break;
             }
             case 0xA2u:   // MOV moffs8, AL
@@ -180,7 +221,7 @@ public sealed partial class M8086Cpu
             case 0xA3u:   // MOV moffs16, AX
             {
                 ushort offset = r.X86.Imm;
-                WriteEaWord(Physical(ResolveSegment(DS, over), offset), AX);
+                WriteEaWordWrapped(ResolveSegment(DS, over), offset, AX);
                 break;
             }
 
@@ -206,7 +247,7 @@ public sealed partial class M8086Cpu
             {
                 ushort src = r.X86.Imm;
                 if (mod == 3u) SetReg16(rm, src);
-                else WriteEaWord(ResolveEaPhysical(mod, rm, disp, over), src);
+                else { var (seg, off) = ResolveEaSegOffset(mod, rm, disp, over); WriteEaWordWrapped(seg, off, src); }
                 break;
             }
         }
