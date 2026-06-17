@@ -99,6 +99,89 @@ public sealed partial class M68000Cpu
     //    ends == the case's length (Σ transaction cycles — validated by the TomHarte gate). ────────────────
     private const int WordAccessCycles = 4;   // a word bus cycle is 4 clocks on the 68000 (S0-S7)
 
+    // M4.5d-2b (PR #47 generator self-containment fix): IdleCycles(int), the _pendingIdle field, _reseededInBody,
+    // and FlushRefills() are now EMITTED by the generator (CpuEmitter, the FieldGrammar block) so any FieldGrammar
+    // CPU — including the synthetic Demo.FgwCpu test fixture — compiles. They are declared exactly once (generated);
+    // this hand-written partial no longer declares them. The op-body-only helpers below (Idle/Refill/LeadRefills/
+    // EaCalcIdle/PrefetchTarget/WriteLongBusRmw) stay hand-written: they are called only by hand-written op bodies,
+    // never by the generated Step, so they appear in no generated file.
+
+    /// <summary>M4.5d-2b: an op body declares its internal/idle (<c>["n", N]</c>) clocks here. Accumulated into
+    /// the generated <c>_pendingIdle</c> and flushed via the generated <c>IdleCycles</c> after the body (the
+    /// runner's DiffBusTrace filters idle out of the expected trace, so idle adds cycles but no bus access).</summary>
+    private void Idle(int n) => _pendingIdle += n;
+
+    /// <summary>M4.5d-2b (the DEFERRED-REFILL seam, ADR 0008 §8.1): issue ONE deferred prefetch refill at THIS
+    /// point in the op body — pop the oldest pending refill's frontier address (recorded by the decode walk's
+    /// NextUnit) and do the TRACED 4-clock word bus read there. This places the refill read in the per-transaction
+    /// trace BETWEEN the surrounding operand accesses (the interleaved shapes — e.g. CLR.w (An) = read, Refill,
+    /// write). A no-op when the backlog is empty (an over-issuing body is harmless). The queue word is already
+    /// correct (NextUnit set it via the untraced peek); this read exists for the TRACE + the cycle charge, so the
+    /// returned word is discarded.</summary>
+    private void Refill()
+    {
+        if (_fetchQueue is not null && _fetchQueue.TryPopRefill(out uint addr))
+        {
+            _cycles += WordAccessCycles;
+            _ = _bus.Read16(addr);   // TRACED refill read (the queue value was already set via the untraced peek)
+        }
+    }
+
+    /// <summary>M4.5d-2b: flush the LEADING refills — every pending refill EXCEPT the last — as traced reads
+    /// BEFORE the operand access. On the 68000 the EXTENSION-word prefetch refills happen during decode and
+    /// LEAD the operand access in the trace (the <c>F…F</c> prefix of e.g. CLR.b d16(An) = <c>F O F O</c>, abs.L
+    /// = <c>F F O F O</c>); only the LAST refill (the operword-frontier "overlap" prefetch) defers into the
+    /// operand sequence via <see cref="Refill"/>. A single-word instruction (1 pending refill) leads NOTHING — its
+    /// one refill is the deferred overlap. The op body calls this before the operand read, then <see cref="Refill"/>
+    /// at the overlap point.</summary>
+    private void LeadRefills()
+    {
+        while (_fetchQueue is not null && _fetchQueue.PendingRefills > 1
+               && _fetchQueue.TryPopRefill(out uint addr))
+        {
+            _cycles += WordAccessCycles;
+            _ = _bus.Read16(addr);
+        }
+    }
+
+    // M4.5d-2b (PR #47 self-containment fix): FlushRefills() is now generated (see the note above) — the
+    // hand-written copy was dropped so it is declared exactly once.
+
+    // M4.5d-2b (PR #47 self-containment fix): _reseededInBody is now generated (see the note above) — the
+    // hand-written field was dropped so it is declared exactly once. PrefetchTarget (below) still SETS it; that
+    // resolves against the generated field in the same partial class. It is set by a control-transfer body that
+    // emitted its OWN target-prefetch reads (JSR/BSR); the generated Step then recomputes the queue end state
+    // UNTRACED (ReseedPeek) instead of re-reading the target words.
+
+    /// <summary>M4.5d-2b: a control-transfer body calls this to emit the TWO target-prefetch reads (the queue
+    /// end-state words at <paramref name="target"/> and <paramref name="target"/>+2) as TRACED 4-clock word bus
+    /// cycles at THIS point — used when the reads must interleave with other body accesses (JSR/BSR) rather than
+    /// trail. Sets <see cref="_reseededInBody"/> so the Step recomputes the end state untraced. Returns the two
+    /// words so the body can use them if needed (normally discarded — the prefetch values are queue state).</summary>
+    private (ushort, ushort) PrefetchTarget(uint target)
+    {
+        ushort w0 = ReadWordBus(target);
+        ushort w1 = ReadWordBus(unchecked(target + 2u));
+        _reseededInBody = true;
+        return (w0, w1);
+    }
+
+    /// <summary>M4.5d-2b: the internal "address calculation" idle cycles a memory EA mode costs on the 68000,
+    /// charged into <see cref="_pendingIdle"/> by the data-op read/write helpers BEFORE the operand access. The
+    /// 68000 spends extra internal clocks computing the predecrement / indexed addresses:
+    /// <list type="bullet">
+    ///   <item><c>-(An)</c> (mode 4): 2 clocks (the predecrement);</item>
+    ///   <item><c>(d8,An,Xn)</c> (mode 6) / <c>(d8,PC,Xn)</c> (mode 7 reg 3): 2 clocks (the index add).</item>
+    /// </list>
+    /// Every other mode (Dn/An/(An)/(An)+/d16/abs/#imm) costs 0 internal clocks for the data ops (the
+    /// reconciled corpus shapes — e.g. CLR.b -(An) = idle2 + read + refill + write = 14). LEA/PEA/JMP/JSR's
+    /// address-only EA timing is bespoke (charged in their own bodies), so this is the DATA-op rule only.</summary>
+    private void EaCalcIdle(uint mode, uint reg)
+    {
+        if (mode == 4u || mode == 6u || (mode == 7u && reg == 3u))
+            Idle(2);
+    }
+
     private ushort ReadWordBus(uint address)
     {
         _cycles += WordAccessCycles;
@@ -124,6 +207,18 @@ public sealed partial class M68000Cpu
     {
         WriteWordBus(address, (ushort)(value >> 16));
         WriteWordBus(address + 2, (ushort)value);
+    }
+
+    /// <summary>M4.5d-2b: write a long as two .w transactions LOW WORD FIRST (the high word at address+2 written
+    /// first, then the low word at address). This is the 68000 read-modify-write (NEG/NOT/CLR/single-EA ALU)
+    /// write-back order — vector-confirmed: a .l RMW traces W(addr+2) then W(addr) (e.g. ADD.l Dn,(An) =
+    /// R R F W(addr+2) W(addr)), the reverse of the data-fetch / MOVE.l store order. The cycle cost is identical
+    /// (two word writes); only the trace ORDER differs, so the RMW path uses this and the MOVE store keeps the
+    /// high-word-first <see cref="WriteLongBus"/>.</summary>
+    private void WriteLongBusRmw(uint address, uint value)
+    {
+        WriteWordBus(address + 2, (ushort)value);            // low word first (at the higher address)
+        WriteWordBus(address, (ushort)(value >> 16));        // then the high word
     }
 
     // Test seams (mirror the generated ComputeEaProbe) — drive the wide path from synthetic unit tests.

@@ -58,6 +58,42 @@ internal static class CpuEmitter
             sb.AppendLine("    /// Re-seeded from the formal PC at each Step (the corpus seeds prefetch[0]@PC, prefetch[1]@PC+2),");
             sb.AppendLine("    /// then advanced+refilled by the decode walk; the queue END STATE is the asserted final.prefetch.</summary>");
             sb.AppendLine("    private CpuEmulator.Core.Jit.M68000FetchStream? _fetchQueue;");
+            // M4.5d-2b (generator self-containment, PR #47 regression fix): the FieldGrammar Step body the
+            // generator emits below references _pendingIdle / _reseededInBody (reset at instruction start, read
+            // at the tail) and calls IdleCycles / FlushRefills. EMIT them here so ANY FieldGrammar CPU compiles
+            // — the synthetic Demo.FgwCpu test fixture (M68kFieldDecodeWalkTests / M68kEaComputeTests /
+            // M68kExtensionWordValueTests) does NOT hand-write them, and the old code assumed the real
+            // M68000Cpu partial supplied them, so the fixture's generated code failed CS0103. These four are
+            // now generated (the real M68000Cpu drops its hand-written copies — declared exactly once, here).
+            // The op-body-only helpers (Idle/Refill/LeadRefills/EaCalcIdle/PrefetchTarget/WriteLongBusRmw) stay
+            // hand-written on M68000Cpu: they are referenced ONLY by hand-written op bodies, never by the
+            // generated Step, so they appear in no generated file and need not be emitted.
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M4.5d-2b: the per-instruction IDLE-cycle accumulator the op bodies add to (via Idle(n))");
+            sb.AppendLine("    /// and the generated Step flushes (via IdleCycles) after the body. Generated for self-containment.</summary>");
+            sb.AppendLine("    private int _pendingIdle;");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M4.5d-2b: set by a control-transfer body that emitted its OWN target-prefetch reads");
+            sb.AppendLine("    /// (JSR/BSR); the generated Step then recomputes the queue end state UNTRACED. Generated for self-containment.</summary>");
+            sb.AppendLine("    private bool _reseededInBody;");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M4.5d-2b: charge n IDLE clocks (the corpus [\"n\", N] slots — internal/dead bus cycles");
+            sb.AppendLine("    /// where the 68000 does no bus access). Advances CycleCount only; emits no bus access (no trace");
+            sb.AppendLine("    /// entry). Generated for self-containment (the generated Step flushes _pendingIdle through it).</summary>");
+            sb.AppendLine("    private void IdleCycles(int n) => _cycles += n;");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M4.5d-2b: flush ALL still-pending deferred refills as TRACED 4-clock word reads (decode");
+            sb.AppendLine("    /// order). The generated Step calls this after a SEQUENTIAL instruction's body so any refill the body");
+            sb.AppendLine("    /// did not place explicitly trails the operand accesses (the trailing prefetch). Generated for");
+            sb.AppendLine("    /// self-containment; a word bus cycle is 4 clocks on the 68000.</summary>");
+            sb.AppendLine("    private void FlushRefills()");
+            sb.AppendLine("    {");
+            sb.AppendLine("        while (_fetchQueue is not null && _fetchQueue.TryPopRefill(out uint __addr))");
+            sb.AppendLine("        {");
+            sb.AppendLine("            _cycles += 4;            // a word bus cycle is 4 clocks (S0-S7)");
+            sb.AppendLine("            _ = _bus.Read16(__addr); // TRACED refill read (the queue value was already set via the untraced peek)");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
         }
         var flags = FlagBitMap.From(model.Flags.Length > 0 ? model.Flags.Values : null);
         EmitBody(sb, model, flags);
@@ -239,13 +275,27 @@ internal static class CpuEmitter
             // formal PC and the queue is RESEEDED from the new PC — so the queue END STATE is the asserted
             // final.prefetch and the trailing formal PC is the asserted final.pc.
             sb.AppendLine("        var __stream = _fetchQueue ??= new CpuEmulator.Core.Jit.M68000FetchStream(_bus);");
-            sb.AppendLine("        __stream.Seed(PC, _bus.Read16(PC), _bus.Read16(unchecked(PC + 2u)));");
+            // M4.5d-2b (ADR 0008 §8.1): seed the queue via the UNTRACED inner-memory peek (SeedPeek), NOT two
+            // _bus.Read16 calls. The corpus places the operword + next word in initial.prefetch (the runner writes
+            // them into the bus); the real 68000 already HOLDS them in its queue and does NOT re-fetch them, so
+            // those reads must NOT appear in the per-transaction bus trace. The old Seed(PC, _bus.Read16(PC),
+            // _bus.Read16(PC+2)) form issued two phantom traced fetches that polluted bus.Trace (which suspended
+            // the trace-coupled timing axis in 2a). SeedPeek reads the two words through IAddressSpace.TryPeek8 —
+            // invisible to the tracing bus — so the trace begins clean with the first REFILL read (NextUnit).
+            sb.AppendLine("        __stream.SeedPeek(PC);");
             sb.AppendLine("        __stream.BeginInstruction();");
+            sb.AppendLine("        _pendingIdle = 0;       // reset the per-instruction idle accumulator (flushed after the body)");
+            sb.AppendLine("        _reseededInBody = false; // reset the body-emitted-target-prefetch flag (M4.5d-2b)");
             sb.AppendLine("        var __r = Decode(__stream);");
             sb.AppendLine("        uint __operword = __r.Operword;               // the operword the fetch read once");
-            sb.AppendLine("        // 2a leaves the FLAT *4 cycle charge in place (cycle-exactness is 2b — ADR 0008 §3). 2a asserts");
-            sb.AppendLine("        // the queue STATE (final.pc + final.prefetch), NOT CycleCount == length.");
-            sb.AppendLine("        _cycles += __stream.UnitsConsumed * 4;");
+            sb.AppendLine("        // M4.5d-2b (ADR 0008 §3, §8.1): the per-transaction cycle model with the DEFERRED-REFILL seam.");
+            sb.AppendLine("        // The decode walk's NextUnit advanced the queue via the UNTRACED peek and pushed each refill's");
+            sb.AppendLine("        // frontier address onto the backlog (NO traced read at decode time). The op body issues the");
+            sb.AppendLine("        // deferred refills at the right points via Refill() — so a refill read can land BETWEEN operand");
+            sb.AppendLine("        // accesses in the trace (the interleaved shapes). Any refills the body did not place explicitly");
+            sb.AppendLine("        // are flushed AFTER the body (the trailing prefetch) — see FlushRefills below. The operand");
+            sb.AppendLine("        // reads/writes charge via the WordBus helpers; the internal/idle ([\"n\",N]) cycles via Idle()");
+            sb.AppendLine("        // into _pendingIdle. Σ = the case's length (the T6 per-class reconciliation).");
             sb.AppendLine("        // PC-relative EAs (d16(PC)/d8(PC,Xn)) are based on the address of the FIRST extension word");
             sb.AppendLine("        // = operword address + 2 (the operword is at the pre-advance PC). Capture it BEFORE the");
             sb.AppendLine("        // advance so ComputeEa's PcForEa reads the right base (the live PC moves past the whole insn).");
@@ -260,7 +310,13 @@ internal static class CpuEmitter
             sb.AppendLine("        {");
             sb.AppendLine("            HandleUndefinedOpcode(unchecked((byte)__operword));");
             sb.AppendLine("            _eaPcBase = 0u;");
-            sb.AppendLine("            if (__stream.FormalPc != PC) __stream.Reseed(PC);");
+            sb.AppendLine("            IdleCycles(_pendingIdle);");
+            // M4.5d-2b (PR #47 regression fix): same consumed-word fetch charge as the matched-op control-transfer
+            // path below — guarantees a taken transfer is never 0-cycle (the JIT-budget invariant). Today
+            // HandleUndefinedOpcode is a stub (FormalPc == PC → the FlushRefills branch), so this is dormant until
+            // it is promoted to RaiseException(ILLEGAL), which will diverge PC and take the transfer branch.
+            sb.AppendLine("            if (__stream.FormalPc != PC) { _cycles += __stream.PendingRefills * 4; __stream.DiscardRefills(); __stream.Reseed(PC); }");
+            sb.AppendLine("            else FlushRefills();");
             sb.AppendLine("            return;");
             sb.AppendLine("        }");
             sb.AppendLine("        uint __opIndex = (__r.OperationKey >> 8) & 0xFFFFu;   // unpack opIndex from the key");
@@ -277,12 +333,36 @@ internal static class CpuEmitter
             sb.AppendLine("        }");
             sb.AppendLine("        _eaPcBase = 0u;   // clear the PC-relative base so the synthetic ComputeEaProbe's");
             sb.AppendLine("                          // \": PC\" fallback is valid again after a Step (review finding).");
-            // M4.5d-2a: after the body, if the live PC diverged from the queue's formal PC, a non-sequential
-            // control transfer happened (branch/jump/return/exception set PC) — RESEED the queue from the new
-            // PC so final.prefetch is [word@PC, word@(PC+2)] (the corpus's taken-branch/target prefetch). For a
-            // sequential instruction FormalPc already == PC (NextUnit advanced it in lock-step with the length
-            // advance), so the reseed is a no-op and the refilled queue stands as the end state.
-            sb.AppendLine("        if (__stream.FormalPc != PC) __stream.Reseed(PC);");
+            sb.AppendLine("        IdleCycles(_pendingIdle);   // M4.5d-2b: flush the body's internal/idle ([\"n\",N]) clocks.");
+            // M4.5d-2b (the deferred-refill seam, ADR 0008 §8.1): finalize the prefetch trace + queue end state.
+            //  • SEQUENTIAL (FormalPc == PC): flush any refills the body did not place explicitly — the trailing
+            //    prefetch (and the whole backlog for a register-only class, reproducing the refills-lead order).
+            //  • TAKEN CONTROL TRANSFER (FormalPc != PC): the old-frontier prefetch never happened — DISCARD the
+            //    stale backlog. The body that already emitted the target prefetch reads (JSR/BSR interleave them
+            //    with the push) leaves PC diverged AND _reseededInBody set, so just recompute the end state
+            //    UNTRACED (ReseedPeek). Otherwise the simple transfers (Bcc-taken/JMP/DBcc-taken/RTS/RTR/RTE/
+            //    exceptions) reseed TRACED here — that IS the corpus's two target-prefetch reads.
+            sb.AppendLine("        if (__stream.FormalPc != PC)");
+            sb.AppendLine("        {");
+            // M4.5d-2b (PR #47 regression fix — the 0-cycle taken-transfer hazard): a taken control transfer
+            // DISCARDS the backlogged refills (the old-frontier prefetch never happened) and reseeds. But the
+            // decode walk DID consume the operword + extension words — real prefetch fetches the chip paid for
+            // (M4.5d-2a charged them via UnitsConsumed*4). With the deferred-refill model those fetches were
+            // never charged on this path, so a non-idle control transfer (e.g. JMP) charged ZERO cycles. That
+            // breaks the JIT-budget invariant the whole dispatcher + every budget==1 tier-parity driver rely on
+            // (\"each instruction costs >= 1 cycle\"): a 0-cycle block leaves JittedCpu.Run's `while (budget>0)`
+            // loop positive, so it runs a SECOND instruction (data-axis parity break) or spins forever (hang).
+            // Charge the consumed-word fetch cost (PendingRefills == words the walk consumed; 4 clocks each)
+            // BEFORE discarding — restoring M4.5d-2a's UnitsConsumed*4 fetch charge. This adds NO bus access /
+            // trace entry, does NOT reconcile any deferred family (the count is the consumed-word estimate, not
+            // the exact c.Length — these families stay deferred from the timing-axis gate), and does NOT touch
+            // the cycle-exact families (none are control transfers — they take the FlushRefills branch below).
+            sb.AppendLine("            _cycles += __stream.PendingRefills * 4;   // the consumed-word prefetch the walk paid for");
+            sb.AppendLine("            __stream.DiscardRefills();");
+            sb.AppendLine("            if (_reseededInBody) { _reseededInBody = false; __stream.ReseedPeek(PC); }");
+            sb.AppendLine("            else __stream.Reseed(PC);");
+            sb.AppendLine("        }");
+            sb.AppendLine("        else FlushRefills();");
         }
         else if (model.Decode is null)
         {

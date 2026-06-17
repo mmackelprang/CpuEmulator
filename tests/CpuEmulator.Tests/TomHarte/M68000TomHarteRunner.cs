@@ -250,10 +250,16 @@ internal static class M68000TomHarteRunner
         // runs another block each iteration — so the budget must be sized so the loop runs ONCE. A 1-cycle
         // budget does that: the check passes once (1 > 0), the single fallback op charges the instruction's
         // cycle cost (driving budget <= 0 — every 68000 instruction costs >= 1 cycle), and the loop exits.
-        // (The case's c.Length is NOT a valid budget here: the M4 interpreter charges a FLAT UnitsConsumed*4,
-        // which is LESS than the real c.Length for most multi-cycle ops, so a c.Length budget would leave the
-        // loop positive and run a SECOND, garbage instruction at the advanced PC — corrupting the data axis.
-        // The data-axis result is produced entirely by the one fallback Step, identical to RunCase's Step.)
+        // (The case's c.Length is NOT a valid budget here: the interpreter's per-instruction cycle charge can be
+        // LESS than the real c.Length for the families whose cycle count is not yet reconciled — a c.Length
+        // budget would leave the loop positive and run a SECOND, garbage instruction at the advanced PC.)
+        //
+        // The ">= 1 cycle per instruction" invariant this relies on is GUARDED by the interpreter: M4.5d-2b's
+        // deferred-refill model would otherwise charge a non-idle TAKEN control transfer (e.g. JMP) ZERO cycles
+        // (it DISCARDS the backlogged prefetch on a transfer), which left budget==1 positive and ran a runaway
+        // (parity break) or spun forever (the ~10h hang seen in the PR #47 gate). The generated Step charges the
+        // consumed-word prefetch cost before discarding (CpuEmitter, the FormalPc != PC branch), restoring the
+        // >= 1-cycle floor for every instruction — so this 1-cycle budget runs exactly one instruction here.
         long budget = 1;
         jit.Run(ref budget);
 
@@ -290,11 +296,16 @@ internal static class M68000TomHarteRunner
             var a = got[i];
             AccessWidth ew = e.SizeTag == ".b" ? AccessWidth.Byte
                            : e.SizeTag == ".w" ? AccessWidth.Word : AccessWidth.Long;
-            if (a.Address != e.Address || a.IsRead != e.IsRead || a.Width != ew || a.Value != e.Value)
+            // M4.5d-2b: the 68000 has a 24-bit address bus (A23..A0); the upper byte of a computed EA is NOT
+            // driven onto the pins, so the corpus records 24-bit addresses. The interpreter's EA math is full
+            // 32-bit (e.g. -(A6) with A6 = 0xF05F160E yields 0xF05F160C), so mask the recorded address to 24
+            // bits before the comparison — matching the bus the real chip drives.
+            uint gotAddr = a.Address & 0xFFFFFFu;
+            if (gotAddr != e.Address || a.IsRead != e.IsRead || a.Width != ew || a.Value != e.Value)
             {
                 problems.Add($"bus trace diverges at access {i + 1}: expected " +
                     $"{(e.IsRead ? "R" : "W")}{e.SizeTag} {e.Address:X6}={e.Value:X} got " +
-                    $"{(a.IsRead ? "R" : "W")} {a.Address:X6}={a.Value:X} (w {a.Width})");
+                    $"{(a.IsRead ? "R" : "W")} {gotAddr:X6}={a.Value:X} (w {a.Width})");
                 break;
             }
         }
