@@ -437,7 +437,7 @@ public sealed partial class M8086Cpu
         {
             ushort d = ReadRmWord(mod, rm, disp, over);
             if (d == 0) { HandleUndefinedOpcode(0xF7); return; }   // divide-by-zero → INT0 (defer)
-            uint dividend = (uint)((DX << 16) | AX);
+            uint dividend = ((uint)DX << 16) | AX;   // form DX:AX in uint (no signed int-promotion intermediate)
             if (!signed)
             {
                 uint quot = dividend / d;

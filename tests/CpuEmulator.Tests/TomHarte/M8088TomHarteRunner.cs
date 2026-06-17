@@ -134,16 +134,38 @@ internal static class M8088TomHarteRunner
         ushort actualAx = (ushort)cpu.GetRegister("AX");
         ushort actualDx = (ushort)cpu.GetRegister("DX");
 
+        // Every register OTHER than the quotient/remainder destinations (AX, and DX for the word form) MUST match
+        // the expected final exactly — otherwise this is NOT a clean sign-quirk but a genuine bug coinciding with a
+        // negated quotient, which the gate MUST surface (never defer). FLAGS is the one exclusion: the 8086 leaves
+        // all IDIV flags undefined (the metadata mask zeroes them), so it carries no signal here. For the byte form
+        // DX is also a non-destination register and is checked; for the word form DX holds the remainder (checked
+        // separately below). IP/CS/SS/DS/ES/SP/BP/SI/DI/BX/CX are all non-destinations in both forms.
+        bool OtherRegsMatch(bool dxIsRemainder) =>
+            (ushort)cpu.GetRegister("BX") == exp.Bx &&
+            (ushort)cpu.GetRegister("CX") == exp.Cx &&
+            (dxIsRemainder || (ushort)cpu.GetRegister("DX") == exp.Dx) &&
+            (ushort)cpu.GetRegister("CS") == exp.Cs &&
+            (ushort)cpu.GetRegister("SS") == exp.Ss &&
+            (ushort)cpu.GetRegister("DS") == exp.Ds &&
+            (ushort)cpu.GetRegister("ES") == exp.Es &&
+            (ushort)cpu.GetRegister("SP") == exp.Sp &&
+            (ushort)cpu.GetRegister("BP") == exp.Bp &&
+            (ushort)cpu.GetRegister("SI") == exp.Si &&
+            (ushort)cpu.GetRegister("DI") == exp.Di &&
+            (ushort)cpu.GetRegister("IP") == exp.Ip;
+
         if (width16)
         {
-            // Word IDIV: quotient in AX, remainder in DX. Quirk ⇒ AX == -(exp.Ax), DX == exp.Dx, AX != exp.Ax.
+            // Word IDIV: quotient in AX, remainder in DX. Quirk ⇒ AX == -(exp.Ax), DX == exp.Dx (remainder correct),
+            // AX != exp.Ax, AND every other register matches exactly.
             bool quotientNegated = actualAx != exp.Ax && actualAx == unchecked((ushort)(-exp.Ax));
-            return quotientNegated && actualDx == exp.Dx;
+            return quotientNegated && actualDx == exp.Dx && OtherRegsMatch(dxIsRemainder: true);
         }
-        // Byte IDIV: quotient in AL, remainder in AH. Quirk ⇒ AL == -(exp AL), AH == exp AH, AL != exp AL.
+        // Byte IDIV: quotient in AL, remainder in AH. Quirk ⇒ AL == -(exp AL), AH == exp AH, AL != exp AL, AND every
+        // other register (including the whole DX) matches exactly.
         byte actualAl = (byte)actualAx, actualAh = (byte)(actualAx >> 8);
         byte expAl = (byte)exp.Ax, expAh = (byte)(exp.Ax >> 8);
         bool alNegated = actualAl != expAl && actualAl == unchecked((byte)(-expAl));
-        return alNegated && actualAh == expAh;
+        return alNegated && actualAh == expAh && OtherRegsMatch(dxIsRemainder: false);
     }
 }
