@@ -29,6 +29,25 @@ internal static class TomHarteRunner
         return (_busTls, _ramTls!);
     }
 
+    // Per-worker reused JIT (lever 4). Built ONCE per worker thread bound to the pooled raw program bus (the JIT
+    // path uses the RAW space, not the TracingAddressSpace); ResetForReuse() flushes the block cache between cases
+    // so the SAME (ushort)PC recompiles from the new case's bytes (the isolation invariant). The inner Mos6502Cpu
+    // is wrapped once; SetRegister re-seeds it per case. NOTE: Mos6502Cpu.Reset() does NOT zero the cycle counter
+    // (it charges the 7-cycle reset sequence), so the reused inner's CycleCount accumulates across cases — the JIT
+    // path therefore asserts the per-case cycle DELTA (CycleCount captured after the reset, before Run) rather than
+    // the absolute, which is byte-identical to the fresh-per-case absolute assert (fresh CycleCount starts at 0).
+    [ThreadStatic] private static JittedCpu<Mos6502Cpu>? _jitTls;
+    [ThreadStatic] private static Mos6502Cpu? _jitInnerTls;
+
+    private static (JittedCpu<Mos6502Cpu> Jit, Mos6502Cpu Inner) RentJit(AddressSpace space)
+    {
+        if (_jitTls is null)
+            (_jitTls, _jitInnerTls) = JittedCpuFactory.Create(space);
+        else
+            _jitTls.ResetForReuse();   // flush cache + clear chains + reset inner — bound to the SAME pooled bus
+        return (_jitTls, _jitInnerTls!);
+    }
+
     /// <summary>
     /// Executes one vector case against a fresh CPU + full-64KiB RAM with a tracing bus.
     /// Returns null on pass, or a multi-line failure report with the disassembled instruction
@@ -105,7 +124,10 @@ internal static class TomHarteRunner
         foreach (var entry in testCase.Initial.Ram)
             space.Write8(entry.Address, entry.Value);
 
-        var inner = new Mos6502Cpu(space);
+        // Rent this worker thread's reused Tier-1 JittedCpu<Mos6502Cpu> (lever 4) bound to the SAME pooled bus.
+        // RentJit flushes the block cache + resets the inner CPU between cases (ResetForReuse) so the SAME (ushort)PC
+        // recompiles from THIS case's bytes — re-seed the registers on the rent's inner below.
+        var (jit, inner) = RentJit(space);
         inner.SetRegister("PC", testCase.Initial.Pc);
         inner.SetRegister("S", testCase.Initial.S);
         inner.SetRegister("A", testCase.Initial.A);
@@ -113,7 +135,10 @@ internal static class TomHarteRunner
         inner.SetRegister("Y", testCase.Initial.Y);
         inner.SetRegister("P", testCase.Initial.P);
 
-        var jit = new JittedCpu<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space);
+        // Capture the cycle baseline AFTER the reset/reseed: the reused inner accumulates _cycles across cases (Reset
+        // does not zero it), so we assert the per-case DELTA. For a fresh inner this baseline is 0, so the delta
+        // equals the absolute — byte-identical to the original fresh-per-case assertion.
+        long cyclesBefore = inner.CycleCount;
         long budget = testCase.Cycles.Length; // one instruction's worth of cycles
         jit.Run(ref budget);
 
@@ -132,8 +157,9 @@ internal static class TomHarteRunner
                 problems.Add($"RAM[{entry.Address:X4}]: expected {entry.Value:X2}, got {actual:X2}");
         }
 
-        if (inner.CycleCount != testCase.Cycles.Length)
-            problems.Add($"cycle count: expected {testCase.Cycles.Length}, got {inner.CycleCount}");
+        long cyclesCharged = inner.CycleCount - cyclesBefore;
+        if (cyclesCharged != testCase.Cycles.Length)
+            problems.Add($"cycle count: expected {testCase.Cycles.Length}, got {cyclesCharged}");
 
         if (problems.Count == 0)
             return null;

@@ -76,6 +76,19 @@ internal sealed class BlockCache<TCpu>(int pageCount) where TCpu : class
         Dirty.Clear();
     }
 
+    /// <summary>Evict EVERY block and reset all derived state — the per-worker REUSE reset (lever 4). After this
+    /// the cache is byte-equivalent to a freshly constructed BlockCache(pageCount): no compiled blocks, no
+    /// per-page index, no inbound chain links, no dirty marks. The next GetOrCompile recompiles from the CURRENT
+    /// bus bytes — which is the whole point: the dispatch key is (ushort)PC and the SAME PC carries different bytes
+    /// across reused cases, so a stale block would silently run the wrong case's code.</summary>
+    public void FlushAll()
+    {
+        _blocks.Clear();
+        _blocksByPage.Clear();
+        Chains.Clear();
+        Dirty.Clear();
+    }
+
     /// <summary>Remove a block from the PC map + the per-page index, and sever its chain links:
     /// drop inbound links INTO it (predecessors recompile it by PC on their next chain edge) and
     /// drop it FROM any inbound set it appears in (so a future eviction does not chase a dead ref).

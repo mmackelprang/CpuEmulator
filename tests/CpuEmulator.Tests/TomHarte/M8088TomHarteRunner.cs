@@ -1,5 +1,6 @@
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.M8086;
+using CpuEmulator.Jit;
 
 namespace CpuEmulator.Tests.TomHarte;
 
@@ -30,6 +31,21 @@ internal static class M8088TomHarteRunner
         }
         _busTls.ClearMappedBacking(_ramTls!);   // re-zero; mapping persists → identical to a fresh new byte[0x100000]
         return _busTls;
+    }
+
+    // Per-worker reused JIT (lever 4). Built ONCE per worker thread bound to the pooled bus; ResetForReuse() flushes
+    // the block cache between cases so the SAME (ushort)IP recompiles from the new case's bytes (the isolation
+    // invariant). The inner M8086Cpu is wrapped once; SetRegister re-seeds it per case.
+    [ThreadStatic] private static JittedCpu<M8086Cpu>? _jitTls;
+    [ThreadStatic] private static M8086Cpu? _jitInnerTls;
+
+    private static (JittedCpu<M8086Cpu> Jit, M8086Cpu Inner) RentJit(AddressSpace bus)
+    {
+        if (_jitTls is null)
+            (_jitTls, _jitInnerTls) = M8086JittedCpuFactory.Create(bus);
+        else
+            _jitTls.ResetForReuse();   // flush cache + clear chains + reset inner — bound to the SAME pooled bus
+        return (_jitTls, _jitInnerTls!);
     }
 
     /// <summary>
@@ -143,9 +159,10 @@ internal static class M8088TomHarteRunner
         foreach (var cell in c.Initial.Ram)
             bus.Write8(cell.Address & mask, cell.Value);
 
-        // Wrap a fresh interpreter M8086Cpu in a Tier-1 JittedCpu<M8086Cpu>. The factory builds the inner cpu we
-        // set state on AND the jit that wraps it — set the 14 registers on `cpu` (the factory's inner).
-        var (jit, cpu) = M8086JittedCpuFactory.Create(bus);
+        // Rent this worker thread's reused Tier-1 JittedCpu<M8086Cpu> (lever 4) bound to the SAME pooled bus.
+        // RentJit flushes the block cache + resets the inner CPU between cases (ResetForReuse) so the SAME (ushort)IP
+        // recompiles from THIS case's bytes — set the 14 registers on `cpu` (the rent's inner) below.
+        var (jit, cpu) = RentJit(bus);
         var ir = c.Initial.Regs;
         cpu.SetRegister("AX", ir.Ax);
         cpu.SetRegister("BX", ir.Bx);

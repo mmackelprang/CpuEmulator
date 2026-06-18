@@ -22,6 +22,12 @@ internal sealed class TracingAddressSpace(IAddressSpace inner) : IAddressSpace
 {
     public List<BusAccess> Trace { get; } = [];
 
+    /// <summary>Clear the recorded access trace — the per-worker REUSE reset (lever 4). A reused
+    /// TracingAddressSpace (e.g. the Z80 JIT path's persistent Io trace, bound ONCE into the reused inner
+    /// Z80) accumulates across cases; clearing it per case makes the trace identical to a freshly constructed
+    /// TracingAddressSpace's. Test-only helper.</summary>
+    public void ResetTrace() => Trace.Clear();
+
     public AddressSpaceKind Kind => inner.Kind;
     public int AddressBits => inner.AddressBits;
 
