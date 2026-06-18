@@ -42,6 +42,10 @@ public static class BenchHarness
         // measured ‡ row over the cited Musashi row automatically (it gates cited rows on
         // cpuHasHeadToHead — no generator change needed).
         "m68000" => [ new MusashiAdapter() ],
+        "m8086" => [],   // M6 PR-A: our-tiers-only baseline. A head-to-head 8086 C reference is the M6
+                         // plan §8 Q3 evaluation (deferred); a cited row can be added to reference-numbers.json
+                         // when chosen. [] = no third-party adapter -> the comparison "best existing" cell is
+                         // empty/cited, never a mis-matched 6502 shim.
         _ =>
         [
             new Asm6502Adapter(),

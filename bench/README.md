@@ -2,14 +2,15 @@
 
 The comparative cross-language benchmark deliverable (design spec §9 item 9). It measures
 **emulated CPU cycles per host wall-clock second** across our two tiers — the Tier-0 interpreter and
-the Tier-1 IL-JIT — for each wired CPU (**6502**, **Z80**, and **68000**), and, opt-in, third-party
+the Tier-1 IL-JIT — for each wired CPU (**6502**, **Z80**, **68000**, and **8086**), and, opt-in, third-party
 emulators of that CPU in C#, C, Python, and/or JavaScript, behind thin adapter shims that **skip-with-a-note
 when their runtime is absent**. The committed report ships with whatever ran in the generating environment
 plus instructions to populate the rest. Results are grouped per-CPU with the correct cycle-unit label
-(6502 = machine cycles; **Z80 = T-states**; **68000 = its own cycle model** — NOT cross-architecture
-comparable as raw numbers). The **68000 additionally reports guest-MIPS (instructions/sec)** — the
-cross-CPU-comparable, cycle-axis-independent metric it leads with, because its cycle/timing axis is
-**partial** on `main` (Milestone B; see the 68000 timing-axis caveat below).
+(6502 = machine cycles; **Z80 = T-states**; **68000 = its own cycle model**; **8086 = bus cycles** — NOT
+cross-architecture comparable as raw numbers). The **68000 and 8086 additionally report guest-MIPS
+(instructions/sec)** — the cross-CPU-comparable, cycle-axis-independent metric they lead with, because
+their cycle/timing axis is **partial/rudimentary** on `main` (the 68000 Milestone B; the 8086 M6 PR-A —
+M5 charges one cycle per bus access; see the timing-axis caveats below).
 
 > **Honesty first.** Our two tiers are in-process C# and always run. Third-party subjects are opt-in
 > and degrade gracefully — an absent runtime is a skip-with-note, never a crash and never a fabricated
@@ -74,12 +75,20 @@ The generated report is [`results/REPORT.md`](results/REPORT.md).
   make that explicit. Each Z80 subject (ours + the third-party refs) uses its OWN T-state model (some,
   like Z80.js, use the documented per-opcode counts rather than gate-level timing) — indicative
   cross-language, not a controlled microbench.
-- **The Z80 and 68000 Tier-1 JITs are currently ALL-FALLBACK** (no hot-op IL emit yet — the deferred M6
-  "5-3b hot-op emission" for the Z80; the merged M4.6 all-fallback model for the 68000, where every op
-  falls back to the interpreter Step). So their JIT-vs-interpreter ratio is ≈ 1.0× minus block-dispatch
-  overhead — the **honest "before"** the re-measure subtracts from, not a defect. The report states this
-  caveat automatically under the Z80 + 68000 speedup pairs. (The 6502 already commits its
+- **The Z80, 68000, and 8086 Tier-1 JITs are currently ALL-FALLBACK** (no hot-op IL emit yet — the deferred
+  M6 "5-3b hot-op emission" for the Z80; the merged M4.6 all-fallback model for the 68000; the merged M5.6
+  all-fallback model for the 8086, where every op routes through the interpreter Step via the
+  populated-but-forced-fallback descriptor table). So their JIT-vs-interpreter ratio is ≈ 1.0× minus
+  block-dispatch overhead — the **honest "before"** the re-measure subtracts from, not a defect. The report
+  states this caveat automatically under the Z80 + 68000 + 8086 speedup pairs. (The 6502 already commits its
   all-fallback-equivalent row too — capturing the "before" is the whole point of the before/after exercise.)
+- **The 8086 leads with guest-MIPS, not cycles/sec, and has no third-party reference yet.** The 8086 cycle
+  model is RUDIMENTARY on `main` (M5 charges one cycle per bus access — ReadBus/WriteBus; a cycle-exact 8086
+  timing model is post-M5), so its trustworthy headline is **instructions/sec (guest-MIPS)**,
+  data-axis-correct on the merged M5.6 TomHarte-green core. Its three workloads (8086-W1/W2/W3) are
+  dependency-free hand-written little-endian kernels that **always run** on our two tiers. A head-to-head
+  8086 C reference is the M6 plan §8 Q3 evaluation (deferred) — `AdaptersFor("m8086") => []`, so the 8086's
+  "best existing" column is empty until one is chosen.
 - **The 68000 leads with guest-MIPS, not cycles/sec.** The 68000 cycle/timing axis is partial on `main`
   (the M4.5d-2b foundation; the 2b-continuation is deferred), so `CycleCount` is exact only for the
   cycle-exact families. The 68000's trustworthy headline is therefore **instructions/sec (guest-MIPS)** —
@@ -147,6 +156,20 @@ table but never blocks it; our two tiers always run):
 m68k-W1/W2/W3 are dependency-free committed `byte[]` kernels — they **always run** on our two tiers
 regardless of whether the Musashi toolchain is present.
 
+**8086 subjects** (M6 PR-A — our two tiers only; no third-party 8086 reference is wired yet):
+
+| Subject | Lang | License | How it runs | Populate it |
+|---|---|---|---|---|
+| **our Tier-0 interpreter** | C# | — | in-process, always | — |
+| **our Tier-1 JIT** (all-fallback) | C# | — | in-process, always | — |
+| _(a head-to-head 8086 C reference)_ | — | — | not wired — the M6 plan §8 Q3 evaluation (deferred) | `AdaptersFor("m8086") => []`; a cited row can be added to `reference-numbers.json` when one is chosen. |
+
+8086-W1/W2/W3 are dependency-free committed `byte[]` kernels (little-endian, hand-written: W2 a tight
+ADD/SUB/DEC/Jcc loop, W1 a mixed MOV/ALU/PUSH-POP/CALL-RET stream, W3 a nested compute-with-store loop) —
+they **always run** on our two tiers. Every opcode byte + short-Jcc/JMP/near-CALL displacement is
+assemble-verified against the merged M5.6 `M8086Cpu` and computed programmatically from the next-IP (the
+8086 short-branch base), so the committed bytes are the frozen freeze-point for the PR-B/C/D re-measure.
+
 ### Adding a new subject
 
 Implement `IEmulatorAdapter` (see `IEmulatorAdapter.cs`): a `Name`, a side-effect-free `Probe(out
@@ -168,10 +191,12 @@ hot-op emission"). The re-measure is a CONTRACT, not a fresh design:
   `Z80Workloads.Z80W1WindowTStates`, `Z80Workloads.Z80W2CycleCap`, `Z80Workloads.Z80SieveCycleCap`,
   the Z80-W2/W3 kernel bytes, `M68000Workloads.M68000W2CycleCap`,
   `M68000Workloads.M68000W2InstructionCap`, `M68000Workloads.M68000W1InstructionCap`,
-  `M68000Workloads.M68000SieveCycleCap`, `M68000Workloads.M68000SieveInstructionCap`, and the 68000
-  W1/W2/W3 kernel bytes — MUST NOT change between the baseline commit and the M6 re-measure. Retuning a
-  window would void the comparison. A `git diff` of the workload constants between the two commits must
-  show no change.
+  `M68000Workloads.M68000SieveCycleCap`, `M68000Workloads.M68000SieveInstructionCap`, the 68000
+  W1/W2/W3 kernel bytes, `M8086Workloads.M8086W1InstructionCap`, `M8086Workloads.M8086W2CycleCap`,
+  `M8086Workloads.M8086W2InstructionCap`, `M8086Workloads.M8086W3CycleCap`,
+  `M8086Workloads.M8086W3InstructionCap`, and the 8086 W1/W2/W3 kernel bytes — MUST NOT change between
+  the baseline commit and the M6 re-measure. Retuning a window would void the comparison. A `git diff`
+  of the workload constants between the two commits must show no change.
 - **Same metric** (cycles/sec, per-CPU), **same command** (`dotnet run -c Release --project
   bench/CpuEmulator.Benchmarks.Runner -- --report --all`), **same canonical host** where feasible (the
   `## Environment` block in `results/REPORT.md` records it). If a different host is used, the **per-CPU

@@ -51,6 +51,16 @@ workloads.Add(M68000Workloads.MixedKernel());
 workloads.Add(M68000Workloads.ArithmeticKernel());
 workloads.Add(M68000Workloads.SieveKernel());   // m68k-W3 — the Sieve compute kernel; always runs
 
+// The 8086 workloads (M6 PR-A): all three are dependency-free hand-written little-endian kernels, so
+// all ALWAYS run. 8086-W2 is the tight ALU/branch kernel; 8086-W1 is the mixed-instruction stream;
+// 8086-W3 is the compute kernel. The per-workload loop below measures Tier-0 + Tier-1 for each via the
+// driver registry — so the OUR-tier 8086 rows appear automatically. The 8086 is all-fallback on `main`,
+// so Tier-1 == Tier-0 (the honest "before" the later 8086 hot-op emit subtracts from), and the baseline
+// LEADS with instructions/sec (its cycle axis is rudimentary — the ReportWriter caveat).
+workloads.Add(M8086Workloads.ArithmeticKernel());   // 8086-W2 — the hot ALU/branch kernel
+workloads.Add(M8086Workloads.MixedKernel());        // 8086-W1 — the mixed-instruction stream
+workloads.Add(M8086Workloads.SieveKernel());        // 8086-W3 — the compute kernel
+
 var tierRows = new List<BenchHarness.Row>();
 var adapterRows = new List<BenchHarness.Row>();
 

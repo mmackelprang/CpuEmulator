@@ -21,6 +21,9 @@ public class TierBenchmarks
     private BenchWorkload _m68kw1 = null!;
     private BenchWorkload _m68kw2 = null!;
     private BenchWorkload _m68ksieve = null!;
+    private BenchWorkload _8086w1 = null!;
+    private BenchWorkload _8086w2 = null!;
+    private BenchWorkload _8086w3 = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -34,6 +37,9 @@ public class TierBenchmarks
         _m68kw1 = M68000Workloads.MixedKernel();
         _m68kw2 = M68000Workloads.ArithmeticKernel();
         _m68ksieve = M68000Workloads.SieveKernel();
+        _8086w1 = M8086Workloads.MixedKernel();
+        _8086w2 = M8086Workloads.ArithmeticKernel();
+        _8086w3 = M8086Workloads.SieveKernel();
     }
 
     // W2 — the arithmetic kernel (always available; the headline emit/chaining comparison).
@@ -99,6 +105,28 @@ public class TierBenchmarks
 
     [Benchmark]
     public long Jit_M68000Mixed() => Tier1.Run(_m68kw1);
+
+    // 8086-W2 — the ALU/branch kernel (M6 PR-A; always available; the all-fallback 8086 emit/chaining
+    // comparison — the "before" baseline for the later 8086 hot-op emit, PR-B/C/D).
+    [Benchmark]
+    public long Interpreter_M8086Kernel() => Tier0.Run(_8086w2);
+
+    [Benchmark]
+    public long Jit_M8086Kernel() => Tier1.Run(_8086w2);
+
+    // 8086-W1 — the deterministic mixed stream (M6 PR-A; always available).
+    [Benchmark]
+    public long Interpreter_M8086Mixed() => Tier0.Run(_8086w1);
+
+    [Benchmark]
+    public long Jit_M8086Mixed() => Tier1.Run(_8086w1);
+
+    // 8086-W3 — the compute kernel (M6 PR-A; always available; the all-fallback path).
+    [Benchmark]
+    public long Interpreter_M8086Sieve() => Tier0.Run(_8086w3);
+
+    [Benchmark]
+    public long Jit_M8086Sieve() => Tier1.Run(_8086w3);
 
     private BenchWorkload RequireW1() =>
         _w1 ?? throw new InvalidOperationException(

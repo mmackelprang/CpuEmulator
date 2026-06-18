@@ -117,7 +117,11 @@ public static class ComparisonTableWriter
         var cpus = new List<ComparisonCpu>();
         foreach (string arch in ArchitectureOrder(allRows))
         {
-            bool timingPartial = string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase);
+            // The 68000 timing axis is PARTIAL (M4.5d-2 gating) and the 8086 timing axis is RUDIMENTARY
+            // (M5 charges one cycle per bus access; a cycle-exact 8086 model is post-M5) — both lead with
+            // instructions/sec, so both flag the partial-cycle-axis caveat.
+            bool timingPartial = string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(arch, "m8086", StringComparison.OrdinalIgnoreCase);
 
             // Does ANY head-to-head third-party subject run for this CPU at all? Cited rows are the
             // best-existing fallback ONLY when no head-to-head ref ran for the CPU (plan §M3).
@@ -144,11 +148,14 @@ public static class ComparisonTableWriter
                              r.Workload == wl && r.Result.Ran))
                 {
                     bool isTier1 = IsTier1(r.Subject);
-                    // AllFallback = (arch is z80 or m68000) AND the row is the Tier-1/JIT row. The 6502
-                    // JIT is real, so its Tier-1 row is NOT all-fallback.
+                    // AllFallback = (arch is z80, m68000, or m8086) AND the row is the Tier-1/JIT row. The
+                    // 6502 JIT is real, so its Tier-1 row is NOT all-fallback. The 8086 Tier-1 is all-fallback
+                    // in M5.6 (every op routes through inner.Step — the populated-but-forced-fallback
+                    // descriptor table; the committed "before" the M6 PR-B/C/D emit subtracts from).
                     bool allFallback = isTier1 &&
                         (string.Equals(arch, "z80", StringComparison.OrdinalIgnoreCase) ||
-                         string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase));
+                         string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(arch, "m8086", StringComparison.OrdinalIgnoreCase));
                     var n = NormalizedThroughput.From(r.Result);
                     rows.Add(new ComparisonRow(r.Subject, ComparisonRowKind.Ours, n.GuestMips, n.CyclesPerSecond, allFallback, Source: null));
                 }

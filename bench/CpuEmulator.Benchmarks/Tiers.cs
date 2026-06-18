@@ -61,6 +61,7 @@ internal static class TierRunner
             ["mos6502"] = new Mos6502TierDriver(),
             ["z80"] = new Z80TierDriver(),
             ["m68000"] = new M68000TierDriver(),   // Milestone B — the 68000 tier driver (the reserved seam)
+            ["m8086"] = new Drivers.M8086TierDriver(),   // M6 PR-A — the 8086 tier driver
         };
 
     /// <summary>Run a tier to its termination window, returning the emulated cycle count (back-compat

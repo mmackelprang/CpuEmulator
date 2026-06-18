@@ -15,6 +15,7 @@ using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
 using CpuEmulator.Core.Specification;
 using CpuEmulator.Cpus.M68000;
+using CpuEmulator.Cpus.M8086;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Cpus.Z80;
 
@@ -152,6 +153,52 @@ void Run68000(string wname, BenchWorkload w)
     Profile("68000", wname, cpu, mem, M68000Cpu.JitTarget, unitBytes: 2);
 }
 
+// ── 8086 board (20-bit little-endian, exactly the M8086TierDriver construction) ──
+// M6 PR-A: the 8086 has a REAL-mnemonic descriptor table (unlike the empty all-fallback 68000), so the
+// 6502-style direct MnemonicAt path works — but the live fetch is (CS<<4)+IP on a 20-bit bus, NOT a bare
+// 16-bit "PC", so this reads IP (not "PC"), computes the physical fetch, and uses a 20-bit fetch stream.
+// It counts mnemonics into a Dictionary exactly like Profile(...) then emits with the SAME top-15 block.
+void Run8086(string wname, BenchWorkload? w)
+{
+    if (w is null) { Line($"## 8086 — {wname}   SKIPPED (workload source absent)"); Line(); return; }
+    var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+    bus.MapMemory(0, new byte[0x100000], writable: true);
+    for (int i = 0; i < w.Image.Length; i++)
+        bus.Write8((uint)((w.LoadAddress + i) & 0xFFFFF), w.Image[i]);
+    var cpu = new M8086Cpu(bus);
+    cpu.SetRegister("CS", 0); cpu.SetRegister("DS", 0); cpu.SetRegister("SS", 0); cpu.SetRegister("ES", 0);
+    cpu.SetRegister("IP", w.StartPc); cpu.SetRegister("SP", 0xFFFE); cpu.SetRegister("FLAGS", 0x0002);
+
+    var target = M8086Cpu.JitTarget;
+    var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+    long steps = 0;
+    for (long i = 0; i < InstrCap; i++)
+    {
+        // physical fetch address = (CS<<4) + IP, masked to 20 bits
+        uint phys = (uint)((((uint)cpu.GetRegister("CS") << 4) + ((uint)cpu.GetRegister("IP") & 0xFFFF)) & 0xFFFFF);
+        string m = MnemonicAt(target, () => new ByteFetchStream20(bus, phys));
+        counts[m] = counts.TryGetValue(m, out long c) ? c + 1 : 1;
+        cpu.Step();
+        steps++;
+    }
+
+    // The SAME top-15 ranking + Line(...) formatting the other arms use (inline-copied from Profile).
+    Line($"## 8086 — {wname}   ({steps:N0} instructions profiled)");
+    long total = counts.Values.Sum();
+    int rank = 1;
+    long cumulative = 0;
+    foreach (var kv in counts.OrderByDescending(k => k.Value).Take(15))
+    {
+        double pct = 100.0 * kv.Value / total;
+        cumulative += kv.Value;
+        double cumPct = 100.0 * cumulative / total;
+        Line($"  {rank,2}. {kv.Key,-8} {kv.Value,14:N0}  {pct,6:F2}%   (cum {cumPct,6:F2}%)");
+        rank++;
+    }
+    Line($"  distinct mnemonics executed: {counts.Count}");
+    Line();
+}
+
 // ── 6502 ──
 Run6502("W1 Klaus", Workloads.KlausOrNull());
 Run6502("W2 arithmetic-kernel", Workloads.ArithmeticKernel());
@@ -165,6 +212,11 @@ RunZ80("W3 sieve-kernel", Z80Workloads.Z80SieveKernel());
 // ── 68000 ──
 Run68000("W1 mixed-kernel", M68000Workloads.MixedKernel());
 Run68000("W2 arithmetic-kernel", M68000Workloads.ArithmeticKernel());
+
+// ── 8086 (M6 PR-A) ──
+Run8086("W1 mixed-kernel", M8086Workloads.MixedKernel());
+Run8086("W2 arith-kernel", M8086Workloads.ArithmeticKernel());
+Run8086("W3 sieve-kernel", M8086Workloads.SieveKernel());
 
 File.WriteAllText("hotop-profile-results.txt", report.ToString());
 Console.Error.WriteLine("\n[profiler] wrote hotop-profile-results.txt");
@@ -180,4 +232,15 @@ sealed class ByteFetchStream(IAddressSpace bus, ushort origin) : IFetchStream
     public int UnitsConsumed => _off;
     public uint NextUnit() => bus.Read8((uint)((origin + _off++) & 0xFFFF));
     public uint PeekUnit() => bus.Read8((uint)((origin + _off) & 0xFFFF));
+}
+
+// The 8086 sibling (M6 PR-A): identical to ByteFetchStream but with a 20-bit physical origin + a 20-bit
+// wrap mask (the 8086 fetches at (CS<<4)+IP on a 1 MiB bus, not a 16-bit "PC").
+sealed class ByteFetchStream20(IAddressSpace bus, uint origin) : IFetchStream
+{
+    int _off;
+    public int UnitBytes => 1;
+    public int UnitsConsumed => _off;
+    public uint NextUnit() => bus.Read8((uint)((origin + _off++) & 0xFFFFF));
+    public uint PeekUnit() => bus.Read8((uint)((origin + _off) & 0xFFFFF));
 }

@@ -2,12 +2,12 @@
 
 The emulator ships a **comparative cross-language benchmark suite** that measures emulated CPU cycles
 per host wall-clock second across our two execution tiers — the Tier-0 interpreter and the Tier-1
-IL-JIT — for each wired CPU (**6502**, **Z80**, and **68000**), and, opt-in, third-party emulators of
-that CPU in C#, C, Python, and/or JavaScript. Results are grouped per-CPU; the 6502 unit is machine
-cycles, the **Z80 unit is "T-states"**, and the 68000 has its own cycle model (different clock models —
-NOT comparable as raw numbers; only the per-CPU ratios + the within-CPU cross-language spread are). The
-68000 additionally reports **guest-MIPS (instructions/sec)** — the cross-CPU-comparable, cycle-axis-
-independent metric it leads with (see below).
+IL-JIT — for each wired CPU (**6502**, **Z80**, **68000**, and **8086**), and, opt-in, third-party
+emulators of that CPU in C#, C, Python, and/or JavaScript. Results are grouped per-CPU; the 6502 unit is
+machine cycles, the **Z80 unit is "T-states"**, and the 68000 and 8086 have their own cycle models
+(different clock models — NOT comparable as raw numbers; only the per-CPU ratios + the within-CPU
+cross-language spread are). The **68000 and 8086 additionally report guest-MIPS (instructions/sec)** —
+the cross-CPU-comparable, cycle-axis-independent metric they lead with (see below).
 
 The full methodology, fairness rules, honesty caveats, and per-subject instructions live in
 **[`bench/README.md`](../../bench/README.md)**. The generated report is
@@ -57,6 +57,18 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
   ISA. instructions/sec is data-axis-correct on the merged M4.6 core *right now* (each step / each
   budget-1 JIT block is exactly one instruction); cycles/sec is reported alongside with a coverage
   caveat and becomes fully cycle-exact automatically when the timing axis lands (ADR 0008 §6).
+- **8086 — three workloads (M6 PR-A).** 8086-W1 is a deterministic, hand-written **mixed** kernel
+  (MOV reg,imm16, ALU reg/reg + reg/imm, INC/DEC, a `PUSH`/`POP` round-trip, a near `CALL`/`RET`, a
+  `JNZ` counted loop) — the integration-realistic stream (the 8086 has no in-repo Klaus/ZEX-equivalent
+  exerciser, so this synthetic mixed kernel is dependency-free and always runs). 8086-W2 is a tight
+  hand-written ADD/SUB/DEC + `JNZ` branch loop (the taken back-edge is the hot chain edge). 8086-W3 is a
+  nested compute-with-store loop (an arithmetic accumulate that sweeps a data region via `MOV [BX],AX`).
+  All three are little-endian, byte-granular, assemble-verified against the merged M5.6 `M8086Cpu`, and
+  run to frozen 50,000,000 caps. **The 8086 leads with guest-MIPS (instructions/sec)** because its cycle
+  model is **rudimentary** on `main` (M5 charges one cycle per bus access; a cycle-exact 8086 timing
+  model is post-M5) — instructions/sec is data-axis-correct on the M5.6 TomHarte-green core *right now*;
+  cycles/sec is reported alongside with the rudimentary-axis caveat. There is no third-party 8086
+  reference yet (the M6 plan §8 Q3 evaluation is deferred), so the 8086's "best existing" column is empty.
 - **Always-on subjects.** Per CPU, our Tier-0 interpreter (the baseline) and our Tier-1 JIT (the
   headline) are in-process C# and always run.
 - **Opt-in third-party subjects.** For the 6502: Asm6502 (C#), fake6502 (C), py65 (Python), sfotty
@@ -73,8 +85,9 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
 The per-CPU JIT-vs-interpreter comparison and the cross-language comparison table are in the generated
 report. **The honest measured finding is that the Tier-1 JIT is currently slower than the Tier-0
 interpreter** — on the 6502 (SMC-invalidation thrash on Klaus; per-instruction overhead on the tiny
-non-SMC kernel), on the Z80, and on the 68000, whose Tier-1 is **all-fallback** (every op falls back to
-the interpreter Step — no hot-op IL emit yet; a ratio ≈ 1.0× minus block-dispatch overhead is expected).
+non-SMC kernel), on the Z80, on the 68000, and on the 8086 — the latter three's Tier-1 is **all-fallback**
+(every op falls back to the interpreter Step — no hot-op IL emit yet; a ratio ≈ 1.0× minus block-dispatch
+overhead is expected; the 8086 baseline lands at ≈ 0.59–0.61× in guest-MIPS, M6 PR-A).
 This all-fallback row is the deliberately-captured **"before"**: the
 [JIT speedup re-measure (M6)](#baseline--re-measure-m6) subtracts from it. The JIT's current value is
 correctness parity, not raw throughput. See also [the JIT tier guide](jit.md) for the accuracy contract,

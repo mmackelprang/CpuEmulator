@@ -117,3 +117,35 @@
    6. MOVE             15,589    0.08%   (cum 100.00%)
   distinct mnemonics executed: 6
 
+## 8086 — W1 mixed-kernel   (20,000,000 instructions profiled)
+   1. ADD           3,000,000   15.00%   (cum  15.00%)
+   2. INC           3,000,000   15.00%   (cum  30.00%)
+   3. DEC           3,000,000   15.00%   (cum  45.00%)
+   4. MOV           1,500,000    7.50%   (cum  52.50%)
+   5. SUB           1,500,000    7.50%   (cum  60.00%)
+   6. PUSH          1,500,000    7.50%   (cum  67.50%)
+   7. POP           1,500,000    7.50%   (cum  75.00%)
+   8. CALL          1,500,000    7.50%   (cum  82.50%)
+   9. RET           1,500,000    7.50%   (cum  90.00%)
+  10. JNE           1,500,000    7.50%   (cum  97.50%)
+  11. JMP             500,000    2.50%   (cum 100.00%)
+  distinct mnemonics executed: 11
+
+## 8086 — W2 arith-kernel   (20,000,000 instructions profiled)
+   1. ADD           4,985,394   24.93%   (cum  24.93%)
+   2. SUB           4,985,394   24.93%   (cum  49.85%)
+   3. DEC           4,985,394   24.93%   (cum  74.78%)
+   4. JNE           4,985,394   24.93%   (cum  99.71%)
+   5. MOV              38,950    0.19%   (cum  99.90%)
+   6. JMP              19,474    0.10%   (cum 100.00%)
+  distinct mnemonics executed: 6
+
+## 8086 — W3 sieve-kernel   (20,000,000 instructions profiled)
+   1. INC           6,399,000   32.00%   (cum  32.00%)
+   2. MOV           3,601,783   18.01%   (cum  50.00%)
+   3. DEC           3,399,468   17.00%   (cum  67.00%)
+   4. JNE           3,399,468   17.00%   (cum  84.00%)
+   5. ADD           3,199,500   16.00%   (cum 100.00%)
+   6. JMP                 781    0.00%   (cum 100.00%)
+  distinct mnemonics executed: 6
+

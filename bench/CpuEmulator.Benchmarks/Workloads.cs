@@ -938,3 +938,226 @@ public static class M68000Workloads
             UsesCpmBdos: false);
     }
 }
+
+/// <summary>The 8086 benchmark workloads (M6 PR-A). All hand-written + dependency-free (the 8086 has no
+/// in-repo Klaus/ZEX equivalent — the M6 plan §4 8086 row was FUTURE-gated-on-M5; these ship the baseline
+/// now). Little-endian, byte-granular (NOT the 68000's big-endian opwords). Each carries a FROZEN cycle cap
+/// AND a FROZEN instruction cap; the later 8086 hot-op-emit re-measure (the §5 contract) reuses these EXACT
+/// values byte-identically — a git diff of the constants must show no change or the comparison is void.
+/// <para>All three kernels were ASSEMBLED + VERIFIED against the merged M8086Cpu interpreter: each loops
+/// the expected number of times (the instruction count climbs, no infinite-loop-guard throw), the data
+/// registers evolve sanely, the Jcc back-edges land on their loop labels, and the restart JMP lands on
+/// the start. Every short-Jcc/JMP/near-CALL displacement is computed PROGRAMMATICALLY relative to the END
+/// of the branch instruction (the next IP) — never a hardcoded hex literal — so an edit that moves a label
+/// re-derives the offset instead of silently diverging.</para></summary>
+public static class M8086Workloads
+{
+    // The flat load address: CS=0, IP=0x0100 (a low, DOS-COM-like origin; the driver seeds CS=0 so the
+    // physical fetch is (0<<4)+IP = IP). Kept under 0xFFFF so BenchWorkload's ushort StartPc holds it (A10).
+    public const ushort M8086LoadAddress = 0x0100;
+
+    // FROZEN window constants — pin AFTER the first measured run, then NEVER change (the Milestone-A rule).
+    public const long M8086W1InstructionCap = 50_000_000;   // W1 mixed-stream instruction window
+    public const long M8086W2CycleCap       = 50_000_000;   // W2 ALU/branch kernel cycle cap
+    public const long M8086W2InstructionCap = 50_000_000;   // W2 instruction window (cycle-axis-independent)
+    public const long M8086W3CycleCap       = 50_000_000;   // W3 compute kernel cycle cap
+    public const long M8086W3InstructionCap = 50_000_000;   // W3 instruction window
+
+    /// <summary>8086-W2 — a tight ADD/SUB/DEC/Jcc inner loop with a back-edge (the hot chain edge). The
+    /// loop counter drives the branch; the JMP back-edge restarts forever so the FROZEN cap terminates the
+    /// run. AX = accumulator, CX = inner counter. Assembled + verified against the merged M8086Cpu (the
+    /// loop advances, CX decrements to 0, the JNZ back-edge is taken until CX==0, the JMP restart lands on
+    /// start). The short displacements are computed from the next-IP (the 8086 short-branch base).
+    /// <code>
+    ///   0100  B8 00 00     MOV AX, 0000      ; AX = 0
+    ///   0103  B9 00 01     MOV CX, 0100      ; CX = 256 (inner counter)
+    ///  inner (0106):
+    ///   0106  05 07 00     ADD AX, 0007      ; AX += 7   (ALU + flags)
+    ///   0109  2D 03 00     SUB AX, 0003      ; AX -= 3
+    ///   010C  49           DEC CX            ; CX--
+    ///   010D  75 ..        JNZ inner         ; loop (taken back-edge — the hot chain edge)
+    ///   010F  EB ..        JMP start         ; restart forever (the cap terminates)
+    /// </code></summary>
+    public static BenchWorkload ArithmeticKernel()
+    {
+        var code = new List<byte>();
+        void Emit(params byte[] bytes) => code.AddRange(bytes);
+        // A short (signed-byte) branch: the displacement is target - (the IP AFTER this 2-byte branch).
+        void EmitShort(byte opcode, int targetOffset)
+        {
+            int nextIp = M8086LoadAddress + code.Count + 2;     // IP after the opcode+disp byte
+            sbyte disp = (sbyte)((M8086LoadAddress + targetOffset) - nextIp);
+            Emit(opcode, (byte)disp);
+        }
+
+        int start = code.Count;                  // 0x0100
+        Emit(0xB8, 0x00, 0x00);                  // MOV AX, 0000
+        Emit(0xB9, 0x00, 0x01);                  // MOV CX, 0100
+        int inner = code.Count;                  // 0x0106
+        Emit(0x05, 0x07, 0x00);                  // ADD AX, 0007
+        Emit(0x2D, 0x03, 0x00);                  // SUB AX, 0003
+        Emit(0x49);                              // DEC CX
+        EmitShort(0x75, inner);                  // JNZ inner   (disp computed from next IP)
+        EmitShort(0xEB, start);                  // JMP start   (disp computed from next IP)
+
+        return new BenchWorkload(
+            Name: "8086-W2 arith-kernel",
+            Image: code.ToArray(),
+            LoadAddress: M8086LoadAddress,
+            StartPc: M8086LoadAddress,
+            SuccessTrapPc: 0x0000,               // unused — W2 terminates by the cycle cap
+            FixedCycleCap: M8086W2CycleCap,
+            ExpectedCycles: M8086W2CycleCap,
+            Architecture: "m8086",
+            UsesCpmBdos: false);
+    }
+
+    /// <summary>8086-W1 — the deterministic MIXED-instruction stream (the integration-realistic analog of
+    /// Klaus/ZEX, the M6 plan §4 Option A). A broader spread than W2's tight hot loop: MOV reg,imm16, an
+    /// ADD reg,reg, ALU reg/imm, INC/DEC, a PUSH/POP round-trip, a near CALL/RET, a Jcc counted back-edge,
+    /// and a restart JMP. Dependency-free, so it always runs. Assembled + verified against the merged
+    /// M8086Cpu (the loop advances, the subroutine returns to the byte after the CALL, the stack round-trip
+    /// preserves AX, CX counts down to 0, the JMP restart lands on start). Every displacement (the near
+    /// CALL rel16, the short JNZ, the short JMP) is computed PROGRAMMATICALLY from the next IP.
+    /// <code>
+    ///   0100  B8 00 00     MOV AX, 0000      ; AX = 0 (accumulator)
+    ///   0103  BB 34 12     MOV BX, 1234      ; BX = 0x1234 (an ADD operand)
+    ///   0106  B9 03 00     MOV CX, 0003      ; CX = 3 (outer counter)
+    ///  outer (0109):
+    ///   0109  01 D8        ADD AX, BX        ; AX += BX   (ALU reg,reg)
+    ///   010B  05 07 00     ADD AX, 0007      ; AX += 7    (ALU reg,imm16)
+    ///   010E  2D 02 00     SUB AX, 0002      ; AX -= 2
+    ///   0111  43           INC BX            ; BX++
+    ///   0112  50           PUSH AX           ; stack round-trip (push)
+    ///   0113  58           POP AX            ;   ... and pop (AX preserved)
+    ///   0114  E8 .. ..     CALL sub          ; near call (push return, the stack path)
+    ///   0117  49           DEC CX            ; CX--
+    ///   0118  75 ..        JNZ outer         ; counted back-edge (taken while CX != 0)
+    ///   011A  EB ..        JMP start         ; restart forever (the cap terminates)
+    ///  sub (011C):
+    ///   011C  40           INC AX            ; AX++
+    ///   011D  48           DEC AX            ; AX-- (net zero; the call path is what we exercise)
+    ///   011E  C3           RET               ; return to 0x0117
+    /// </code></summary>
+    public static BenchWorkload MixedKernel()
+    {
+        var code = new List<byte>();
+        void Emit(params byte[] bytes) => code.AddRange(bytes);
+        void EmitShort(byte opcode, int targetOffset)
+        {
+            int nextIp = M8086LoadAddress + code.Count + 2;     // IP after the 2-byte short branch
+            sbyte disp = (sbyte)((M8086LoadAddress + targetOffset) - nextIp);
+            Emit(opcode, (byte)disp);
+        }
+        // A near CALL/JMP (E8/E9): a signed 16-bit displacement relative to the IP AFTER the 3-byte
+        // instruction. Patched once the target label is known.
+        int EmitNearCallPlaceholder(byte opcode) { int at = code.Count; Emit(opcode, 0x00, 0x00); return at; }
+        void PatchNear(int at, int targetOffset)
+        {
+            int nextIp = M8086LoadAddress + at + 3;             // IP after the 3-byte near instruction
+            short disp = (short)((M8086LoadAddress + targetOffset) - nextIp);
+            code[at + 1] = (byte)(disp & 0xFF);
+            code[at + 2] = (byte)((disp >> 8) & 0xFF);
+        }
+
+        int start = code.Count;                  // 0x0100
+        Emit(0xB8, 0x00, 0x00);                  // MOV AX, 0000
+        Emit(0xBB, 0x34, 0x12);                  // MOV BX, 1234
+        Emit(0xB9, 0x03, 0x00);                  // MOV CX, 0003
+        int outer = code.Count;                  // 0x0109
+        Emit(0x01, 0xD8);                        // ADD AX, BX   (01 /r, modrm D8: mod11 reg=BX rm=AX)
+        Emit(0x05, 0x07, 0x00);                  // ADD AX, 0007
+        Emit(0x2D, 0x02, 0x00);                  // SUB AX, 0002
+        Emit(0x43);                              // INC BX
+        Emit(0x50);                              // PUSH AX
+        Emit(0x58);                              // POP AX
+        int callAt = EmitNearCallPlaceholder(0xE8);   // CALL sub  (rel16 patched below)
+        Emit(0x49);                              // DEC CX
+        EmitShort(0x75, outer);                  // JNZ outer
+        EmitShort(0xEB, start);                  // JMP start
+        int sub = code.Count;                    // 0x011C
+        Emit(0x40);                              // INC AX
+        Emit(0x48);                              // DEC AX
+        Emit(0xC3);                              // RET
+        PatchNear(callAt, sub);
+
+        return new BenchWorkload(
+            Name: "8086-W1 mixed-kernel",
+            Image: code.ToArray(),
+            LoadAddress: M8086LoadAddress,
+            StartPc: M8086LoadAddress,
+            SuccessTrapPc: 0x0000,               // unused — W1 terminates by the (instruction-bounded) cycle cap
+            FixedCycleCap: M8086W2CycleCap,      // the TierRunner drives by a cycle cap; the instruction cap
+            ExpectedCycles: M8086W2CycleCap,     // (M8086W1InstructionCap) is the frozen instructions/sec window
+            Architecture: "m8086",
+            UsesCpmBdos: false);
+    }
+
+    /// <summary>8086-W3 — the compute kernel (a SMC-free nested-loop arithmetic compute with a per-inner
+    /// memory store — the compute workload where emit coverage pays off first, mirroring the 6502/Z80/68000
+    /// W3). A doubly-nested loop: the outer counter (CX) drives the inner counter (DX); each inner iteration
+    /// adds to the accumulator (AX) and stores it through a register pointer (BX) into a data region at
+    /// 0x2000 (clear of the code at 0x0100 and the stack near 0xFFFE), exercising the memory-write path the
+    /// bus models. Restarts forever via a JMP so the FROZEN cap terminates the run. Assembled + verified
+    /// against the merged M8086Cpu (both loops count down and re-seed, the store lands in the data region,
+    /// the back-edges + restart land on their labels). Displacements computed PROGRAMMATICALLY from the
+    /// next IP.
+    /// <code>
+    ///   0100  B8 00 00     MOV AX, 0000      ; AX = 0 (accumulator)
+    ///   0103  BB 00 20     MOV BX, 2000      ; BX = data pointer (0x2000)
+    ///   0106  B9 00 01     MOV CX, 0100      ; CX = 256 (outer counter)
+    ///  outer (0109):
+    ///   0109  BA 10 00     MOV DX, 0010      ; DX = 16 (inner counter, re-seeded each outer pass)
+    ///  inner (010C):
+    ///   010C  05 03 00     ADD AX, 0003      ; AX += 3   (ALU + flags)
+    ///   010F  89 07        MOV [BX], AX      ; store AX -> [BX] (the memory-write path; sweeps the array)
+    ///   0111  43           INC BX            ; advance the word pointer ...
+    ///   0112  43           INC BX            ;   ... by 2 (a word stride)
+    ///   0113  4A           DEC DX            ; DX--
+    ///   0114  75 ..        JNZ inner         ; inner back-edge (taken while DX != 0)
+    ///   0116  BB 00 20     MOV BX, 2000      ; re-seed the data pointer for the next outer pass
+    ///   0119  49           DEC CX            ; CX--
+    ///   011A  75 ..        JNZ outer         ; outer back-edge (taken while CX != 0)
+    ///   011C  EB ..        JMP start         ; restart forever (the cap terminates)
+    /// </code></summary>
+    public static BenchWorkload SieveKernel()
+    {
+        var code = new List<byte>();
+        void Emit(params byte[] bytes) => code.AddRange(bytes);
+        void EmitShort(byte opcode, int targetOffset)
+        {
+            int nextIp = M8086LoadAddress + code.Count + 2;     // IP after the 2-byte short branch
+            sbyte disp = (sbyte)((M8086LoadAddress + targetOffset) - nextIp);
+            Emit(opcode, (byte)disp);
+        }
+
+        int start = code.Count;                  // 0x0100
+        Emit(0xB8, 0x00, 0x00);                  // MOV AX, 0000
+        Emit(0xBB, 0x00, 0x20);                  // MOV BX, 2000  (data pointer)
+        Emit(0xB9, 0x00, 0x01);                  // MOV CX, 0100  (outer counter)
+        int outer = code.Count;                  // 0x0109
+        Emit(0xBA, 0x10, 0x00);                  // MOV DX, 0010  (inner counter)
+        int inner = code.Count;                  // 0x010C
+        Emit(0x05, 0x03, 0x00);                  // ADD AX, 0003
+        Emit(0x89, 0x07);                        // MOV [BX], AX  (89 /r, modrm 07: mod00 reg=AX rm=[BX])
+        Emit(0x43);                              // INC BX
+        Emit(0x43);                              // INC BX  (word stride: the store sweeps the array)
+        Emit(0x4A);                              // DEC DX
+        EmitShort(0x75, inner);                  // JNZ inner
+        Emit(0xBB, 0x00, 0x20);                  // MOV BX, 2000  (re-seed the pointer each outer pass)
+        Emit(0x49);                              // DEC CX
+        EmitShort(0x75, outer);                  // JNZ outer
+        EmitShort(0xEB, start);                  // JMP start
+
+        return new BenchWorkload(
+            Name: "8086-W3 sieve-kernel",
+            Image: code.ToArray(),
+            LoadAddress: M8086LoadAddress,
+            StartPc: M8086LoadAddress,
+            SuccessTrapPc: 0x0000,               // unused — W3 terminates by the cycle cap
+            FixedCycleCap: M8086W3CycleCap,
+            ExpectedCycles: M8086W3CycleCap,
+            Architecture: "m8086",
+            UsesCpmBdos: false);
+    }
+}

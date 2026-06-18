@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Cpus.M68000\CpuEmulator.Cpus.M68000.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.M8086\CpuEmulator.Cpus.M8086.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Jit\CpuEmulator.Jit.csproj" />
   </ItemGroup>
 
