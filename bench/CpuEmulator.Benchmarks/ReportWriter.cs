@@ -72,6 +72,12 @@ public static class ReportWriter
             // automatically when the timing axis lands (ADR 0008 §6).
             if (string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase))
                 AppendM68000TimingCaveat(sb);
+
+            // The 8086 timing-axis caveat (A3, mirroring the 68000): instructions/sec is the trustworthy
+            // headline NOW; cycles/sec is reported for completeness with the rudimentary-cycle-model caveat
+            // and becomes cycle-exact automatically if/when a cycle-exact 8086 timing model lands.
+            if (string.Equals(arch, "m8086", StringComparison.OrdinalIgnoreCase))
+                AppendM8086TimingCaveat(sb);
         }
 
         // ── Relative speedup of our two tiers (the JIT-vs-interpreter headline), grouped by CPU ─────
@@ -212,6 +218,19 @@ public static class ReportWriter
         sb.AppendLine();
     }
 
+    /// <summary>The 8086 timing-axis caveat (A3) — emitted automatically under the 8086 section, mirroring
+    /// the 68000 caveat. The 8086's trustworthy headline is instructions/sec; cycles/sec is reported for
+    /// completeness with the rudimentary-cycle-model caveat.</summary>
+    private static void AppendM8086TimingCaveat(StringBuilder sb)
+    {
+        sb.AppendLine("> _8086 cycles/sec is reported for completeness but the cycle/timing axis is");
+        sb.AppendLine("> RUDIMENTARY on `main` (M5 charges one cycle per bus access; a cycle-exact 8086");
+        sb.AppendLine("> timing model is post-M5). The 8086 baseline's trustworthy headline is");
+        sb.AppendLine("> **instructions/sec** (data-axis-correct on the M5.6 TomHarte-green core). The");
+        sb.AppendLine("> re-measure picks up a cycle-exact model automatically if/when it lands._");
+        sb.AppendLine();
+    }
+
     private static void AppendTierSpeedup(StringBuilder sb, IReadOnlyList<BenchHarness.Row> tierRows)
     {
         // Pair our interpreter + JIT rows per workload and report the JIT/interpreter ratio — grouped
@@ -272,6 +291,13 @@ public static class ReportWriter
                     "overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. " +
                     "The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._");
             }
+            else if (string.Equals(arch, "m8086", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine("- _8086 Tier-1 is ALL-FALLBACK (the merged M5.6 model — every op falls back " +
+                    "to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch " +
+                    "overhead is EXPECTED and is the committed 'before' for the later 8086 JIT-emit re-measure " +
+                    "(PR-B/C/D). The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._");
+            }
             sb.AppendLine();
         }
     }
@@ -307,7 +333,7 @@ public static class ReportWriter
     private static IEnumerable<string> ArchitectureOrder(IEnumerable<BenchHarness.Row> rows)
     {
         var present = rows.Select(r => r.Architecture).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        int Rank(string a) => a.ToLowerInvariant() switch { "mos6502" => 0, "z80" => 1, "m68000" => 2, _ => 3 };
+        int Rank(string a) => a.ToLowerInvariant() switch { "mos6502" => 0, "z80" => 1, "m68000" => 2, "m8086" => 3, _ => 4 };
         return present.OrderBy(Rank).ThenBy(a => a, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -317,6 +343,7 @@ public static class ReportWriter
         "mos6502" => "6502",
         "z80" => "Z80",
         "m68000" => "68000",
+        "m8086" => "8086",
         _ => arch,
     };
 

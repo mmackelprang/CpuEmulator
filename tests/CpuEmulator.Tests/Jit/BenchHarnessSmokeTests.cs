@@ -185,6 +185,65 @@ public class BenchHarnessSmokeTests
     }
 
     [Fact]
+    public void The_two_8086_tiers_run_and_agree_on_the_W2_cycle_count()
+    {
+        // M6 PR-A — the 8086 W2 (ALU/branch) kernel on BOTH our tiers: a wiring smoke (Ran==true + the
+        // two tiers agree on the cycle count), NOT a throughput assertion (D5). Both tiers are
+        // dependency-free hand-written kernels (no external exerciser), so this ALWAYS runs. A TINY bounded
+        // window keeps the routine suite fast (the committed 50M-cycle window is the runner's job). The
+        // 8086 is all-fallback (M5.6), so Tier-1 reaches the same cycle count as Tier-0 (bounded by the
+        // one-instruction overshoot at the cap boundary, identical for both).
+        var w = M8086Workloads.ArithmeticKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+        long t0 = Tier0.Run(w);
+        long t1 = Tier1.Run(w);
+        Assert.True(t0 >= 2_000_000);
+        Assert.Equal(t0, t1);                                  // tier-0 == tier-1 (all-fallback parity)
+        var r0 = BenchHarness.MeasureTier("our Tier-0 interpreter", Tier0.Run, w);
+        var r1 = BenchHarness.MeasureTier("our Tier-1 JIT", Tier1.Run, w);
+        Assert.True(r0.Ran && r0.CyclesPerSecond > 0);
+        Assert.True(r1.Ran && r1.CyclesPerSecond > 0);
+    }
+
+    [Fact]
+    public void The_two_8086_tiers_compose_on_the_W1_mixed_kernel_and_report_instructions_per_second()
+    {
+        // M6 PR-A — the 8086 W1 (deterministic mixed stream) on BOTH our tiers: it composes (Ran==true)
+        // AND the cycle-axis-independent instructions/sec metric (Task B2) is reported non-zero. The 8086
+        // driver attributes a per-instruction count (it advances by a budget-1 Run / Step) — its
+        // trustworthy headline (the cycle axis is rudimentary on `main`).
+        var w1 = M8086Workloads.MixedKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+
+        var t0 = BenchHarness.MeasureTierCounted("m8086 interpreter", Tier0.RunCounted, w1);
+        var t1 = BenchHarness.MeasureTierCounted("m8086 jit", Tier1.RunCounted, w1);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"8086-W1 Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"8086-W1 Tier-1 row: {t1}");
+        // The B2 seam: the 8086 reports a non-zero guest instructions/sec (the cycle-axis-independent
+        // headline). This is what the 6502/Z80 leave 0 ("not reported").
+        Assert.True(t0.InstructionsPerSecond > 0, $"8086-W1 Tier-0 should report instructions/sec: {t0}");
+        Assert.True(t1.InstructionsPerSecond > 0, $"8086-W1 Tier-1 should report instructions/sec: {t1}");
+    }
+
+    [Fact]
+    public void The_two_8086_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
+    {
+        // 8086-W3 — the 8086 compute kernel on BOTH our tiers: a wiring smoke (Ran==true + the two tiers
+        // agree on the cycle count), NOT a throughput assertion. Both tiers run the all-fallback path
+        // (M5.6), so they reach the same cycle count on a TINY bounded window (the committed 50M-cycle
+        // window is the runner's job).
+        var sieve = M8086Workloads.SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
+
+        long interpCycles = Tier0.Run(sieve);
+        long jitCycles = Tier1.Run(sieve);
+        Assert.True(interpCycles >= sieve.FixedCycleCap, $"8086 Sieve interpreter ran {interpCycles}, expected >= the cap");
+        Assert.Equal(interpCycles, jitCycles);
+
+        var t0 = BenchHarness.MeasureTier("m8086 interpreter", Tier0.Run, sieve);
+        var t1 = BenchHarness.MeasureTier("m8086 jit", Tier1.Run, sieve);
+        Assert.True(t0.Ran && t0.CyclesPerSecond > 0, $"8086 Sieve Tier-0 row: {t0}");
+        Assert.True(t1.Ran && t1.CyclesPerSecond > 0, $"8086 Sieve Tier-1 row: {t1}");
+    }
+
+    [Fact]
     public void An_absent_adapter_is_skipped_with_a_note()
     {
         var w2 = Workloads.ArithmeticKernel();

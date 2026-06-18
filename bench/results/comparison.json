@@ -426,6 +426,82 @@
           "tier1VsBest": 0.11053932498181822
         }
       ]
+    },
+    {
+      "cpu": "m8086",
+      "cycleUnit": "cycles",
+      "timingAxisPartial": true,
+      "workloads": [
+        {
+          "workload": "8086-W2 arith-kernel",
+          "rows": [
+            {
+              "subject": "our Tier-0 interpreter",
+              "kind": "ours",
+              "guestMips": 34.33365353044367,
+              "cyclesPerSecond": 77292511.34499483,
+              "allFallback": false,
+              "source": null
+            },
+            {
+              "subject": "our Tier-1 JIT (chaining on)",
+              "kind": "ours",
+              "guestMips": 20.1156781094011,
+              "cyclesPerSecond": 45284760.53690337,
+              "allFallback": true,
+              "source": null
+            }
+          ],
+          "bestExisting": null,
+          "tier1VsBest": null
+        },
+        {
+          "workload": "8086-W1 mixed-kernel",
+          "rows": [
+            {
+              "subject": "our Tier-0 interpreter",
+              "kind": "ours",
+              "guestMips": 35.13617278226674,
+              "cyclesPerSecond": 83448412.02685168,
+              "allFallback": false,
+              "source": null
+            },
+            {
+              "subject": "our Tier-1 JIT (chaining on)",
+              "kind": "ours",
+              "guestMips": 20.848888323745033,
+              "cyclesPerSecond": 49516110.75921664,
+              "allFallback": true,
+              "source": null
+            }
+          ],
+          "bestExisting": null,
+          "tier1VsBest": null
+        },
+        {
+          "workload": "8086-W3 sieve-kernel",
+          "rows": [
+            {
+              "subject": "our Tier-0 interpreter",
+              "kind": "ours",
+              "guestMips": 34.13323661820344,
+              "cyclesPerSecond": 68611759.1491374,
+              "allFallback": false,
+              "source": null
+            },
+            {
+              "subject": "our Tier-1 JIT (chaining on)",
+              "kind": "ours",
+              "guestMips": 20.797252583019272,
+              "cyclesPerSecond": 41804886.57289831,
+              "allFallback": true,
+              "source": null
+            }
+          ],
+          "bestExisting": null,
+          "tier1VsBest": null
+        }
+      ]
     }
   ]
 }

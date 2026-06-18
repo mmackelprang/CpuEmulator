@@ -90,6 +90,26 @@
 > cycle-exact 68000 cycles/sec gates on the M4.5d-2 timing axis (ADR 0008 §6); the
 > re-measure picks it up automatically when it lands._
 
+### 8086 — cycles/host-second
+
+| Subject | Workload | guest-MIPS | cycles/sec | wall (s) | note |
+|---|---|---:|---:|---:|---|
+| our Tier-0 interpreter | 8086-W2 arith-kernel | 34.3 | 77,292,511 | 0.647 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | 8086-W2 arith-kernel | 20.1 | 45,284,761 | 1.104 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | 8086-W1 mixed-kernel | 35.1 | 83,448,412 | 0.599 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | 8086-W1 mixed-kernel | 20.8 | 49,516,111 | 1.010 | our Tier-1 JIT (chaining on) |
+| our Tier-0 interpreter | 8086-W3 sieve-kernel | 34.1 | 68,611,759 | 0.729 | our Tier-0 interpreter |
+| our Tier-1 JIT (chaining on) | 8086-W3 sieve-kernel | 20.8 | 41,804,887 | 1.196 | our Tier-1 JIT (chaining on) |
+
+> _8086 cycles/sec is reported for completeness but the cycle/timing axis is
+> RUDIMENTARY on `main` (M5 charges one cycle per bus access; a cycle-exact 8086
+> timing model is post-M5). The 8086 baseline's trustworthy headline is
+> **instructions/sec** (data-axis-correct on the M5.6 TomHarte-green core). The
+> re-measure picks up a cycle-exact model automatically if/when it lands. The 8086
+> rows here were captured 2026-06-18 (M6 PR-A) on the same CONTENDED host as the W3 +
+> 68000 rows, so the absolute throughput is INDICATIVE; the per-CPU before/after RATIO
+> + the frozen-constant re-measure contract are what carry forward._
+
 ## Our two tiers — JIT vs interpreter speedup
 
 ### 6502
@@ -111,6 +131,13 @@
 - **m68k-W2 arithmetic-kernel**: JIT is 0.75x the interpreter (9.9 vs 13.2 guest-MIPS).
 - **m68k-W3 sieve-kernel**: JIT is 0.74x the interpreter (9.6 vs 12.9 guest-MIPS).
 - _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
+
+### 8086
+
+- **8086-W2 arith-kernel**: JIT is 0.59x the interpreter (20.1 vs 34.3 guest-MIPS). _(indicative — contended host)_
+- **8086-W1 mixed-kernel**: JIT is 0.59x the interpreter (20.8 vs 35.1 guest-MIPS). _(indicative — contended host)_
+- **8086-W3 sieve-kernel**: JIT is 0.61x the interpreter (20.8 vs 34.1 guest-MIPS). _(indicative — contended host)_
+- _8086 Tier-1 is ALL-FALLBACK (the merged M5.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 8086 JIT-emit re-measure (PR-B/C/D). The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
 
 ## Comparison — our emulator vs the best existing
 
@@ -153,6 +180,21 @@
 > PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**.
 > The best-existing column is the **head-to-head Musashi** reference, measured here on the
 > same workload bytes + host (plan Task M4a)._
+
+### 8086 — guest-MIPS (cross-CPU-comparable); cycles/sec in its own model
+
+| Workload | Best existing | our Tier-0 (interp) | our Tier-1 (JIT) | Tier-1 vs best |
+|---|---|---|---|---|
+| 8086-W2 arith-kernel _(indicative)_ | — | 34.3 MIPS | 20.1 MIPS † | — |
+| 8086-W1 mixed-kernel _(indicative)_ | — | 35.1 MIPS | 20.8 MIPS † | — |
+| 8086-W3 sieve-kernel _(indicative)_ | — | 34.1 MIPS | 20.8 MIPS † | — |
+
+† = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the PR-B/C/D re-measure.
+
+> _8086 has no third-party reference adapter yet (a head-to-head 8086 C reference is the
+> M6 plan §8 Q3 evaluation, deferred — `AdaptersFor("m8086") => []`), so the "best existing"
+> column is empty. cycles/sec is reported with the RUDIMENTARY-timing-axis caveat (M5 charges
+> one cycle per bus access); the trustworthy cross-CPU headline is **guest-MIPS**._
 
 ## Reading the numbers
 
