@@ -36,4 +36,8 @@ internal sealed class ChainTable<TCpu> where TCpu : class
         foreach (var set in _inbound.Values)
             set.Remove(predecessor);
     }
+
+    /// <summary>Drop ALL inbound links — the per-worker REUSE reset (lever 4). After this the chain table is
+    /// empty, as if freshly constructed; the next run rebuilds links by PC on its chain edges.</summary>
+    public void Clear() => _inbound.Clear();
 }

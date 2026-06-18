@@ -90,6 +90,22 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
     public long CycleCount => _inner.CycleCount;
     public void Reset() => _inner.Reset();
 
+    /// <summary>Reset this JittedCpu for REUSE on a new test case bound to the SAME (re-zeroed, re-installed) bus
+    /// — the per-worker reuse seam (lever 4). Flushes the block cache (so the SAME PC recompiles from the new
+    /// case's bytes — the block-cache-isolation invariant), clears the per-run chain-walk state, and resets the
+    /// inner CPU. Fastmem is NOT rebuilt: the pooled bus (PR-T2) re-zeroes the SAME backing array in place, so
+    /// Fastmem's PageBacking[] snapshot still points at the live backing — only its CONTENTS changed, which the
+    /// emitted code reads at run time. (If a future pooled bus REMAPS to a different backing array, also rebuild
+    /// Fastmem here; today it does not.)</summary>
+    public void ResetForReuse()
+    {
+        _cache.FlushAll();
+        _chainPredecessor = null;
+        _chainNext = null;
+        _chainDispatch = null;
+        _inner.Reset();
+    }
+
     /// <summary>One instruction — ALWAYS the interpreter (recorded: Step is the monitor +
     /// harness primitive; per-instruction fidelity is the interpreter's job).</summary>
     public void Step() => _inner.Step();
