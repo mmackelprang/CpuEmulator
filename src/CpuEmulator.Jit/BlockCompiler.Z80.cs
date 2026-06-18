@@ -68,20 +68,24 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 
             // LD r,(HL) / LD A,(BC) / LD A,(DE)  (RegisterIndirect, Load) — 7 T (fetch 1 + read 1 + 5).
             // The (HL) forms set NO WZ; the accumulator forms set WZ = pair + 1 (oracle Op0A/Op1A).
+            // Oracle ORDERING (review H1): data = ReadBus(pair); WZ = pair + 1; reg = data — the bus read
+            // precedes the WZ write. The final state is identical either way (WZ is an internal register no
+            // bus access can observe mid-instruction), but emit read -> WZ -> store to mirror the oracle
+            // one-for-one (the plan's stated discipline).
             case (JitMode.RegisterIndirect, "Load"):
             {
                 string pair = Z80IndirectPair(d);
-                if (pair != "HL")                            // WZ = (ushort)(pair + 1)
+                EmitLoadReg16(ctx, pair);                    // address (int) on stack
+                il.Emit(OpCodes.Conv_U4);
+                LoadByteFromBus(ctx);                        // data; charges 1 (clobbers EaLocal)
+                il.Emit(OpCodes.Stloc, ctx.DataLocal);
+                if (pair != "HL")                            // WZ = (ushort)(pair + 1), AFTER the read
                 {
                     EmitLoadReg16(ctx, pair);
                     il.Emit(OpCodes.Ldc_I4_1);
                     il.Emit(OpCodes.Add);
                     EmitZ80SetWZ(ctx);
                 }
-                EmitLoadReg16(ctx, pair);                    // address (int) on stack
-                il.Emit(OpCodes.Conv_U4);
-                LoadByteFromBus(ctx);                        // data; charges 1
-                il.Emit(OpCodes.Stloc, ctx.DataLocal);
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal);
                 il.Emit(OpCodes.Conv_U1);
@@ -149,13 +153,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 
             // LD A,(nn)  (ExtendedAddress, Load A) — 13 T (fetch 1 + 2 addr reads + 1 data read + residual 9).
             // WZ = ea + 1 (oracle Op3A). EA survives in ctx.AddrLocal (the bus helpers clobber EaLocal).
+            // Oracle ORDERING (review H1): data = ReadBus(ea); WZ = ea + 1; A = data — read precedes the WZ
+            // write; emit read -> WZ -> store to mirror the oracle (final state is identical regardless).
             case (JitMode.ExtendedAddress, "Load"):
                 EmitZ80ReadAbsEa(ctx);                       // ea (int) -> ctx.AddrLocal; charges 2 (lo+hi)
-                il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Add);
-                EmitZ80SetWZ(ctx);                           // WZ = ea + 1
                 il.Emit(OpCodes.Ldloc, ctx.AddrLocal);       // (already uint)
-                LoadByteFromBus(ctx);                        // data; charges 1
+                LoadByteFromBus(ctx);                        // data; charges 1 (clobbers EaLocal, not AddrLocal)
                 il.Emit(OpCodes.Stloc, ctx.DataLocal);
+                il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Add);
+                EmitZ80SetWZ(ctx);                           // WZ = ea + 1, AFTER the data read
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Conv_U1);
                 il.Emit(OpCodes.Stfld, RegField("A"));       // A = (nn)
