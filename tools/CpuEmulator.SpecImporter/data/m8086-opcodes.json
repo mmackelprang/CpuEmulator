@@ -1808,6 +1808,18 @@
       "source": "CALL rel16 near"
     },
     {
+      "opcode": "0x9A",
+      "mnemonic": "CALL",
+      "immediate": "Fixed32",
+      "source": "CALL ptr16:16 far (direct)"
+    },
+    {
+      "opcode": "0xEA",
+      "mnemonic": "JMP",
+      "immediate": "Fixed32",
+      "source": "JMP ptr16:16 far (direct)"
+    },
+    {
       "opcode": "0xC2",
       "mnemonic": "RET",
       "immediate": "Fixed16",
