@@ -14,6 +14,24 @@ namespace CpuEmulator.Tests.TomHarte;
 /// </summary>
 internal static class M8088TomHarteRunner
 {
+    // Per-worker reusable 1 MiB 20-bit little-endian program bus (lever 2). 1 MB/case × ~millions of cases is the
+    // single largest per-case allocation in the suite; pooling collapses it. RunCase is synchronous → [ThreadStatic]
+    // is reentrancy-safe.
+    [ThreadStatic] private static AddressSpace? _busTls;
+    [ThreadStatic] private static byte[]? _ramTls;
+
+    private static AddressSpace RentBus()
+    {
+        if (_busTls is null)
+        {
+            _ramTls = new byte[0x100000];
+            _busTls = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+            _busTls.MapMemory(0, _ramTls, writable: true);
+        }
+        _busTls.ClearMappedBacking(_ramTls!);   // re-zero; mapping persists → identical to a fresh new byte[0x100000]
+        return _busTls;
+    }
+
     /// <summary>
     /// Build a fresh 20-bit little-endian bus, install <c>initial.ram</c>, construct an <see cref="M8086Cpu"/>,
     /// set the full 14-register initial state, Step once, then diff registers + RAM against the merged final.
@@ -34,8 +52,7 @@ internal static class M8088TomHarteRunner
         // and returns open-bus (0xFF) on a read there, so without the backing the initial-RAM install would be a
         // no-op and the instruction fetch would read garbage. (The M5.4 scaffold never Stepped, so it never
         // needed the backing; M5.5a does.)
-        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
-        bus.MapMemory(0, new byte[0x100000], writable: true);
+        var bus = RentBus();
         uint mask = bus.AddressMask;
         foreach (var cell in c.Initial.Ram)
             bus.Write8(cell.Address & mask, cell.Value);
@@ -121,8 +138,7 @@ internal static class M8088TomHarteRunner
     public static string? RunCaseThroughJit(M8088TomHarteCase c, M8088Metadata metadata, string opcodeHex, int? regField = null)
     {
         // Build the bus EXACTLY as RunCase: 20-bit little-endian, 1 MB writable RAM, install initial.ram.
-        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
-        bus.MapMemory(0, new byte[0x100000], writable: true);
+        var bus = RentBus();
         uint mask = bus.AddressMask;
         foreach (var cell in c.Initial.Ram)
             bus.Write8(cell.Address & mask, cell.Value);
@@ -205,8 +221,7 @@ internal static class M8088TomHarteRunner
     /// </summary>
     public static bool IsIdivSignQuirk(M8088TomHarteCase c, bool width16)
     {
-        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
-        bus.MapMemory(0, new byte[0x100000], writable: true);
+        var bus = RentBus();
         uint mask = bus.AddressMask;
         foreach (var cell in c.Initial.Ram)
             bus.Write8(cell.Address & mask, cell.Value);
@@ -289,8 +304,7 @@ internal static class M8088TomHarteRunner
         if (!(exp.Cs == 0 && exp.Ip == 1024))
             return false;
 
-        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
-        bus.MapMemory(0, new byte[0x100000], writable: true);
+        var bus = RentBus();
         uint mask = bus.AddressMask;
         foreach (var cell in c.Initial.Ram)
             bus.Write8(cell.Address & mask, cell.Value);
