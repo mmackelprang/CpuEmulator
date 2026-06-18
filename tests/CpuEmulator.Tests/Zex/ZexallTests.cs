@@ -7,7 +7,10 @@ namespace CpuEmulator.Tests.Zex;
 /// M3.5-2 — the ZEXDOC/ZEXALL integration gate: the composition proof for the Z80 interpreter. TomHarte
 /// proved each instruction is right per-T-state; ZEX proves they compose right (flag-after-flag,
 /// sequencing — the cases the single-step vectors structurally cannot reach). ZEXALL (all flags incl.
-/// the undocumented X/Y) is the strict gate; ZEXDOC (documented flags) is the faster pre-check.
+/// the undocumented X/Y) is the AUTHORITATIVE full gate (Zexall_all_subtests_pass). ZEXDOC ⊂ ZEXALL, so a
+/// FULL ZEXDOC pass is redundant with it (lever 6): ZEXDOC is now a BOUNDED fail-fast TRIAGE pre-check
+/// (Zexdoc_triage_precheck) — it clears init + the first sub-tests to surface any ERROR cheaply, NOT the full
+/// multi-billion-T-state pass.
 ///
 /// Staged: the wiring-smoke fact runs on every CI invocation (seconds — proves the harness composes the
 /// real binary). The FULL runs (minutes — billions of T-states) are skip-gated to CPUEMULATOR_ZEX=full,
@@ -56,15 +59,25 @@ public class ZexallTests(ITestOutputHelper output)
         Assert.Contains("...", transcript, StringComparison.Ordinal);
     }
 
+    // Triage budget: enough to clear ZEX init and run the first several sub-tests to an OK/ERROR verdict (a few
+    // billion T-states), NOT the full ~46.7e9-T-state pass. ZEXALL (the strict superset) is the authoritative
+    // full gate (Zexall_all_subtests_pass); ZEXDOC-full is redundant with it, so ZEXDOC is the fast triage signal.
+    private const long ZexdocTriageBudget = 5_000_000_000;
+
     [ZexFact("zexdoc.com")]
-    public void Zexdoc_all_subtests_pass()
+    public void Zexdoc_triage_precheck()
     {
         if (!FullEnabled)
         {
-            output.WriteLine("skipped — set CPUEMULATOR_ZEX=full to enable the full ZEXDOC run.");
+            output.WriteLine("skipped — set CPUEMULATOR_ZEX=full to enable the ZEXDOC triage pre-check.");
             return;
         }
-        RunFull("zexdoc.com");
+        string path = ZexVectors.TryGetBinaryPath("zexdoc.com")!;
+        var host = new CpmBdosHost(File.ReadAllBytes(path));
+        string transcript = host.Run(ZexdocTriageBudget);
+        output.WriteLine(transcript);
+        // Triage gate: any ERROR in the cleared sub-tests fails fast (cheaper than waiting for the full ZEXALL).
+        AssertNoError(transcript);
     }
 
     [ZexFact("zexall.com")]

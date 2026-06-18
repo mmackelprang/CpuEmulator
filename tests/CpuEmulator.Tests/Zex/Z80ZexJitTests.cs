@@ -54,15 +54,27 @@ public class Z80ZexJitTests(ITestOutputHelper output)
         Assert.True(host.Terminated, "the program should reach warm boot (PC == 0x0000) through the JIT");
     }
 
+    // Triage budget: enough to clear ZEX init and run the first several sub-tests to an OK/ERROR verdict (a few
+    // billion T-states), NOT the full ~46.7e9-T-state pass. ZEXALL-through-JIT (the strict superset) is the
+    // authoritative composition gate (Zexall_passes_through_the_JIT); ZEXDOC-JIT-full is redundant with it, so
+    // ZEXDOC-JIT is the fast triage signal.
+    private const long ZexdocTriageBudget = 5_000_000_000;
+
     [ZexFact("zexdoc.com")]
-    public void Zexdoc_passes_through_the_JIT()
+    public void Zexdoc_triage_precheck_through_the_JIT()
     {
         if (!FullEnabled)
         {
-            output.WriteLine("skipped — set CPUEMULATOR_ZEX=full to enable the full ZEXDOC-through-JIT run.");
+            output.WriteLine("skipped — set CPUEMULATOR_ZEX=full to enable the ZEXDOC-through-JIT triage pre-check.");
             return;
         }
-        RunFullThroughJit("zexdoc.com");
+        string path = ZexVectors.TryGetBinaryPath("zexdoc.com")!;
+        var host = new CpmBdosHost(File.ReadAllBytes(path), useJit: true);
+        string transcript = host.Run(ZexdocTriageBudget);
+        output.WriteLine(transcript);
+        // Triage gate: any ERROR in the cleared sub-tests fails fast (cheaper than waiting for the full ZEXALL).
+        if (transcript.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
+            Assert.Fail("ZEX reported a failing sub-test through the JIT (tier-parity bug):\n" + transcript);
     }
 
     [ZexFact("zexall.com")]

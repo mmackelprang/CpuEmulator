@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -19,18 +18,25 @@ namespace CpuEmulator.Tests.TomHarte;
 /// sweeps exclude (the ASL.b inconsistent-register-shift vectors + the CHK in-range UNPREDICTABLE-CCR cases)
 /// are excluded identically here via M68000DataAxisCorpus.IsExcludedCase, so the JIT corpus is identical in
 /// EXECUTED cases to the interpreter corpus. Sampled at CI scale; CPUEMULATOR_UAT=full runs every case through
-/// the JIT.</summary>
-public class M68000JitTomHarteTests(ITestOutputHelper output)
+/// the JIT.
+///
+/// <para>Lever-3 split: the sweep is one xUnit COLLECTION per partition (the 8 sealed M68000JitTom_P0..P7
+/// derived classes below), so the heaviest JIT tier parallelizes across the configured threads, mirroring the
+/// interpreter split (Mos6502TomHarteSweepBase). The exclusion + deferral logic is IDENTICAL to the pre-split
+/// single-class body.</para></summary>
+public abstract class M68000JitSweepBase(ITestOutputHelper output)
 {
-    // The full data-axis family set: M4.5a MOVE + M4.5b ALU + M4.5c shift/rotate/bit/BCD/Scc/data-movement +
-    // M4.5d-1 control flow + exceptions — the deduplicated union of the four canonical milestone file lists,
-    // read directly from those public arrays (no drift). See M68000DataAxisCorpus.
-    public static IEnumerable<object[]> AllDataAxisFiles =>
-        M68000DataAxisCorpus.Files.Select(f => new object[] { f });
+    /// <summary>Partition the data-axis file list into <paramref name="parts"/> stripes; return stripe
+    /// <paramref name="index"/>. Stripe assignment is by position (i % parts) so each stripe is a balanced mix.</summary>
+    public static TheoryData<string> Partition(int index, int parts)
+    {
+        var data = new TheoryData<string>();
+        int i = 0;
+        foreach (var f in M68000DataAxisCorpus.Files) { if (i % parts == index) data.Add(f); i++; }
+        return data;
+    }
 
-    [M68000TomHarteTheory]
-    [MemberData(nameof(AllDataAxisFiles))]
-    public void Family_is_tier_parity_green_through_the_JIT(string file)
+    protected void RunFile(string file)
     {
         string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
         Assert.NotNull(dir);
@@ -63,3 +69,35 @@ public class M68000JitTomHarteTests(ITestOutputHelper output)
             string.Join("\n---\n", failures));
     }
 }
+
+public sealed class M68000JitTom_P0(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(0, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P1(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(1, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P2(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(2, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P3(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(3, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P4(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(4, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P5(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(5, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P6(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(6, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+public sealed class M68000JitTom_P7(ITestOutputHelper o) : M68000JitSweepBase(o)
+{ public static TheoryData<string> Files() => Partition(7, 8);
+  [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
