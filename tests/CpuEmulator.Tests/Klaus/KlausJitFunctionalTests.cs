@@ -32,18 +32,16 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
     private const long BulkSlice = 2_000_000;
     private const long TailWindow = 250_000; // budget-1 walk distance to the trap (a few seconds)
 
-    [KlausFact]
+    [KlausJitFact]
     public void Functional_test_runs_to_the_success_trap_under_the_JIT()
     {
         byte[] image = File.ReadAllBytes(KlausVectors.TryGetBinaryPath()!);
         Assert.Equal(0x10000, image.Length);
 
-        // ── Reference: the interpreter run to the trap (fast — the interpreter is the oracle) ──────
-        // Establishes the live trap-entry cycle count, and the checkpoint just before it from which
-        // the JIT switches to budget-1 for an exact trap detection.
-        long anchorCycles = RunInterpreterToTrap(image);
-        Assert.Equal(InterpreterAnchorCycles, anchorCycles); // the interpreter still hits its anchor
-        long checkpoint = anchorCycles - TailWindow;
+        // The checkpoint is derived from the PINNED interpreter anchor (no redundant ~96M-cycle interp re-run —
+        // lever 5). InterpreterAnchorCycles is the committed oracle; the interpreter Klaus PIN (KlausFunctionalTests)
+        // still re-verifies it every run, so this constant cannot silently drift.
+        long checkpoint = InterpreterAnchorCycles - TailWindow;
 
         // ── The JIT run (ONCE): chaining ON (the default — confirm the test does NOT disable it).
         // Large block-cached slices to the checkpoint, then budget-1 to the trap. M2-ii's chaining +
@@ -111,25 +109,6 @@ public class KlausJitFunctionalTests(ITestOutputHelper output)
         long off = RunToCheckpoint(new JitOptions { DisableChaining = true });   // chaining OFF
         output.WriteLine($"chaining on={on} off={off} cycles at the checkpoint");
         Assert.Equal(off, on);   // identical cycle accounting regardless of chaining
-    }
-
-    private static long RunInterpreterToTrap(byte[] image)
-    {
-        var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        space.MapMemory(0x0000, image, writable: true);
-        var cpu = new Mos6502Cpu(space) { PC = StartAddress, S = 0xFD, P = 0x34 };
-        while (cpu.CycleCount < CycleBudget)
-        {
-            ushort before = cpu.PC;
-            cpu.Step();
-            if (cpu.PC == before)
-            {
-                Assert.Equal(SuccessTrap, cpu.PC); // a non-success trap is a real failure
-                return cpu.CycleCount;
-            }
-        }
-        Assert.Fail($"interpreter reference exhausted budget at PC=0x{cpu.PC:X4}");
-        return -1; // unreachable
     }
 
     private static (Mos6502Cpu Inner, JittedCpu<Mos6502Cpu> Jit) NewKlausJit(byte[] image)
