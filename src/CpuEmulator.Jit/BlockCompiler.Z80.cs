@@ -232,6 +232,30 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         }
     }
 
+    /// <summary>M6 PR-1: replicate the Z80 memory-refresh (R) bump the interpreter's OnInstructionFetched
+    /// does once per opcode fetch: <c>R = (byte)((R &amp; 0x80) | ((R + keyBytes) &amp; 0x7F))</c> — bit 7 is
+    /// preserved, bits 0..6 wrap mod 128. keyBytes is the opcode-byte count (1 for base-plane rows, which
+    /// is every emitted PR-1 LD). Emitted once in EmitInstruction for every emitted Z80 instruction.</summary>
+    private void EmitZ80RefreshR(EmitContext ctx, int keyBytes)
+    {
+        ILGenerator il = ctx.Il;
+        // cpu.R = (byte)( (R & 0x80) | ((R + keyBytes) & 0x7F) )
+        il.Emit(OpCodes.Ldarg_0);                    // cpu (receiver for the Stfld)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, _z80R!);              // R (byte -> int)
+        il.Emit(OpCodes.Ldc_I4, 0x80);
+        il.Emit(OpCodes.And);                        // R & 0x80  (bit 7)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, _z80R!);              // R
+        il.Emit(OpCodes.Ldc_I4, keyBytes);
+        il.Emit(OpCodes.Add);                        // R + keyBytes
+        il.Emit(OpCodes.Ldc_I4, 0x7F);
+        il.Emit(OpCodes.And);                        // (R + keyBytes) & 0x7F  (bits 0..6, mod 128)
+        il.Emit(OpCodes.Or);                         // (R & 0x80) | ((R + keyBytes) & 0x7F)
+        il.Emit(OpCodes.Conv_U1);
+        il.Emit(OpCodes.Stfld, _z80R!);
+    }
+
     /// <summary>cpu.Q = 0 — every base-plane LD clears Q (the oracle sets <c>Q = 0</c>).</summary>
     private void EmitZ80ClearQ(EmitContext ctx)
     {
