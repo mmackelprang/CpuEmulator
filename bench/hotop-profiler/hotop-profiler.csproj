@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THROWAWAY hot-op profiling harness for ADR 0011 (M6 JIT hot-op emission). A dev tool, never
+    shipped; not in any runtime/test graph. References the CPU cores + the bench library (for the
+    frozen Workloads) + Core.Jit (for the per-CPU JitTarget decode used to identify mnemonics).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>hotop-profiler</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CpuEmulator.Core\CpuEmulator.Core.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.M68000\CpuEmulator.Cpus.M68000.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Benchmarks\CpuEmulator.Benchmarks.csproj" />
+  </ItemGroup>
+
+</Project>
