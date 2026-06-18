@@ -44,8 +44,11 @@ public class M8086RegeneratedSpecTests
         Assert.Equal(report.Instructions, dataset.Opcodes.Length);
         Assert.True(dataset.Prefixes.Length >= 6, $"expected >=6 prefixes, got {dataset.Prefixes.Length}");
         Assert.Equal(8, report.Prefixes);        // 26/2E/36/3E segment overrides + F0/F1 lock + F2/F3 repeat
-        Assert.Equal(215, report.Opcodes);       // unique primary opcodes (M5.5b: +2 for F6/F7)
-        Assert.Equal(281, report.Instructions);  // Insn rows, group members fan out (M5.5b: +16 for F6/F7)
+        // M5.5d: the direct FAR CALL (9A) + JMP (EA) ptr16:16 forms join the dataset (Immediate: Fixed32 — a
+        // 4-byte far pointer = offset16 + segment16, the new immediate rule). +2 opcodes 215→217, +2 Insn rows
+        // 281→283. (No group fan-out — both are plain, non-group opcodes.)
+        Assert.Equal(217, report.Opcodes);       // unique primary opcodes (M5.5d: +2 for 9A/EA far CALL/JMP)
+        Assert.Equal(283, report.Instructions);  // Insn rows (M5.5d: +2 for 9A/EA)
 
         // M5.5b: the F6/F7 split-immediate group is now PRESENT as two reg-extension groups (each 8 members),
         // every member declaring immediateRegMask: 3 (the per-subfield split immediate the carrier expresses).
