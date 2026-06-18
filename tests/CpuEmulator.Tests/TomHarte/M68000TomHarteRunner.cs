@@ -1,6 +1,7 @@
 using System.Text;
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.M68000;
+using CpuEmulator.Jit;
 using CpuEmulator.Tests.Mos6502;   // TracingAddressSpace + BusAccess
 
 namespace CpuEmulator.Tests.TomHarte;
@@ -105,6 +106,37 @@ internal static class M68000TomHarteRunner
     /// same state a fresh <c>new byte[]</c> gives, before the case's initial RAM is applied. [ThreadStatic] is
     /// safe because <see cref="RunCase"/> is synchronous (no await) — a worker thread never reenters it.</summary>
     [ThreadStatic] private static byte[]? _ramArena;
+
+    // Per-worker reused JIT bus + JIT (lever 4). The non-JIT RunCase builds a FRESH AddressSpace per case; the JIT
+    // path instead pools ONE 24-bit BigEndian AddressSpace per worker that maps the SAME _ramArena ONCE — the
+    // reused JittedCpu's Fastmem binds to this instance at construction, so the instance MUST persist across cases.
+    // Per case we Array.Clear(_ramArena) (re-zero, mapping persists) and install the case's RAM, exactly the state a
+    // fresh new byte[0x1000000] + fresh AddressSpace would give. ResetForReuse() flushes the block cache so the same
+    // (truncated ushort) PC recompiles from the new case's bytes. [ThreadStatic] is safe (RunCase* is synchronous).
+    [ThreadStatic] private static AddressSpace? _jitBusTls;
+    [ThreadStatic] private static JittedCpu<M68000Cpu>? _jitTls;
+    [ThreadStatic] private static M68000Cpu? _jitInnerTls;
+
+    /// <summary>Rent this worker thread's pooled JIT bus (24-bit BigEndian, mapping the shared <c>_ramArena</c>) +
+    /// the reused <see cref="JittedCpu{M68000Cpu}"/> bound to it (lever 4). The bus is built ONCE and its mapping
+    /// persists across <see cref="Array.Clear(System.Array)"/> re-zeroes; the JIT is built once and flushed per
+    /// case via <c>ResetForReuse</c>. The arena is shared with the non-JIT path's <c>_ramArena</c> (same worker,
+    /// never concurrent), so the JIT path must Array.Clear it before installing the case RAM (it does, below).</summary>
+    private static (AddressSpace Bus, JittedCpu<M68000Cpu> Jit, M68000Cpu Inner) RentJit()
+    {
+        if (_jitBusTls is null)
+        {
+            byte[] ram = _ramArena ??= new byte[0x1000000];
+            _jitBusTls = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            _jitBusTls.MapMemory(0x000000, ram, writable: true);
+            (_jitTls, _jitInnerTls) = M68000JittedCpuFactory.Create(_jitBusTls);
+        }
+        else
+        {
+            _jitTls!.ResetForReuse();   // flush cache + clear chains + reset inner — bound to the SAME pooled bus
+        }
+        return (_jitBusTls, _jitTls!, _jitInnerTls!);
+    }
 
     /// <summary>M4.5d-2a (ADR 0008 §5, plan T0): the PC/prefetch assertion mode — diffs the prefetch-queue
     /// END STATE (<c>final.pc</c> + both <c>final.prefetch</c> words) WITHOUT the full per-transaction trace /
@@ -220,14 +252,14 @@ internal static class M68000TomHarteRunner
         if (!assertExceptions && IsExceptionCase(c)) return DeferredException;
         if (assertExceptions && IsAddressErrorCase(c)) return DeferredException;   // DD4: vector-3 stays deferred
 
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 24,
-            endianness: Endianness.BigEndian);
-        // Reuse this worker thread's 16 MiB arena instead of allocating per case (same GC-thrash fix RunCase
-        // uses). Array.Clear re-zeroes it → identical to a fresh new byte[0x1000000] before the case's initial
-        // RAM is applied below.
-        byte[] ram = _ramArena ??= new byte[0x1000000];
+        // Rent this worker thread's pooled JIT bus + reused JittedCpu<M68000Cpu> (lever 4). The bus maps the shared
+        // _ramArena ONCE and persists across cases (the reused Fastmem binds to this instance at construction); the
+        // JIT is flushed per case via ResetForReuse inside RentJit. We Array.Clear the arena here BEFORE installing
+        // the case RAM — re-zeroing it (mapping persists) → identical to a fresh new byte[0x1000000] + fresh
+        // AddressSpace. The clear also wipes anything the non-JIT path may have left in the shared arena.
+        var (inner, jit, cpu) = RentJit();
+        byte[] ram = _ramArena!;
         Array.Clear(ram, 0, ram.Length);
-        inner.MapMemory(0x000000, ram, writable: true);
         foreach (var e in c.Initial.Ram) inner.Write8(e.Address & inner.AddressMask, e.Value);
 
         uint pc = c.Initial.Pc;
@@ -235,9 +267,8 @@ internal static class M68000TomHarteRunner
         if (pf.Length > 0) inner.Write16((pc + 0u) & inner.AddressMask, pf[0]);
         if (pf.Length > 1) inner.Write16((pc + 2u) & inner.AddressMask, pf[1]);
 
-        // JIT fastmem binds to the concrete AddressSpace (no TracingAddressSpace — the JIT data-axis gate
+        // JIT fastmem binds to the concrete pooled AddressSpace (no TracingAddressSpace — the JIT data-axis gate
         // asserts regs/SR/RAM, NOT the per-transaction trace; trace-equivalence is the interpreter axis).
-        var (jit, cpu) = M68000JittedCpuFactory.Create(inner);
         var s = c.Initial;
         for (int i = 0; i < 8; i++) cpu.SetRegister($"D{i}", s.D[i]);
         for (int i = 0; i < 7; i++) cpu.SetRegister($"A{i}", s.A[i]);

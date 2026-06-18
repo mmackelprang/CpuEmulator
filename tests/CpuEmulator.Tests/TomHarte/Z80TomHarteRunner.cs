@@ -41,6 +41,38 @@ internal static class Z80TomHarteRunner
         return (_progTls, _progRamTls!, _ioTls, _ioRamTls!);
     }
 
+    // Per-worker reused JIT (lever 4) for the all-fallback Z80 JIT path. SUBTLETY: in 5-3a every Z80 op falls back
+    // to inner.Step, which writes ports through the INNER Z80's OWN io reference (set at construction) — NOT the
+    // JIT's _ioBus (inert for the all-fallback path). So the reused inner Z80 must be bound ONCE to a PERSISTENT
+    // TracingAddressSpace (_ioTraceTls) wrapping the persistent ioInner (_ioTls); DiffPorts reads that same trace.
+    // RentBuses re-zeroes the program + ioInner backing in place (mapping persists) so Fastmem's snapshot stays
+    // valid; ResetForReuse() flushes the block cache; and we clear _ioTraceTls's trace per case so the recorded
+    // port trace is identical to a fresh-per-case TracingAddressSpace's. Z80Cpu.Reset() does NOT zero _cycles, so
+    // DiffFinalState asserts the per-case cycle DELTA (captured after the reset) — byte-identical to the fresh
+    // path's absolute assert (fresh _cycles starts at 0).
+    [ThreadStatic] private static TracingAddressSpace? _ioTraceTls;
+    [ThreadStatic] private static JittedCpu<Z80Cpu>? _jitTls;
+    [ThreadStatic] private static Z80Cpu? _jitInnerTls;
+
+    /// <summary>Rent this worker thread's reused Z80 JIT (lever 4), bound ONCE to the persistent program bus +
+    /// the persistent Io <see cref="TracingAddressSpace"/> wrapping <paramref name="ioInner"/>. Built on first
+    /// call; thereafter flushed via <c>ResetForReuse</c> and its Io trace cleared, so each case starts byte-clean.
+    /// Returns the reused inner Z80 (state owner), the JIT (driver), and the persistent Io trace (DiffPorts reads).</summary>
+    private static (Z80Cpu Inner, JittedCpu<Z80Cpu> Jit, TracingAddressSpace IoTrace) RentJit(AddressSpace program, AddressSpace ioInner)
+    {
+        if (_jitTls is null)
+        {
+            _ioTraceTls = new TracingAddressSpace(ioInner);   // persistent Io trace; bound ONCE into the inner Z80
+            (_jitTls, _jitInnerTls) = Z80JittedCpuFactory.Create(program, _ioTraceTls);
+        }
+        else
+        {
+            _jitTls.ResetForReuse();   // flush cache + clear chains + reset inner — bound to the SAME pooled buses
+            _ioTraceTls!.ResetTrace(); // clear the accumulated port trace so this case starts byte-clean
+        }
+        return (_jitInnerTls!, _jitTls, _ioTraceTls!);
+    }
+
     /// <summary>Run one case. The WZ/MEMPTR model is COMPLETE (M3.4c, Piece A): every Z80 op models its
     /// WZ writes and maintains Q (the shared 6502-class ops set Q=0; the flag-writing ops set Q=F), and
     /// the IM ops set the interrupt mode. So the final Q AND WZ AND IM are checked on EVERY case (the
@@ -127,22 +159,27 @@ internal static class Z80TomHarteRunner
         var (program, _, ioInner, _) = RentBuses();
         foreach (var e in c.Initial.Ram) program.Write8(e.Address, e.Value);
 
+        // Pre-load the IN ports' return values into the persistent ioInner (re-zeroed by RentBuses each case) so a
+        // fallback IN reads the vector's expected byte. The recorded port trace lands on the persistent Io trace.
         foreach (var port in c.Ports)
             if (port.IsRead) ioInner.Write8(port.Address, port.Value);
-        var io = new TracingAddressSpace(ioInner);   // record the port trace on the fallback Step's IO
 
-        // Build the inner Z80 over the program + (tracing) Io space, set ALL state (incl. Iff1/Iff2/Q/Im
-        // which have no ICpuCore.SetRegister path), THEN wrap it in JittedCpu (the wrapper owns no state).
-        var inner = new Z80Cpu(program, io);
+        // Rent the reused inner Z80 + JIT (lever 4), bound ONCE to the persistent program bus + persistent Io
+        // trace. RentJit flushes the block cache + resets the inner Z80 (ResetForReuse) and clears the Io trace so
+        // this case starts byte-clean. The all-fallback Z80 writes ports through the inner Z80's Io reference (the
+        // persistent Io trace), exactly as a fresh-per-case TracingAddressSpace would. Set ALL state (incl.
+        // Iff1/Iff2/Q/Im which have no ICpuCore.SetRegister path) AFTER the reset.
+        var (inner, jit, io) = RentJit(program, ioInner);
         ApplyInitialState(inner, c.Initial);
 
-        // fastmem binds to the concrete program AddressSpace; the Io callout target is the same Io space
-        // the inner Z80 writes ports through on fallback. Every Z80 op falls back to inner.Step in 5-3a.
-        var jit = new JittedCpu<Z80Cpu>(inner, Z80Cpu.JitTarget, program, io);
+        // Cycle baseline AFTER the reset/reseed: the reused inner accumulates _cycles across cases (Z80 Reset does
+        // not zero it), so DiffFinalState asserts the per-case DELTA. For a fresh inner this baseline is 0, so the
+        // delta equals the absolute — byte-identical to the original fresh-per-case assertion.
+        long cyclesBefore = inner.CycleCount;
         long budget = c.Cycles.Length;   // one instruction's worth of T-states
         jit.Run(ref budget);
 
-        return DiffFinalState(c, inner, program, io);
+        return DiffFinalState(c, inner, program, io, cyclesBefore);
     }
 
     /// <summary>Set the full Z80 initial state on <paramref name="cpu"/> — the SAME assignments RunCase
@@ -167,7 +204,8 @@ internal static class Z80TomHarteRunner
     /// <summary>Diff the full final Z80 state + RAM + ports + cycle COUNT off <paramref name="cpu"/> — the
     /// SAME comparison RunCase makes inline (minus the per-T-state bus trace, which fastmem-on bypasses).
     /// Returns null on pass, else the formatted report.</summary>
-    private static string? DiffFinalState(Z80TomHarteCase c, Z80Cpu cpu, AddressSpace program, TracingAddressSpace io)
+    private static string? DiffFinalState(Z80TomHarteCase c, Z80Cpu cpu, AddressSpace program, TracingAddressSpace io,
+        long cyclesBefore = 0)
     {
         var problems = new List<string>();
         var f = c.Final;
@@ -192,8 +230,9 @@ internal static class Z80TomHarteRunner
 
         DiffPorts(problems, io, c.Ports);
 
-        if (cpu.CycleCount != c.Cycles.Length)
-            problems.Add($"cycle count: expected {c.Cycles.Length}, got {cpu.CycleCount}");
+        long cyclesCharged = cpu.CycleCount - cyclesBefore;
+        if (cyclesCharged != c.Cycles.Length)
+            problems.Add($"cycle count: expected {c.Cycles.Length}, got {cyclesCharged}");
 
         if (problems.Count == 0) return null;
         var sb = new StringBuilder();
