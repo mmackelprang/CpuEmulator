@@ -30,8 +30,10 @@ public readonly record struct DecodeResult(
 /// (or the raw disp16, or 0 when none); <see cref="Imm"/> is the immediate, zero-extended (the body knows
 /// byte vs word — also the moffs disp16 for the accumulator-direct A0–A3 opcodes, which carry it in the
 /// immediate slot); <see cref="SegOverride"/> is the raw segment-override prefix byte (0x26/0x2E/0x36/0x3E)
-/// or 0 when no override is in force.</summary>
-public readonly record struct X86Operands(byte ModRm, ushort Disp, ushort Imm, byte SegOverride)
+/// or 0 when no override is in force; <see cref="RepPrefix"/> is the raw repeat-prefix byte (0xF3 REP/REPE,
+/// 0xF2 REPNE) or 0 when no repeat prefix is in force — the M5.5d string-op body drives the CX-counted,
+/// DF-directed loop from it (F3 ⇒ REP/REPE, F2 ⇒ REPNE; the ZF-termination differs for CMPS/SCAS).</summary>
+public readonly record struct X86Operands(byte ModRm, ushort Disp, ushort Imm, byte SegOverride, byte RepPrefix = 0)
 {
     public static readonly X86Operands None = default;
 }

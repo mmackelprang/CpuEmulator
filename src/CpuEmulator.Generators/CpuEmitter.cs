@@ -711,6 +711,57 @@ internal static class CpuEmitter
                          .Distinct())
                 sb.AppendLine($"            case 0x{miscKey:X}u: MiscExecute(0x{miscKey:X}u, r); break;");
 
+            // M5.5d: the FINAL families — control flow, strings + REP, IN/OUT (port I/O), and interrupts. Each
+            // distinct OperationKey routes ONE case to its family hook (plain keys AND the FF /2../5 CALL/JMP
+            // group keys (opcode<<3)|reg — those carry the CALL/JMP mnemonic, so the control filter catches them
+            // straight from the spec). The interrupt seam (INT/INT3/INTO/IRET + the synchronous divide-error
+            // INT0) pushes FLAGS:CS:IP through the IVT and clears IF/TF (M8086Cpu.Interrupt.cs); the string ops
+            // drive the CX-counted, DF-directed REP loop within a SINGLE Step (M8086Cpu.String.cs).
+            //   Control: JMP/CALL/RET/RETF + Jcc(JO..JG) + LOOP/LOOPE/LOOPNE/JCXZ → ControlExecute.
+            //   String:  MOVS/CMPS/SCAS/LODS/STOS (B/W) + REP                      → StringExecute.
+            //   Io:      IN/OUT                                                     → IoExecute.
+            //   Interrupt: INT/INT3/INTO/IRET                                      → InterruptExecute.
+            var controlMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "JMP", "CALL", "RET", "RETF",
+                "JO", "JNO", "JB", "JAE", "JE", "JNE", "JBE", "JA",
+                "JS", "JNS", "JP", "JNP", "JL", "JGE", "JLE", "JG",
+                "LOOP", "LOOPE", "LOOPNE", "JCXZ",
+            };
+            var stringMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "MOVSB", "MOVSW", "CMPSB", "CMPSW", "SCASB", "SCASW",
+                "LODSB", "LODSW", "STOSB", "STOSW",
+            };
+            var ioMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "IN", "OUT",
+            };
+            var interruptMnemonics = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "INT", "INT3", "INTO", "IRET",
+            };
+            foreach (var ctlKey in model.Instructions
+                         .Where(i => controlMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{ctlKey:X}u: ControlExecute(0x{ctlKey:X}u, r); break;");
+            foreach (var strKey in model.Instructions
+                         .Where(i => stringMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{strKey:X}u: StringExecute(0x{strKey:X}u, r); break;");
+            foreach (var ioKey in model.Instructions
+                         .Where(i => ioMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{ioKey:X}u: IoExecute(0x{ioKey:X}u, r); break;");
+            foreach (var intKey in model.Instructions
+                         .Where(i => interruptMnemonics.Contains(i.Mnemonic))
+                         .Select(i => i.OperationKey)
+                         .Distinct())
+                sb.AppendLine($"            case 0x{intKey:X}u: InterruptExecute(0x{intKey:X}u, r); break;");
+
             sb.AppendLine("            default:");
             sb.AppendLine("                HandleUndefinedOpcode(unchecked((byte)key));");
             sb.AppendLine("                break;");
@@ -737,6 +788,18 @@ internal static class CpuEmitter
             sb.AppendLine();
             sb.AppendLine("    /// <summary>M5.5c: the misc data-movement / flag-control op bodies (XCHG/LEA/LDS/LES/XLAT/LAHF/SAHF/CBW/CWD/CLC/STC/CMC/CLD/STD/CLI/STI/NOP/HLT/WAIT) — implemented by M8086Cpu.Misc.cs.</summary>");
             sb.AppendLine("    partial void MiscExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5d: the control-flow op bodies (JMP/CALL/RET/RETF + Jcc + LOOP/LOOPE/LOOPNE/JCXZ) — implemented by M8086Cpu.Control.cs.</summary>");
+            sb.AppendLine("    partial void ControlExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5d: the string + REP op bodies (MOVS/CMPS/SCAS/LODS/STOS, byte+word, CX-counted DF-directed) — implemented by M8086Cpu.String.cs.</summary>");
+            sb.AppendLine("    partial void StringExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5d: the port-I/O op bodies (IN/OUT, the 8086's separate I/O space) — implemented by M8086Cpu.Io.cs.</summary>");
+            sb.AppendLine("    partial void IoExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>M5.5d: the interrupt op bodies (INT n/INT3/INTO/IRET + the IVT push sequence) — implemented by M8086Cpu.Interrupt.cs.</summary>");
+            sb.AppendLine("    partial void InterruptExecute(uint key, CpuEmulator.Core.Jit.DecodeResult r);");
         }
 
         // Emit all per-opcode methods (named by OperationKey — for the 6502 key == opcode, so OpA9
@@ -4535,11 +4598,15 @@ internal static class CpuEmitter
         sb.AppendLine("        // M5.5a: remember the LAST segment-override prefix byte (26 ES / 2E CS / 36 SS / 3E DS) seen");
         sb.AppendLine("        //        in the prefix stack (the other prefixes — F0 LOCK / F2 F3 REP — are not overrides).");
         sb.AppendLine("        //        The op body turns this raw byte into the X86SegmentOverride enum (0 ⇒ no override).");
-        sb.AppendLine("        byte segOverride = 0;");
+        sb.AppendLine("        // M5.5d: ALSO remember the LAST repeat prefix byte (F3 REP/REPE, F2 REPNE) seen in the stack —");
+        sb.AppendLine("        //        the string-op body drives its CX-counted, DF-directed loop from it (0 ⇒ no repeat). LOCK");
+        sb.AppendLine("        //        (F0/F1) is decoded + length-counted but has no data-axis effect.");
+        sb.AppendLine("        byte segOverride = 0; byte repPrefix = 0;");
         sb.AppendLine("        uint b = stream.NextUnit();                            // the first byte");
         sb.AppendLine("        while (s_x86Prefixes.Contains(b))");
         sb.AppendLine("        {");
         sb.AppendLine("            if (b == 0x26u || b == 0x2Eu || b == 0x36u || b == 0x3Eu) segOverride = (byte)b;");
+        sb.AppendLine("            else if (b == 0xF2u || b == 0xF3u) repPrefix = (byte)b;");
         sb.AppendLine("            b = stream.NextUnit();                             // stack the prefix, read the next byte");
         sb.AppendLine("        }");
         sb.AppendLine("        uint opcode = b;                                       // the opcode byte (after any prefixes)");
@@ -4596,6 +4663,7 @@ internal static class CpuEmitter
         sb.AppendLine("                3 => ((opcode >> imm.WBit) & 1u) == 1u ? 2 : 1,               // WBit: w=1 ⇒ 2, w=0 ⇒ 1");
         sb.AppendLine("                // SWBit (the ALU-group sign-extend form): s=1 ⇒ 1 (a sign-extended imm8), else w drives 1/2.");
         sb.AppendLine("                4 => ((opcode >> imm.SBit) & 1u) == 1u ? 1 : (((opcode >> imm.WBit) & 1u) == 1u ? 2 : 1),");
+        sb.AppendLine("                5 => 4,                                                        // Fixed32: far ptr16:16 (M5.5d)");
         sb.AppendLine("                _ => 0,");
         sb.AppendLine("            };");
         sb.AppendLine("            // M5.5b: the F6/F7 split-immediate gate. If the opcode is reg-gated (in s_x86ImmRegMask) and");
@@ -4615,6 +4683,18 @@ internal static class CpuEmitter
         sb.AppendLine("                byte ihi = (byte)stream.NextUnit();");
         sb.AppendLine("                immVal = (ushort)(ilo | (ihi << 8));");
         sb.AppendLine("            }");
+        sb.AppendLine("            else if (immLen == 4)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                // M5.5d: a far ptr16:16 (the direct far CALL 9A / JMP EA). The little-endian stream");
+        sb.AppendLine("                //        delivers offset16 first, then segment16: offset → Imm, segment → Disp (these");
+        sb.AppendLine("                //        opcodes carry no ModR/M, so Disp is free to hold the far-target segment).");
+        sb.AppendLine("                byte olo = (byte)stream.NextUnit();");
+        sb.AppendLine("                byte ohi = (byte)stream.NextUnit();");
+        sb.AppendLine("                immVal = (ushort)(olo | (ohi << 8));");
+        sb.AppendLine("                byte slo = (byte)stream.NextUnit();");
+        sb.AppendLine("                byte shi = (byte)stream.NextUnit();");
+        sb.AppendLine("                dispVal = (ushort)(slo | (shi << 8));");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        // 4. Length is a COMPUTED OUTPUT of the walk (UnitsConsumed × UnitBytes), never a field read.");
@@ -4622,7 +4702,7 @@ internal static class CpuEmitter
         sb.AppendLine("        //    the captured disp/imm + the segment-override prefix byte on the X86Operands slot for the");
         sb.AppendLine("        //    op bodies (the full mod/reg/r/m + segment EA resolution is the hand-written partial's job).");
         sb.AppendLine("        int length = stream.UnitsConsumed * stream.UnitBytes;");
-        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(modrmByte, 0, operandCount), X86: new CpuEmulator.Core.Jit.X86Operands(modrmByte, dispVal, immVal, segOverride));");
+        sb.AppendLine("        return new CpuEmulator.Core.Jit.DecodeResult(key, length, new(modrmByte, 0, operandCount), X86: new CpuEmulator.Core.Jit.X86Operands(modrmByte, dispVal, immVal, segOverride, repPrefix));");
         sb.AppendLine("    }");
 
         sb.AppendLine();

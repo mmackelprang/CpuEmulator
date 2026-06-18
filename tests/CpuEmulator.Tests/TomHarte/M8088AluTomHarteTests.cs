@@ -19,12 +19,15 @@ namespace CpuEmulator.Tests.TomHarte;
 /// so the per-subgroup flags-mask is selected. A plain file (<c>04.json.gz</c>, no <c>.R.</c>) passes
 /// regField=null.</para>
 ///
-/// <para><b>Divide-error honest deferral (M5.5b).</b> The DIV/IDIV files (F6.6/F6.7/F7.6/F7.7) and AAM (D4) with
-/// base 0 contain a large fraction of DIVIDE-ERROR cases that trace into INT0 (the divide-error vector). The
-/// interrupt seam is M5.5d, so those cases are DEFERRED — NOT faked green. A case is classified as a deferred
-/// divide-error when its MERGED-FINAL state lands on the divide-error vector (CS==0 &amp;&amp; IP==1024 — the 8088
-/// vector-0 handler the corpus pins): such a case PUSHED FLAGS/CS/IP and jumped to the handler, which M5.5b does
-/// not model. These cases are COUNTED + disclosed, never asserted. The valid-quotient cases MUST go green.</para>
+/// <para><b>Divide-error → INT0 (M5.5d RE-ENABLED).</b> The DIV/IDIV files (F6.6/F6.7/F7.6/F7.7) and AAM (D4)
+/// with base 0 contain a large fraction of DIVIDE-ERROR cases that trace into INT0 (the divide-error vector).
+/// M5.5d re-enables the INT0 push (the M5.5b deferral is removed): the IP/CS push + SP decrement + vector load
+/// are MODELED EXACTLY, so the valid-quotient cases AND the divide-error push mechanics go green. The lone
+/// remaining gap is the silicon's UNDEFINED arithmetic flags from the aborted division, written to the
+/// pushed-flags RAM word (compared unmasked) — the documented genuinely-resistant class (DD6, needs the division
+/// microcode). <see cref="M8088TomHarteRunner.IsDivideErrorUndefinedFlagsOnly"/> confirms the discrepancy is
+/// CONFINED to those undefined bits (every register + every other RAM byte exact) before deferring — so the
+/// deferral is honest, never faked, and any real INT0-mechanism bug surfaces.</para>
 ///
 /// <para>Parallelism: each in-scope file gets its OWN derived class (its own xUnit collection), the
 /// M8088MovTomHarteTests pattern. <see cref="CanonicalFiles"/> is the source of truth; the coverage guard
@@ -113,29 +116,29 @@ public abstract class M8088AluTomHarteSweepBase
             if (run >= sampleSize) break;
             run++;
 
-            // M5.5b honest deferral #1 — DIVIDE-ERROR (INT0). A DIV/IDIV /6 /7 (or AAM base 0) error case traces
-            // to the divide-error vector — the merged-final state lands on CS==0 && IP==1024 (the 8088 vector-0
-            // handler). M5.5b does not model the interrupt push (M5.5d), so CLASSIFY + COUNT + skip (never fake
-            // green).
-            if (isDivGroup || isAam)
-            {
-                var mf = c.MergedFinalRegs();
-                if (mf.Cs == 0 && mf.Ip == 1024)
-                {
-                    deferredDivideError++;
-                    continue;
-                }
-            }
-
+            // M5.5d: the DIVIDE-ERROR → INT0 push is now LIVE (the M5.5b deferral is removed). A DIV/IDIV /6 /7
+            // (or AAM base 0) error case pushes FLAGS:CS:IP through the IVT and lands on CS==0, IP==1024. The
+            // IP/CS push + SP decrement + vector load are MODELED EXACTLY — but the silicon's UNDEFINED arithmetic
+            // flags from the aborted division (written to the pushed-flags RAM word, compared unmasked) are the
+            // documented genuinely-resistant class (DD6 — needs the division microcode). So a divide-error case is
+            // RUN; if it fails, IsDivideErrorUndefinedFlagsOnly confirms the ONLY discrepancy is in the undefined
+            // flag bits (every register + every other RAM byte exact) before deferring — anything else is a real
+            // failure the gate surfaces. The non-erroring (valid-quotient) cases MUST go green.
             executed++;
             string? res = M8088TomHarteRunner.RunCase(c, s_metadata, opcodeHex, regField);
             if (res is not null)
             {
+                if ((isDivGroup || isAam) && M8088TomHarteRunner.IsDivideErrorUndefinedFlagsOnly(c))
+                {
+                    deferredDivideError++;
+                    executed--;   // a counted DD6 deferral, not a clean executed pass
+                    continue;
+                }
                 // M5.5b honest deferral #2 — the 8086 IDIV QUOTIENT-SIGN QUIRK (F6/F7 /7 only). ~8% of valid
                 // (non-erroring) IDIV operands: the 8086 microcoded divider negates the quotient (the remainder
-                // is correct). Bit-exact modeling needs the full division microcode (out of M5.5b scope). The
-                // classifier confirms the discrepancy is PRECISELY a quotient sign-flip with a matching remainder
-                // before deferring — anything else is a real failure the gate surfaces.
+                // is correct). Bit-exact modeling needs the full division microcode (out of scope). The classifier
+                // confirms the discrepancy is PRECISELY a quotient sign-flip with a matching remainder before
+                // deferring — anything else is a real failure the gate surfaces.
                 if (isIdiv && M8088TomHarteRunner.IsIdivSignQuirk(c, width16))
                 {
                     deferredIdivSignQuirk++;

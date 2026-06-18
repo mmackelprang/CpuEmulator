@@ -168,4 +168,81 @@ internal static class M8088TomHarteRunner
         bool alNegated = actualAl != expAl && actualAl == unchecked((byte)(-expAl));
         return alNegated && actualAh == expAh && OtherRegsMatch(dxIsRemainder: false);
     }
+
+    /// <summary>The 8086 silicon-UNDEFINED arithmetic flag bits the divide microcode leaves in a
+    /// non-reconstructable state after an ABORTED division: OF(11) SF(7) ZF(6) AF(4) PF(2) CF(0) (mask
+    /// 0x08D5).</summary>
+    private const ushort DivideUndefinedFlags = 0x08D5;
+
+    /// <summary>
+    /// M5.5d — classify a DIVIDE-ERROR (INT0) case as the DOCUMENTED, GENUINELY-RESISTANT class (the DD6 the M5
+    /// plan permits to disclose+defer). M5.5d RE-ENABLES the divide-error → INT0 push (the M5.5b deferral is
+    /// removed): on a divide-by-zero / quotient-overflow the CPU pushes FLAGS:CS:IP through the IVT and vectors
+    /// through [0:0] (the corpus lands these at CS=0, IP=0x400). The IP/CS push + the SP decrement + the vector
+    /// load are MODELED EXACTLY; the one thing the data axis cannot reproduce is the silicon's UNDEFINED-arithmetic-
+    /// flag fallout from the ABORTED division — which the corpus writes into the PUSHED-FLAGS RAM word (compared
+    /// UNMASKED). Reconstructing it needs the full division microcode (out of the data-axis scope).
+    ///
+    /// <para>This is NOT faking green: the classifier runs the real body and confirms a HARD set of invariants —
+    /// (1) the merged-final lands on the divide-error vector (CS==0, IP==1024); (2) EVERY register the runner
+    /// would diff matches the expected merged-final EXACTLY, except FLAGS whose only discrepancy is confined to
+    /// the undefined arithmetic bits (mask 0x08D5 — DF/IF/TF/reserved must match, proving IF/TF were cleared and
+    /// the rest preserved); (3) EVERY changed RAM cell matches EXACTLY, except the two PUSHED-FLAGS bytes whose
+    /// only discrepancy is again confined to the undefined bits. Any deviation from this exact shape (a wrong
+    /// IP/CS/SP, a wrong non-flag stack byte, a defined-flag mismatch) returns false — a genuine failure the gate
+    /// MUST surface. So the deferral covers ONLY the un-modelable undefined-flag fallout, nothing else.</para>
+    /// </summary>
+    public static bool IsDivideErrorUndefinedFlagsOnly(M8088TomHarteCase c)
+    {
+        var exp = c.MergedFinalRegs();
+        // (1) must be a divide-error landing (the INT0 vector-0 handler the corpus pins).
+        if (!(exp.Cs == 0 && exp.Ip == 1024))
+            return false;
+
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        bus.MapMemory(0, new byte[0x100000], writable: true);
+        uint mask = bus.AddressMask;
+        foreach (var cell in c.Initial.Ram)
+            bus.Write8(cell.Address & mask, cell.Value);
+
+        var cpu = new M8086Cpu(bus);
+        var ir = c.Initial.Regs;
+        cpu.SetRegister("AX", ir.Ax); cpu.SetRegister("BX", ir.Bx); cpu.SetRegister("CX", ir.Cx);
+        cpu.SetRegister("DX", ir.Dx); cpu.SetRegister("CS", ir.Cs); cpu.SetRegister("SS", ir.Ss);
+        cpu.SetRegister("DS", ir.Ds); cpu.SetRegister("ES", ir.Es); cpu.SetRegister("SP", ir.Sp);
+        cpu.SetRegister("BP", ir.Bp); cpu.SetRegister("SI", ir.Si); cpu.SetRegister("DI", ir.Di);
+        cpu.SetRegister("IP", ir.Ip); cpu.SetRegister("FLAGS", ir.Flags);
+        cpu.Step();
+
+        // (2) every register EXCEPT FLAGS matches exactly; FLAGS differs ONLY in the undefined arithmetic bits.
+        bool RegOk(string n, ushort e) => (ushort)cpu.GetRegister(n) == e;
+        if (!(RegOk("AX", exp.Ax) && RegOk("BX", exp.Bx) && RegOk("CX", exp.Cx) && RegOk("DX", exp.Dx) &&
+              RegOk("CS", exp.Cs) && RegOk("SS", exp.Ss) && RegOk("DS", exp.Ds) && RegOk("ES", exp.Es) &&
+              RegOk("SP", exp.Sp) && RegOk("BP", exp.Bp) && RegOk("SI", exp.Si) && RegOk("DI", exp.Di) &&
+              RegOk("IP", exp.Ip)))
+            return false;
+        ushort actualFlags = (ushort)cpu.GetRegister("FLAGS");
+        if (((actualFlags ^ exp.Flags) & ~DivideUndefinedFlags) != 0)
+            return false;   // a DEFINED flag bit differs ⇒ a real INT0-mechanism bug, not the undefined fallout
+
+        // (3) every changed RAM cell matches exactly, except the two pushed-FLAGS bytes (the highest stack slot:
+        //     SS:SP+4 / SS:SP+5 after the SP-=6 push), whose discrepancy must again be confined to the undefined
+        //     bits. Compute the two flag-byte physical addresses to identify them.
+        ushort spAfter = exp.Sp;                                   // == ir.Sp - 6 (verified by the SP reg check)
+        uint flagLoAddr = (uint)(((exp.Ss << 4) + (ushort)(spAfter + 4)) & 0xFFFFF);
+        uint flagHiAddr = (uint)(((exp.Ss << 4) + (ushort)(spAfter + 5)) & 0xFFFFF);
+        foreach (var cell in c.Final.Ram)
+        {
+            uint addr = cell.Address & mask;
+            byte actual = bus.Read8(addr);
+            if (actual == cell.Value) continue;
+            // a mismatch is tolerated ONLY at the two pushed-FLAGS bytes, and ONLY in the undefined bits.
+            if (addr == flagLoAddr && (((actual ^ cell.Value) & (DivideUndefinedFlags & 0xFF)) == (actual ^ cell.Value)))
+                continue;
+            if (addr == flagHiAddr && (((actual ^ cell.Value) & (DivideUndefinedFlags >> 8)) == (actual ^ cell.Value)))
+                continue;
+            return false;   // a NON-flag stack byte differs ⇒ a real bug the gate must surface
+        }
+        return true;
+    }
 }

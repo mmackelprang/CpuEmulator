@@ -89,6 +89,9 @@ public enum X86ImmediateRule
     Fixed16,     // exactly 2 immediate bytes (e.g. a near CALL/JMP rel16, RET imm16)
     WBit,        // w=0 ⇒ 1 byte, w=1 ⇒ 2 bytes — the imm size follows the operand size (MOV/ALU imm)
     SWBit,       // the ALU-group sign-extend form: s=1 ⇒ 1 byte (sign-extended), else w drives 1/2 bytes
+    Fixed32,     // M5.5d: exactly 4 immediate bytes = a far ptr16:16 (the direct far CALL 9A / JMP EA): the
+                 // low word (offset) is captured into Imm, the high word (segment) into Disp (those opcodes
+                 // have no ModR/M, so the Disp slot is free to carry the far-target segment).
 }
 
 /// <summary>One opcode row's x86 decode metadata (M5.2). HasModRm: the opcode carries a ModR/M byte (so the

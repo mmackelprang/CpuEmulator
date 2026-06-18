@@ -400,9 +400,15 @@ public sealed partial class M8086Cpu
 
     /// <summary>F6 /6 /7 (r/m8) + F7 /6 /7 (r/m16): DIV/IDIV. Byte: AL=AX/d, AH=AX%d. Word: AX=DX:AX/d,
     /// DX=remainder. A divisor of 0 OR a quotient that overflows the destination raises INT0 (the divide-error
-    /// vector). The interrupt seam is M5.5d — M5.5b DISCLOSES + DEFERS: on a divide-error it routes to
-    /// <see cref="HandleUndefinedOpcode"/> and leaves registers UNCHANGED (the case fails honestly). The valid
-    /// (non-erroring) quotient is computed correctly and goes green.</summary>
+    /// vector). M5.5d RE-ENABLES the INT0 push (the M5.5b deferral is removed): on a divide-error the body calls
+    /// <see cref="RaiseInterrupt"/>(0) — pushing FLAGS:CS:IP through the IVT and vectoring through
+    /// <c>[0:0]</c> (the corpus lands these at CS=0, IP=0x400). The valid (non-erroring) quotient is computed
+    /// correctly and goes green. <para>The 8086 leaves ALL divide flags UNDEFINED (the F6/F7 reg-6/7 flags-mask
+    /// excludes OF/SF/ZF/AF/PF/CF), so the FLAGS-register compare ignores them — but the divide-error PUSH writes
+    /// the flags word to the stack RAM (compared UNMASKED). The push therefore uses the flags AS THEY STAND when
+    /// the fault is detected; this body does NOT model the silicon's undefined-flag fallout, so a divide-error
+    /// case whose pushed-flags RAM byte depends on that fallout is the documented resistant class (disclosed at
+    /// the gate, never faked).</para></summary>
     private void AluDiv(bool width16, bool signed, uint mod, uint rm, ushort disp, X86SegmentOverride over)
     {
         if (!width16)
@@ -410,16 +416,16 @@ public sealed partial class M8086Cpu
             byte d = ReadRmByte(mod, rm, disp, over);
             if (d == 0)
             {
-                // M5.5b honest deferral: divide-by-zero → INT0 (divide-error vector). The interrupt push is
-                // M5.5d; disclose + defer (no fake state). The data-axis gate counts these as deferred.
-                HandleUndefinedOpcode(0xF6);
+                // M5.5d: divide-by-zero → INT0 (divide-error vector). The IVT push (FLAGS:CS:IP, IF/TF clear,
+                // vector through [0:0]) is now live; the corpus lands these at CS=0, IP=0x400.
+                RaiseInterrupt(0);
                 return;
             }
             if (!signed)
             {
                 uint quot = (uint)AX / d;
                 uint rem = (uint)AX % d;
-                if (quot > 0xFF) { HandleUndefinedOpcode(0xF6); return; }   // quotient overflow → INT0 (defer)
+                if (quot > 0xFF) { RaiseInterrupt(0); return; }   // quotient overflow → INT0
                 AL = (byte)quot;
                 AH = (byte)rem;
             }
@@ -428,7 +434,10 @@ public sealed partial class M8086Cpu
                 short dividend = unchecked((short)AX);
                 int quot = dividend / (sbyte)d;
                 int rem = dividend % (sbyte)d;
-                if (quot < -128 || quot > 127) { HandleUndefinedOpcode(0xF6); return; }   // overflow → INT0 (defer)
+                // The 8086 byte IDIV rejects quotient -128 (0x80) as OVERFLOW even though it fits a signed byte —
+                // the sign-magnitude divider's range is the SYMMETRIC -127..+127 (a documented 8086 quirk). So the
+                // overflow bound is |quot| > 127, i.e. quot < -127, NOT the two's-complement -128.
+                if (quot < -127 || quot > 127) { RaiseInterrupt(0); return; }   // overflow → INT0
                 AL = (byte)(sbyte)quot;
                 AH = (byte)(sbyte)rem;
             }
@@ -436,13 +445,13 @@ public sealed partial class M8086Cpu
         else
         {
             ushort d = ReadRmWord(mod, rm, disp, over);
-            if (d == 0) { HandleUndefinedOpcode(0xF7); return; }   // divide-by-zero → INT0 (defer)
+            if (d == 0) { RaiseInterrupt(0); return; }   // divide-by-zero → INT0
             uint dividend = ((uint)DX << 16) | AX;   // form DX:AX in uint (no signed int-promotion intermediate)
             if (!signed)
             {
                 uint quot = dividend / d;
                 uint rem = dividend % d;
-                if (quot > 0xFFFF) { HandleUndefinedOpcode(0xF7); return; }   // overflow → INT0 (defer)
+                if (quot > 0xFFFF) { RaiseInterrupt(0); return; }   // overflow → INT0
                 AX = (ushort)quot;
                 DX = (ushort)rem;
             }
@@ -451,7 +460,9 @@ public sealed partial class M8086Cpu
                 int signedDividend = unchecked((int)dividend);
                 int quot = signedDividend / (short)d;
                 int rem = signedDividend % (short)d;
-                if (quot < -32768 || quot > 32767) { HandleUndefinedOpcode(0xF7); return; }   // overflow → INT0 (defer)
+                // Same 8086 quirk for word IDIV: the symmetric range is -32767..+32767 (quotient -32768/0x8000 is
+                // an OVERFLOW, not a valid result).
+                if (quot < -32767 || quot > 32767) { RaiseInterrupt(0); return; }   // overflow → INT0
                 AX = (ushort)(short)quot;
                 DX = (ushort)(short)rem;
             }

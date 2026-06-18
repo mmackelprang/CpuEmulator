@@ -1228,6 +1228,7 @@ internal static class SpecParser
                 "Fixed16" => X86ImmediateRuleKind.Fixed16,
                 "WBit" => X86ImmediateRuleKind.WBit,
                 "SWBit" => X86ImmediateRuleKind.SWBit,
+                "Fixed32" => X86ImmediateRuleKind.Fixed32,
                 _ => (X86ImmediateRuleKind)(-1),
             };
             if ((int)immediate < 0)

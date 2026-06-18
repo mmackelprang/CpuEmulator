@@ -27,7 +27,7 @@ public enum X86PrefixKind { SegmentOverride, Lock, Repeat }
 
 /// <summary>The importer's mirror of the generator's <c>X86ImmediateRule</c> enum. SYNC HAZARD: keep in
 /// step with <c>CpuEmulator.Core.Specification.X86ImmediateRule</c>.</summary>
-public enum X86ImmediateKind { None, Fixed8, Fixed16, WBit, SWBit }
+public enum X86ImmediateKind { None, Fixed8, Fixed16, WBit, SWBit, Fixed32 }
 
 /// <summary>One x86 opcode row of the dataset. <see cref="Opcode"/> is the primary byte. When
 /// <see cref="RegIsExtension"/> is set the row is an opcode-GROUP member: <see cref="Subfield"/> (0..7) is
@@ -161,8 +161,9 @@ public sealed record X86Dataset(X86PrefixRow[] Prefixes, X86OpcodeRow[] Opcodes)
                 "Fixed16" => X86ImmediateKind.Fixed16,
                 "WBit"    => X86ImmediateKind.WBit,
                 "SWBit"   => X86ImmediateKind.SWBit,
+                "Fixed32" => X86ImmediateKind.Fixed32,
                 _ => throw new InvalidDataException(
-                    $"Unknown immediate rule '{o.Immediate}' at {ctx}: expected None/Fixed8/Fixed16/WBit/SWBit."),
+                    $"Unknown immediate rule '{o.Immediate}' at {ctx}: expected None/Fixed8/Fixed16/WBit/SWBit/Fixed32."),
             };
 
             // Coherence rules mirroring the generator's CPUGEN016 cross-checks — fail loudly at load time

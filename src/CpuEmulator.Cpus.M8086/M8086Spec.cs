@@ -2,8 +2,8 @@
 //   Tool    : CpuEmulator.SpecImporter (x86 arm)
 //   Dataset : tools/CpuEmulator.SpecImporter/data/m8086-opcodes.json
 //   Prefixes: 8
-//   Opcodes : 215
-//   Insns   : 281
+//   Opcodes : 217
+//   Insns   : 283
 //   Regenerate :
 //     dotnet run --project tools/CpuEmulator.SpecImporter -- \
 //       --x86 tools/CpuEmulator.SpecImporter/data/m8086-opcodes.json \
@@ -250,6 +250,8 @@ public static class M8086Spec
             new X86Opcode(0xEB, Immediate: X86ImmediateRule.Fixed8),
             new X86Opcode(0xE9, Immediate: X86ImmediateRule.Fixed16),
             new X86Opcode(0xE8, Immediate: X86ImmediateRule.Fixed16),
+            new X86Opcode(0x9A, Immediate: X86ImmediateRule.Fixed32),
+            new X86Opcode(0xEA, Immediate: X86ImmediateRule.Fixed32),
             new X86Opcode(0xC2, Immediate: X86ImmediateRule.Fixed16),
             new X86Opcode(0xC3),
             new X86Opcode(0xCA, Immediate: X86ImmediateRule.Fixed16),
@@ -535,6 +537,8 @@ public static class M8086Spec
         Insn(0xEB, "JMP", AddrMode.Implied, []),
         Insn(0xE9, "JMP", AddrMode.Implied, []),
         Insn(0xE8, "CALL", AddrMode.Implied, []),
+        Insn(0x9A, "CALL", AddrMode.Implied, []),
+        Insn(0xEA, "JMP", AddrMode.Implied, []),
         Insn(0xC2, "RET", AddrMode.Implied, []),
         Insn(0xC3, "RET", AddrMode.Implied, []),
         Insn(0xCA, "RETF", AddrMode.Implied, []),

@@ -102,7 +102,7 @@ internal enum X86PrefixRoleKind { SegmentOverride, Lock, Repeat }
 
 /// <summary>How an opcode's immediate-operand length is determined (M5.2). Mirrors
 /// Core.Specification.X86ImmediateRule.</summary>
-internal enum X86ImmediateRuleKind { None, Fixed8, Fixed16, WBit, SWBit }
+internal enum X86ImmediateRuleKind { None, Fixed8, Fixed16, WBit, SWBit, Fixed32 }
 
 /// <summary>One x86 prefix byte + its role (M5.2). Mirrors Core's X86Prefix.</summary>
 internal sealed record X86PrefixModel(byte Value, X86PrefixRoleKind Role);
