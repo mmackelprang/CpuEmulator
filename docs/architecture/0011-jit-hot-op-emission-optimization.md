@@ -1,9 +1,18 @@
 # ADR 0011 — JIT hot-op emission optimization (the M6 "make tier-1 fast" phase)
 
-> **Status:** Proposed (Claude Architect, 2026-06-17). Design + profiling analysis only; NO emit code
-> written. The implementation is sequenced **after M5** (the 8086 arc owns `CpuEmitter.cs`); see §4.
-> **Date:** 2026-06-17
-> **Deciders:** Mark (owner). Drafted autonomously by Claude Architect.
+> **Status:** **Accepted-with-changes** (Claude Architect, 2026-06-18). Promoted from *Proposed* after a
+> validation pass against the now-shipped M5 (the 8086) on `main` @ `36769c6`. **The four decisions hold
+> unchanged** — all 19 file:line citations in §1.2/§4 re-verified, no rot; the all-fallback baseline is
+> still accurate. **The changes are additive, not structural** (logged in §0 below): (1) the 8086 is now
+> SHIPPED (interpreter + all-fallback JIT) and its descriptor table is **populated-but-forced-fallback**,
+> exactly the Z80's generator-effort class (a gate-flip), NOT the 68000's (a net-new table) — §4 step-3's
+> prediction is confirmed and promoted to fact; (2) the 8086 has **no measurement apparatus yet** (no bench
+> driver, no frozen W1/W2 workloads, no reference core, absent from the hot-op profiler), so the §5
+> measurement loop + §6 ROI gate cannot be satisfied for it until that lands — this adds an explicit
+> measurement-enablement dependency to the arc. The concrete per-PR arc Planner consumes is **§8 (new)**.
+> The implementation is sequenced **after M5** (now landed — the 8086 arc has freed `CpuEmitter.cs`); see §4.
+> **Date:** 2026-06-17 (proposed) · 2026-06-18 (accepted-with-changes)
+> **Deciders:** Mark (owner). Drafted + validated autonomously by Claude Architect.
 > **Supersedes / relates to:**
 > - **ADR 0008** (`0008-68000-control-flow-exceptions-and-the-timing-axis.md`) — the tier-0
 >   interpreter-oracle / tier-1 IL-JIT model and the **"run fast; drop to the slower exact tier only
@@ -24,6 +33,85 @@
 >   this ADR turns into a concrete emit plan. The "IL ceiling is real (Ryujinx)" risk bounds §2.
 > - **ADR 0001 / 0003–0006** — the per-CPU flag models (6502 P, Z80 F + the Q/MEMPTR lifecycle, the
 >   68000 CCR, the 8086 FLAGS) the emit arms must reproduce exactly.
+
+---
+
+## 0. Validation record (2026-06-18, post-M5) — what changed since *Proposed*
+
+This ADR was drafted *Proposed* on 2026-06-17 against `main` with M5 in flight. It was re-validated on
+2026-06-18 against `main` @ `36769c6` (M5 fully landed — the 8086 through the JIT, all-fallback). The
+verdict: **the design holds; promote to Accepted-with-changes.** The record:
+
+### 0.1 Citations re-verified (no rot)
+
+Every load-bearing file:line in §1.2 and §4 was re-checked against the shipped code and **confirmed**:
+
+- The hand-written emit arms are still in `BlockCompiler.Emit.cs` / `.Flow.cs` / `.Decimal.cs`; the
+  `switch (d.Class)` dispatch is at `BlockCompiler.cs:227-243`; the fallback line is `BlockCompiler.cs:209`
+  (`if (d.NeedsFallback) { EmitFallbackStep(ctx); return; }`); `FallbackEmitCount` at `:31`;
+  `LoadByteFromBus` + the fastmem split at `:350`; `EmitChainOrExit` + its three gates (budget ≤ 0,
+  `dirty.Any`, `InterruptPending`) at `:555`; `EmitSmcGuard` at `:259`; the `_regFields` map + the
+  pair-view skip comment at `:96-107`; `JittedCpu.RunChain` at `:139`.
+- The generator gate is still `CpuEmitter.cs:4131` (`fallback = true; endsBlock = true;`),
+  **unconditional for every structured CPU, with NO per-family whitelist yet** — the "5-3b flips the hot
+  ops one family at a time" comment is still a *future* plan, not shipped. `CpuEmitter.cs` is 5306 lines;
+  `KeyedDescriptorLiteral` at `:4115`; the `IJitTarget` seam ("reflection handles + delegate wraps, no
+  `Reflection.Emit`") at `:167`. The 68000's `JitDescriptorsByKey` is **still EMPTY** (`= new() { };`,
+  0 rows) in the generated `M68000Cpu.g.cs`.
+- The committed baseline (`bench/results/REPORT.md` + `comparison.json`) is unchanged and accurate:
+  Z80 0.45–0.54× / 0.11–0.13×; 68000 0.72–0.75× / 0.11–0.15×; 6502 W1 Klaus **0.00×**. The hot-op
+  profiling capture (`bench/hotop-profiler/hotop-profile-results.txt`) is unchanged.
+
+### 0.2 Drift #1 — the 8086 is now SHIPPED, and it is in the **Z80's** effort class (not the 68000's)
+
+M5 landed the 8086 as **interpreter + all-fallback JIT** (the M5.6 commit `c9eb44b`, merged to `main`).
+Verified facts that the *Proposed* draft could only predict:
+
+- The 8086 interpreter op bodies are hand-written partials (`M8086Cpu.Alu.cs` / `.Mov.cs` / `.Shift.cs` /
+  `.String.cs` / …) dispatched by the generated `ExecuteX86`. **They contain ZERO `Reflection.Emit` /
+  `ILGenerator`** (verified by grep) — they are the *interpreter oracle*, NOT emit arms. The 8086 is
+  genuinely all-fallback at the JIT tier, exactly as §1.1's table foresaw.
+- `M8086Cpu.Jit.cs` states it outright: *"In M5 every 8086 op falls back to the interpreter Step (the
+  empty-Ops, NeedsFallback descriptors), so NO emitted 8086 op calls this yet"* — and it already supplies
+  the `AdvanceCycles(long)` cycle-charge seam the M6 emit arm will call.
+- **Critically:** the generated 8086 `JitDescriptorsByKey` is **POPULATED** (283 rows in `M8086Cpu.g.cs`),
+  every row forced `NeedsFallback=true, EndsBlock=true, Ops=[]` by the same `CpuEmitter.cs:4131` gate that
+  forces the Z80's 1604 rows. So the 8086's emit-enablement is the **same gate-un-force as the Z80**, NOT
+  the 68000's net-new table generation. **§4 step-3's prediction ("the same gate-un-force as the Z80, family
+  by family") is confirmed and promoted to fact.** The 68000 remains the *only* empty-table CPU and the only
+  one needing net-new descriptor generation.
+- The 8086 also carries a wrinkle §2's fallback boundary already covers: IN/OUT (E4-E7/EC-EF) are handled
+  *inside* the interpreter body as open-bus/no-op (no peripheral on the 8088 corpus), so there is **no
+  `IoBus` accessor** — the 8086 emit arm has no separate I/O-space `Port` family to emit (unlike the Z80).
+
+### 0.3 Drift #2 — the 8086 has NO measurement apparatus (the binding gate the arc must front-load)
+
+The §5 measurement loop and the §6 profiling-ranked ROI are **binding gates** on every emit PR. For the
+8086, neither can be satisfied today:
+
+- **No bench driver:** `bench/CpuEmulator.Benchmarks/Drivers/` holds exactly `Mos6502TierDriver`,
+  `Z80TierDriver`, `M68000TierDriver` — no `M8086TierDriver`. There is no `"m8086"` architecture registered.
+- **No frozen 8086 workloads + no reference core:** the M6 benchmarking plan's §4 workload table and §3
+  reference-feasibility table both list the 8086 row as **FUTURE — gated on M5** (plan §8 Q3). The frozen
+  W1/W2 constants the §5 re-measure contract requires *do not exist yet* for the 8086.
+- **Absent from the hot-op profiler:** `bench/hotop-profiler/Profiler.cs` profiles only `6502` (`:125`),
+  `Z80` (`:138`), `68000` (`:152`). There is no ranked 8086 hot-op list — so §6's emit-prioritization input,
+  which orders the emit work, **does not exist for the 8086.**
+
+**Consequence for the arc (§8):** an 8086 emit PR cannot pass its honesty gate (a measured before/after
+delta against a frozen workload + a reference, per §5) until the 8086 measurement apparatus lands. This is
+a *dependency*, not a redesign — it adds one front-loaded "8086 bench + profile enablement" PR ahead of any
+8086 emit work, and it is exactly the work the M6 benchmarking plan already scoped as gated-future. It does
+not touch `src/` and so is parallel-safe with the Z80/68000 emit PRs.
+
+### 0.4 Net verdict
+
+**Accepted-with-changes.** The four decisions are unchanged. The two drifts are both *confirmations that
+sharpen the plan*, not contradictions: drift #1 makes the 8086 cheaper than the *Proposed* framing implied
+(Z80-class gate-flip, not 68000-class table-gen), and drift #2 surfaces a real ordering dependency the arc
+(§8) now front-loads. The rollout order (§4: Z80 → 68000 → 8086, 6502 SMC in parallel) survives intact —
+the 8086 stays last, now for a *measurement* reason on top of the *shared-helper-maturity* reason §4 already
+gave.
 
 ---
 
@@ -508,6 +596,159 @@ high-leverage — exactly because real code is dominated by a few op families.
 
 ---
 
+## 8. The M6 PR arc (the per-PR breakdown Planner consumes)
+
+The concrete, ordered PR list that turns the four decisions + the §4 rollout + the §6 ROI ranking into
+shippable units. **Each emit PR is one (CPU, op-family-bundle)** and carries: scope, its honesty gate
+(measured-data-only, §5), its dependencies, and a rough size. Sizing is **S** (≈1 focused session,
+one family, factored helpers reused), **M** (a family bundle + a new shared helper or a generator edit),
+**L** (a new generator code-path or a new measurement subsystem).
+
+**Two global rules bind every PR:**
+- **Parity gate (merge precondition, §5):** the family's TomHarte/ZEX(ALL/DOC)/SingleStep slice is green AND
+  `FallbackEmitCount` (`BlockCompiler.cs:31`) drops by exactly the emitted opcodes — a byte-for-byte oracle
+  match, or it does not ship. A half-finished family is still correct (un-emitted members interpret), so
+  PRs may be split finer than the bundles below without correctness risk.
+- **Honesty gate (§5):** every PR commits a *measured* before/after delta on the family's hot workload
+  against the unchanged frozen constants (`git diff` of the constants shows no change), and the
+  `comparison.json`/REPORT.md "our Tier-1" column moves on real numbers only.
+
+### PR-0 — shared register/operand infrastructure (the un-blocker)  ·  size **M**  ·  no CPU emit
+> **Scope:** the cross-CPU helpers Decision 2 names as "already-proven-shared, one gap": the **16-bit/wide
+> register read-write helper** for field-less pair-views (OQ6 — `BlockCompiler.cs:96-107` skips Z80 AF/BC/DE/
+> HL/IX/IY today; the 68000 D/A 32-bit regs and the 8086 AX/AL/AH overlap reuse the same shape). No flag or
+> cycle logic — pure register-file plumbing on the JIT side only (`BlockCompiler.*`, no `CpuEmitter.cs`).
+> **Gate:** a JIT unit test reads/writes each Z80 pair and round-trips; no measured-throughput claim (it
+> emits no op yet). **Deps:** none — `BlockCompiler.*` has no M5 collision, so PR-0 can start immediately.
+> **Why first:** PR-1 (Z80 LD) is blocked on it; building it standalone keeps PR-1 a pure emit PR and gives
+> Decision 2 its first "what generalizes" data point. *(Optional: fold into PR-1 if the helper proves trivial;
+> kept separate here so Planner can parallelize it against PR-A.)*
+
+### PR-1 — **Z80 `LD` family** (loads/stores/moves/16-bit-pair loads)  ·  size **M**  ·  **THIS IS PR-1**
+> **Scope:** un-force the `CpuEmitter.cs:4131` gate for the Z80 `LD` family (the generator's first
+> whitelist entry) + the JIT emit arm for `LD` r/r, r/n, r/(HL), (HL)/r, (nn) loads/stores, and the 16-bit
+> pair loads. Charges the Z80 **T-state** model (not the 6502's), operands through the fastmem split,
+> flags: `LD` touches no flags (the *easiest* flag arm — deliberately first), so this PR proves the
+> structured-CPU emit path end-to-end *without* paying the Q/MEMPTR tax yet.
+> **Gate:** Z80 ZEXALL/ZEXDOC `LD` cases green; `FallbackEmitCount` drops for every emitted `LD` opcode;
+> measured delta on **Z80-W3** (LD = 34.8% of W3, the single highest-value family — §6) committed.
+> **Deps:** PR-0 (pair helper). **Size note:** M not S — it's the first structured-CPU arm, so it eats the
+> one-time cost of wiring the gate-whitelist mechanism + the structured decode path.
+> **Why PR-1:** highest ROI (one third of all Z80 instructions), lowest risk (no-flag family), on the
+> best-validated non-6502 core (ZEXALL green), and it **proves the cross-ISA thesis** — a *second* CPU
+> emitting IL is the real M6 test (the 6502 already emits; the design stands or falls on the second core).
+
+### PR-2 — **Z80 ALU + flag core** (ADD/ADC/SUB/SBC/AND/OR/XOR/CP/INC/DEC)  ·  size **L**
+> **Scope:** the Z80 8-bit ALU family + **the Z80 flag model** — SZ5H3PNC including the documented **Q/MEMPTR
+> (WZ) lifecycle** + the undocumented F3/F5 bits (the generated `Step` already computes these; the arm
+> transcribes that logic to IL). This is the highest-bug-density code in the JIT (§2 consequence); the
+> oracle gate is the entire safety net.
+> **Gate:** ZEXALL ALU + the flag-exact subset green (Q/MEMPTR is exactly what ZEXALL stresses);
+> measured delta on **Z80-W2** (ADD/SUB/INC/DEC = ~80% of W2 — §6). **Deps:** PR-1 (shares the structured
+> emit path; reuses the operand helpers). **Size L:** the flag arm is the per-CPU long pole.
+
+### PR-3 — **Z80 branch/jump/call/counted-loop** (JP/JR/CALL/RET/DJNZ + RST + PUSH/POP)  ·  size **M**
+> **Scope:** the control-flow family + the stack family. `DJNZ` is the hot counted-loop edge (20% of W2);
+> JP/JR/CALL/RET are 20%+ of W1; PUSH/POP are 21% of W1 combined (§6). Reuses the proven JSR/RTS stack-emit
+> shape from the 6502 arms (`BlockCompiler.Flow.cs`). This is where Z80 blocks finally **span multiple
+> instructions and chain** (the chaining payoff of §3.1 — a fallback op ends the block, so until the hot
+> branches emit, blocks stay short).
+> **Gate:** ZEX control-flow cases green; measured delta on **Z80-W1** (PUSH/POP/JP/CALL/RET dominate W1).
+> **Deps:** PR-1, PR-2. **Closes the Z80:** the block-op/prefix-plane long tail (LDIR/CPIR/ED-CB rarities)
+> stays fallback by design (§2) — the Z80 is "done" for M6 at ~the §6 cumulative-86–100% line.
+
+### PR-4 — **68000 descriptor generation + MOVE/MOVEQ emit**  ·  size **L**  ·  generator-heavy
+> **Scope:** the 68000's structural blocker first — **populate `JitDescriptorsByKey` from the field-grammar**
+> (net-new generation in `CpuEmitter.cs`: the field-op → `(opIndex,size)` key the decode walk already
+> computes must get a matching descriptor row emitted, for the emittable families) — then the JIT emit arm
+> for **MOVE/MOVEQ** (the single largest 68000 family + the W1 hot op, §6). Charges 68000 cycles via
+> `M68000Cpu.AdvanceCycles`; the cycles/sec headline stays guest-MIPS-led (OQ4 — the timing axis is partial).
+> **Gate:** 68000 SingleStep MOVE cases green; measured delta on **m68k-W1** (MOVE = 11% of W1) reported in
+> **guest-MIPS** (the cycle-axis-independent metric the baseline already leads with). **Deps:** none on the
+> Z80 PRs for correctness, but **strongly prefer after PR-1/PR-2** so the shared wide-register helper (PR-0)
+> + the structured emit path are proven first. **Size L:** the descriptor-table generation is the biggest
+> *generator* change in M6 (vs the Z80/8086 gate-flips) — this is the 68000's one-time cost.
+
+### PR-5 — **68000 integer ALU** (ADD/SUB/ADDQ/SUBQ/ADDI/SUBI/AND/OR/EOR/EORI/CMP + CCR)  ·  size **L**
+> **Scope:** the 68000 ALU families + **the CCR flag model** (XNZVC, with **X distinct from C** — the per-CPU
+> wrinkle). `SUBQ` alone is 40% of W2; ADDQ/SUBQ are the counted-loop edges (§6). **Gate:** SingleStep ALU
+> cases green (X-bit exactness is the focus); measured delta on **m68k-W2** (SUBQ/ADDQ/EORI ≈ 80% of W2).
+> **Deps:** PR-4 (the descriptor-generation path + the MOVE arm establish the 68000 emit shape). **Size L:**
+> the CCR X-bit arm is the 68000's flag long pole.
+
+### PR-6 — **68000 shifts + branch/call/counted-loop** (LSL/LSR/ASL/ASR/ROL/ROR + Bcc/BSR/DBcc/JMP/JSR/RTS)  ·  size **M**
+> **Scope:** the shift family + the control-flow family. `DBcc` is the hot counted-loop branch; Bcc/BSR/RTS
+> are ~33% of W1 combined (§6). `-(A7)`/`(A7)+` stack push/pop is the same `WriteLongBus`/`ReadLongBus` the
+> interpreter uses (§2). **Gate:** SingleStep shift+control cases green; measured delta on m68k-W1 (Bcc/BSR/
+> DBcc/RTS dominate) + m68k-W2 (Bcc). **Deps:** PR-4, PR-5. **Closes the 68000:** TRAP/CHK/÷0/MOVEM/MUL/DIV/
+> RTE stay fallback by design (§2 + OQ5).
+
+### PR-A — **8086 measurement enablement** (the §0.3 dependency)  ·  size **L**  ·  bench-only, no `src/`
+> **Scope:** the measurement apparatus the §5 loop + §6 ROI require for *any* 8086 emit PR, none of which
+> exists post-M5 (§0.3): (1) an `M8086TierDriver` registered as `"m8086"` (mirrors `M68000TierDriver`); (2)
+> frozen 8086 **W1/W2 workloads** + their pinned constants (the M6 benchmarking plan §4 8086 row, currently
+> FUTURE); (3) the 8086 hot-op **profiler arm** in `bench/hotop-profiler/Profiler.cs` (the ranked 8086 list
+> that orders PR-B/C/D — it does not exist yet); (4) the 8086 reference-core decision (head-to-head vs cited
+> — plan §3 / §8 Q3). **Touches only `bench/` + `bench/hotop-profiler/` — NO `src/`,** so it is parallel-safe
+> with every Z80/68000 emit PR and can run anytime after M5 (i.e. now).
+> **Gate:** a committed 8086 all-fallback baseline row in REPORT.md/`comparison.json` (the honest "before"
+> the 8086 emit PRs subtract from) + a committed ranked 8086 hot-op list. **Deps:** none. **Why a PR, not a
+> footnote:** without it, PR-B's honesty gate (a measured before/after on a frozen 8086 workload) is
+> unsatisfiable. This is the binding precondition drift #2 surfaced.
+
+### PR-B / PR-C / PR-D — **8086 emit** (MOV → ALU+FLAGS → branch/call)  ·  size **M / L / M**
+> **Scope:** the 8086 emit arms, **family-ordered by PR-A's ranked list** (not yet captured — the order
+> below is the *expected* shape, to be confirmed against PR-A's output). The 8086's enablement is the **same
+> gate-un-force as the Z80** (drift #1: its 283-row descriptor table is populated-but-forced-fallback, not
+> empty), so the generator side is a whitelist entry per family, NOT net-new table generation.
+> - **PR-B — 8086 `MOV` family** (size **M**): the EA-resolution arm is the 8086's complexity pocket
+>   (variable-length decode + segmentation: `M8086Cpu.Ea.cs` / `.Mov.cs` are the oracle). No flags on MOV —
+>   the same "prove the path on a no-flag family first" pattern as Z80 PR-1. No `Port` family (drift #1: IN/
+>   OUT are interpreter-internal open-bus, no `IoBus`). **Deps:** PR-A; benefits from PR-0's wide-register
+>   helper (AX/AL/AH overlap) + the Z80/68000 EA experience.
+> - **PR-C — 8086 ALU + FLAGS** (size **L**): the integer ALU + the **FLAGS model** (CF/PF/AF/ZF/SF/OF —
+>   the AF/PF pair is the 8086's per-CPU wrinkle; parity over the low 8 bits; the TomHarte flags-mask
+>   excludes the undefined-flag fallout). `M8086Cpu.Alu.cs` is the oracle. **Deps:** PR-B.
+> - **PR-D — 8086 branch/call/return** (Jcc/JMP/CALL/RET/LOOP + PUSH/POP) (size **M**). **Deps:** PR-B, PR-C.
+> - **Stays fallback by design (§2):** `INT`/`INTO`/`IRET`/`BOUND`, the divide-error INT0, and the
+>   `REP MOVS/STOS/CMPS/SCAS` string loops (a CX-counted loop — far simpler to interpret, and rare).
+
+### PR-S — **the 6502 SMC/recompile-cost lever** (the W1 Klaus 0.00× hole)  ·  size **L**  ·  parallel, the co-equal lever
+> **Scope:** §3.4 — the 6502 already emits, so its M6 work is NOT coverage but the **recompile-cost axis**.
+> (1) Instrument `BlockCache.CompileCount` / `InvalidateIfDirty` eviction counts per workload (the §3.4
+> quantify-first step). (2) Implement the chosen lever (OQ3 — likely (a) a per-page recompile-cost cap that
+> falls back to interpreting a thrashing page, the ADR 0009 Decision 3 device-tier lever applied to SMC
+> pages). **Gate:** measured W1 Klaus delta — this is the *only* PR expected to move W1 (coverage moves
+> W2/W3; W1 needs this — §3.4 / OQ1). **Deps:** none (orthogonal to all emit PRs — different file surface).
+> **Why parallel-tracked:** it is a co-equal M6 lever, not a follow-on; it can land any time and is the
+> answer to "why is the JIT slower than the interpreter on SMC-heavy code."
+
+### Ordering, dependencies, and parallelism (the graph Planner schedules against)
+
+```
+PR-0 (shared regs) ─┬─> PR-1 (Z80 LD) ─> PR-2 (Z80 ALU+flags) ─> PR-3 (Z80 branch/stack)   [Z80 done]
+                    └─> PR-4 (68000 descr-gen + MOVE) ─> PR-5 (68000 ALU+CCR) ─> PR-6 (68000 shift+branch)  [68000 done]
+PR-A (8086 bench+profile, bench-only) ─> PR-B (8086 MOV) ─> PR-C (8086 ALU+FLAGS) ─> PR-D (8086 branch)   [8086 done]
+PR-S (6502 SMC lever) ───────────────────────────────────────────  [orthogonal, any time]
+```
+
+- **The critical path is the Z80 chain** (PR-0→1→2→3): it proves the cross-ISA thesis and unblocks the
+  shared-helper maturity the 68000 + 8086 arms reuse. **PR-1 is the first emit PR and the headline checkpoint.**
+- **PR-4 (68000) can start in parallel with PR-2/PR-3** once PR-0 + PR-1 prove the structured path — its
+  descriptor-generation work is independent generator surface. But the **`CpuEmitter.cs` serialization rule
+  (§4) still binds:** the generator-side edits of the Z80 gate-flips and the 68000 descriptor-gen both touch
+  `CpuEmitter.cs`, so they must be sequenced (or carefully partitioned) to avoid the same-file collision the
+  ADR warns about for M5 — Planner serializes the `CpuEmitter.cs`-touching steps even when their JIT arms
+  are independent.
+- **PR-A + PR-S touch NO `src/` generator code** (bench-only / `BlockCache` + JIT-runtime), so they are the
+  safe parallel work — dispatch them alongside the Z80 chain to keep the team busy without `CpuEmitter.cs`
+  contention.
+- **Recommended dispatch order for the first checkpoint:** PR-0 + PR-A in parallel → PR-1 (the thesis proof)
+  → checkpoint with the owner on OQ1 (the W1 success bar) + OQ2 (generic-emitter timing) before committing
+  to the full Z80→68000→8086 sweep.
+
+---
+
 *End of ADR 0011. Decision 1 (per-CPU hand-written emit arms, descriptor-gated, fastmem-direct,
 flag-exact, mirroring the oracle; emit the hot 86–100%, fallback the rare/complex/exception tail).
 Decision 2 (hand-written arms now with factored shared helpers; the generic OpModel-driven emitter is
@@ -516,5 +757,9 @@ CpuEmitter — descriptor change, M5-conflicting, post-M5 — AND BlockCompiler 
 conflict; rollout order Z80 → 68000 → 8086, with the 6502 SMC-thrash hole as a co-equal lever).
 Decision 4 (every emit step re-runs the frozen W1/W2/W3 against the same reference cores, filling the
 comparison table's optimized-JIT column honestly, parity-gated). The profiling pass (§6) ranks the hot
-ops per CPU — the emit-prioritization input. Designer: no UX surface (a faster JIT is invisible except
-as throughput). Planner can expand §4's rollout into per-family tasks once M5 frees CpuEmitter.cs.*
+ops per CPU — the emit-prioritization input. **Status: Accepted-with-changes (§0) — validated against the
+shipped M5; the 8086 is now a Z80-class gate-flip (drift #1) but needs measurement enablement first (drift
+#2 → PR-A).** The **M6 PR arc is §8** — the ordered, dependency-graphed, parity-+honesty-gated, size-estimated
+PR list Planner consumes; **PR-1 = Z80 `LD`** (highest ROI, no-flag, proves the cross-ISA thesis). Designer:
+no UX surface (a faster JIT is invisible except as throughput). M5 has freed CpuEmitter.cs — Planner can
+schedule §8 now.*
