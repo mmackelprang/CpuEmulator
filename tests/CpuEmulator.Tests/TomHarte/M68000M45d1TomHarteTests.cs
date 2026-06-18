@@ -52,9 +52,10 @@ public abstract class M68000M45d1TomHarteSweepBase
         string path = Path.Combine(dir, file);
         Assert.True(File.Exists(path), $"in-scope M4.5d-1 vector file missing: {path}");
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
-        var failures = new List<string>();
         int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sampleSize,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        var failures = new List<string>();
         int run = 0;
         int executed = 0, deferred = 0, unpredictable = 0;
         foreach (var c in cases)

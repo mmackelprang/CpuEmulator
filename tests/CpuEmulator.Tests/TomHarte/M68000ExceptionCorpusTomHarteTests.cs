@@ -57,9 +57,10 @@ public abstract class M68000ExceptionCorpusTomHarteSweepBase
         string path = Path.Combine(dir, file);
         if (!File.Exists(path)) return;   // a few corpus files may be absent in trimmed caches — skip silently
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
-        var failures = new List<string>();
         int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sampleSize,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        var failures = new List<string>();
         int run = 0;
         int asserted = 0;        // embedded exception cases that ran + asserted on the data axis (the proof)
         int addrDeferred = 0;    // address-error cases still deferred (DD4 — M4.5d-2)

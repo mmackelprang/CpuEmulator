@@ -31,11 +31,12 @@ public abstract class M68000TimingReconBase
         string path = Path.Combine(dir, VectorFile);
         if (!File.Exists(path)) return;
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sampleSize,
+            max => M68000TomHarteLoader.LoadFile(path, max));
         Assert.NotEmpty(cases);
 
         var failures = new List<string>();
-        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
         int run = 0;
         int executed = 0, deferred = 0;
         foreach (var c in cases)

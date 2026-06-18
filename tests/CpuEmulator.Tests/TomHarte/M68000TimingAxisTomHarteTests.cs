@@ -71,11 +71,12 @@ public abstract class M68000TimingAxisTomHarteSweepBase
         string path = Path.Combine(dir, file);
         if (!File.Exists(path)) return;   // a few corpus files may be absent in trimmed caches — skip silently
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sampleSize,
+            max => M68000TomHarteLoader.LoadFile(path, max));
         Assert.NotEmpty(cases);
 
         var failures = new List<string>();
-        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
         int run = 0;
         int executed = 0, deferred = 0, unpredictable = 0;
         foreach (var c in cases)

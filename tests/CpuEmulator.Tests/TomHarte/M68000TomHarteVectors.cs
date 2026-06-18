@@ -31,11 +31,7 @@ internal static class M68000TomHarteVectors
     /// CPUEMULATOR_TOMHARTE_SAMPLE (default 200); CPUEMULATOR_UAT=full removes the cap (int.MaxValue) so the
     /// substantive/milestone merge gate runs the full ~8065-case-per-file sweep. Caps the per-file case loop
     /// ONLY — it does NOT change which files run, which cases are deferred/filtered, or what is asserted.</summary>
-    public static int ResolveSampleSize()
-    {
-        if (Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full") return int.MaxValue;
-        return int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"), out int p) && p > 0 ? p : 200;
-    }
+    public static int ResolveSampleSize() => TomHarteSampling.ResolveSampleSize();
 }
 
 /// <summary>TheoryAttribute that skips the whole theory at discovery when the 680x0 vectors are absent —

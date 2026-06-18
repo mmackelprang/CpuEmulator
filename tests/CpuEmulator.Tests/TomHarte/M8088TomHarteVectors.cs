@@ -34,11 +34,7 @@ internal static class M8088TomHarteVectors
     /// CPUEMULATOR_UAT=full removes the cap (int.MaxValue) so the milestone merge gate runs the full
     /// 10,000-case-per-file sweep. Caps the per-file case loop ONLY — it does NOT change which files run,
     /// which cases are deferred/filtered, or what is asserted.</summary>
-    public static int ResolveSampleSize()
-    {
-        if (Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full") return int.MaxValue;
-        return int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"), out int p) && p > 0 ? p : 200;
-    }
+    public static int ResolveSampleSize() => TomHarteSampling.ResolveSampleSize();
 }
 
 /// <summary>

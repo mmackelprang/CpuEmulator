@@ -53,11 +53,12 @@ public abstract class M68000MoveTomHarteSweepBase
         string path = Path.Combine(dir, file);
         Assert.True(File.Exists(path), $"in-scope MOVE-family vector file missing: {path}");
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
+        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sampleSize,
+            max => M68000TomHarteLoader.LoadFile(path, max));
         Assert.NotEmpty(cases);   // a present-but-empty file would silently pass — guard it
 
         var failures = new List<string>();
-        int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
         int run = 0;
         int executed = 0;   // non-exception MOVE cases actually run + asserted on the data (or full) axis
         int deferred = 0;   // exception cases (M4.5d) — counted, not asserted (would be a drift false-positive)
