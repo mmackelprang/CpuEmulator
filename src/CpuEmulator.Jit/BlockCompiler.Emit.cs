@@ -269,6 +269,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // ── Load class ───────────────────────────────────────────────────────────────────────────
     private void EmitLoad(EmitContext ctx, OpcodeDescriptor d)
     {
+        if (TargetIsZ80 && d.Mnemonic == "LD") { EmitZ80Ld(ctx, d); return; }   // M6 PR-1
         ILGenerator il = ctx.Il;
         // Ops: Load(target) [+ SetNZ(target)]
         string target = d.Ops[0].RegA;
@@ -288,6 +289,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // ── Store class ────────────────────────────────────────────────────────────────────────
     private void EmitStore(EmitContext ctx, OpcodeDescriptor d)
     {
+        if (TargetIsZ80 && d.Mnemonic == "LD") { EmitZ80Ld(ctx, d); return; }   // M6 PR-1
         // Ops: Store(source). Resolve the effective address (with store dummy reads), push the
         // source register byte, then store.
         string source = d.Ops[0].RegA;
@@ -437,6 +439,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // ── Register class (Implied) — includes transfers, inc/dec, set/clear flag, stack ops, NOP ─
     private void EmitRegister(EmitContext ctx, OpcodeDescriptor d)
     {
+        if (TargetIsZ80 && d.Mnemonic == "LD") { EmitZ80Ld(ctx, d); return; }   // M6 PR-1
         ILGenerator il = ctx.Il;
         string firstKind = d.Ops.Length > 0 ? d.Ops[0].Kind : string.Empty;
 

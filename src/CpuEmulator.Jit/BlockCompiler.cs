@@ -69,6 +69,18 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private readonly FieldInfo _fp;
     private readonly FieldInfo _fpc;
 
+    // M6 PR-1: the Z80's Q (the byte last-flag-write tracker) and WZ (the ushort MEMPTR) fields,
+    // resolved once per compile from the CPU type by name. Null for non-Z80 CPUs (the LD emit arm only
+    // runs for the Z80 — TargetIsZ80 — so they are non-null wherever they are dereferenced). Every
+    // base-plane LD clears Q; the (nn) and (BC)/(DE) indirect forms set WZ (the MEMPTR side-effects).
+    private readonly FieldInfo? _z80Q;
+    private readonly FieldInfo? _z80WZ;
+    // M6 PR-1: the Z80's R (memory-refresh) byte field. The interpreter's Step bumps R once per opcode
+    // fetch via OnInstructionFetched (R = (R & 0x80) | ((R + 1) & 0x7F) — bit 7 preserved, bits 0..6
+    // incremented mod 128). An EMITTED instruction skips Step, so the emit path must replicate the bump;
+    // a fallback op keeps its inner.Step bump. Null for non-Z80 CPUs.
+    private readonly FieldInfo? _z80R;
+
     // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
     // typeof(Mos6502Cpu)). Resolved from the injected target's reflection handles.
     private readonly MethodInfo _mAdvance;
@@ -149,6 +161,39 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 _regPairFields[name] = (hf, lf);                 // AF/BC/DE/HL/IX/IY + shadows; AX/BX/CX/DX
             }
         }
+
+        // M6 PR-1: the Z80 LD emit arm's Q/WZ side-effect handles. Resolved by name on the CPU type;
+        // null for non-Z80 CPUs (GetField returns null when the field is absent), which is harmless —
+        // the arm that dereferences them only runs when TargetIsZ80. Q is a byte field (Z80Cpu.cs), WZ a
+        // ushort field (the generated Z80Cpu.g.cs); both are public, so GetField with the default binding
+        // flags finds them.
+        _z80Q = target.CpuType.GetField("Q");
+        _z80WZ = target.CpuType.GetField("WZ");
+        _z80R = target.CpuType.GetField("R");
+    }
+
+    /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
+    /// (EmitZ80Ld). The 6502 never produces the Z80-shape modes/op-kinds, so this is the unambiguous
+    /// per-CPU discriminator; when PR-B adds the 8086 it generalizes to a switch on _target.CpuType.</summary>
+    private bool TargetIsZ80 => _target.CpuType.Name == "Z80Cpu";
+
+    /// <summary>M6 PR-1: the operand bytes an EMITTED Z80 LD row's body consumes from PC (beyond the
+    /// opcode byte the decode walk already counted) — the footprint correction Discover adds so block
+    /// discovery + the static nextPc match the PC the emit arm actually leaves. Mode-driven, exactly
+    /// mirroring the interpreter op bodies: Immediate (LD r,n / LD (HL),n) reads 1; ImmediateExtended
+    /// (LD rr,nn) and ExtendedAddress (LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)) read 2; Register
+    /// (LD r,r') and RegisterIndirect (LD r,(HL) etc.) read 0. Returns 0 for any non-Z80, fallback, or
+    /// non-LD row — those keep the walk's length unchanged.</summary>
+    private int Z80EmitOperandBytes(OpcodeDescriptor d)
+    {
+        if (!TargetIsZ80 || d.NeedsFallback || d.Mnemonic != "LD") return 0;
+        return d.Mode switch
+        {
+            JitMode.Immediate => 1,            // LD r,n / LD (HL),n
+            JitMode.ImmediateExtended => 2,    // LD rr,nn
+            JitMode.ExtendedAddress => 2,      // LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)
+            _ => 0,                            // Register / RegisterIndirect — no PC operand bytes
+        };
     }
 
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the
@@ -166,9 +211,19 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         {
             DecodeResult r = _target.Decode(stream);        // J3: the per-CPU decode seam (was static)
             OpcodeDescriptor d = _target.DescriptorFor(r.OperationKey);     // 6502: key == opcode → [256]
-            run.Add((pc, d, r.Length));
+            // M6 PR-1: the Z80 decode walk's r.Length is the OPCODE-KEY length (1 for base-plane rows) —
+            // the interpreter's op body reads the operand bytes itself and advances PC past them, so the
+            // walk under-counts an emitted LD's true footprint (LD B,n = 2, LD BC,nn = 3, LD A,(nn) = 3).
+            // For an EMITTED Z80 LD the JIT advances PC in the arm (mirroring the body), so block discovery
+            // AND the static nextPc (EmitBudgetCheck / the chain edge) must use the FULL footprint, or the
+            // walk mis-decodes the operand bytes as the next opcode and nextPc lands mid-instruction. A
+            // FALLBACK Z80 op ends the block (Discover stops; its nextPc is never read — it self-terminates
+            // via inner.Step), so only emitted LD rows need the correction. The 6502 is unaffected (its walk
+            // length already includes operands).
+            int length = r.Length + Z80EmitOperandBytes(d);
+            run.Add((pc, d, length));
             if (d.EndsBlock) break;
-            pc = unchecked((ushort)(pc + r.Length));         // advance by the COMPUTED length
+            pc = unchecked((ushort)(pc + length));           // advance by the FULL footprint
             stream.SeekTo(pc);                               // reposition at the next instruction
         }
         return run;
@@ -260,9 +315,20 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // charges follow, in order, after this.
         EmitChargeOneCycle(ctx);   // opcode-fetch cycle (was: trailing in each arm — moved up for GT-F(a))
         EmitIncrementPC(ctx, 1);
+        // M6 PR-1: the Z80 memory-refresh (R) bump. The interpreter's Step calls OnInstructionFetched
+        // once per M1 opcode fetch, which bumps R; an EMITTED Z80 instruction never runs Step, so the
+        // emit path must replicate the bump itself (a fallback op keeps its own Step bump). Every emitted
+        // Z80 row in PR-1 is a base-plane single-opcode-byte LD (keyBytes == 1), so the bump is applied
+        // once; PR-2+ that emit prefixed rows pass the prefix-byte count.
+        if (TargetIsZ80)
+            EmitZ80RefreshR(ctx, 1);
         // Reset the SMC "wrote page" marker before any instruction that might write RAM, so the
         // intra-block guard only trips on this instruction's own writable-RAM store.
-        bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw;
+        // M6 PR-1: the Z80 LD store-to-memory forms LD (HL),n (StoreImm8) and LD (nn),HL (Store16) ride
+        // the Register JitOpClass (not Store), so the class check alone misses them — include them so the
+        // intra-block SMC guard arms for their writes (LD (HL),r / LD (nn),A already ride Store).
+        bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
+            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16");
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -350,6 +416,29 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldind_I8);
         il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Conv_I8);
+        il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stind_I8);
+    }
+
+    /// <summary>M6 PR-1: charge N cycles in one shot (cpu.AdvanceCycles(N) + budget -= N).
+    /// EmitChargeOneCycle is the N==1 special case; the Z80 LD arm charges the residual T-states (the
+    /// interpreter body's <c>_cycles += N</c>) after the up-front fetch + the per-access charges. N must
+    /// be &gt;= 0; N &lt;= 0 is a no-op.</summary>
+    private void EmitChargeCycles(EmitContext ctx, int n)
+    {
+        if (n <= 0) return;
+        ILGenerator il = ctx.Il;
+        // cpu.AdvanceCycles(n)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldc_I4, n);
+        il.Emit(OpCodes.Conv_I8);
+        il.Emit(OpCodes.Call, _mAdvance);
+        // budget -= n
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Ldind_I8);
+        il.Emit(OpCodes.Ldc_I4, n);
         il.Emit(OpCodes.Conv_I8);
         il.Emit(OpCodes.Sub);
         il.Emit(OpCodes.Stind_I8);

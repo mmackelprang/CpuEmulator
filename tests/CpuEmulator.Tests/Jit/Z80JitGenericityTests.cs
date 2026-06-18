@@ -80,20 +80,68 @@ public class Z80JitGenericityTests
         Assert.Null(ex);
     }
 
+    /// <summary>M6 PR-1: the genericity flip. LD A,42h now EMITS (it was a fallback in 5-3a); the only
+    /// fallback in the block is the block-ending HALT, so FallbackEmitCount is exactly 1 (the HALT), NOT 2.
+    /// Mirrors the 6502 ADC_opcode_block_emits_no_fallback shape.</summary>
     [Fact]
-    public void Every_Z80_op_in_a_block_emits_a_fallback_in_5_3a()
+    public void Z80_LD_block_emits_no_fallback_after_PR1()
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
             return;   // emit-only proof; skip where dynamic code is disabled (AOT)
         var bus = NewRamBus();
-        bus.Write8(0x0100, 0x3E); bus.Write8(0x0101, 0x42);  // LD A,42h (one op; a fallback that ends block)
+        bus.Write8(0x0100, 0x3E); bus.Write8(0x0101, 0x42);   // LD A,42h  (now emitted — 0 fallbacks)
+        bus.Write8(0x0102, 0x76);                              // HALT — the one block-ending fallback
         var z80 = new Z80Cpu(bus);
         var opts = new JitOptions();
         var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
         compiler.Compile(0x0100);
-        // Every Z80 op is NeedsFallback in 5-3a, and a fallback ENDS the block — so a block is exactly one
-        // op and emits exactly one fallback Step. (5-3b flips the hot ops to 0 fallbacks for emitted blocks.)
-        Assert.Equal(1, compiler.FallbackEmitCount);
+        // LD A,42h emits (0 fallbacks); HALT is the one fallback that ends the block.
+        Assert.Equal(1, compiler.FallbackEmitCount);           // exactly the HALT, NOT the LD
+    }
+
+    /// <summary>M6 PR-1: every emitted LD form contributes 0 fallbacks — the "FallbackEmitCount drops by
+    /// exactly the emitted opcodes" half of the §8 parity gate AND the gate/arm lockstep check (the form
+    /// must have a real emit branch, or EmitZ80Ld's default throws and Compile fails). One LD op per
+    /// block, terminated by HALT; the block's only fallback is the HALT. Includes the 16-bit-absolute
+    /// 0x22 (LD (nn),HL) / 0x2A (LD HL,(nn)) — Decision B.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0x41 })]               // LD B,C        (Register/Transfer)
+    [InlineData(new byte[] { 0x06, 0x42 })]         // LD B,42h      (Immediate/Load)
+    [InlineData(new byte[] { 0x46 })]               // LD B,(HL)     (RegisterIndirect/Load)
+    [InlineData(new byte[] { 0x70 })]               // LD (HL),B     (RegisterIndirect/Store)
+    [InlineData(new byte[] { 0x0A })]               // LD A,(BC)     (RegisterIndirect/Load + WZ)
+    [InlineData(new byte[] { 0x02 })]               // LD (BC),A     (RegisterIndirect/Store + WZ)
+    [InlineData(new byte[] { 0x36, 0x42 })]         // LD (HL),42h   (Immediate/StoreImm8)
+    [InlineData(new byte[] { 0x01, 0x34, 0x12 })]   // LD BC,1234h   (ImmediateExtended/Load16)
+    [InlineData(new byte[] { 0x3A, 0x00, 0x20 })]   // LD A,(2000h)  (ExtendedAddress/Load + WZ)
+    [InlineData(new byte[] { 0x32, 0x00, 0x20 })]   // LD (2000h),A  (ExtendedAddress/Store + WZ quirk)
+    [InlineData(new byte[] { 0x22, 0x00, 0x20 })]   // LD (2000h),HL (ExtendedAddress/Store16) — Decision B
+    [InlineData(new byte[] { 0x2A, 0x00, 0x20 })]   // LD HL,(2000h) (ExtendedAddress/LoadMem16) — Decision B
+    public void Z80_LD_form_emits_zero_fallbacks(byte[] opcode)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var bus = NewRamBus();
+        ushort pc = 0x0100;
+        foreach (byte b in opcode) bus.Write8(pc++, b);
+        bus.Write8(pc, 0x76);                                  // HALT — the one block-ending fallback
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        compiler.Compile(0x0100);
+        Assert.Equal(1, compiler.FallbackEmitCount);           // the LD emitted; only the HALT fell back
+    }
+
+    /// <summary>M6 PR-1 (Decision A): the descriptor-cycle tripwire. The Z80 LD r,n immediate carries 7 T
+    /// (the generator JitBaseCycles fix), and the UNTOUCHED control proves the shared
+    /// ComputeCycles("Immediate") template still yields 2 for the 6502's LDA #imm (the fix is scoped — it
+    /// only catches the "LD" mnemonic, which the 6502 never names). This is the cheap, fast tripwire that
+    /// the disambiguation stays scoped if anyone later edits JitBaseCycles/ComputeCycles.</summary>
+    [Fact]
+    public void Z80_LD_r_n_descriptor_carries_7_cycles_and_6502_immediate_stays_2()
+    {
+        Assert.Equal(7, Z80Cpu.DescriptorFor(0x06).BaseCycles);        // LD B,n — the corrected Z80 value
+        Assert.Equal(2, Mos6502Cpu.DescriptorFor(0xA9).BaseCycles);    // LDA #imm — the shared template, untouched
     }
 
     [Theory]

@@ -4128,8 +4128,20 @@ internal static class CpuEmitter
         // with the 6502 cycle model (NOP=2T vs the Z80's 4T) — breaking tier parity. 5-3b flips the hot
         // Z80 ops back to emitted IL one family at a time, each with its own correct cycle + flag model.
         // A fallback op ENDS the block (one interpreter Step per block), matching ClassifyForJit's rule.
-        fallback = true;
-        endsBlock = true;
+        //
+        // M6 PR-1 (ADR 0011 §4/§8): un-force the gate for the Z80 LD family — the first emitted structured
+        // family. A whitelisted LD row KEEPS the ClassifyForJit values (fallback=false, endsBlock=false for
+        // these straight-line LD rows) so it emits real IL and the block continues through it; EVERY OTHER
+        // structured-CPU op keeps the all-fallback bring-up force. The pre-force fallback (from
+        // ClassifyForJit) is already false for the 8-bit LD generic-class rows (G3), so this just declines
+        // to RE-force them. LD A,I / LD A,R ride the Implied/EdLdIaRa shape and are excluded by
+        // IsEmittableZ80Family (their mode is not in the whitelist AND the EdLdIaRa op-kind is rejected),
+        // so they stay fallback. As later families emit (PR-2/PR-3), they extend IsEmittableZ80Family.
+        if (!IsEmittableZ80Family(insn))
+        {
+            fallback = true;
+            endsBlock = true;
+        }
 
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
 
@@ -4166,6 +4178,21 @@ internal static class CpuEmitter
             return 2;
 
         string firstKind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
+
+        // M6 PR-1 (DECISION A): the base-plane Z80 LD r,n immediate is classified GENERIC Load (not
+        // Z80Ld), so without this it would fall through to ComputeCycles("Immediate") => 2. The true Z80
+        // cost is 7 T. Keyed on the "LD" mnemonic — the 6502/68000/8086 have NO "LD" mnemonic (the 6502
+        // uses LDA/LDX/LDY; verified by grep that no other generated table carries a "LD" row), so this
+        // branch is unreachable for them and their ComputeCycles("Immediate") => 2 path is provably
+        // untouched (the regression-safety gate: an empty git-diff on the 6502/68000 descriptor tables).
+        // The other generic-class 8-bit LD forms already resolve correctly via ComputeCycles below
+        // (RegisterIndirect=7, ExtendedAddress=13, Register=4); the Z80Ld-class rows already resolve via
+        // Z80Cycles below — this corrects ONLY the immediate-load row (0x06/0x0E/0x16/0x1E/0x26/0x2E/0x3E).
+        // LD (HL),n is StoreImm8 under JitMode.Immediate but class Register (not Load), so it is NOT this
+        // shape and is not double-counted; LD A,I / LD A,R are Implied/EdLdIaRa, not this shape either.
+        if (insn.Mnemonic == "LD" && insn.Mode == "Immediate" && cls == InstructionClass.Load)
+            return 7;
+
         // M3.4a: Z80 classes get their base T-state count from the Z80 cycle table (the not-taken
         // base for conditional flow; the body adds the taken penalty — parallel to the 6502 branch).
         if (cls is InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
@@ -4194,6 +4221,45 @@ internal static class CpuEmitter
             };
 
         return ComputeCycles(insn.Mode, cls);
+    }
+
+    /// <summary>M6 PR-1: the Z80 LD-family emit whitelist. A row is emittable iff it is a BASE-PLANE
+    /// "LD" whose mode + op-kind are in the proven-emittable set (the LD forms PR-1 ships an emit arm
+    /// for, in BlockCompiler.Z80.cs's EmitZ80Ld). The whitelist and the arm MUST stay in lockstep: every
+    /// (mode, op-kind) admitted here has a matching emit branch, and the arm's default throws if the gate
+    /// ever admits a form with no branch (the lockstep tripwire).
+    ///
+    /// EXCLUSIONS (all stay JIT fallback — by §2, not yet armed):
+    ///   • Non-base-plane rows (KeyShape != OpcodeByte OR Prefix != -1): the ED-plane LD A,I / LD A,R
+    ///     (0xED57 / 0xED5F — they touch flags) and EVERY DD/FD-prefixed indexed LD (LD r,(IX+d) etc.,
+    ///     ~150 rows whose mode IS in the whitelist set — Register/Immediate/RegisterIndirect/...). A
+    ///     mode check ALONE does NOT exclude these (verified against the generated table), so the
+    ///     base-plane gate is load-bearing, not belt-and-suspenders.
+    ///   • EdLdIaRa op-kind: belt-and-suspenders reject for the flag-touching ED loads (already excluded
+    ///     by the base-plane gate, since they are KeyShape.PrefixedOpcode).
+    ///   • Opcode 0xF9 (LD SP,HL): a 16-bit Register/Transfer form (6 T, not the 8-bit LD r,r' 4 T) with
+    ///     no emit branch in PR-1 — its descriptor cycle is also still the latent generic 4 (out of PR-1
+    ///     scope). It stays fallback; PR-2+ arm the 16-bit register-transfer family.
+    /// Extended family-by-family in PR-2+.</summary>
+    private static bool IsEmittableZ80Family(InstructionModel insn)
+    {
+        if (insn.Mnemonic != "LD") return false;
+        // Base plane only — exclude ED (LD A,I / LD A,R) and DD/FD-indexed LD (the prefixed forms ride
+        // later PRs / stay fallback). A prefixed LD's mode often IS in the whitelist set, so this gate is
+        // the real exclusion for them, not the mode check below.
+        if (insn.KeyShape != KeyShape.OpcodeByte || insn.Prefix != -1) return false;
+        // 0xF9 LD SP,HL: 16-bit Register/Transfer (6 T) — no PR-1 emit branch (the Transfer arm is 8-bit).
+        if (insn.Opcode == 0xF9) return false;
+        // The emittable LD modes (verified against the descriptor rows — §recon "the Z80 LD oracle"):
+        bool modeOk = insn.Mode is "Register"            // LD r,r'
+                                or "Immediate"            // LD r,n / LD (HL),n
+                                or "RegisterIndirect"     // LD r,(HL) / LD (HL),r / LD A,(BC)/(DE) / LD (BC)/(DE),A
+                                or "ExtendedAddress"      // LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)  ← incl. 16-bit-abs (Decision B)
+                                or "ImmediateExtended";   // LD rr,nn
+        if (!modeOk) return false;
+        // Belt-and-suspenders: reject the flag-touching ED loads by op-kind (already base-plane-excluded).
+        if (insn.Ops.Length > 0 && insn.Ops[0].Kind is "EdLdIaRa") return false;
+        return true;
     }
 
     /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
@@ -4227,6 +4293,16 @@ internal static class CpuEmitter
             or InstructionClass.Z80EdIo or InstructionClass.Z80EdOp
             or InstructionClass.Z80EdBlock or InstructionClass.Z80Indexed
             or InstructionClass.Z80DdCb;
+        // M6 PR-1 (ADR 0011 §4/§8): the emittable Z80 LD family leaves the all-fallback set. The 16-bit
+        // LD rows (LD rr,nn / LD (HL),n / LD (nn),HL / LD HL,(nn)) ride the Z80Ld InstructionClass, so the
+        // z80 guard above would force them fallback (the 8-bit LD r,n / LD r,(HL) rows ride GENERIC classes
+        // and were never z80-forced here — only KeyedDescriptorLiteral's line-4131 force caught them, which
+        // IsEmittableZ80Family also now declines). Exempting the whitelist HERE makes ClassifyForJit the
+        // single source of the LD family's fallback=false, and the derived endsBlock below follows. Every
+        // non-LD Z80 op stays z80-forced. Keyed via IsEmittableZ80Family so the gate + the emit arm stay
+        // in lockstep (DECISION B's 0x22/0x2A are admitted there and emitted in EmitZ80Ld).
+        if (IsEmittableZ80Family(insn))
+            z80 = false;
         bool fallback = firstKind is "Brk" or "Rti" or "Halt" || z80;
 
         string jitClass = cls switch
