@@ -69,6 +69,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private readonly FieldInfo _fp;
     private readonly FieldInfo _fpc;
 
+    // M6 PR-1: the Z80's Q (the byte last-flag-write tracker) and WZ (the ushort MEMPTR) fields,
+    // resolved once per compile from the CPU type by name. Null for non-Z80 CPUs (the LD emit arm only
+    // runs for the Z80 — TargetIsZ80 — so they are non-null wherever they are dereferenced). Every
+    // base-plane LD clears Q; the (nn) and (BC)/(DE) indirect forms set WZ (the MEMPTR side-effects).
+    private readonly FieldInfo? _z80Q;
+    private readonly FieldInfo? _z80WZ;
+
     // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
     // typeof(Mos6502Cpu)). Resolved from the injected target's reflection handles.
     private readonly MethodInfo _mAdvance;
@@ -149,7 +156,20 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 _regPairFields[name] = (hf, lf);                 // AF/BC/DE/HL/IX/IY + shadows; AX/BX/CX/DX
             }
         }
+
+        // M6 PR-1: the Z80 LD emit arm's Q/WZ side-effect handles. Resolved by name on the CPU type;
+        // null for non-Z80 CPUs (GetField returns null when the field is absent), which is harmless —
+        // the arm that dereferences them only runs when TargetIsZ80. Q is a byte field (Z80Cpu.cs), WZ a
+        // ushort field (the generated Z80Cpu.g.cs); both are public, so GetField with the default binding
+        // flags finds them.
+        _z80Q = target.CpuType.GetField("Q");
+        _z80WZ = target.CpuType.GetField("WZ");
     }
+
+    /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
+    /// (EmitZ80Ld). The 6502 never produces the Z80-shape modes/op-kinds, so this is the unambiguous
+    /// per-CPU discriminator; when PR-B adds the 8086 it generalizes to a switch on _target.CpuType.</summary>
+    private bool TargetIsZ80 => _target.CpuType.Name == "Z80Cpu";
 
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the
     /// generated decode walk (Ground truth B) — NOT a static descriptor Length field. The walk
@@ -350,6 +370,29 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldind_I8);
         il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Conv_I8);
+        il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stind_I8);
+    }
+
+    /// <summary>M6 PR-1: charge N cycles in one shot (cpu.AdvanceCycles(N) + budget -= N).
+    /// EmitChargeOneCycle is the N==1 special case; the Z80 LD arm charges the residual T-states (the
+    /// interpreter body's <c>_cycles += N</c>) after the up-front fetch + the per-access charges. N must
+    /// be &gt;= 0; N &lt;= 0 is a no-op.</summary>
+    private void EmitChargeCycles(EmitContext ctx, int n)
+    {
+        if (n <= 0) return;
+        ILGenerator il = ctx.Il;
+        // cpu.AdvanceCycles(n)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldc_I4, n);
+        il.Emit(OpCodes.Conv_I8);
+        il.Emit(OpCodes.Call, _mAdvance);
+        // budget -= n
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Ldind_I8);
+        il.Emit(OpCodes.Ldc_I4, n);
         il.Emit(OpCodes.Conv_I8);
         il.Emit(OpCodes.Sub);
         il.Emit(OpCodes.Stind_I8);
