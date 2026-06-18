@@ -5,6 +5,8 @@ using System.Runtime.CompilerServices;
 // + unit proofs can drive it directly (the M68000 EA helper used the same InternalsVisibleTo pattern).
 [assembly: InternalsVisibleTo("CpuEmulator.Tests")]
 
-// M5.1 note (still valid): the 8086 does NOT yet go through the IL-JIT — that is M5.6. When M5.6 routes the
-// 8086 through CpuEmulator.Jit, add [assembly: InternalsVisibleTo("CpuEmulator.Jit")] (the M4.6 pattern) so
-// the JIT can reach the internal AdvanceCycles charge seam by reflection.
+// M5.6: the 8086 now goes through the IL-JIT (CpuEmulator.Jit). The JIT reaches the internal AdvanceCycles
+// charge seam (on the hand-written M8086Cpu.Jit partial) via reflection + DynamicMethod(skipVisibility: true).
+// The generated _cycles field stays private; AdvanceCycles is the explicit named seam — mirroring the
+// Z80 + Mos6502 + M68000 partials.
+[assembly: InternalsVisibleTo("CpuEmulator.Jit")]
