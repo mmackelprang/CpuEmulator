@@ -12,6 +12,23 @@ namespace CpuEmulator.Tests.TomHarte;
 /// </summary>
 internal static class TomHarteRunner
 {
+    // Per-worker-thread reusable 64 KiB program bus (lever 2 — the 68000 _ramArena pattern, ported). RunCase is
+    // synchronous (no await), so [ThreadStatic] is reentrancy-safe: a worker thread never reenters RunCase.
+    [ThreadStatic] private static AddressSpace? _busTls;
+    [ThreadStatic] private static byte[]? _ramTls;
+
+    private static (AddressSpace bus, byte[] ram) RentBus()
+    {
+        if (_busTls is null)
+        {
+            _ramTls = new byte[0x10000];
+            _busTls = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+            _busTls.MapMemory(0x0000, _ramTls, writable: true);
+        }
+        _busTls.ClearMappedBacking(_ramTls!);   // re-zero; mapping persists → identical to a fresh new byte[0x10000]
+        return (_busTls, _ramTls!);
+    }
+
     /// <summary>
     /// Executes one vector case against a fresh CPU + full-64KiB RAM with a tracing bus.
     /// Returns null on pass, or a multi-line failure report with the disassembled instruction
@@ -19,8 +36,7 @@ internal static class TomHarteRunner
     /// </summary>
     public static string? RunCase(TomHarteCase testCase)
     {
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
+        var (inner, _) = RentBus();
         foreach (var entry in testCase.Initial.Ram)
             inner.Write8(entry.Address, entry.Value);
 
@@ -85,8 +101,7 @@ internal static class TomHarteRunner
     /// </summary>
     public static string? RunCaseThroughJit(TomHarteCase testCase)
     {
-        var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        space.MapMemory(0x0000, new byte[0x10000], writable: true);
+        var (space, _) = RentBus();
         foreach (var entry in testCase.Initial.Ram)
             space.Write8(entry.Address, entry.Value);
 

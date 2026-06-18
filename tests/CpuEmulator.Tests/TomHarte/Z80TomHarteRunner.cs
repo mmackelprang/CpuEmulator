@@ -18,19 +18,39 @@ namespace CpuEmulator.Tests.TomHarte;
 /// </summary>
 internal static class Z80TomHarteRunner
 {
+    // Per-worker-thread reusable 64 KiB program + 64 KiB I/O buses (lever 2 — the 68000 _ramArena pattern, ported).
+    // RunCase/RunCaseThroughJit are synchronous (no await), so [ThreadStatic] is reentrancy-safe.
+    [ThreadStatic] private static AddressSpace? _progTls;
+    [ThreadStatic] private static byte[]? _progRamTls;
+    [ThreadStatic] private static AddressSpace? _ioTls;
+    [ThreadStatic] private static byte[]? _ioRamTls;
+
+    private static (AddressSpace prog, byte[] progRam, AddressSpace io, byte[] ioRam) RentBuses()
+    {
+        if (_progTls is null)
+        {
+            _progRamTls = new byte[0x10000];
+            _progTls = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+            _progTls.MapMemory(0x0000, _progRamTls, writable: true);
+            _ioRamTls = new byte[0x10000];
+            _ioTls = new AddressSpace(AddressSpaceKind.Io, addressBits: 16);
+            _ioTls.MapMemory(0x0000, _ioRamTls, writable: true);
+        }
+        _progTls.ClearMappedBacking(_progRamTls!);
+        _ioTls!.ClearMappedBacking(_ioRamTls!);
+        return (_progTls, _progRamTls!, _ioTls, _ioRamTls!);
+    }
+
     /// <summary>Run one case. The WZ/MEMPTR model is COMPLETE (M3.4c, Piece A): every Z80 op models its
     /// WZ writes and maintains Q (the shared 6502-class ops set Q=0; the flag-writing ops set Q=F), and
     /// the IM ops set the interrupt mode. So the final Q AND WZ AND IM are checked on EVERY case (the
     /// M3.4b <c>checkInternal</c> scoping is retired). Iff1/Iff2 were already checked universally.</summary>
     public static string? RunCase(Z80TomHarteCase c, bool registersOnly = false)
     {
-        var inner = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        inner.MapMemory(0x0000, new byte[0x10000], writable: true);
+        var (inner, _, ioInner, _) = RentBuses();
         foreach (var e in c.Initial.Ram) inner.Write8(e.Address, e.Value);
         var bus = new TracingAddressSpace(inner);
 
-        var ioInner = new AddressSpace(AddressSpaceKind.Io, addressBits: 16);
-        ioInner.MapMemory(0x0000, new byte[0x10000], writable: true);
         // Pre-load the IN ports' return values so a read returns the vector's expected byte.
         foreach (var port in c.Ports)
             if (port.IsRead) ioInner.Write8(port.Address, port.Value);
@@ -104,12 +124,9 @@ internal static class Z80TomHarteRunner
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
             return null;   // JIT-only proof; treat as pass where dynamic code is disabled (AOT)
 
-        var program = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
-        program.MapMemory(0x0000, new byte[0x10000], writable: true);
+        var (program, _, ioInner, _) = RentBuses();
         foreach (var e in c.Initial.Ram) program.Write8(e.Address, e.Value);
 
-        var ioInner = new AddressSpace(AddressSpaceKind.Io, addressBits: 16);
-        ioInner.MapMemory(0x0000, new byte[0x10000], writable: true);
         foreach (var port in c.Ports)
             if (port.IsRead) ioInner.Write8(port.Address, port.Value);
         var io = new TracingAddressSpace(ioInner);   // record the port trace on the fallback Step's IO

@@ -61,6 +61,18 @@ public sealed class AddressSpace : IAddressSpace
         }
     }
 
+    /// <summary>Re-zero a backing array that is ALREADY mapped, WITHOUT re-allocating the array or rebuilding the
+    /// page table — the pooled-test-runner reuse seam (lever 2). Equivalent to allocating a fresh zeroed backing
+    /// and re-mapping it, but with zero allocation: the mapping (the PageEntry[] page table) is unchanged, so
+    /// every page still points at <paramref name="backing"/>. The caller then re-installs the case's initial RAM
+    /// with Write8 exactly as it would on a fresh array. Additive: no existing caller uses it; the production
+    /// hot path is untouched.</summary>
+    public void ClearMappedBacking(byte[] backing)
+    {
+        System.ArgumentNullException.ThrowIfNull(backing);
+        System.Array.Clear(backing, 0, backing.Length);
+    }
+
     public void MapPeripheral(uint start, uint length, IPeripheral peripheral)
     {
         ArgumentNullException.ThrowIfNull(peripheral);
