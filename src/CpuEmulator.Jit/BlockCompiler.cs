@@ -47,6 +47,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // injected IJitTarget.CpuType), which is exactly the J2 shape.
     private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regFields;
 
+    // PR-0 (M6): the WIDE (16-bit) register file. Two shapes a structured CPU presents:
+    //   (a) a real ushort FIELD (the Z80's SP/PC/WZ; the 8086's IP) — direct Ldfld/Stfld.
+    //   (b) a field-less pair-view PROPERTY (the Z80's AF/BC/DE/HL/IX/IY + shadows; the 8086's
+    //       AX/BX/CX/DX) over two byte HALF-fields — the emit arm composes hi<<8|lo / decomposes.
+    // _regFields (the 8-bit map) SKIPS the (b) pairs by design (:96-107); these two members are how
+    // an emit arm reaches them. Built per-compile from the same target.RegisterNames + target.CpuType
+    // introspection — no generator change, no new ctor arg (Decision 2: the register file stays data).
+    private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regWideFields;
+    private readonly System.Collections.Generic.Dictionary<string, (FieldInfo Hi, FieldInfo Lo)> _regPairFields;
+
     // P (Status), PC (ProgramCounter), and A (the accumulator) are NOT operand-driven — the
     // flow/flag/PC arms and the ALU/RMW/decimal A-convention arms reference them directly, by the
     // 6502 convention baked into those templates (NOT from a descriptor's RegA/RegB). They are now
@@ -82,6 +92,21 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private static readonly MethodInfo MDirtyAny = typeof(DirtyMap).GetProperty("Any")!.GetGetMethod()!;
     private static readonly MethodInfo MChainInvoke = typeof(ChainDispatch).GetMethod("Invoke")!;
 
+    // The hi/lo half-field names for each composed pair-view. A small, fixed ISA fact (NOT a generator
+    // output) — adding a CPU's pairs is a one-line entry here, never a CpuEmitter.cs change. The halves
+    // must be the byte FIELD names the generated CPU declares (verified: Z80 g.cs:30-67; 8086 g.cs AX..DX).
+    private static readonly System.Collections.Generic.Dictionary<string, (string Hi, string Lo)> PairHalves =
+        new(System.StringComparer.Ordinal)
+        {
+            // Z80 main set
+            ["AF"] = ("A", "F"), ["BC"] = ("B", "C"), ["DE"] = ("D", "E"), ["HL"] = ("H", "L"),
+            ["IX"] = ("IXh", "IXl"), ["IY"] = ("IYh", "IYl"),
+            // Z80 shadow set
+            ["AF_"] = ("A_", "F_"), ["BC_"] = ("B_", "C_"), ["DE_"] = ("D_", "E_"), ["HL_"] = ("H_", "L_"),
+            // 8086 16-bit GP pair-views over byte halves (reused by PR-B; harmless to register now)
+            ["AX"] = ("AH", "AL"), ["BX"] = ("BH", "BL"), ["CX"] = ("CH", "CL"), ["DX"] = ("DH", "DL"),
+        };
+
     public BlockCompiler(TCpu cpu, IJitTarget target, AddressSpace bus, Fastmem fastmem, JitOptions opts)
     {
         (_cpu, _target, _bus, _fastmem, _opts) = (cpu, target, bus, fastmem, opts);
@@ -105,6 +130,25 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         foreach (string name in target.RegisterNames)
             if (target.CpuType.GetField(name) is { } f)   // 8-bit halves + I/R + WZ/SP/PC fields
                 _regFields[name] = f;                       // pair-view PROPERTIES are skipped (5-3b owns them)
+
+        // PR-0: build the wide-register maps from the same introspection. A name that GetField resolves
+        // to a ushort field is a direct wide field; a name in PairHalves whose two halves are byte fields
+        // is a composed pair-view. (Names absent from both stay 8-bit-only, exactly as before.)
+        _regWideFields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
+        _regPairFields = new System.Collections.Generic.Dictionary<string, (FieldInfo, FieldInfo)>(System.StringComparer.Ordinal);
+        foreach (string name in target.RegisterNames)
+        {
+            if (target.CpuType.GetField(name) is { } wf && wf.FieldType == typeof(ushort))
+            {
+                _regWideFields[name] = wf;                       // SP/PC/WZ (Z80), IP (8086) — real ushort
+            }
+            else if (PairHalves.TryGetValue(name, out var halves)
+                     && target.CpuType.GetField(halves.Hi) is { } hf
+                     && target.CpuType.GetField(halves.Lo) is { } lf)
+            {
+                _regPairFields[name] = (hf, lf);                 // AF/BC/DE/HL/IX/IY + shadows; AX/BX/CX/DX
+            }
+        }
     }
 
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the
@@ -531,6 +575,99 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         ? f
         : throw new EmulationException(
             $"compiled descriptor names register '{name}' which the CPU type does not declare");
+
+    /// <summary>PR-0: push the named 16-bit register's value (as int, 0..0xFFFF) onto the IL stack.
+    /// A real ushort field is a direct Ldfld; a composed pair-view is hi&lt;&lt;8 | lo over its two byte
+    /// half-fields (the Z80 AF/BC/DE/HL/IX/IY shape; the 8086 AX/BX/CX/DX shape). Throws if the name is
+    /// neither — the same fail-loud discipline as RegField.</summary>
+    private void EmitLoadReg16(EmitContext ctx, string name)
+    {
+        ILGenerator il = ctx.Il;
+        if (_regWideFields.TryGetValue(name, out var wf))
+        {
+            // (int)cpu.<ushort field>
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, wf);
+            il.Emit(OpCodes.Conv_I4);            // ushort -> int (zero-extended)
+            return;
+        }
+        if (_regPairFields.TryGetValue(name, out var p))
+        {
+            // (cpu.<hi> << 8) | cpu.<lo>
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, p.Hi);        // byte hi (loaded as int)
+            il.Emit(OpCodes.Ldc_I4_8);
+            il.Emit(OpCodes.Shl);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, p.Lo);        // byte lo (loaded as int)
+            il.Emit(OpCodes.Or);
+            return;
+        }
+        throw new EmulationException(
+            $"compiled descriptor names 16-bit register '{name}' which the CPU type declares neither as a "
+          + "ushort field nor as a composable pair-view (PR-0 wide-register helper)");
+    }
+
+    /// <summary>PR-0: pop an int (0..0xFFFF) off the IL stack into the named 16-bit register. A real ushort
+    /// field is Conv_U2 + Stfld; a composed pair-view writes hi=(byte)(v&gt;&gt;8), lo=(byte)v — byte-identical
+    /// to the generated property setter. Stages the value through ctx.TmpInt because both halves need it.</summary>
+    private void EmitStoreReg16(EmitContext ctx, string name)
+    {
+        ILGenerator il = ctx.Il;
+        if (_regWideFields.TryGetValue(name, out var wf))
+        {
+            // cpu.<ushort field> = (ushort)value   (stack: ..., value). Stage through TmpInt because the
+            // value arrives BELOW the receiver — push cpu, reload the value, truncate, store. The single
+            // Conv_U2 before Stfld is the operative truncation (the field is ushort).
+            il.Emit(OpCodes.Stloc, ctx.TmpInt);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+            il.Emit(OpCodes.Conv_U2);
+            il.Emit(OpCodes.Stfld, wf);
+            return;
+        }
+        if (_regPairFields.TryGetValue(name, out var p))
+        {
+            // stash value, then write both halves (stack: ..., value)
+            il.Emit(OpCodes.Stloc, ctx.TmpInt);
+            // cpu.<hi> = (byte)(value >> 8)
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+            il.Emit(OpCodes.Ldc_I4_8);
+            il.Emit(OpCodes.Shr_Un);
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Stfld, p.Hi);
+            // cpu.<lo> = (byte)value
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Stfld, p.Lo);
+            return;
+        }
+        throw new EmulationException(
+            $"compiled descriptor names 16-bit register '{name}' which the CPU type declares neither as a "
+          + "ushort field nor as a composable pair-view (PR-0 wide-register helper)");
+    }
+
+    /// <summary>Test seam (PR-0): compile a one-shot method that writes <paramref name="value"/> into the
+    /// 16-bit register <paramref name="name"/> via EmitStoreReg16, reads it back via EmitLoadReg16, and
+    /// returns the readback. Proves the wide-register helper round-trips for every pair-view + ushort field,
+    /// independent of any op emit. No production caller — exists only for the PR-0 gate.</summary>
+    internal int CompileReg16RoundTrip(string name, int value)
+    {
+        var dm = new DynamicMethod(
+            $"reg16_{name}", typeof(int), [_target.CpuType], typeof(BlockCompiler<TCpu>).Module,
+            skipVisibility: true);
+        ILGenerator il = dm.GetILGenerator();
+        // A minimal EmitContext: it declares the scratch locals (TmpInt, etc.) the helpers stage through.
+        var ctx = new EmitContext(il, new System.Collections.Generic.HashSet<int>());
+        il.Emit(OpCodes.Ldc_I4, value);
+        EmitStoreReg16(ctx, name);
+        EmitLoadReg16(ctx, name);
+        il.Emit(OpCodes.Ret);
+        var fn = (System.Func<TCpu, int>)dm.CreateDelegate(typeof(System.Func<TCpu, int>));
+        return fn(_cpu);
+    }
 
     // (Emit arms continue in BlockCompiler.Emit.cs)
 

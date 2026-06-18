@@ -96,6 +96,30 @@ public class Z80JitGenericityTests
         Assert.Equal(1, compiler.FallbackEmitCount);
     }
 
+    [Theory]
+    [InlineData("BC", 0x1234)]
+    [InlineData("DE", 0xABCD)]
+    [InlineData("HL", 0xBEEF)]
+    [InlineData("AF", 0x55AA)]
+    [InlineData("IX", 0x0FF0)]
+    [InlineData("IY", 0xC3C3)]
+    [InlineData("SP", 0xFFFE)]   // a real ushort field — the direct-Stfld path
+    [InlineData("WZ", 0x8001)]
+    public void Wide_register_helper_round_trips_every_Z80_pair(string name, int value)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var bus = NewRamBus();
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        // Round-trip through the new helpers: write `value` via EmitStoreReg16, read it back via EmitLoadReg16.
+        int readback = compiler.CompileReg16RoundTrip(name, value);
+        Assert.Equal(value, readback);
+        // Oracle cross-check: the helper's compose/decompose must equal the CPU's own property/field getter.
+        Assert.Equal((ulong)value, z80.GetRegister(name));
+    }
+
     [Fact]
     public void JittedCpu_of_Z80_runs_a_NOP_via_fallback()
     {
