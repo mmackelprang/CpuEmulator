@@ -98,6 +98,96 @@ internal static class M8088TomHarteRunner
         return null;
     }
 
+    /// <summary>
+    /// M5.6 tier-parity path: run one instruction through <see cref="CpuEmulator.Jit.JittedCpu{TCpu}"/> over the
+    /// 8086 (all-fallback → the JIT result IS the interpreter result) and diff the DATA axis exactly as
+    /// <see cref="RunCase"/> does — the byte-identical Tier-0-vs-Tier-1 gate. BYTE-FOR-BYTE identical to RunCase
+    /// EXCEPT it drives <c>jit.Run(ref budget)</c> with a 1-cycle budget instead of <c>cpu.Step()</c>: every 8086
+    /// op falls back to inner.Step (the empty-Ops NeedsFallback descriptors), so the single emitted fallback runs
+    /// one Step and the final state matches the interpreter's bit-for-bit.
+    ///
+    /// <para>The budget=1 single-instruction rationale: JittedCpu.Run is a budget-driven loop — `while (budget &gt; 0)`
+    /// runs another block each iteration. A 1-cycle budget runs the loop ONCE: the check passes once (1 &gt; 0), the
+    /// fallback op charges the instruction's cycle cost (driving budget &lt;= 0 — every 8086 instruction charges
+    /// &gt;= 1 cycle via the ReadBus/fetch loop), and the loop exits. A larger budget would run a SECOND, garbage
+    /// instruction at the advanced (CS:)IP.</para>
+    ///
+    /// <para>GAP-3 note: the JIT dispatcher's cache key is <c>(ushort)IP</c> — EXACT (IP is already a ushort, no
+    /// 24-bit-PC truncation like the 68000). BlockCompiler.Discover decodes at the RAW ushort IP (ignoring CS), so
+    /// the discovery decode may read the wrong physical bytes — but harmlessly: M8086Cpu.Decode never throws
+    /// (pure byte-consumption + dictionary lookups; unknown keys → the Undefined sentinel = fallback), and the
+    /// real fallback inner.Step does the proper segmented (CS&lt;&lt;4)+IP fetch. So the result is exact.</para>
+    /// </summary>
+    public static string? RunCaseThroughJit(M8088TomHarteCase c, M8088Metadata metadata, string opcodeHex, int? regField = null)
+    {
+        // Build the bus EXACTLY as RunCase: 20-bit little-endian, 1 MB writable RAM, install initial.ram.
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        bus.MapMemory(0, new byte[0x100000], writable: true);
+        uint mask = bus.AddressMask;
+        foreach (var cell in c.Initial.Ram)
+            bus.Write8(cell.Address & mask, cell.Value);
+
+        // Wrap a fresh interpreter M8086Cpu in a Tier-1 JittedCpu<M8086Cpu>. The factory builds the inner cpu we
+        // set state on AND the jit that wraps it — set the 14 registers on `cpu` (the factory's inner).
+        var (jit, cpu) = M8086JittedCpuFactory.Create(bus);
+        var ir = c.Initial.Regs;
+        cpu.SetRegister("AX", ir.Ax);
+        cpu.SetRegister("BX", ir.Bx);
+        cpu.SetRegister("CX", ir.Cx);
+        cpu.SetRegister("DX", ir.Dx);
+        cpu.SetRegister("CS", ir.Cs);
+        cpu.SetRegister("SS", ir.Ss);
+        cpu.SetRegister("DS", ir.Ds);
+        cpu.SetRegister("ES", ir.Es);
+        cpu.SetRegister("SP", ir.Sp);
+        cpu.SetRegister("BP", ir.Bp);
+        cpu.SetRegister("SI", ir.Si);
+        cpu.SetRegister("DI", ir.Di);
+        cpu.SetRegister("IP", ir.Ip);
+        cpu.SetRegister("FLAGS", ir.Flags);
+
+        // (a) Run EXACTLY ONE instruction through Tier-1. The all-fallback descriptor runs one inner.Step; the
+        //     budget-driven loop runs once (see the budget=1 rationale above).
+        long budget = 1;
+        jit.Run(ref budget);
+
+        // (b)/(c) read back the 14 registers; compute the expected merged-final regs — IDENTICAL to RunCase.
+        var expected = c.MergedFinalRegs();
+        ushort flagsMask = metadata.FlagsMask(opcodeHex, regField);
+
+        // (d) compare each register. FLAGS is mask-aware (both sides ANDed with the defined-flag mask).
+        string? regMismatch =
+            Diff("AX", (ushort)cpu.GetRegister("AX"), expected.Ax) ??
+            Diff("BX", (ushort)cpu.GetRegister("BX"), expected.Bx) ??
+            Diff("CX", (ushort)cpu.GetRegister("CX"), expected.Cx) ??
+            Diff("DX", (ushort)cpu.GetRegister("DX"), expected.Dx) ??
+            Diff("CS", (ushort)cpu.GetRegister("CS"), expected.Cs) ??
+            Diff("SS", (ushort)cpu.GetRegister("SS"), expected.Ss) ??
+            Diff("DS", (ushort)cpu.GetRegister("DS"), expected.Ds) ??
+            Diff("ES", (ushort)cpu.GetRegister("ES"), expected.Es) ??
+            Diff("SP", (ushort)cpu.GetRegister("SP"), expected.Sp) ??
+            Diff("BP", (ushort)cpu.GetRegister("BP"), expected.Bp) ??
+            Diff("SI", (ushort)cpu.GetRegister("SI"), expected.Si) ??
+            Diff("DI", (ushort)cpu.GetRegister("DI"), expected.Di) ??
+            Diff("IP", (ushort)cpu.GetRegister("IP"), expected.Ip) ??
+            Diff("FLAGS",
+                M8088Metadata.ApplyFlagsMask((ushort)cpu.GetRegister("FLAGS"), flagsMask),
+                M8088Metadata.ApplyFlagsMask(expected.Flags, flagsMask));
+        if (regMismatch is not null)
+            return $"{c.Name}: {regMismatch}";
+
+        // (e) compare final.ram cells against the bus read-back — IDENTICAL to RunCase.
+        foreach (var cell in c.Final.Ram)
+        {
+            byte actual = bus.Read8(cell.Address & mask);
+            if (actual != cell.Value)
+                return $"{c.Name}: ram[0x{cell.Address & mask:X5}] expected 0x{cell.Value:X2}, got 0x{actual:X2}";
+        }
+
+        // (f) full pass.
+        return null;
+    }
+
     private static string? Diff(string name, ushort actual, ushort expected) =>
         actual == expected ? null : $"{name} expected 0x{expected:X4}, got 0x{actual:X4}";
 
