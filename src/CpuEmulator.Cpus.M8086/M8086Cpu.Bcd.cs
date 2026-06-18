@@ -149,14 +149,14 @@ public sealed partial class M8086Cpu
     }
 
     /// <summary>AAM — ASCII adjust AX after multiply. base = the imm8 (normally 0x0A): AH = AL / base,
-    /// AL = AL % base. SF/ZF/PF from the final AL. base == 0 ⇒ divide error (INT0) — HONEST DEFERRAL to M5.5d
-    /// (route to HandleUndefinedOpcode, leave state unchanged) like DIV.</summary>
+    /// AL = AL % base. SF/ZF/PF from the final AL. base == 0 ⇒ divide error (INT0). M5.5d RE-ENABLES the INT0
+    /// push (raise vector 0, the divide-error vector) — the M5.5b deferral is removed.</summary>
     private void Aam(byte baseByte)
     {
         if (baseByte == 0)
         {
-            // M5.5b honest deferral: AAM base 0 → INT0 (divide-error vector). The interrupt push is M5.5d.
-            HandleUndefinedOpcode(0xD4);
+            // M5.5d: AAM base 0 → INT0 (divide-error vector). The IVT push is now live (RaiseInterrupt).
+            RaiseInterrupt(0);
             return;
         }
         byte al = AL;
