@@ -110,19 +110,28 @@ internal sealed record M8088TomHarteCase(
 /// </summary>
 internal static class M8088TomHarteLoader
 {
-    /// <summary>Load a gzipped 8088 vector file (<c>*.json.gz</c>) into its case list.</summary>
-    public static List<M8088TomHarteCase> LoadFile(string path)
+    /// <summary>Load a gzipped 8088 vector file (<c>*.json.gz</c>) into its case list, stopping at
+    /// <paramref name="maxCases"/> (lever 1). <paramref name="parseCycles"/> defaults to TRUE so every existing
+    /// bare caller (the loader parse-proof tests, which assert <c>Cycles.Length</c>) is behaviour-preserving; the
+    /// DATA-axis sweeps pass <c>parseCycles: false</c> explicitly to skip the carried-not-asserted 11-field cycle
+    /// tuples (the data-axis runner ignores <c>Cycles</c>). A TIMING-axis sweep, if/when it asserts cycles, passes
+    /// <c>parseCycles: true</c>.</summary>
+    public static List<M8088TomHarteCase> LoadFile(string path, int maxCases = int.MaxValue,
+                                                   bool parseCycles = true)
     {
         using var fs = File.OpenRead(path);
         using var gz = new GZipStream(fs, CompressionMode.Decompress);   // the gzip path (shared with 680x0)
         using var doc = JsonDocument.Parse(gz);
-        var cases = new List<M8088TomHarteCase>(capacity: 1024);
+        var cases = new List<M8088TomHarteCase>(capacity: Math.Min(maxCases, 1024));
         foreach (var element in doc.RootElement.EnumerateArray())
-            cases.Add(Parse(element));
+        {
+            if (cases.Count >= maxCases) break;   // lever 1: stop parsing once the sample is satisfied
+            cases.Add(Parse(element, parseCycles));
+        }
         return cases;
     }
 
-    public static M8088TomHarteCase Parse(JsonElement element)
+    public static M8088TomHarteCase Parse(JsonElement element, bool parseCycles = true)
     {
         byte[] bytes = element.TryGetProperty("bytes", out var b) && b.ValueKind == JsonValueKind.Array
             ? [.. b.EnumerateArray().Select(x => (byte)(NumU32(x) & 0xFF))]
@@ -136,7 +145,7 @@ internal static class M8088TomHarteLoader
             bytes,
             ReadState(element.GetProperty("initial")),
             ReadState(element.GetProperty("final")),
-            ReadCycles(element),
+            parseCycles ? ReadCycles(element) : System.Array.Empty<M8088Cycle>(),
             hash,
             idx);
     }

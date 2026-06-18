@@ -112,12 +112,10 @@ public abstract class Z80TomHartePlaneBase(ITestOutputHelper output)
         string dir = Z80TomHarteVectors.TryGetVectorDirectory()!;
         string path = Path.Combine(dir, fileName);
         Assert.True(File.Exists(path), $"vector file missing: {path}");
-        var cases = Z80TomHarteLoader.LoadFile(path);
 
-        bool uatFull = Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full";
-        int sampleSize = uatFull ? int.MaxValue
-            : int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
-                           out int parsed) && parsed > 0 ? parsed : 200;
+        int sampleSize = TomHarteSampling.ResolveSampleSize();
+        var cases = TomHarteCaches.Z80.Get(path, sampleSize,
+            max => Z80TomHarteLoader.LoadFile(path, max));
         bool registersOnly = Environment.GetEnvironmentVariable("CPUEMULATOR_Z80_REGS_ONLY") == "1";
 
         int run = 0;

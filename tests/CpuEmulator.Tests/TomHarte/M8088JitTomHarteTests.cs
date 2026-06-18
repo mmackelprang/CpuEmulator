@@ -58,8 +58,9 @@ public class M8088JitTomHarteTests(ITestOutputHelper output)
         bool isIdiv = isF6F7 && regField == 7;            // the signed-division quotient-sign quirk lives here
         bool isAam = opcodeHex.Equals("D4", StringComparison.OrdinalIgnoreCase);
 
-        var cases = M8088TomHarteLoader.LoadFile(path);
         int sampleSize = M8088TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M8088.Get(path, sampleSize,
+            max => M8088TomHarteLoader.LoadFile(path, max, parseCycles: false));   // data axis: skip carried cycles
         int run = 0, executed = 0, deferredDivideError = 0, deferredIdivSignQuirk = 0;
         var failures = new List<string>();
         foreach (var c in cases)

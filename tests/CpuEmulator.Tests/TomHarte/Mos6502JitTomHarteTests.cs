@@ -23,12 +23,10 @@ public abstract class Mos6502JitTomHarteSweepBase(ITestOutputHelper output)
         string dir  = TomHarteVectors.TryGetVectorDirectory()!;
         string path = Path.Combine(dir, $"{opcode:x2}.json");
         Assert.True(File.Exists(path), $"vector file missing: {path}");
-        var cases = TomHarteLoader.LoadFile(path);
 
-        bool uatFull   = Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full";
-        int  sampleSize = uatFull ? int.MaxValue
-            : int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
-                           out int parsed) && parsed > 0 ? parsed : 200;
+        int sampleSize = TomHarteSampling.ResolveSampleSize();
+        var cases = TomHarteCaches.Mos6502.Get(path, sampleSize,
+            max => TomHarteLoader.LoadFile(path, max));
 
         int run = 0;
         var failures = new List<string>();
@@ -81,22 +79,18 @@ public sealed class Mos6502Jit_P3(ITestOutputHelper output) : Mos6502JitTomHarte
 public class Mos6502JitTomHarteSpecialTests(ITestOutputHelper output)
 {
     // ── Task 6: the sample-size resolution honors CPUEMULATOR_UAT=full ──────────────────────────
-    /// <summary>The JIT sweep's sample size mirrors the interpreter's: CPUEMULATOR_UAT=full -&gt; the full case
-    /// count (int.MaxValue), else 200 (or the SAMPLE override). Asserted directly so the env-honoring contract is
-    /// pinned without needing the full vector set.</summary>
+    /// <summary>The JIT sweep's sample size now flows through the ONE shared resolver
+    /// (<see cref="TomHarteSampling.ResolveSampleSize(string?, string?)"/>): CPUEMULATOR_UAT=full -&gt; the full
+    /// case count (int.MaxValue), else the routine default (or the SAMPLE override). Pinned against the real
+    /// shared helper — not a local clone — so a change to <see cref="TomHarteSampling.DefaultSample"/> is caught
+    /// here. Asserted directly so the env-honoring contract is pinned without needing the full vector set.</summary>
     [Fact]
     public void ResolveJit_honors_full()
     {
-        int Resolve(string? uat, string? sample)
-        {
-            bool full = uat == "full";
-            return full ? int.MaxValue
-                : int.TryParse(sample, out int parsed) && parsed > 0 ? parsed : 200;
-        }
-        Assert.Equal(int.MaxValue, Resolve("full", null));
-        Assert.Equal(int.MaxValue, Resolve("full", "200"));  // full wins over a sample override
-        Assert.Equal(200, Resolve(null, null));              // CI default
-        Assert.Equal(500, Resolve(null, "500"));             // explicit sample override
+        Assert.Equal(int.MaxValue, TomHarteSampling.ResolveSampleSize("full", null));
+        Assert.Equal(int.MaxValue, TomHarteSampling.ResolveSampleSize("full", "200"));  // full wins over a sample override
+        Assert.Equal(TomHarteSampling.DefaultSample, TomHarteSampling.ResolveSampleSize(null, null));  // CI default
+        Assert.Equal(500, TomHarteSampling.ResolveSampleSize(null, "500"));             // explicit sample override
     }
 
     // ── Task 6: ADC/SBC now run by EMIT, not fallback (the discovery/seam probe) ─────────────────

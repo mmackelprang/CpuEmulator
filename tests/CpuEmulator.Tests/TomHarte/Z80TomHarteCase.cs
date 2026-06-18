@@ -44,13 +44,16 @@ internal sealed record Z80TomHarteCase(
 
 internal static class Z80TomHarteLoader
 {
-    public static List<Z80TomHarteCase> LoadFile(string path)
+    public static List<Z80TomHarteCase> LoadFile(string path, int maxCases = int.MaxValue)
     {
         using var stream = File.OpenRead(path);
         using var doc = JsonDocument.Parse(stream);
-        var cases = new List<Z80TomHarteCase>(1000);
+        var cases = new List<Z80TomHarteCase>(Math.Min(maxCases, 1000));
         foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            if (cases.Count >= maxCases) break;   // lever 1: stop parsing once the sample is satisfied
             cases.Add(Parse(element));
+        }
         return cases;
     }
 

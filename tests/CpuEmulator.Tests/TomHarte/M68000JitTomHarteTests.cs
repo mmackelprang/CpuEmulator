@@ -37,8 +37,9 @@ public class M68000JitTomHarteTests(ITestOutputHelper output)
         string path = Path.Combine(dir, file);
         Assert.True(File.Exists(path), $"vector file missing: {path}");
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
         int sample = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sample,
+            max => M68000TomHarteLoader.LoadFile(path, max));
         int run = 0, executed = 0, deferred = 0, excluded = 0;
         var failures = new List<string>();
         foreach (var c in cases)

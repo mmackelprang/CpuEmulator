@@ -62,9 +62,10 @@ public abstract class M68000AluTomHarteSweepBase
         string path = Path.Combine(dir, file);
         Assert.True(File.Exists(path), $"in-scope ALU-family vector file missing: {path}");
 
-        var cases = M68000TomHarteLoader.LoadFile(path);
-        var failures = new List<string>();
         int sampleSize = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sampleSize,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        var failures = new List<string>();
         int run = 0;
         int executed = 0;     // non-exception ALU cases actually run + asserted on the data axis
         int deferred = 0;     // exception cases (DIVU/DIVS ÷0, address-error/privilege) — M4.5d, counted not asserted

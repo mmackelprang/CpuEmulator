@@ -15,12 +15,7 @@ namespace CpuEmulator.Tests.TomHarte;
 /// <see cref="Z80TomHarteTests"/>; the sampling + parity-diff logic is IDENTICAL to the pre-split body.</para></summary>
 public abstract class Z80JitTomHartePlaneBase(ITestOutputHelper output)
 {
-    private static int ResolveSample()
-    {
-        if (Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full") return int.MaxValue;
-        return int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
-            out int p) && p > 0 ? p : 200;
-    }
+    private static int ResolveSample() => TomHarteSampling.ResolveSampleSize();
 
     /// <summary>Load the plane's vector file, drive each sampled case through the JIT, and assert tier parity.</summary>
     protected void SweepPlane(string fileName, string label)
@@ -28,9 +23,10 @@ public abstract class Z80JitTomHartePlaneBase(ITestOutputHelper output)
         string dir = Z80TomHarteVectors.TryGetVectorDirectory()!;
         string path = Path.Combine(dir, fileName);
         Assert.True(File.Exists(path), $"vector file missing: {path}");
-        var cases = Z80TomHarteLoader.LoadFile(path);
 
         int sample = ResolveSample();
+        var cases = TomHarteCaches.Z80.Get(path, sample,
+            max => Z80TomHarteLoader.LoadFile(path, max));
         int run = 0;
         var failures = new List<string>();
         foreach (var c in cases)

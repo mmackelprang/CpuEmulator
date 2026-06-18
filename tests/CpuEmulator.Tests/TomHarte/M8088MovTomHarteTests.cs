@@ -54,9 +54,10 @@ public abstract class M8088MovTomHarteSweepBase
         Assert.True(File.Exists(path), $"in-scope MOV-family vector file missing: {path}");
 
         string opcodeHex = file[..file.IndexOf('.')];   // strip ".json.gz" → the opcode hex ("88", "A0", ...)
-        var cases = M8088TomHarteLoader.LoadFile(path);
-        var failures = new List<string>();
         int sampleSize = M8088TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M8088.Get(path, sampleSize,
+            max => M8088TomHarteLoader.LoadFile(path, max, parseCycles: false));   // data axis: skip carried cycles
+        var failures = new List<string>();
         int run = 0;
         int executed = 0;
         foreach (var c in cases)

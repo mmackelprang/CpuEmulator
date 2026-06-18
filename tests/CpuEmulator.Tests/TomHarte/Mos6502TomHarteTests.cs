@@ -52,12 +52,10 @@ public abstract class Mos6502TomHarteSweepBase(ITestOutputHelper output)
         string dir  = TomHarteVectors.TryGetVectorDirectory()!;
         string path = Path.Combine(dir, $"{opcode:x2}.json");
         Assert.True(File.Exists(path), $"vector file missing: {path}");
-        var cases = TomHarteLoader.LoadFile(path);
 
-        bool uatFull   = Environment.GetEnvironmentVariable("CPUEMULATOR_UAT") == "full";
-        int  sampleSize = uatFull ? int.MaxValue
-            : int.TryParse(Environment.GetEnvironmentVariable("CPUEMULATOR_TOMHARTE_SAMPLE"),
-                           out int parsed) && parsed > 0 ? parsed : 200;
+        int sampleSize = TomHarteSampling.ResolveSampleSize();
+        var cases = TomHarteCaches.Mos6502.Get(path, sampleSize,
+            max => TomHarteLoader.LoadFile(path, max));
 
         int run = 0;
         var failures = new List<string>();

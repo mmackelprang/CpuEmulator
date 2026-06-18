@@ -103,9 +103,10 @@ public abstract class M8088ShiftStackMiscTomHarteSweepBase
         string firstSeg = restDot >= 0 ? rest[..restDot] : rest;
         if (int.TryParse(firstSeg, out int rf)) regField = rf;
 
-        var cases = M8088TomHarteLoader.LoadFile(path);
-        var failures = new List<string>();
         int sampleSize = M8088TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M8088.Get(path, sampleSize,
+            max => M8088TomHarteLoader.LoadFile(path, max, parseCycles: false));   // data axis: skip carried cycles
+        var failures = new List<string>();
         int run = 0, executed = 0;
         foreach (var c in cases)
         {

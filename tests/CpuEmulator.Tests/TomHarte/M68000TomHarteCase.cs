@@ -50,14 +50,17 @@ internal sealed record M68000TomHarteCase(
 internal static class M68000TomHarteLoader
 {
     /// <summary>Load a gzipped 680x0 vector file (*.json.gz) into its case list.</summary>
-    public static List<M68000TomHarteCase> LoadFile(string path)
+    public static List<M68000TomHarteCase> LoadFile(string path, int maxCases = int.MaxValue)
     {
         using var fs = File.OpenRead(path);
         using var gz = new GZipStream(fs, CompressionMode.Decompress);   // the ONLY core delta vs Z80
         using var doc = JsonDocument.Parse(gz);
-        var cases = new List<M68000TomHarteCase>(capacity: 1024);
+        var cases = new List<M68000TomHarteCase>(capacity: Math.Min(maxCases, 1024));
         foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            if (cases.Count >= maxCases) break;   // lever 1: stop parsing once the sample is satisfied
             cases.Add(Parse(element));
+        }
         return cases;
     }
 

@@ -36,13 +36,14 @@ internal sealed record TomHarteCase(
 
 internal static class TomHarteLoader
 {
-    public static List<TomHarteCase> LoadFile(string path)
+    public static List<TomHarteCase> LoadFile(string path, int maxCases = int.MaxValue)
     {
         using var stream = File.OpenRead(path);
         using var doc = JsonDocument.Parse(stream);
-        var cases = new List<TomHarteCase>(10_000);
+        var cases = new List<TomHarteCase>(Math.Min(maxCases, 10_000));
         foreach (var element in doc.RootElement.EnumerateArray())
         {
+            if (cases.Count >= maxCases) break;   // lever 1: stop parsing once the sample is satisfied
             cases.Add(new TomHarteCase(
                 element.GetProperty("name").GetString()!,
                 ReadState(element.GetProperty("initial")),
