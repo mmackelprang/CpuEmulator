@@ -49,12 +49,23 @@ public class SmcRecompileLeverTests
 
     private static void DriveToPark(Mos6502Cpu cpu, JittedCpu<Mos6502Cpu> jit)
     {
+        // Drive the JIT in small slices to the program's JMP-self park. A slice can END mid-loop with
+        // PC == the slice-start PC purely because the cycle budget ran out at that boundary (e.g. on the
+        // BNE), which is NOT a park — so "PC unchanged across a slice" alone gives a FALSE park (a
+        // truncated run that never reaches the recompile cap). Confirm a real park with a one-cycle
+        // probe: at the JMP-self the PC re-lands on itself (still unchanged); at a budget boundary the
+        // next instruction advances PC. Only a PC that is unchanged across BOTH the slice and the probe
+        // is the JMP-self park.
         while (cpu.CycleCount < 5_000_000)
         {
             ushort before = cpu.PC;
             long budget = 64;
             jit.Run(ref budget);
-            if (cpu.PC == before) return;   // JMP-self park
+            if (cpu.PC != before) continue;          // made progress — keep driving
+            ushort atRest = cpu.PC;
+            long probe = 1;
+            jit.Run(ref probe);                      // one more cycle of work
+            if (cpu.PC == atRest) return;            // still on the same PC -> JMP-self park
         }
     }
 
