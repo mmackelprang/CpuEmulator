@@ -4453,7 +4453,7 @@ internal static class CpuEmitter
         // to RE-force them. LD A,I / LD A,R ride the Implied/EdLdIaRa shape and are excluded by
         // IsEmittableZ80Family (their mode is not in the whitelist AND the EdLdIaRa op-kind is rejected),
         // so they stay fallback. As later families emit (PR-2/PR-3), they extend IsEmittableZ80Family.
-        if (!IsEmittableZ80Family(insn))
+        if (!IsEmittableZ80Family(insn) && !IsEmittableX86Family(insn))
         {
             fallback = true;
             endsBlock = true;
@@ -4618,6 +4618,25 @@ internal static class CpuEmitter
             return true;
 
         return false;
+    }
+
+    /// <summary>M6 PR-B: the emittable-8086-family whitelist (the gate's lockstep target, mirrors
+    /// IsEmittableZ80Family). A row is emittable iff it is an 8086 MOV-family opcode PR-B ships an emit branch
+    /// for (EmitM8086Mov in BlockCompiler.M8086.cs). PR-B admits the MOV opcodes 88-8E, A0-A3, B0-BF, and the
+    /// C6/C7 group (reg=0). Extended family-by-family in PR-C (ALU) / PR-D (branch). The 6502/Z80/68000 never
+    /// carry the 8086's (opcode, mnemonic "MOV") shape — verified: only the m8086 architecture's X86Decode model
+    /// produces these keys (grep '"MOV"' over the generated tables hits ONLY the M8086 g.cs) — so this is
+    /// unreachable for them (their descriptor tables are empty-diff, R2).</summary>
+    private static bool IsEmittableX86Family(InstructionModel insn)
+    {
+        // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is
+        // MOVE/MOVEA/MOVEQ, the Z80 LD, the 6502 LDA/STA), so "MOV" is unambiguously the 8086.
+        if (insn.Mnemonic != "MOV") return false;
+        // The PR-B MOV opcode set (the C6/C7 group rows carry Opcode 0xC6/0xC7; the gate sees the base opcode).
+        return insn.Opcode is 0x88 or 0x89 or 0x8A or 0x8B or 0x8C or 0x8E
+            or 0xA0 or 0xA1 or 0xA2 or 0xA3
+            or (>= 0xB0 and <= 0xBF)
+            or 0xC6 or 0xC7;
     }
 
     /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
