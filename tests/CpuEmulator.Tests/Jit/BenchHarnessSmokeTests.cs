@@ -86,17 +86,25 @@ public class BenchHarnessSmokeTests
     public void The_two_68000_tiers_run_and_agree_on_the_W2_cycle_count()
     {
         // Milestone B — the 68000 W2 (ALU/branch) kernel on BOTH our tiers: a wiring smoke (Ran==true +
-        // the two tiers agree on the cycle count), NOT a throughput assertion (D5). Both tiers are
-        // dependency-free hand-written kernels (Option A — no external exerciser), so this ALWAYS runs.
-        // A TINY bounded window keeps the routine suite fast (the committed 50M-cycle window is the
-        // runner's job). Both tiers run the all-fallback path (M4.6), so they reach the same cycle count
-        // (bounded by the one-instruction overshoot at the cap boundary, identical for both).
+        // the two tiers reach the cap and roughly agree on the cycle count), NOT a throughput assertion (D5).
+        // Both tiers are dependency-free hand-written kernels (Option A — no external exerciser), so this
+        // ALWAYS runs. A TINY bounded window keeps the routine suite fast (the committed 50M-cycle window is
+        // the runner's job).
+        // M6 PR-5: the 68000 JIT now EMITS real ALU IL (M68000Alu) charging the descriptor's COARSE BaseCycles
+        // (DECISION T2 — the 68000 emit cycle count is NOT cycle-exact, unlike the Z80 emit arms which match the
+        // interpreter exactly). So the two tiers no longer reach a BIT-IDENTICAL cycle count on an ALU-heavy
+        // kernel; they agree within a small instruction-boundary slack. The DATA axis stays byte-identical (the
+        // M68000JitAluFamilyTests parity gate proves that); only the cycle COUNT diverges, which is the
+        // documented coarse-cycle stance (backlog: the W2 bench-harness cycle off-by-2). Assert both tiers reach
+        // the cap and the JIT is within a small absolute window of the interpreter, NOT exact equality.
         var w2 = M68000Workloads.ArithmeticKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
 
         long interpCycles = Tier0.Run(w2);
         long jitCycles = Tier1.Run(w2);
         Assert.True(interpCycles >= w2.FixedCycleCap, $"68000 interpreter ran {interpCycles}, expected >= the cap");
-        Assert.Equal(interpCycles, jitCycles);
+        Assert.True(jitCycles >= w2.FixedCycleCap, $"68000 jit ran {jitCycles}, expected >= the cap");
+        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 64,
+            $"68000 W2 tier cycle counts diverge by more than the coarse-cycle slack: interp={interpCycles}, jit={jitCycles}");
 
         var t0 = BenchHarness.MeasureTier("m68000 interpreter", Tier0.Run, w2);
         var t1 = BenchHarness.MeasureTier("m68000 jit", Tier1.Run, w2);
@@ -168,15 +176,20 @@ public class BenchHarnessSmokeTests
     public void The_two_68000_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
     {
         // m68k-W3 — the 68000 Sieve compute kernel (Dhrystone-class) on BOTH our tiers: a wiring smoke
-        // (Ran==true + the two tiers agree on the cycle count), NOT a throughput assertion. Both tiers
-        // run the all-fallback path (M4.6), so they reach the same cycle count on a TINY bounded window
-        // (the committed 50M-cycle window is the runner's job).
+        // (Ran==true + the two tiers reach the cap and roughly agree on the cycle count), NOT a throughput
+        // assertion. A TINY bounded window (the committed 50M-cycle window is the runner's job).
+        // M6 PR-5: as in the W2 smoke above, the 68000 JIT now emits real ALU IL with COARSE BaseCycles
+        // (DECISION T2), so the two tiers agree only within a small instruction-boundary slack — the DATA axis
+        // stays byte-identical (M68000JitAluFamilyTests), only the cycle COUNT diverges. Assert the cap + a
+        // bounded window, not exact equality.
         var sieve = M68000Workloads.SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
 
         long interpCycles = Tier0.Run(sieve);
         long jitCycles = Tier1.Run(sieve);
         Assert.True(interpCycles >= sieve.FixedCycleCap, $"68000 Sieve interpreter ran {interpCycles}, expected >= the cap");
-        Assert.Equal(interpCycles, jitCycles);
+        Assert.True(jitCycles >= sieve.FixedCycleCap, $"68000 Sieve jit ran {jitCycles}, expected >= the cap");
+        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 64,
+            $"68000 W3 tier cycle counts diverge by more than the coarse-cycle slack: interp={interpCycles}, jit={jitCycles}");
 
         var t0 = BenchHarness.MeasureTier("m68000 interpreter", Tier0.Run, sieve);
         var t1 = BenchHarness.MeasureTier("m68000 jit", Tier1.Run, sieve);
