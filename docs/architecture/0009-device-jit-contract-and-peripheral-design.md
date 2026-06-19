@@ -544,6 +544,9 @@ triggers it.
    reuses its already-compiled blocks instead of recompiling. This is a real JIT-optimization item (it changes the block
    cache key) and is flagged for M6, not decided here. The simple page-precise evict-on-remap (Decision 2) is the M-now
    shape; per-bank specialization is the M6 refinement if profiling shows remap-thrash.
+   **Update (2026-06-19):** designed in **ADR 0013** (`0013-per-bank-block-specialization.md`, Status: Proposed) —
+   keys blocks on `(PC, BankConfigId)`, re-patches the shared `Fastmem` per active bank on remap WITHOUT eviction
+   (eviction stays the SMC-write path), and rides the proven chain-break gate. Pending owner approval.
 4. **`Remap` placement (Decision 2, §3.2).** Does `Remap`/`RemapPeripheral` live on `IAddressSpace` (every consumer of the
    bus sees the remap primitive — broad surface) or on the concrete `AddressSpace` reached via a narrower mapper-specific
    seam (tighter, but a mapper device must get the concrete bus)? Leaning toward `IAddressSpace` for uniformity with the
