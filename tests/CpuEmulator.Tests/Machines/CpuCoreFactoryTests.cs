@@ -1,4 +1,6 @@
 using CpuEmulator.Core;
+using CpuEmulator.Cpus.M68000;
+using CpuEmulator.Cpus.M8086;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Cpus.Z80;
 using CpuEmulator.Jit;
@@ -8,12 +10,15 @@ namespace CpuEmulator.Tests.Machines;
 
 public class CpuCoreFactoryTests
 {
-    private static Machine MachineFor(CpuKind kind, ExecutionTier tier) =>
-        Machine.Create("test")
-            .WithAddressSpace(AddressSpaceKind.Program, 16)
+    // A 16-bit space suits the 6502/Z80; the 68000/8086 need their own widths (24 / 20).
+    private static Machine MachineFor(CpuKind kind, ExecutionTier tier, int addressBits = 16)
+    {
+        MachineBuilder b = Machine.Create("test")
+            .WithAddressSpace(AddressSpaceKind.Program, addressBits)
             .WithRam(AddressSpaceKind.Program, 0x0000, 0x1000)
-            .WithCpu(CpuCoreFactory.ForKind(kind, AddressSpaceKind.Program, tier))
-            .Build();
+            .WithCpu(CpuCoreFactory.ForKind(kind, AddressSpaceKind.Program, tier));
+        return b.Build();
+    }
 
     [Fact]
     public void Interpreter_tier_6502_builds_a_bare_core()
@@ -30,11 +35,19 @@ public class CpuCoreFactoryTests
     }
 
     [Fact]
-    public void Unsupported_kind_on_a_runnable_tier_throws()
+    public void Interpreter_tier_68000_builds_a_bare_core()
     {
-        // The 68000/8086 cores have no-op Reset stubs and cannot boot a board yet (piece #2).
-        Assert.Throws<MachineConfigurationException>(() =>
-            MachineFor(CpuKind.M68000, ExecutionTier.Interpreter));
+        var machine = MachineFor(CpuKind.M68000, ExecutionTier.Interpreter, addressBits: 24);
+        Assert.IsType<M68000Cpu>(machine.Cpu);
+        Assert.Equal("m68000", machine.Cpu.Architecture);
+    }
+
+    [Fact]
+    public void Interpreter_tier_8086_builds_a_bare_core()
+    {
+        var machine = MachineFor(CpuKind.I8086, ExecutionTier.Interpreter, addressBits: 20);
+        Assert.IsType<M8086Cpu>(machine.Cpu);
+        Assert.Equal("m8086", machine.Cpu.Architecture);
     }
 
     [Fact]
@@ -50,5 +63,21 @@ public class CpuCoreFactoryTests
     {
         var machine = MachineFor(CpuKind.Z80, ExecutionTier.Jit);
         Assert.IsType<JittedCpu<Z80Cpu>>(machine.Cpu);
+    }
+
+    [Fact]
+    public void Jit_tier_68000_builds_a_JittedCpu()
+    {
+        var machine = MachineFor(CpuKind.M68000, ExecutionTier.Jit, addressBits: 24);
+        Assert.IsType<JittedCpu<M68000Cpu>>(machine.Cpu);
+        Assert.Equal("m68000", machine.Cpu.Architecture);
+    }
+
+    [Fact]
+    public void Jit_tier_8086_builds_a_JittedCpu()
+    {
+        var machine = MachineFor(CpuKind.I8086, ExecutionTier.Jit, addressBits: 20);
+        Assert.IsType<JittedCpu<M8086Cpu>>(machine.Cpu);
+        Assert.Equal("m8086", machine.Cpu.Architecture);
     }
 }
