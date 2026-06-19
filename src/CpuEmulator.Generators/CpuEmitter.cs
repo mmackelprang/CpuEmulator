@@ -4243,25 +4243,32 @@ internal static class CpuEmitter
     /// Extended family-by-family in PR-2+.</summary>
     private static bool IsEmittableZ80Family(InstructionModel insn)
     {
-        // M6 PR-1/PR-2: the emittable-Z80-family whitelist (the gate's lockstep target). A BASE-PLANE row is
-        // emittable iff its op-kind is in the proven-emittable set (each kind has a matching emit branch in
-        // BlockCompiler.Z80.cs — EmitZ80Ld for the LD kinds, EmitZ80Alu for the ALU kinds). The whitelist and the
-        // arms MUST stay in lockstep: the arm's default throws if the gate admits a kind with no branch.
+        // M6 PR-1/PR-2/PR-2b: the emittable-Z80-family whitelist (the gate's lockstep target). A row is emittable
+        // iff its (plane, op-kind) is in the proven-emittable set, each with a matching emit branch in
+        // BlockCompiler.Z80.cs (EmitZ80Ld for the LD kinds, EmitZ80Alu for the ALU kinds — incl. the PR-2b
+        // Inc16/Dec16 and the ED EdAdcSbc16). The whitelist and the arms MUST stay in lockstep: the arm's default
+        // throws if the gate admits a kind with no branch.
         //
         // EXCLUSIONS (all stay JIT fallback — by §2, not yet armed):
-        //   • Non-base-plane rows (KeyShape != OpcodeByte OR Prefix != -1): the ED-plane ADC/SBC HL,rr
-        //     (EdAdcSbc16 — PrefixedOpcode, DECISION E: a follow-up PR), the ED LD A,I/A,R, EVERY DD/FD-indexed
-        //     ALU/LD. The base-plane gate is the real exclusion for the indexed forms (their mode/kind can match).
+        //   • Non-base-plane rows EXCEPT the single ED ADC/SBC HL,rr lane below: the ED LD A,I/A,R, the ED block
+        //     ops, EVERY DD/FD-indexed ALU/LD, the CB/DDCB planes. (PR-2b opens ONLY the EdAdcSbc16 ED lane.)
         //   • 0xF9 LD SP,HL (16-bit Register/Transfer) — no 8-bit arm (PR-1 exclusion, retained).
-        //   • Inc16/Dec16 (INC rr / DEC rr, 0x03/0x0B/...): they touch NO flags and set Q=0 (Z80WritesFlags=false);
-        //     they are NOT in PR-2's flag scope (DECISION E) — they ride a later no-flag PR.
+        // PR-2b ADMITS (newly emitted): the ED ADC/SBC HL,rr lane (the FIRST emitted prefixed family) and the
+        // base-plane no-flag Inc16/Dec16 (INC rr / DEC rr, Q=0) — the PR-2 DECISION E deferrals.
         // Extended family-by-family in PR-3+.
+        string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
 
-        // Base plane only — exclude ED / DD / FD prefixed forms (their mode/kind can match the sets below).
+        // ── M6 PR-2b: the ED-plane ADC/SBC HL,rr lane (the FIRST emitted prefixed family) ──
+        // PrefixedOpcode with the ED prefix, op-kind EdAdcSbc16 (the eight ED4A.../ED42... rows). This is the
+        // ONLY prefixed row PR-2b admits — the base-plane guard below would otherwise reject it. EmitZ80Alu
+        // routes EdAdcSbc16 to EmitZ80EdAdcSbc16. Its descriptor slots are populated by Task 2 (RegB=pair,
+        // boolArg=SBC), and EmitInstruction charges the 2-byte ED fetch (Task 3 / DECISION G).
+        if (insn.KeyShape == KeyShape.PrefixedOpcode && insn.Prefix == 0xED && kind == "EdAdcSbc16")
+            return true;
+
+        // Base plane only (from here down) — exclude ED / DD / FD prefixed forms (their mode/kind can match).
         if (insn.KeyShape != KeyShape.OpcodeByte || insn.Prefix != -1) return false;
         if (insn.Opcode == 0xF9) return false;                  // LD SP,HL (16-bit transfer) — no 8-bit arm.
-
-        string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
 
         // ── M6 PR-1: the LD family ──
         if (insn.Mnemonic == "LD")
@@ -4273,12 +4280,14 @@ internal static class CpuEmitter
             return true;
         }
 
-        // ── M6 PR-2: the ALU + INC/DEC + 16-bit-ADD family (all base-plane Z80Alu, JitOpClass.Register) ──
+        // ── M6 PR-2: the 8-bit ALU + INC/DEC + 16-bit-ADD family (all base-plane Z80Alu, JitOpClass.Register) ──
+        // ── M6 PR-2b: + the no-flag 16-bit Inc16/Dec16 (INC rr / DEC rr, Q=0) ──
         // 8-bit ALU (ADD/ADC/SUB/SBC/AND/OR/XOR/CP) over Register / RegisterIndirect(HL) / Immediate.
-        // 8-bit INC/DEC over Register and (HL). 16-bit ADD HL,rr. NO Inc16/Dec16 (no flags, DECISION E).
+        // 8-bit INC/DEC over Register and (HL). 16-bit ADD HL,rr. PR-2b: + Inc16/Dec16 (flagless pair INC/DEC).
         if (kind is "Add8" or "Adc8" or "Sub8" or "Sbc8" or "And8" or "Or8" or "Xor8" or "Cp8"
                   or "IncReg" or "DecReg" or "IncMem8" or "DecMem8"
-                  or "Add16")
+                  or "Add16"
+                  or "Inc16" or "Dec16")                        // PR-2b: the flagless 16-bit pair INC/DEC
             return true;
 
         return false;
