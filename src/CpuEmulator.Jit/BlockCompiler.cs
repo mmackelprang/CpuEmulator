@@ -75,6 +75,9 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // base-plane LD clears Q; the (nn) and (BC)/(DE) indirect forms set WZ (the MEMPTR side-effects).
     private readonly FieldInfo? _z80Q;
     private readonly FieldInfo? _z80WZ;
+    // M6 PR-2: the Z80 flag register (byte F). Set in the ctor; non-null wherever dereferenced (the ALU
+    // arm only runs when TargetIsZ80). The ALU family computes the full SZ5H3PNC word inline into it.
+    private readonly FieldInfo? _z80F;
     // M6 PR-1: the Z80's R (memory-refresh) byte field. The interpreter's Step bumps R once per opcode
     // fetch via OnInstructionFetched (R = (R & 0x80) | ((R + 1) & 0x7F) — bit 7 preserved, bits 0..6
     // incremented mod 128). An EMITTED instruction skips Step, so the emit path must replicate the bump;
@@ -170,6 +173,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         _z80Q = target.CpuType.GetField("Q");
         _z80WZ = target.CpuType.GetField("WZ");
         _z80R = target.CpuType.GetField("R");
+        _z80F = target.CpuType.GetField("F");   // M6 PR-2: the Z80 flag register (byte F)
     }
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
@@ -177,23 +181,46 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// per-CPU discriminator; when PR-B adds the 8086 it generalizes to a switch on _target.CpuType.</summary>
     private bool TargetIsZ80 => _target.CpuType.Name == "Z80Cpu";
 
-    /// <summary>M6 PR-1: the operand bytes an EMITTED Z80 LD row's body consumes from PC (beyond the
+    /// <summary>M6 PR-1/PR-2: the operand bytes an EMITTED Z80 row's body consumes from PC (beyond the
     /// opcode byte the decode walk already counted) — the footprint correction Discover adds so block
     /// discovery + the static nextPc match the PC the emit arm actually leaves. Mode-driven, exactly
-    /// mirroring the interpreter op bodies: Immediate (LD r,n / LD (HL),n) reads 1; ImmediateExtended
-    /// (LD rr,nn) and ExtendedAddress (LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)) read 2; Register
-    /// (LD r,r') and RegisterIndirect (LD r,(HL) etc.) read 0. Returns 0 for any non-Z80, fallback, or
-    /// non-LD row — those keep the walk's length unchanged.</summary>
+    /// mirroring the interpreter op bodies.
+    ///
+    /// PR-1 (LD family): Immediate (LD r,n / LD (HL),n) reads 1; ImmediateExtended (LD rr,nn) and
+    /// ExtendedAddress (LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)) read 2; Register (LD r,r') and
+    /// RegisterIndirect (LD r,(HL) etc.) read 0.
+    ///
+    /// PR-2 (ALU family — Add8..Cp8 / IncReg/DecReg/IncMem8/DecMem8 / Add16): only the Immediate forms
+    /// (ADD A,n / ADC A,n / SUB A,n / SBC A,n / AND n / XOR n / OR n / CP n — 0xC6/0xCE/0xD6/0xDE/0xE6/
+    /// 0xEE/0xF6/0xFE) read 1 PC operand byte. The Register / RegisterIndirect (HL) forms and ADD HL,rr
+    /// read 0 — they take their operand from a register or (HL), never from PC. Without this the decode
+    /// walk under-counts an emitted ALU-immediate's footprint by 1 (FixedLength is the opcode-key length,
+    /// 1 for base-plane rows), so Discover mis-decodes the immediate operand byte as the next opcode and
+    /// the emitted block's nextPc lands one byte short of the arm's actual PC advance.
+    ///
+    /// Returns 0 for any non-Z80, fallback, or non-emitted-family row — those keep the walk's length
+    /// unchanged (a fallback Z80 op ends the block and self-terminates via inner.Step, so its nextPc is
+    /// never read).</summary>
     private int Z80EmitOperandBytes(OpcodeDescriptor d)
     {
-        if (!TargetIsZ80 || d.NeedsFallback || d.Mnemonic != "LD") return 0;
-        return d.Mode switch
-        {
-            JitMode.Immediate => 1,            // LD r,n / LD (HL),n
-            JitMode.ImmediateExtended => 2,    // LD rr,nn
-            JitMode.ExtendedAddress => 2,      // LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)
-            _ => 0,                            // Register / RegisterIndirect — no PC operand bytes
-        };
+        if (!TargetIsZ80 || d.NeedsFallback) return 0;
+
+        // PR-1: the LD family's PC-operand footprint.
+        if (d.Mnemonic == "LD")
+            return d.Mode switch
+            {
+                JitMode.Immediate => 1,            // LD r,n / LD (HL),n
+                JitMode.ImmediateExtended => 2,    // LD rr,nn
+                JitMode.ExtendedAddress => 2,      // LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)
+                _ => 0,                            // Register / RegisterIndirect — no PC operand bytes
+            };
+
+        // PR-2: the ALU family's PC-operand footprint — ONLY the Immediate forms read a PC byte (the
+        // Register / RegisterIndirect(HL) forms and ADD HL,rr take their operand from a reg or (HL)).
+        if (IsZ80AluKind(d))
+            return d.Mode == JitMode.Immediate ? 1 : 0;
+
+        return 0;
     }
 
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the

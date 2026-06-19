@@ -4243,23 +4243,45 @@ internal static class CpuEmitter
     /// Extended family-by-family in PR-2+.</summary>
     private static bool IsEmittableZ80Family(InstructionModel insn)
     {
-        if (insn.Mnemonic != "LD") return false;
-        // Base plane only — exclude ED (LD A,I / LD A,R) and DD/FD-indexed LD (the prefixed forms ride
-        // later PRs / stay fallback). A prefixed LD's mode often IS in the whitelist set, so this gate is
-        // the real exclusion for them, not the mode check below.
+        // M6 PR-1/PR-2: the emittable-Z80-family whitelist (the gate's lockstep target). A BASE-PLANE row is
+        // emittable iff its op-kind is in the proven-emittable set (each kind has a matching emit branch in
+        // BlockCompiler.Z80.cs — EmitZ80Ld for the LD kinds, EmitZ80Alu for the ALU kinds). The whitelist and the
+        // arms MUST stay in lockstep: the arm's default throws if the gate admits a kind with no branch.
+        //
+        // EXCLUSIONS (all stay JIT fallback — by §2, not yet armed):
+        //   • Non-base-plane rows (KeyShape != OpcodeByte OR Prefix != -1): the ED-plane ADC/SBC HL,rr
+        //     (EdAdcSbc16 — PrefixedOpcode, DECISION E: a follow-up PR), the ED LD A,I/A,R, EVERY DD/FD-indexed
+        //     ALU/LD. The base-plane gate is the real exclusion for the indexed forms (their mode/kind can match).
+        //   • 0xF9 LD SP,HL (16-bit Register/Transfer) — no 8-bit arm (PR-1 exclusion, retained).
+        //   • Inc16/Dec16 (INC rr / DEC rr, 0x03/0x0B/...): they touch NO flags and set Q=0 (Z80WritesFlags=false);
+        //     they are NOT in PR-2's flag scope (DECISION E) — they ride a later no-flag PR.
+        // Extended family-by-family in PR-3+.
+
+        // Base plane only — exclude ED / DD / FD prefixed forms (their mode/kind can match the sets below).
         if (insn.KeyShape != KeyShape.OpcodeByte || insn.Prefix != -1) return false;
-        // 0xF9 LD SP,HL: 16-bit Register/Transfer (6 T) — no PR-1 emit branch (the Transfer arm is 8-bit).
-        if (insn.Opcode == 0xF9) return false;
-        // The emittable LD modes (verified against the descriptor rows — §recon "the Z80 LD oracle"):
-        bool modeOk = insn.Mode is "Register"            // LD r,r'
-                                or "Immediate"            // LD r,n / LD (HL),n
-                                or "RegisterIndirect"     // LD r,(HL) / LD (HL),r / LD A,(BC)/(DE) / LD (BC)/(DE),A
-                                or "ExtendedAddress"      // LD A,(nn) / LD (nn),A / LD (nn),HL / LD HL,(nn)  ← incl. 16-bit-abs (Decision B)
-                                or "ImmediateExtended";   // LD rr,nn
-        if (!modeOk) return false;
-        // Belt-and-suspenders: reject the flag-touching ED loads by op-kind (already base-plane-excluded).
-        if (insn.Ops.Length > 0 && insn.Ops[0].Kind is "EdLdIaRa") return false;
-        return true;
+        if (insn.Opcode == 0xF9) return false;                  // LD SP,HL (16-bit transfer) — no 8-bit arm.
+
+        string kind = insn.Ops.Length > 0 ? insn.Ops[0].Kind : string.Empty;
+
+        // ── M6 PR-1: the LD family ──
+        if (insn.Mnemonic == "LD")
+        {
+            bool ldModeOk = insn.Mode is "Register" or "Immediate" or "RegisterIndirect"
+                                       or "ExtendedAddress" or "ImmediateExtended";
+            if (!ldModeOk) return false;
+            if (kind is "EdLdIaRa") return false;               // belt-and-suspenders (base-plane-excluded already)
+            return true;
+        }
+
+        // ── M6 PR-2: the ALU + INC/DEC + 16-bit-ADD family (all base-plane Z80Alu, JitOpClass.Register) ──
+        // 8-bit ALU (ADD/ADC/SUB/SBC/AND/OR/XOR/CP) over Register / RegisterIndirect(HL) / Immediate.
+        // 8-bit INC/DEC over Register and (HL). 16-bit ADD HL,rr. NO Inc16/Dec16 (no flags, DECISION E).
+        if (kind is "Add8" or "Adc8" or "Sub8" or "Sbc8" or "And8" or "Or8" or "Xor8" or "Cp8"
+                  or "IncReg" or "DecReg" or "IncMem8" or "DecMem8"
+                  or "Add16")
+            return true;
+
+        return false;
     }
 
     /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
