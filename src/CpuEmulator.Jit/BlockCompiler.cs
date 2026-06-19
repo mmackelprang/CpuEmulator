@@ -45,6 +45,18 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
     internal int M68kAluEmitSelections { get; private set; }
 
+    /// <summary>M6 PR-6: the shift analogue of <see cref="M68kAluEmitSelections"/> — a per-instance count of how
+    /// many times an M68000Shift row was DISPATCHED to <see cref="EmitM68kShift"/>. A test asserts it is &gt; 0
+    /// after a shift block compiles, so the 68000 shift parity gate is proven NON-vacuous. Accumulates across
+    /// Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M68kShiftEmitSelections { get; private set; }
+
+    /// <summary>M6 PR-6: the control-flow analogue of <see cref="M68kAluEmitSelections"/> — a per-instance count
+    /// of how many times an M68000Flow row was DISPATCHED to <see cref="EmitM68kFlow"/>. A test asserts it is
+    /// &gt; 0 after a flow block compiles, so the 68000 flow parity gate is proven NON-vacuous. Accumulates
+    /// across Compiles.</summary>
+    internal int M68kFlowEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -458,6 +470,21 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             EmitFallbackStep(ctx);
             return;
         }
+        // M6 PR-6: the shift valve — a SHIFT_MEM lookahead garbage word can decode with a non-addressable EA
+        // (register-direct / PC-relative). Fall back rather than throw in EmitM68kResolveEaAddr. The register
+        // shift forms have no EA matrix, so CanEmitM68kShift returns true for them (always emittable).
+        if (TargetIsM68000 && d.Class == JitOpClass.M68000Shift && !CanEmitM68kShift(pc, d))
+        {
+            EmitFallbackStep(ctx);
+            return;
+        }
+        // M6 PR-6: the flow valve — a JMP/JSR with an EA mode the arm does not handle falls back (Bcc/DBcc/RTS
+        // and BRA/BSR via the Bcc mnemonic are always emittable). Decode the ea mode at compile time.
+        if (TargetIsM68000 && d.Class == JitOpClass.M68000Flow && !CanEmitM68kFlow(pc, d))
+        {
+            EmitFallbackStep(ctx);
+            return;
+        }
         // Mirror the interpreter Step's opcode fetch EXACTLY: charge the opcode-fetch cycle FIRST
         // (the interpreter does `ReadBus(PC)` — which does `_cycles++` — then `PC++` in Step,
         // then `Execute` resolves operands). Charging the fetch cycle up-front (rather than as a
@@ -502,9 +529,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // M6 PR-5: a memory-dest ALU (toEa RegEa, an ImmEa/QuickEa memory dest) or an ADDX/SUBX -(An) writes RAM,
         // so the intra-block SMC guard must arm. Like the MOVE clause, the class-level gate is conservative-correct:
         // a reg-dest ALU never writes RAM (SmcPageLocal stays -1), so arming it on every M68000Alu row is harmless.
+        // M6 PR-6: a SHIFT_MEM memory-RMW form writes RAM, so the intra-block SMC guard must arm (M68000Shift).
+        // The register shift forms never write RAM, so the class-level gate is conservative-correct (a no-store
+        // op leaves SmcPageLocal at -1). M68000Flow is NOT here: it ends the block; its BSR/JSR stack push is
+        // backstopped by EmitChainOrExit's dirty.Any gate (the same reasoning as the Z80 CALL/RST flow ops).
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
             || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
-            || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu);
+            || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu or JitOpClass.M68000Shift);
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -529,6 +560,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case JitOpClass.M68000Alu:
                 M68kAluEmitSelections++;    // M6 PR-5: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
                 EmitM68kAlu(ctx, pc, d);    // M6 PR-5 (DECISION P3)
+                break;
+            case JitOpClass.M68000Shift:
+                M68kShiftEmitSelections++;        // M6 PR-6: the dead-arm-now-live probe
+                EmitM68kShift(ctx, pc, d);        // M6 PR-6 (DECISION P3)
+                break;
+            case JitOpClass.M68000Flow:
+                M68kFlowEmitSelections++;         // M6 PR-6: the dead-arm-now-live probe
+                EmitM68kFlow(ctx, pc, d, length); // M6 PR-6 (DECISION C/D — needs length for the fall-through PC)
                 break;
             case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:

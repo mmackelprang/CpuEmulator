@@ -1346,4 +1346,891 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 break;
         }
     }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // M6 PR-6: the 68000 shift/rotate emit arm + its three shift-CCR helpers.
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>M6 PR-6: the 8 shift/rotate kinds — IDENTICAL to the interpreter's private ShiftKind enum
+    /// (M68000Cpu.Shift.cs:78). The descriptor Mnemonic + operword bit 8 (register pairs) / bits 10-9 + 8
+    /// (SHIFT_MEM) decode the kind exactly as AslrRegExecute/.../ShiftMemExecute do.</summary>
+    private enum M68kShiftKind { Asl, Asr, Lsl, Lsr, Rol, Ror, Roxl, Roxr }
+
+    /// <summary>M6 PR-6: decode the shift kind from the descriptor Mnemonic + the operword. Register forms
+    /// (ASLR_REG/LSLR_REG/ROLR_REG/ROXLR_REG) pick the direction from operword bit 8 (1=left within the pair),
+    /// EXACTLY as AslrRegExecute/LslrRegExecute/RolrRegExecute/RoxlrRegExecute (M68000Cpu.Shift.cs:161-170). The
+    /// memory form (SHIFT_MEM) picks the class from operword bits 10-9 (00=AS/01=LS/10=ROX/11=RO) + the
+    /// direction from bit 8, EXACTLY as ShiftMemExecute (M68000Cpu.Shift.cs:175-184).</summary>
+    private static M68kShiftKind M68kShiftKindOf(string mnemonic, ushort operword)
+    {
+        bool left = (operword & 0x0100u) != 0;   // bit 8: 1 = left
+        switch (mnemonic)
+        {
+            case "ASLR_REG":  return left ? M68kShiftKind.Asl  : M68kShiftKind.Asr;
+            case "LSLR_REG":  return left ? M68kShiftKind.Lsl  : M68kShiftKind.Lsr;
+            case "ROLR_REG":  return left ? M68kShiftKind.Rol  : M68kShiftKind.Ror;
+            case "ROXLR_REG": return left ? M68kShiftKind.Roxl : M68kShiftKind.Roxr;
+            case "SHIFT_MEM":
+                int cls = (operword >> 9) & 3;
+                return cls switch
+                {
+                    0 => left ? M68kShiftKind.Asl  : M68kShiftKind.Asr,
+                    1 => left ? M68kShiftKind.Lsl  : M68kShiftKind.Lsr,
+                    2 => left ? M68kShiftKind.Roxl : M68kShiftKind.Roxr,
+                    _ => left ? M68kShiftKind.Rol  : M68kShiftKind.Ror,
+                };
+            default:
+                throw new EmulationException($"M68kShiftKindOf: not a PR-6 shift mnemonic '{mnemonic}'");
+        }
+    }
+
+    /// <summary>M6 PR-6: the SHIFT_MEM memory-by-1 form decodes the EA from operword bits 5-0 (mode/reg). It is a
+    /// MEMORY-alterable RMW dest (modes 2-6 + 7/0/1) — register-direct (mode 0/1) is illegal/lookahead garbage
+    /// the resolver cannot address. Mirrors IsM68kMemDestHandled (the ALU memory-dest set).</summary>
+    private bool CanEmitM68kShift(ushort pc, OpcodeDescriptor d)
+    {
+        if (d.Mnemonic != "SHIFT_MEM") return true;   // register forms have NO EA matrix (reg/count bit fields only)
+        ushort operword = _bus.Read16(pc);
+        int eaMode = (operword >> 3) & 7, eaReg = operword & 7;
+        return IsM68kMemDestHandled(eaMode, eaReg);
+    }
+
+    /// <summary>M6 PR-6: the 68000 shift/rotate emit arm. Mirrors ShiftRotateExecute (M68000Cpu.Shift.cs:83-157)
+    /// on the DATA axis (incl. SR/X). The kind + direction come from the descriptor Mnemonic + the operword; the
+    /// count source is Dn%64 (register, operword bit 5 set) / an imm 1-8 (else) / 1 (memory). EVERY count source
+    /// drives a per-bit RUNTIME LOOP that transcribes the oracle's loop body verbatim (lowest-risk — handles the
+    /// through-X ROXL/ROXR correctly). After the loop: the non-rotate count&gt;width clear, the size-aware write-
+    /// back (Dn partial / memory RMW), and the per-kind CCR. Charges the coarse BaseCycles once (DECISION T).</summary>
+    private void EmitM68kShift(EmitContext ctx, ushort pc, OpcodeDescriptor d)
+    {
+        ILGenerator il = ctx.Il;
+        ushort operword = _bus.Read16(pc);
+        var kind = M68kShiftKindOf(d.Mnemonic, operword);
+        bool memoryForm = d.Mnemonic == "SHIFT_MEM";
+        int size = memoryForm ? 1 : M68kShiftRegSize(operword);   // memory form is .w (size index 1)
+
+        bool isRotate = kind is M68kShiftKind.Rol or M68kShiftKind.Ror or M68kShiftKind.Roxl or M68kShiftKind.Roxr;
+        bool isRoxlr  = kind is M68kShiftKind.Roxl or M68kShiftKind.Roxr;
+
+        // ── 1) Seed the live X (for ROXL/ROXR) into M68kShiftXLocal — read NOW (the loop never touches SR). ──
+        //    For the non-X kinds this local is unused; seeding it is harmless.
+        EmitM68kLiveX(ctx);                         // (SR & 0x10) != 0 -> 0/1
+        il.Emit(OpCodes.Stloc, ctx.M68kShiftXLocal);
+
+        // ── 2) Read the VALUE (Dn sized, or the memory EA RMW) into the survivor M68kShiftValLocal. ──
+        //    For SHIFT_MEM the EA address is resolved ONCE into M68kAddr2Local (read-then-write the SAME addr).
+        int targetDn = operword & 7;
+        if (memoryForm)
+        {
+            int extIndex = 0;
+            int eaMode = (operword >> 3) & 7, eaReg = operword & 7;
+            EmitM68kResolveEaAddr(ctx, pc, eaMode, eaReg, size, ref extIndex);   // -> M68kAddr2Local
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            EmitM68kReadSized(ctx, size);
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+        }
+        else
+        {
+            EmitLoadDataRegSized(ctx, $"D{targetDn}", size);   // DataReg(targetDn) & SizeMask(size)
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+        }
+
+        // ── 3) The COUNT into M68kShiftCountLocal. ──
+        //    memory form: 1. register form: bit 5 set -> Dn%64 (runtime); else imm 1-8 (bits 11-9, 0->8).
+        if (memoryForm)
+        {
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
+        }
+        else if ((operword & 0x20u) != 0)
+        {
+            // register count: count = DataReg(bits 11-9) % 64
+            int cntReg = (operword >> 9) & 7;
+            EmitLoadReg32(ctx, $"D{cntReg}");
+            il.Emit(OpCodes.Ldc_I4, 64);
+            il.Emit(OpCodes.Rem_Un);                // (uint) % 64 — unsigned, matches DataReg(...) % 64u
+            il.Emit(OpCodes.Conv_I4);
+            il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
+        }
+        else
+        {
+            int imm = (operword >> 9) & 7; if (imm == 0) imm = 8;   // imm 1-8 (0->8) — compile-time constant
+            il.Emit(OpCodes.Ldc_I4, imm);
+            il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
+        }
+
+        // ── 4) Init lastBitOut = 0, msbChanged = 0. ──
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M68kMsbChangedLocal);
+
+        // ── 5) The per-bit runtime loop (transcribes M68000Cpu.Shift.cs:112-133). ──
+        uint mask = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        uint sb   = size == 0 ? 0x80u : size == 1 ? 0x8000u : 0x80000000u;
+        Label loopTop = il.DefineLabel();
+        Label loopDone = il.DefineLabel();
+
+        il.MarkLabel(loopTop);
+        // if (count <= 0) goto loopDone
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftCountLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ble, loopDone);
+
+        // msbBefore = (v & sb) != 0   -> TmpInt (0/1)
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)sb));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Cgt_Un);
+        il.Emit(OpCodes.Stloc, ctx.TmpInt);
+
+        EmitM68kShiftStep(ctx, kind, mask, sb);   // updates M68kShiftValLocal, M68kLastBitLocal, (ROXL/R) M68kShiftXLocal
+
+        // msbAfter = (v & sb) != 0; if (msbAfter != msbBefore) msbChanged = 1
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)sb));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Cgt_Un);                  // msbAfter (0/1)
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);       // msbBefore (0/1)
+        Label noMsbChange = il.DefineLabel();
+        il.Emit(OpCodes.Beq, noMsbChange);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Stloc, ctx.M68kMsbChangedLocal);
+        il.MarkLabel(noMsbChange);
+
+        // count--
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftCountLocal);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
+        il.Emit(OpCodes.Br, loopTop);
+        il.MarkLabel(loopDone);
+
+        // ── 6) result = v & mask (already masked each iteration; mask again defensively for size != 2). ──
+        if (size != 2)
+        {
+            il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)mask));
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+        }
+
+        // ── 7) The non-rotate count>width clear: for ASL/ASR/LSL/LSR, count > widthBits forces lastBitOut = 0
+        //    (C/X cleared — M68000Cpu.Shift.cs:140-142). count is in M68kShiftCountLocal? NO — the loop
+        //    decremented it to 0. The ORIGINAL count must be re-derived; but the test is "original count > width".
+        //    Re-read the original count source for the test (memory=1, imm=const, register=Dn%64).
+        if (!isRotate)
+        {
+            int widthBits = size == 0 ? 8 : size == 1 ? 16 : 32;
+            // Push the ORIGINAL count for the test.
+            EmitM68kPushOriginalShiftCount(ctx, operword, memoryForm);
+            il.Emit(OpCodes.Ldc_I4, widthBits);
+            Label noClear = il.DefineLabel();
+            il.Emit(OpCodes.Ble, noClear);          // original_count <= width -> skip
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+            il.MarkLabel(noClear);
+        }
+
+        // ── 8) Write the result back (Dn partial / memory RMW). ──
+        if (memoryForm)
+        {
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+            EmitM68kWriteSizedRmw(ctx, size);
+        }
+        else
+        {
+            il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+            EmitStoreDataRegSized(ctx, $"D{targetDn}", size);
+        }
+
+        // ── 9) The per-kind CCR. countZero = (original count == 0) — only possible for the runtime register
+        //    count (imm is 1-8, memory is 1). Push it as a 0/1 int for the helpers.
+        EmitM68kPushShiftCountZero(ctx, operword, memoryForm);   // -> stack: countZero (0/1) consumed by helper
+        il.Emit(OpCodes.Stloc, ctx.TmpInt);                       // park countZero in TmpInt for the helper
+        switch (kind)
+        {
+            case M68kShiftKind.Asl:
+                EmitM68kShiftCcr(ctx, size, msbIsV: true);   // ASL: V = msbChanged
+                break;
+            case M68kShiftKind.Asr:
+            case M68kShiftKind.Lsl:
+            case M68kShiftKind.Lsr:
+                EmitM68kShiftCcr(ctx, size, msbIsV: false);  // V = 0
+                break;
+            case M68kShiftKind.Rol:
+            case M68kShiftKind.Ror:
+                EmitM68kRotateCcr(ctx, size);
+                break;
+            default: /* Roxl / Roxr */
+                EmitM68kRotateXCcr(ctx, size);
+                break;
+        }
+
+        // ── 10) charge the coarse BaseCycles once (DECISION T). ──
+        EmitChargeCycles(ctx, d.BaseCycles);
+    }
+
+    /// <summary>M6 PR-6: the standard shift register-form size (operword bits 7-6: 00=.b/01=.w/10=.l), matching
+    /// M68kAluSize's standard path. SHIFT_MEM is always .w (handled by the caller).</summary>
+    private static int M68kShiftRegSize(ushort operword)
+    {
+        uint bits = (uint)((operword >> 6) & 3);
+        return bits switch { 0u => 0, 1u => 1, 2u => 2, _ => 0 };
+    }
+
+    /// <summary>M6 PR-6: push the ORIGINAL shift count (int) onto the stack for the count&gt;width / count==0
+    /// tests. memory=1, register-count=Dn%64 (runtime), imm=1-8 (compile-time constant). Mirrors the count
+    /// derivation in EmitM68kShift step 3.</summary>
+    private void EmitM68kPushOriginalShiftCount(EmitContext ctx, ushort operword, bool memoryForm)
+    {
+        ILGenerator il = ctx.Il;
+        if (memoryForm) { il.Emit(OpCodes.Ldc_I4_1); return; }
+        if ((operword & 0x20u) != 0)
+        {
+            int cntReg = (operword >> 9) & 7;
+            EmitLoadReg32(ctx, $"D{cntReg}");
+            il.Emit(OpCodes.Ldc_I4, 64);
+            il.Emit(OpCodes.Rem_Un);
+            il.Emit(OpCodes.Conv_I4);
+            return;
+        }
+        int imm = (operword >> 9) & 7; if (imm == 0) imm = 8;
+        il.Emit(OpCodes.Ldc_I4, imm);
+    }
+
+    /// <summary>M6 PR-6: push countZero (0/1, int) — true only when the ORIGINAL count is 0, which is only
+    /// possible for the runtime register count (imm is 1-8, memory is 1, so those are compile-time false).</summary>
+    private void EmitM68kPushShiftCountZero(EmitContext ctx, ushort operword, bool memoryForm)
+    {
+        ILGenerator il = ctx.Il;
+        if (memoryForm || (operword & 0x20u) == 0)
+        {
+            il.Emit(OpCodes.Ldc_I4_0);   // imm/memory count is never 0
+            return;
+        }
+        // register count: countZero = (Dn % 64) == 0
+        int cntReg = (operword >> 9) & 7;
+        EmitLoadReg32(ctx, $"D{cntReg}");
+        il.Emit(OpCodes.Ldc_I4, 64);
+        il.Emit(OpCodes.Rem_Un);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ceq);            // (Dn % 64) == 0 -> 1/0
+    }
+
+    /// <summary>M6 PR-6: ONE iteration of the shift/rotate loop body — transcribes M68000Cpu.Shift.cs:117-130
+    /// for the given kind. Reads/writes M68kShiftValLocal (v), sets M68kLastBitLocal (lastBitOut), and for
+    /// ROXL/ROXR threads M68kShiftXLocal (xIn in AND out). mask/sb are compile-time constants for the size.</summary>
+    private void EmitM68kShiftStep(EmitContext ctx, M68kShiftKind kind, uint mask, uint sb)
+    {
+        ILGenerator il = ctx.Il;
+        int maskI = unchecked((int)mask), sbI = unchecked((int)sb);
+        switch (kind)
+        {
+            case M68kShiftKind.Asl:
+            case M68kShiftKind.Lsl:
+                // lastBitOut = (v & sb) != 0; v = (v << 1) & mask
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4, sbI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shl);
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                break;
+            case M68kShiftKind.Asr:
+                // lastBitOut = (v & 1) != 0; v = ((v >> 1) | (msbBefore ? sb : 0)) & mask  (sign-fill)
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);   // (v & 1) is already 0/1
+                // (v >> 1)
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shr_Un);
+                // | (msbBefore ? sb : 0): msbBefore = (v & sb) != 0 -> reuse from v directly
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4, sbI); il.Emit(OpCodes.And);   // (v & sb) is 0 or sb
+                il.Emit(OpCodes.Or);
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                break;
+            case M68kShiftKind.Lsr:
+                // lastBitOut = (v & 1) != 0; v = (v >> 1) & mask
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shr_Un);
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                break;
+            case M68kShiftKind.Rol:
+                // lastBitOut = (v & sb) != 0; v = ((v << 1) | lastBitOut) & mask
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4, sbI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shl);
+                il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal); il.Emit(OpCodes.Or);
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                break;
+            case M68kShiftKind.Ror:
+                // lastBitOut = (v & 1) != 0; v = ((v >> 1) | (lastBitOut ? sb : 0)) & mask
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shr_Un);
+                // | (lastBitOut ? sb : 0) == lastBitOut * sb
+                il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Ldc_I4, sbI); il.Emit(OpCodes.Mul);
+                il.Emit(OpCodes.Or);
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                break;
+            case M68kShiftKind.Roxl:
+                // lastBitOut = (v & sb) != 0; v = ((v << 1) | xIn) & mask; xIn = lastBitOut
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4, sbI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shl);
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftXLocal); il.Emit(OpCodes.Or);   // | xIn (0/1)
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftXLocal);                        // xIn = lastBitOut
+                break;
+            default: /* Roxr */
+                // lobit = (v & 1) != 0; v = ((v >> 1) | (xIn ? sb : 0)) & mask; lastBitOut = lobit; xIn = lobit
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);                       // lobit -> lastBitOut
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Shr_Un);
+                // | (xIn ? sb : 0) == xIn * sb
+                il.Emit(OpCodes.Ldloc, ctx.M68kShiftXLocal);
+                il.Emit(OpCodes.Ldc_I4, sbI); il.Emit(OpCodes.Mul);
+                il.Emit(OpCodes.Or);
+                il.Emit(OpCodes.Ldc_I4, maskI); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
+                il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal);
+                il.Emit(OpCodes.Stloc, ctx.M68kShiftXLocal);                        // xIn = lobit
+                break;
+        }
+    }
+
+    /// <summary>M6 PR-6: the ASL/ASR/LSL/LSR CCR (ShiftCcr.Shift, M68000Cpu.Shift.cs:30-46). N/Z from the result
+    /// (M68kShiftValLocal); V = msbChanged for ASL (msbIsV) else 0; count&gt;0 -&gt; C = X = lastBitOut;
+    /// count==0 -&gt; C = 0, X UNCHANGED. countZero (0/1) is parked in TmpInt by the caller; lastBitOut in
+    /// M68kLastBitLocal; msbChanged in M68kMsbChangedLocal. Builds the new CCR byte and writes SR.</summary>
+    private void EmitM68kShiftCcr(EmitContext ctx, int size, bool msbIsV)
+    {
+        ILGenerator il = ctx.Il;
+        uint mask = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        uint sb   = size == 0 ? 0x80u : size == 1 ? 0x8000u : 0x80000000u;
+
+        // oldCcr = SR & 0xFF -> HiLocal
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.HiLocal);
+
+        // ccr = oldCcr & ~0x0F  (clear N Z V C; X handled below) -> SumLocal
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x0F)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+
+        // N: if ((result & sb) != 0) ccr |= 0x08
+        EmitM68kShiftNZ(ctx, mask, sb);
+
+        // V (ASL only): if (msbChanged) ccr |= 0x02
+        if (msbIsV)
+        {
+            il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+            il.Emit(OpCodes.Ldloc, ctx.M68kMsbChangedLocal);   // 0/1
+            il.Emit(OpCodes.Ldc_I4, 0x02); il.Emit(OpCodes.Mul);
+            il.Emit(OpCodes.Or);
+            il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        }
+
+        // countZero branch: count==0 -> C=0, X UNCHANGED (from oldCcr); else C = X = lastBitOut.
+        Label countZero = il.DefineLabel();
+        Label ccrDone = il.DefineLabel();
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);                    // countZero (0/1)
+        il.Emit(OpCodes.Brtrue, countZero);
+        // not zero: ccr |= lastBitOut*0x01; ccr = (ccr & ~0x10) | (lastBitOut ? 0x10 : 0)
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal); il.Emit(OpCodes.Or);   // C = lastBitOut (bit 0)
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x10)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal);
+        il.Emit(OpCodes.Ldc_I4, 4); il.Emit(OpCodes.Shl);      // lastBitOut << 4 (X = C)
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        il.Emit(OpCodes.Br, ccrDone);
+        il.MarkLabel(countZero);
+        // count==0: C already 0 (cleared above); X = oldCcr & 0x10 (unchanged)
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x10)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+        il.Emit(OpCodes.Ldc_I4, 0x10); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        il.MarkLabel(ccrDone);
+
+        EmitM68kCommitCcr(ctx);
+    }
+
+    /// <summary>M6 PR-6: the ROL/ROR CCR (ShiftCcr.Rotate, M68000Cpu.Shift.cs:49-55). N/Z from result; X
+    /// UNTOUCHED (keep oldCcr's X — the 0xFFF0-style preserve via &amp; ~0x0F keeps X already); V=0; count&gt;0
+    /// -&gt; C = lastBitOut, count==0 -&gt; C = 0. countZero in TmpInt, lastBitOut in M68kLastBitLocal.</summary>
+    private void EmitM68kRotateCcr(EmitContext ctx, int size)
+    {
+        ILGenerator il = ctx.Il;
+        uint mask = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        uint sb   = size == 0 ? 0x80u : size == 1 ? 0x8000u : 0x80000000u;
+
+        // oldCcr -> HiLocal
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.HiLocal);
+        // ccr = oldCcr & ~0x0F  (clear N Z V C; KEEP X — bit 4 survives) -> SumLocal
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x0F)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        // N/Z
+        EmitM68kShiftNZ(ctx, mask, sb);
+        // C = (!countZero && lastBitOut): ccr |= (countZero ? 0 : lastBitOut)
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);            // countZero (0/1)
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);   // !countZero (0/1)
+        il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal);
+        il.Emit(OpCodes.And);                          // (!countZero) & lastBitOut -> C bit
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        EmitM68kCommitCcr(ctx);
+    }
+
+    /// <summary>M6 PR-6: the ROXL/ROXR CCR (ShiftCcr.RotateX, M68000Cpu.Shift.cs:58-66). N/Z from result; V=0;
+    /// count&gt;0 -&gt; C = X = lastBitOut; count==0 -&gt; C = X = current (old) X, X unchanged. countZero in
+    /// TmpInt, lastBitOut in M68kLastBitLocal.</summary>
+    private void EmitM68kRotateXCcr(EmitContext ctx, int size)
+    {
+        ILGenerator il = ctx.Il;
+        uint mask = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        uint sb   = size == 0 ? 0x80u : size == 1 ? 0x8000u : 0x80000000u;
+
+        // oldCcr -> HiLocal
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.HiLocal);
+        // ccr = oldCcr & ~0x0F  (clear N Z V C) -> SumLocal
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x0F)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        // N/Z
+        EmitM68kShiftNZ(ctx, mask, sb);
+        // x = countZero ? (oldCcr & 0x10) != 0 : lastBitOut   -> TmpLong reused? use M68kALocal-free: compute into a temp on stack
+        // Compute x (0/1) -> LoLocal
+        Label xFromOld = il.DefineLabel();
+        Label xDone = il.DefineLabel();
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);            // countZero
+        il.Emit(OpCodes.Brtrue, xFromOld);
+        il.Emit(OpCodes.Ldloc, ctx.M68kLastBitLocal);  // x = lastBitOut
+        il.Emit(OpCodes.Br, xDone);
+        il.MarkLabel(xFromOld);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+        il.Emit(OpCodes.Ldc_I4, 0x10); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);   // (oldCcr & 0x10) != 0 -> 0/1
+        il.MarkLabel(xDone);
+        il.Emit(OpCodes.Stloc, ctx.LoLocal);           // x (0/1)
+        // C = x; X = x:  ccr |= x; ccr = (ccr & ~0x10) | (x << 4)
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Conv_I4); il.Emit(OpCodes.Or);   // C
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x10)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Conv_I4);
+        il.Emit(OpCodes.Ldc_I4, 4); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        EmitM68kCommitCcr(ctx);
+    }
+
+    /// <summary>M6 PR-6: the shared N/Z OR-in for the shift CCR helpers — N = (result &amp; sb) != 0 -&gt; |0x08;
+    /// Z = (result &amp; mask) == 0 -&gt; |0x04, into SumLocal (the running ccr). result is in M68kShiftValLocal.</summary>
+    private void EmitM68kShiftNZ(EmitContext ctx, uint mask, uint sb)
+    {
+        ILGenerator il = ctx.Il;
+        // N
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)sb)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+        il.Emit(OpCodes.Ldc_I4, 0x08); il.Emit(OpCodes.Mul);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        // Z
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftValLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)mask)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);
+        il.Emit(OpCodes.Ldc_I4, 0x04); il.Emit(OpCodes.Mul);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+    }
+
+    /// <summary>M6 PR-6: commit the shift CCR — SR = (ushort)((SR &amp; 0xFF00) | (ccr &amp; 0xFF)), where ccr is
+    /// in SumLocal. Stages through M68kAddr2Local (receiver-below-value fix, like EmitM68kMoveCcr).</summary>
+    private void EmitM68kCommitCcr(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)0xFF00)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stfld, _m68kSR!);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // M6 PR-6: the 68000 control-flow emit arm (Bcc/BRA/BSR/DBcc/JMP/JSR/RTS) + the condition evaluator.
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>M6 PR-6: set the 32-bit PC to a COMPILE-TIME-CONSTANT target (push the constant, store via the
+    /// whole-32 EmitStoreReg32 — NOT the Conv_U2-truncating Z80/6502 _fpc store, which would corrupt the
+    /// 68000's 32-bit PC). The data axis observes this landed PC.</summary>
+    private void EmitM68kSetPcConst(EmitContext ctx, uint target)
+    {
+        ctx.Il.Emit(OpCodes.Ldc_I4, unchecked((int)target));
+        ctx.Il.Emit(OpCodes.Conv_U4);
+        EmitStoreReg32(ctx, "PC");
+    }
+
+    /// <summary>M6 PR-6: can the control-flow row at <paramref name="pc"/> be emitted? Bcc (incl. BRA/BSR) / DBcc
+    /// / RTS are ALWAYS emittable (no EA matrix the resolver must address). JMP/JSR decode a control EA from the
+    /// operword: the STATIC modes (abs.w/abs.l 7/0-1, d16(PC)/d8(PC,Xn) 7/2-3) and the DYNAMIC modes ((An) 2,
+    /// d16(An) 5, d8(An,Xn) 6) all EMIT (DECISION C routes dynamic to EmitNormalExit inside the arm); any OTHER
+    /// ea mode (a lookahead garbage word) falls back. The operword is a code-stream constant — a pure compile-
+    /// time decision.</summary>
+    private bool CanEmitM68kFlow(ushort pc, OpcodeDescriptor d)
+    {
+        if (d.Mnemonic is "Bcc" or "DBcc" or "RTS") return true;
+        // JMP / JSR: a CONTROL ea. The arm handles modes 2 / 5 / 6 (dynamic) + 7 reg 0/1/2/3 (static).
+        ushort operword = _bus.Read16(pc);
+        int eaMode = (operword >> 3) & 7, eaReg = operword & 7;
+        return eaMode switch
+        {
+            2 or 5 or 6 => true,                       // (An) / d16(An) / d8(An,Xn) — dynamic, EmitNormalExit
+            7 => eaReg <= 3,                           // abs.w/abs.l/d16(PC)/d8(PC,Xn) — static (0/1/2/3)
+            _ => false,                                // mode 0/1/3/4 are NOT control EAs -> fall back
+        };
+    }
+
+    /// <summary>M6 PR-6: the 68000 control-flow emit arm. Mirrors M68000Cpu.Control.cs on the DATA axis (incl. the
+    /// landed PC, the pushed/popped stack, the DBcc-decremented Dn). The form is decoded from the descriptor
+    /// Mnemonic + the operword (DECISION P3). Bcc carries BRA (cc 0) / BSR (cc 1) / the 14 conditionals. Every
+    /// edge charges &gt;= 1 cycle BEFORE EmitChainOrExit (DECISION T — avoid the runaway-budget loop). Static
+    /// targets chain; dynamic targets (RTS, JMP/JSR (An)) exit (DECISION C).</summary>
+    private void EmitM68kFlow(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
+    {
+        ushort operword = _bus.Read16(pc);
+        switch (d.Mnemonic)
+        {
+            case "Bcc":  EmitM68kBcc(ctx, pc, d, length, operword); return;
+            case "DBcc": EmitM68kDBcc(ctx, pc, d, length, operword); return;
+            case "JMP":  EmitM68kJmpJsr(ctx, pc, d, length, operword, isJsr: false); return;
+            case "JSR":  EmitM68kJmpJsr(ctx, pc, d, length, operword, isJsr: true); return;
+            case "RTS":  EmitM68kRts(ctx, d); return;
+            default:
+                throw new EmulationException($"EmitM68kFlow: unhandled flow mnemonic '{d.Mnemonic}'");
+        }
+    }
+
+    /// <summary>M6 PR-6: push 0/1 for the 68000 condition code (cc bits 11-8) from the CCR bits, mirroring
+    /// EvaluateCondition (M68000Cpu.Scc.cs:13-35). X=0x10 N=0x08 Z=0x04 V=0x02 C=0x01. Reads SR &amp; 0xFF and
+    /// derives the boolean combination per condition. Leaves an int 0/1 on the stack. (cc 0 = T, cc 1 = F.)</summary>
+    private void EmitM68kCondition(EmitContext ctx, int cc)
+    {
+        ILGenerator il = ctx.Il;
+        // ccr = SR & 0xFF -> stash bits we need into locals (n,z,v,c) as 0/1.
+        // Compute each flag fresh as needed; keep ccr on a local for reuse.
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.TmpInt);   // ccr
+
+        switch (cc)
+        {
+            case 0x0:   // T
+                il.Emit(OpCodes.Ldc_I4_1); return;
+            case 0x1:   // F
+                il.Emit(OpCodes.Ldc_I4_0); return;
+            case 0x2:   // HI = !C && !Z
+                EmitM68kFlagClear(ctx, 0x01); EmitM68kFlagClear(ctx, 0x04); il.Emit(OpCodes.And); return;
+            case 0x3:   // LS = C || Z
+                EmitM68kFlagSet(ctx, 0x01); EmitM68kFlagSet(ctx, 0x04); il.Emit(OpCodes.Or); return;
+            case 0x4:   // CC = !C
+                EmitM68kFlagClear(ctx, 0x01); return;
+            case 0x5:   // CS = C
+                EmitM68kFlagSet(ctx, 0x01); return;
+            case 0x6:   // NE = !Z
+                EmitM68kFlagClear(ctx, 0x04); return;
+            case 0x7:   // EQ = Z
+                EmitM68kFlagSet(ctx, 0x04); return;
+            case 0x8:   // VC = !V
+                EmitM68kFlagClear(ctx, 0x02); return;
+            case 0x9:   // VS = V
+                EmitM68kFlagSet(ctx, 0x02); return;
+            case 0xA:   // PL = !N
+                EmitM68kFlagClear(ctx, 0x08); return;
+            case 0xB:   // MI = N
+                EmitM68kFlagSet(ctx, 0x08); return;
+            case 0xC:   // GE = N == V
+                EmitM68kFlagSet(ctx, 0x08); EmitM68kFlagSet(ctx, 0x02); il.Emit(OpCodes.Ceq); return;
+            case 0xD:   // LT = N != V
+                EmitM68kFlagSet(ctx, 0x08); EmitM68kFlagSet(ctx, 0x02);
+                il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); return;   // !(N==V)
+            case 0xE:   // GT = !Z && (N == V)
+                EmitM68kFlagClear(ctx, 0x04);                       // !Z
+                EmitM68kFlagSet(ctx, 0x08); EmitM68kFlagSet(ctx, 0x02); il.Emit(OpCodes.Ceq);   // N==V
+                il.Emit(OpCodes.And); return;
+            default:    // 0xF LE = Z || (N != V)
+                EmitM68kFlagSet(ctx, 0x04);                         // Z
+                EmitM68kFlagSet(ctx, 0x08); EmitM68kFlagSet(ctx, 0x02);
+                il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);          // N!=V
+                il.Emit(OpCodes.Or); return;
+        }
+    }
+
+    /// <summary>M6 PR-6: push 1 if the CCR flag at <paramref name="bitMask"/> is SET (ccr in TmpInt), else 0.</summary>
+    private void EmitM68kFlagSet(EmitContext ctx, int bitMask)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+        il.Emit(OpCodes.Ldc_I4, bitMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);   // (ccr & bit) != 0 -> 1/0
+    }
+
+    /// <summary>M6 PR-6: push 1 if the CCR flag at <paramref name="bitMask"/> is CLEAR, else 0.</summary>
+    private void EmitM68kFlagClear(EmitContext ctx, int bitMask)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+        il.Emit(OpCodes.Ldc_I4, bitMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);      // (ccr & bit) == 0 -> 1/0
+    }
+
+    /// <summary>M6 PR-6: Bcc / BRA / BSR (M68000Cpu.Control.cs:18-41). cc = operword bits 11-8. cc==0 BRA (always
+    /// taken); cc==1 BSR (push the return PC = pc+length, branch); cc 2-F conditional via EmitM68kCondition.
+    /// disp8 = operword &amp; 0xFF; disp8==0 -&gt; Bcc.w (16-bit ext word); else (sbyte)disp8 (.b, 0xFF=-1 normal).
+    /// branchBase = pc + 2 (= PcForEa); target = branchBase + disp — a compile-time constant. BSR + a taken Bcc
+    /// chain to the static target; a not-taken Bcc chains to the static fall-through (pc + length).</summary>
+    private void EmitM68kBcc(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, ushort operword)
+    {
+        ILGenerator il = ctx.Il;
+        int cc = (operword >> 8) & 0xF;
+        int disp8 = operword & 0xFF;
+        int disp = disp8 == 0x00 ? unchecked((short)_bus.Read16((ushort)(pc + 2))) : unchecked((sbyte)(byte)disp8);
+        uint branchBase = (uint)(pc + 2);
+        uint target = unchecked(branchBase + (uint)disp);
+        uint fallThrough = (uint)(pc + length);
+
+        if (cc == 0x1)   // BSR: push the return PC (pc+length) to -(A7); PC = target; chain to the static entry.
+        {
+            EmitM68kPushReturnPc(ctx, (uint)(pc + length));
+            EmitM68kSetPcConst(ctx, target);
+            EmitChargeCycles(ctx, d.BaseCycles);
+            EmitChainOrExit(ctx, (ushort)target);
+            return;
+        }
+        if (cc == 0x0)   // BRA: always taken.
+        {
+            EmitM68kSetPcConst(ctx, target);
+            EmitChargeCycles(ctx, d.BaseCycles);
+            EmitChainOrExit(ctx, (ushort)target);
+            return;
+        }
+        // conditional Bcc — two static edges.
+        EmitChargeCycles(ctx, d.BaseCycles);   // charge once up front (>= 1; both edges pay it — DECISION T)
+        Label notTaken = il.DefineLabel();
+        EmitM68kCondition(ctx, cc);
+        il.Emit(OpCodes.Brfalse, notTaken);
+        // taken: PC = target; chain.
+        EmitM68kSetPcConst(ctx, target);
+        EmitChainOrExit(ctx, (ushort)target);
+        il.MarkLabel(notTaken);
+        // not-taken: PC = pc + length; chain the fall-through.
+        EmitM68kSetPcConst(ctx, fallThrough);
+        EmitChainOrExit(ctx, (ushort)fallThrough);
+    }
+
+    /// <summary>M6 PR-6 (DECISION D): DBcc — the decrement-and-branch loop primitive (M68000Cpu.Control.cs:45-61).
+    /// THREE outcomes: (1) condition TRUE -&gt; fall through, NO decrement; (2) FALSE, Dn.w-- != 0xFFFF -&gt;
+    /// branch; (3) FALSE, Dn.w-- == 0xFFFF (was 0) -&gt; fall through. The decrement is .w PARTIAL (low 16, upper
+    /// word preserved); it terminates at -1 (0xFFFF), NOT 0. BOTH edges are STATIC -&gt; both chain. Each edge
+    /// charges &gt;= 1 cycle before EmitChainOrExit (DECISION T).</summary>
+    private void EmitM68kDBcc(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, ushort operword)
+    {
+        ILGenerator il = ctx.Il;
+        int cc = (operword >> 8) & 0xF;
+        int dn = operword & 7;
+        int disp = unchecked((short)_bus.Read16((ushort)(pc + 2)));   // the +1 disp word
+        uint branchBase = (uint)(pc + 2);
+        uint target = unchecked(branchBase + (uint)disp);
+        uint fallThrough = (uint)(pc + length);
+
+        Label fallThroughLabel = il.DefineLabel();
+        Label branchTaken = il.DefineLabel();
+
+        // (1) condition TRUE -> fall through (NO decrement). Brtrue BEFORE any decrement (load-bearing).
+        EmitM68kCondition(ctx, cc);
+        il.Emit(OpCodes.Brtrue, fallThroughLabel);
+
+        // (2/3) condition FALSE: counter = (Dn.w - 1) & 0xFFFF; write Dn.w (.w partial — upper word preserved).
+        EmitLoadDataRegSized(ctx, $"D{dn}", 1);   // Dn.w (low 16) on stack
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Ldc_I4, 0xFFFF); il.Emit(OpCodes.And);   // counter = (Dn.w - 1) & 0xFFFF
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Stloc, ctx.TmpInt);       // stash the counter for the terminate test
+        EmitStoreDataRegSized(ctx, $"D{dn}", 1);  // Dn.w = counter (upper word preserved)
+        // if (counter == 0xFFFF) -> fall through; else branch.
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+        il.Emit(OpCodes.Ldc_I4, 0xFFFF); il.Emit(OpCodes.Ceq);
+        il.Emit(OpCodes.Brtrue, fallThroughLabel);
+
+        il.MarkLabel(branchTaken);
+        EmitM68kSetPcConst(ctx, target);
+        EmitChargeCycles(ctx, d.BaseCycles);      // taken (>= 1 — DECISION T)
+        EmitChainOrExit(ctx, (ushort)target);
+
+        il.MarkLabel(fallThroughLabel);
+        EmitM68kSetPcConst(ctx, fallThrough);
+        EmitChargeCycles(ctx, d.BaseCycles);      // fall-through (>= 1)
+        EmitChainOrExit(ctx, (ushort)fallThrough);
+    }
+
+    /// <summary>M6 PR-6: JMP / JSR (M68000Cpu.Control.cs:64-75). The control ea (pureEa — never dereferenced).
+    /// JSR pushes the return PC (= pc+length) to -(A7) first. A STATIC ea (abs/PC-relative — compile-time
+    /// constant) sets PC + chains; a DYNAMIC ea ((An)/d16(An)/d8(An,Xn) — runtime) sets PC + EmitNormalExit
+    /// (DECISION C). The ea is resolved with pureEa semantics: abs/PC-relative are baked constants; the An-based
+    /// modes resolve the address at run time (EmitM68kResolveEaAddr leaves it in M68kAddr2Local).</summary>
+    private void EmitM68kJmpJsr(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, ushort operword, bool isJsr)
+    {
+        ILGenerator il = ctx.Il;
+        int eaMode = (operword >> 3) & 7, eaReg = operword & 7;
+        int extIndex = 0;
+
+        // Decide static-vs-dynamic + compute/resolve the target ea.
+        bool isStatic = eaMode == 7 && eaReg <= 3;
+        uint staticTarget = 0;
+        if (isStatic)
+        {
+            // Compile-time-constant control ea (abs.w/abs.l/d16(PC)/d8(PC,Xn)). For d8(PC,Xn) the index value is
+            // runtime, so it is NOT a true compile-time constant — treat 7/3 as DYNAMIC (resolve at run time).
+            switch (eaReg)
+            {
+                case 0: staticTarget = unchecked((uint)(short)_bus.Read16((ushort)(pc + 2))); break;       // abs.w
+                case 1:                                                                                     // abs.l
+                    staticTarget = ((uint)_bus.Read16((ushort)(pc + 2)) << 16) | _bus.Read16((ushort)(pc + 4));
+                    break;
+                case 2:   // d16(PC) = (pc+2) + (short)ext
+                    staticTarget = unchecked((uint)(pc + 2) + (uint)(short)_bus.Read16((ushort)(pc + 2)));
+                    break;
+                default:  // 3: d8(PC,Xn) — runtime index, NOT static
+                    isStatic = false;
+                    break;
+            }
+        }
+
+        if (isJsr) EmitM68kPushReturnPc(ctx, (uint)(pc + length));
+
+        if (isStatic)
+        {
+            EmitM68kSetPcConst(ctx, staticTarget);
+            EmitChargeCycles(ctx, d.BaseCycles);
+            EmitChainOrExit(ctx, (ushort)staticTarget);
+        }
+        else
+        {
+            // Dynamic ea: resolve the control address at run time -> M68kAddr2Local, set PC = it, EmitNormalExit.
+            EmitM68kResolveControlEa(ctx, pc, eaMode, eaReg, ref extIndex);   // -> M68kAddr2Local
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            EmitStoreReg32(ctx, "PC");
+            EmitChargeCycles(ctx, d.BaseCycles);
+            EmitNormalExit(ctx);
+        }
+    }
+
+    /// <summary>M6 PR-6: RTS (M68000Cpu.Control.cs:78-83). PC = ReadLongBus(A7); A7 += 4. The popped target is
+    /// DYNAMIC -&gt; EmitNormalExit (NOT chainable). Charges BaseCycles before the exit (DECISION T).</summary>
+    private void EmitM68kRts(EmitContext ctx, OpcodeDescriptor d)
+    {
+        ILGenerator il = ctx.Il;
+        // ret = ReadLongBus(A7) -> stash; then A7 += 4; then PC = ret.
+        EmitLoadAreg(ctx, 7);
+        LoadLongFromBus(ctx);                       // ReadLongBus(A7) -> uint (big-endian)
+        il.Emit(OpCodes.Stloc, ctx.M68kValueLocal); // ret (survives the A7 update)
+        // A7 += 4
+        EmitAdvanceAreg(ctx, 7, +4);
+        // PC = ret
+        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal);
+        EmitStoreReg32(ctx, "PC");
+        EmitChargeCycles(ctx, d.BaseCycles);
+        EmitNormalExit(ctx);                        // DYNAMIC popped target — exit to the dispatcher
+    }
+
+    /// <summary>M6 PR-6: push the return PC (a compile-time constant = pc+length) to -(A7): A7 -= 4;
+    /// WriteLongBus(A7, retPc). Reuses the A7 banking (EmitLoadAreg/EmitStoreAreg) + the high-word-first
+    /// EmitStoreLong (the WriteLongBus order, M68000Cpu.cs). Marks the page dirty (the SMC backstop runs at the
+    /// chain edge via EmitChainOrExit's dirty.Any gate).</summary>
+    private void EmitM68kPushReturnPc(EmitContext ctx, uint retPc)
+    {
+        ILGenerator il = ctx.Il;
+        // A7 -= 4 (the stack word-align does not apply to a .l push: mag is 4)
+        EmitAdvanceAreg(ctx, 7, -4);
+        // WriteLongBus(A7, retPc): stack (address, value) for EmitStoreLong.
+        EmitLoadAreg(ctx, 7);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)retPc));
+        il.Emit(OpCodes.Conv_U4);
+        EmitStoreLong(ctx);   // big-endian Write32 (high word first) — the WriteLongBus order; marks dirty
+    }
+
+    /// <summary>M6 PR-6: resolve a JMP/JSR DYNAMIC control ea to its ADDRESS (pureEa — never dereferenced) into
+    /// M68kAddr2Local. Handles (An) 2, d16(An) 5, d8(An,Xn) 6, and d8(PC,Xn) 7/3 (the runtime-index PC form).
+    /// abs/d16(PC) are handled as compile-time constants by the caller (EmitM68kJmpJsr), so they never reach
+    /// here. Mirrors ComputeEa with pureEa:true (no write-back, no deref).</summary>
+    private void EmitM68kResolveControlEa(EmitContext ctx, ushort pc, int eaMode, int eaReg, ref int extIndex)
+    {
+        ILGenerator il = ctx.Il;
+        switch (eaMode)
+        {
+            case 2:   // (An): ea = An
+                EmitLoadAreg(ctx, eaReg);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 5:   // d16(An): ea = An + (short)ext
+                EmitLoadAreg(ctx, eaReg);
+                EmitAddDisp16(ctx, pc, ref extIndex);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 6:   // d8(An,Xn)
+                EmitM68kBriefIndex(ctx, pc, eaReg, isPc: false, ref extIndex);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 7 when eaReg == 3:   // d8(PC,Xn) — runtime index
+                EmitM68kBriefIndex(ctx, pc, 0, isPc: true, ref extIndex);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            default:
+                throw new EmulationException($"EmitM68kResolveControlEa: unhandled control ea {eaMode}/{eaReg}");
+        }
+    }
 }
