@@ -201,16 +201,22 @@ public class BenchHarnessSmokeTests
     public void The_two_8086_tiers_run_and_agree_on_the_W2_cycle_count()
     {
         // M6 PR-A — the 8086 W2 (ALU/branch) kernel on BOTH our tiers: a wiring smoke (Ran==true + the
-        // two tiers agree on the cycle count), NOT a throughput assertion (D5). Both tiers are
-        // dependency-free hand-written kernels (no external exerciser), so this ALWAYS runs. A TINY bounded
-        // window keeps the routine suite fast (the committed 50M-cycle window is the runner's job). The
-        // 8086 is all-fallback (M5.6), so Tier-1 reaches the same cycle count as Tier-0 (bounded by the
-        // one-instruction overshoot at the cap boundary, identical for both).
+        // two tiers reach the cap and roughly agree on the cycle count), NOT a throughput assertion (D5). Both
+        // tiers are dependency-free hand-written kernels (no external exerciser), so this ALWAYS runs. A TINY
+        // bounded window keeps the routine suite fast (the committed 50M-cycle window is the runner's job).
+        // M6 PR-B: the 8086 JIT now EMITS real MOV IL charging the descriptor's COARSE BaseCycles (DECISION B-4 —
+        // the 8086 emit gate is the DATA axis only; cycles are carried-not-asserted, NOT cycle-exact). So the two
+        // tiers no longer reach a BIT-IDENTICAL cycle count once the kernel contains MOVs; they agree within a
+        // small instruction-boundary slack — EXACTLY the 68000 W2 coarse-cycle stance above (backlog: the W2
+        // bench-harness cycle off-by-2). The DATA axis stays byte-identical (the M8088 JIT MOV sweep proves that);
+        // only the cycle COUNT diverges. Assert both tiers reach the cap and the JIT is within a small window.
         var w = M8086Workloads.ArithmeticKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
         long t0 = Tier0.Run(w);
         long t1 = Tier1.Run(w);
-        Assert.True(t0 >= 2_000_000);
-        Assert.Equal(t0, t1);                                  // tier-0 == tier-1 (all-fallback parity)
+        Assert.True(t0 >= 2_000_000, $"8086 W2 interpreter ran {t0}, expected >= the cap");
+        Assert.True(t1 >= 2_000_000, $"8086 W2 jit ran {t1}, expected >= the cap");
+        Assert.True(System.Math.Abs(t0 - t1) <= 64,
+            $"8086 W2 tier cycle counts diverge by more than the coarse-cycle slack: interp={t0}, jit={t1}");
         var r0 = BenchHarness.MeasureTier("our Tier-0 interpreter", Tier0.Run, w);
         var r1 = BenchHarness.MeasureTier("our Tier-1 JIT", Tier1.Run, w);
         Assert.True(r0.Ran && r0.CyclesPerSecond > 0);
@@ -239,16 +245,20 @@ public class BenchHarnessSmokeTests
     [Fact]
     public void The_two_8086_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
     {
-        // 8086-W3 — the 8086 compute kernel on BOTH our tiers: a wiring smoke (Ran==true + the two tiers
-        // agree on the cycle count), NOT a throughput assertion. Both tiers run the all-fallback path
-        // (M5.6), so they reach the same cycle count on a TINY bounded window (the committed 50M-cycle
-        // window is the runner's job).
+        // 8086-W3 — the 8086 compute kernel on BOTH our tiers: a wiring smoke (Ran==true + the two tiers reach
+        // the cap and roughly agree on the cycle count), NOT a throughput assertion. M6 PR-B: the JIT now EMITS
+        // real MOV IL with COARSE BaseCycles (DECISION B-4 — the gate is the DATA axis only, cycles carried-not-
+        // asserted), so the two tiers no longer reach a BIT-IDENTICAL cycle count on a MOV-bearing kernel; they
+        // agree within a small instruction-boundary slack (the same coarse-cycle stance as the 68000 W2/W3 above).
+        // The DATA axis stays byte-identical (the M8088 JIT MOV sweep proves that); only the cycle COUNT diverges.
         var sieve = M8086Workloads.SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
 
         long interpCycles = Tier0.Run(sieve);
         long jitCycles = Tier1.Run(sieve);
         Assert.True(interpCycles >= sieve.FixedCycleCap, $"8086 Sieve interpreter ran {interpCycles}, expected >= the cap");
-        Assert.Equal(interpCycles, jitCycles);
+        Assert.True(jitCycles >= sieve.FixedCycleCap, $"8086 Sieve jit ran {jitCycles}, expected >= the cap");
+        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 64,
+            $"8086 W3 tier cycle counts diverge by more than the coarse-cycle slack: interp={interpCycles}, jit={jitCycles}");
 
         var t0 = BenchHarness.MeasureTier("m8086 interpreter", Tier0.Run, sieve);
         var t1 = BenchHarness.MeasureTier("m8086 jit", Tier1.Run, sieve);
