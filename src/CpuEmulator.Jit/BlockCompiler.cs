@@ -30,6 +30,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// emits 1 (BRK/RTI/undefined stay fallbacks).</summary>
     internal int FallbackEmitCount { get; private set; }
 
+    /// <summary>M6 PR-4a: a per-instance count of how many times an M68000Move row was DISPATCHED to
+    /// <see cref="EmitM68kMove"/> across this compiler's Compile calls (the arm-selection probe). Pre-PR-4a this
+    /// was always 0 — the byte-stream decode mis-matched the table so no MOVE descriptor ever reached the emit
+    /// switch (the dead-arm blocker). A test asserts it is &gt; 0 after a MOVE block compiles, so the 68000 MOVE
+    /// parity gate is proven NON-vacuous (the emit IL actually ran), not interpreter-vs-interpreter. Distinct from
+    /// <see cref="FallbackEmitCount"/> (which resets per Compile); this ACCUMULATES across Compiles so a sweep can
+    /// assert one positive total.</summary>
+    internal int M68kMoveEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -290,7 +299,20 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length)> Discover(ushort pc)
     {
         var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor, int)>();
-        var stream = new BusFetchStream(_bus, pc);          // byte-granular, positioned at pc
+        // M6 PR-4a: the decode-walk fetch stream is per-target GRANULAR. The 6502/Z80/8086 generated Decode()
+        // walks are BYTE-granular (BusFetchStream, UnitBytes==1, Read8) — authored against a byte stream. The
+        // 68000's generated Decode() is WORD-granular (M68000FetchStream, UnitBytes==2, big-endian — it reads
+        // `uint operword = stream.NextUnit()` as a 16-bit word, M68000Cpu.g.cs:748). Fed the byte stream the
+        // 68000 read only the operword's HIGH byte, mis-matched the field-op table, and DescriptorFor returned
+        // Undefined/NeedsFallback — so EVERY 68000 block fell back and the MOVE emit arm never dispatched (the
+        // PR-4 blocker). The ternary keys on the SAME TargetIsM68000 discriminator that already routes the MOVE
+        // arm (EmitInstruction). The non-68000 branch is byte-for-byte the pre-PR-4a construction, so the
+        // byte-granular CPUs see an IDENTICAL Discover (proven by their empty-diff descriptor tables + unchanged
+        // FallbackEmitCount + green JIT sweeps — the PR-4a regression gate).
+        IFetchStream NewStream(ushort at) => TargetIsM68000
+            ? new M68000FetchStream(_bus, at)   // word-granular: Seeds the queue from the two physical words at `at`
+            : new BusFetchStream(_bus, at);     // byte-granular: == the pre-PR-4a `new BusFetchStream(_bus, pc)`
+        IFetchStream stream = NewStream(pc);                // positioned at pc (byte- or word-granular per target)
         for (int i = 0; i < _opts.BlockLengthCap; i++)
         {
             DecodeResult r = _target.Decode(stream);        // J3: the per-CPU decode seam (was static)
@@ -315,7 +337,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             run.Add((pc, d, length));
             if (d.EndsBlock) break;
             pc = unchecked((ushort)(pc + length));           // advance by the FULL footprint
-            stream.SeekTo(pc);                               // reposition at the next instruction
+            // M6 PR-4a: reposition at the next instruction. The byte stream supports in-place SeekTo (its IL is
+            // UNCHANGED from pre-PR-4a — same instance reused, same reset); the word stream (a stateful queue
+            // with no SeekTo) is re-CONSTRUCTED fresh at the new pc — its stateless decode-walk ctor re-Seeds
+            // the queue from `pc`, the correct per-instruction decode start (the runtime Seed/Reseed/refill
+            // machinery is irrelevant to the never-executing discovery walk). Re-constructing the BYTE stream
+            // would be equivalent to SeekTo, but keeping SeekTo on the byte path leaves its IL untouched.
+            if (stream is BusFetchStream bfs) bfs.SeekTo(pc);
+            else stream = NewStream(pc);                     // 68000: fresh word-granular stream re-Seeded at pc
         }
         return run;
     }
@@ -397,6 +426,22 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
     {
         if (d.NeedsFallback) { EmitFallbackStep(ctx); return; }
+        // M6 PR-4a: a 68000 MOVE is BLOCK-CONTINUING (NeedsFallback=false), so Discover walks PAST it into the
+        // next word. In the single-instruction TomHarte corpus that next word is the prefetch-queue LOOKAHEAD
+        // (pf[1]), NOT a real instruction — and ~1-in-5 of those words classify as a MOVE-family descriptor with
+        // an ARBITRARY dest EA, including the PC-relative / immediate modes (mode 7 reg 2/3/4) that are ILLEGAL
+        // MOVE destinations and that EmitM68kEaWrite cannot emit. (In a real program the next word IS a real
+        // instruction, but discovery can still walk into data / illegal-EA words at a block boundary.) Rather
+        // than ABORT the whole block compile with the EmitM68kEaWrite throw (which kills the REAL first MOVE too),
+        // fall back to inner.Step for the unhandled op — exactly as every other unemittable 68000 op does. The
+        // fallback ENDS the block (EmitNormalExit), which is correct: at runtime the budget exit after the first
+        // instruction means this op never executes anyway. NOT counted in M68kMoveEmitSelections (it did not emit
+        // MOVE IL). MOVEQ has no dest EA (EmitM68kMoveQ handles it wholly), so it is always emittable.
+        if (TargetIsM68000 && d.Class == JitOpClass.M68000Move && !CanEmitM68kMove(pc, d))
+        {
+            EmitFallbackStep(ctx);
+            return;
+        }
         // Mirror the interpreter Step's opcode fetch EXACTLY: charge the opcode-fetch cycle FIRST
         // (the interpreter does `ReadBus(PC)` — which does `_cycles++` — then `PC++` in Step,
         // then `Execute` resolves operands). Charging the fetch cycle up-front (rather than as a
@@ -458,7 +503,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;
             case JitOpClass.Z80Flow: EmitZ80Flow(ctx, pc, d, length); break;   // M6 PR-3 (DECISION H2)
-            case JitOpClass.M68000Move: EmitM68kMove(ctx, pc, d); break;       // M6 PR-4 (DECISION P3)
+            case JitOpClass.M68000Move:
+                M68kMoveEmitSelections++;   // M6 PR-4a: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
+                EmitM68kMove(ctx, pc, d);   // M6 PR-4 (DECISION P3)
+                break;
             case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:
                 throw new EmulationException(

@@ -103,6 +103,37 @@ public class M68000JitGenericityTests
         return (cpu, bus, new BlockCompiler<M68000Cpu>(cpu, M68000Cpu.JitTarget, bus, new Fastmem(bus, opts), opts));
     }
 
+    /// <summary>M6 PR-4a: the DEAD-ARM-NOW-LIVE gate. Pre-PR-4a the byte-granular Discover mis-decoded every 68000
+    /// op, so EmitM68kMove was NEVER selected (0 dispatches across 847 MOVE.w cases — the PR-4 Builder's finding) and
+    /// the MOVE parity sweep was vacuous (interpreter-vs-interpreter via the all-fallback valve). With the
+    /// word-granular Discover (PR-4a) the MOVE descriptor matches, reaches the emit switch, and EmitM68kMove
+    /// DISPATCHES — so M68kMoveEmitSelections is &gt; 0. This is the un-fakeable proof the 68000 MOVE JIT parity is
+    /// now REAL emitted-IL-vs-interpreter, not a degenerate tautology.</summary>
+    [Fact]
+    public void M68000_MOVE_arm_actually_dispatches_after_PR4a()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;   // emit-only proof
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x3200);   // MOVE.w D0,D1 (register-only EA — no ext words)
+        bus.Write16(0x001002, 0x4E71);   // NOP — the block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.True(compiler.M68kMoveEmitSelections > 0,
+            "EmitM68kMove was never selected — Discover is still feeding the 68000 a byte-granular stream (the dead-arm blocker).");
+    }
+
+    /// <summary>M6 PR-4a: the NEGATIVE control — proves the M68kMoveEmitSelections counter can read 0, so the
+    /// positive case (<see cref="M68000_MOVE_arm_actually_dispatches_after_PR4a"/>) is meaningful and not a counter
+    /// that always trips. A block of ONLY a fallback 68000 op (NOP) selects the MOVE arm zero times.</summary>
+    [Fact]
+    public void M68000_non_MOVE_block_selects_the_MOVE_arm_zero_times()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x4E71);   // NOP only — falls back, no MOVE row
+        compiler.Compile(0x1000);
+        Assert.Equal(0, compiler.M68kMoveEmitSelections);
+    }
+
     /// <summary>M6 PR-4: the 68000 MOVE-family FallbackEmitCount flip. Before PR-4 the 68000 was 100% fallback
     /// (every op = 1 fallback); after PR-4 a MOVE/MOVEA/MOVEQ emits real IL (0 fallbacks). Each block is one
     /// MOVE-family op (register-only EAs, so no extension words) terminated by the still-fallback NOP (0x4E71),
@@ -164,17 +195,11 @@ public class M68000JitGenericityTests
     /// (Tier-0) on the written RAM + A1.
     ///   0x32C0 = MOVE.w D0,(A1)+   |   0x3300 = MOVE.w D0,-(A1)   (dest mode 3/4, reg 1; src mode 0, reg 0)
     ///
-    /// <para><b>BLOCKED — NOT load-bearing yet (see the "## Blocker" note in the PR / docs/BUILDER_QUEUE.md).</b>
-    /// The 68000 MOVE emit arm does NOT execute through the normal JIT dispatch path: BlockCompiler.Discover
-    /// builds a BYTE-granular BusFetchStream (UnitBytes==1), but the 68000's generated Decode() expects a
-    /// WORD-granular stream (M68000FetchStream, UnitBytes==2) and reads <c>uint operword = stream.NextUnit()</c>
-    /// (M68000Cpu.g.cs:748). Fed a byte stream, Decode reads only the operword's HIGH BYTE, mis-matches the
-    /// field-op table, and DescriptorFor returns Undefined/NeedsFallback → every 68000 block (MOVE included)
-    /// falls back to inner.Step at RUNTIME. So <c>throughJit</c> and the interpreter both run the SAME
-    /// interpreter Step here — this assertion is interpreter-vs-interpreter (trivially equal), NOT a real
-    /// emitted-IL gate. It becomes load-bearing only once Discover feeds the 68000 a word-granular fetch stream
-    /// (the blocking fix, out of PR-4 scope). Kept GREEN + annotated so the gap is visible, not silently
-    /// passing under a misleading "exercises the emit arm" claim.</para></summary>
+    /// <para>M6 PR-4a made this a REAL emitted-IL gate: BlockCompiler.Discover now feeds the 68000 a word-granular
+    /// M68000FetchStream, so the MOVE descriptor matches, EmitM68kMove dispatches at runtime (proven by
+    /// M68kMoveEmitSelections &gt; 0, see <see cref="M68000_MOVE_arm_actually_dispatches_after_PR4a"/>), and
+    /// <c>throughJit</c> runs the emitted IL — this assertion now diffs emitted IL vs the interpreter oracle, not
+    /// interpreter-vs-interpreter.</para></summary>
     [Theory]
     [InlineData(0x32C0, /*postInc*/ true)]    // MOVE.w D0,(A1)+
     [InlineData(0x3300, /*postInc*/ false)]   // MOVE.w D0,-(A1)

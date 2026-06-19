@@ -229,8 +229,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                         il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
                         EmitM68kWriteSized(ctx, size);
                         return;
-                    // mode 7 reg 2/3 (PC-relative) and reg 4 (#imm) are NOT legal MOVE destinations — the
-                    // corpus never exercises them; falling through to the throw guards a mis-decode.
+                    // mode 7 reg 2/3 (PC-relative) and reg 4 (#imm) are NOT legal MOVE destinations. M6 PR-4a:
+                    // CanEmitM68kMove (the EmitInstruction guard) routes any MOVE with such a dest EA to the
+                    // FALLBACK path before it reaches here, so this throw is now an unreachable can't-happen guard
+                    // for a valid caller (it only fires if a future call site skips CanEmitM68kMove).
                 }
                 break;
         }
@@ -394,6 +396,35 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     }
 
     // ── The MOVE / MOVEA / MOVEQ emit arm ──────────────────────────────────────────────────────────────────
+
+    /// <summary>M6 PR-4a: can the MOVE-family row at <paramref name="pc"/> be emitted by EmitM68kMove, or must it
+    /// fall back? MOVEQ is ALWAYS emittable (EmitM68kMoveQ needs no EA). For MOVE/MOVEA the source EA must be one
+    /// EmitM68kEaRead handles (modes 0-6 + mode 7 reg 0-4 — abs.w/abs.l/d16(PC)/d8(PC,Xn)/#imm) and the dest EA
+    /// one EmitM68kEaWrite handles (modes 0-6 + mode 7 reg 0/1 ONLY — abs.w/abs.l; mode 7 reg 2/3/4 are the
+    /// PC-relative/immediate modes, which are ILLEGAL MOVE destinations on real hardware and which the writer
+    /// cannot emit). A row whose EA is outside these sets is a DISCOVERY artifact (the block walk decoded a
+    /// non-instruction lookahead word — see EmitInstruction) and must fall back rather than throw. The operword is
+    /// a code-stream constant (the same _bus.Read16(pc) EmitM68kMove reads), so this is a pure compile-time
+    /// decision.</summary>
+    private bool CanEmitM68kMove(ushort pc, OpcodeDescriptor d)
+    {
+        if (d.Mnemonic == "MOVEQ") return true;            // no EA — EmitM68kMoveQ handles it wholly
+        ushort operword = _bus.Read16(pc);
+        int srcMode = (operword >> 3) & 7, srcReg = operword & 7;
+        int dstMode = (operword >> 6) & 7, dstReg = (operword >> 9) & 7;   // the MOVE swap: mode=8-6, reg=11-9
+        return IsM68kSrcEaHandled(srcMode, srcReg) && IsM68kDestEaHandled(dstMode, dstReg);
+    }
+
+    /// <summary>The EA modes EmitM68kEaRead emits: modes 0-6, and mode 7 reg 0-4 (abs.w/abs.l/d16(PC)/d8(PC,Xn)/
+    /// #imm). Mirrors the switch in EmitM68kEaRead.</summary>
+    private static bool IsM68kSrcEaHandled(int mode, int reg) =>
+        mode < 7 ? mode <= 6 : reg <= 4;
+
+    /// <summary>The EA modes EmitM68kEaWrite emits: modes 0-6, and mode 7 reg 0/1 ONLY (abs.w/abs.l). Mode 7 reg
+    /// 2/3/4 (d16(PC)/d8(PC,Xn)/#imm) are illegal MOVE destinations and are NOT emittable. Mirrors the switch in
+    /// EmitM68kEaWrite.</summary>
+    private static bool IsM68kDestEaHandled(int mode, int reg) =>
+        mode < 7 ? mode <= 6 : reg <= 1;
 
     /// <summary>M6 PR-4: the 68000 MOVE/MOVEA/MOVEQ emit arm. Decodes the operword's EA matrix at emit time
     /// (DECISION P3), resolves+reads the source EA (FIRST, so its An mutation lands before the dest), stashes
