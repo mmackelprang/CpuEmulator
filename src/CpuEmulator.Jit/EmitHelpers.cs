@@ -87,6 +87,27 @@ internal sealed class EmitContext
     /// instead of the MOVE source value. (Pre-merge review HIGH finding, M6 PR-4.)</summary>
     public LocalBuilder M68kStoreStageLocal { get; }
 
+    /// <summary>uint — M6 PR-5: a DEDICATED local for the 68000 ALU operand A. The CCR-compute helper
+    /// (EmitM68kArithCcr) needs a, b, result, and xIn live simultaneously, but the wide-bus read/write
+    /// helpers CLOBBER AddrLocal/EaLocal/DataLocal. Holding the masked A operand here (NOT a scratch the
+    /// bus helpers touch) keeps it alive across a memory read/write in the RegEa-toEa / ImmEa / XAlu forms.</summary>
+    public LocalBuilder M68kALocal { get; }
+
+    /// <summary>uint — M6 PR-5: the 68000 ALU operand B (the second operand: Dn / #imm / imm3 / Dx).
+    /// Dedicated for the same clobber-safety reason as <see cref="M68kALocal"/>.</summary>
+    public LocalBuilder M68kBLocal { get; }
+
+    /// <summary>uint — M6 PR-5: the 68000 ALU result (a op b, masked to size). Held across the dest write-back
+    /// and the CCR compute so a bus store does not clobber it.</summary>
+    public LocalBuilder M68kResultLocal { get; }
+
+    /// <summary>uint — M6 PR-5: the xIn bit (0 or 1) for the ALU CCR compute. For ADDX/SUBX it is the LIVE X read
+    /// at the TOP of the XAlu arm (mirroring the interpreter's read-at-top of <c>xIn = (Ccr &amp; 0x10) != 0</c>,
+    /// M68000Cpu.Alu.cs:60) and passed to EmitM68kArithCcr — NOT a fresh SR read at CCR-compute time, so it is
+    /// provably the pre-op X even if a future op body were to touch SR. For the non-X families EmitM68kArithCcr
+    /// stages a literal 0 here, since the helper owns the local's lifetime within one ALU op.</summary>
+    public LocalBuilder M68kXInLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -104,5 +125,9 @@ internal sealed class EmitContext
         M68kValueLocal = il.DeclareLocal(typeof(uint));
         M68kAddr2Local = il.DeclareLocal(typeof(uint));
         M68kStoreStageLocal = il.DeclareLocal(typeof(uint));
+        M68kALocal = il.DeclareLocal(typeof(uint));
+        M68kBLocal = il.DeclareLocal(typeof(uint));
+        M68kResultLocal = il.DeclareLocal(typeof(uint));
+        M68kXInLocal = il.DeclareLocal(typeof(uint));
     }
 }

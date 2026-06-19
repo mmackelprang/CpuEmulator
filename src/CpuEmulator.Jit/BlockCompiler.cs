@@ -39,6 +39,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// assert one positive total.</summary>
     internal int M68kMoveEmitSelections { get; private set; }
 
+    /// <summary>M6 PR-5: the ALU analogue of <see cref="M68kMoveEmitSelections"/> — a per-instance count of how many
+    /// times an M68000Alu row was DISPATCHED to <see cref="EmitM68kAlu"/>. A test asserts it is &gt; 0 after an ALU
+    /// block compiles, so the 68000 ALU parity gate is proven NON-vacuous (the emit IL actually ran). Accumulates
+    /// across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M68kAluEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -442,6 +448,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             EmitFallbackStep(ctx);
             return;
         }
+        // M6 PR-5: the same fallback valve for the ALU rows. The block walk can decode a LOOKAHEAD garbage word as
+        // an ALU-family descriptor with an EA the emit arm cannot resolve (an EA the EA resolver does not handle for
+        // the form's dest, or a contract-illegal mode). Rather than throw mid-compile (killing the real first op),
+        // fall back to inner.Step for the unhandled ALU op — exactly like the MOVE valve. NOT counted in
+        // M68kAluEmitSelections (it did not emit ALU IL).
+        if (TargetIsM68000 && d.Class == JitOpClass.M68000Alu && !CanEmitM68kAlu(pc, d))
+        {
+            EmitFallbackStep(ctx);
+            return;
+        }
         // Mirror the interpreter Step's opcode fetch EXACTLY: charge the opcode-fetch cycle FIRST
         // (the interpreter does `ReadBus(PC)` — which does `_cycles++` — then `PC++` in Step,
         // then `Execute` resolves operands). Charging the fetch cycle up-front (rather than as a
@@ -483,9 +499,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // onto its own code page must recompile). MOVEQ (Dn dest) and reg-dest MOVE never write RAM, but the
         // class-level gate is conservative-correct: an instruction that does NOT write RAM never trips the guard
         // (SmcPageLocal stays -1), so arming it on every M68000Move row is harmless and keeps the gate simple.
+        // M6 PR-5: a memory-dest ALU (toEa RegEa, an ImmEa/QuickEa memory dest) or an ADDX/SUBX -(An) writes RAM,
+        // so the intra-block SMC guard must arm. Like the MOVE clause, the class-level gate is conservative-correct:
+        // a reg-dest ALU never writes RAM (SmcPageLocal stays -1), so arming it on every M68000Alu row is harmless.
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
             || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
-            || (TargetIsM68000 && d.Class == JitOpClass.M68000Move);
+            || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu);
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -506,6 +525,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case JitOpClass.M68000Move:
                 M68kMoveEmitSelections++;   // M6 PR-4a: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
                 EmitM68kMove(ctx, pc, d);   // M6 PR-4 (DECISION P3)
+                break;
+            case JitOpClass.M68000Alu:
+                M68kAluEmitSelections++;    // M6 PR-5: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
+                EmitM68kAlu(ctx, pc, d);    // M6 PR-5 (DECISION P3)
                 break;
             case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:
@@ -851,6 +874,38 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Ldloc, ctx.DataLocal);
         il.Emit(OpCodes.Conv_U4);
         il.Emit(OpCodes.Callvirt, MWrite32);     // bus.Write32(addr, (uint)value) — Write32 is high-word-first
+    }
+
+    /// <summary>M6 PR-5: write a long as two .w transactions LOW WORD FIRST (the 68000 read-modify-write write-back
+    /// order — WriteLongBusRmw, M68000Cpu.cs:218-222 / WriteResolvedDest, M68000Cpu.Alu.cs:199-201; the REVERSE of
+    /// EmitStoreLong's high-word-first MOVE.l store). Stack: ..., address(uint), value(uint) -> .... The DATA-axis
+    /// result is IDENTICAL to EmitStoreLong (same final memory); only the per-word trace order differs (which the
+    /// JIT parity gate ignores — PR-4 T2). Emitted anyway for correctness-by-construction (the memory-dest ALU RMW
+    /// forms use it). Mirrors EmitStoreLong's address-mask + dirty-mark exactly, then writes W(addr+2) then W(addr).</summary>
+    private void EmitStoreLongRmw(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value (held as int; the bit pattern is the uint long)
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        EmitMarkWidePagesDirty(ctx, byteSpan: 4);   // also clamps AddrLocal to the bus width (mirrors EmitStoreLong)
+        // low word at addr+2 FIRST: bus.Write16((addr+2) & mask, (ushort)value)
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_2);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);                    // (addr+2) & AddressMask (wrap the low word at the top of the space)
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(OpCodes.Conv_U2);                // (ushort)value — the low 16 bits
+        il.Emit(OpCodes.Callvirt, MWrite16);
+        // high word at addr: bus.Write16(addr, (ushort)(value >> 16))
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(OpCodes.Ldc_I4, 16);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Conv_U2);                // (ushort)(value >> 16) — the high 16 bits
+        il.Emit(OpCodes.Callvirt, MWrite16);
     }
 
     /// <summary>M6 PR-4: mark the page(s) a wide write touches dirty (SMC) + record the SMC page for the
