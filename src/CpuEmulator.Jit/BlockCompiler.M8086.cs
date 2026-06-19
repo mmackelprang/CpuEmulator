@@ -1249,7 +1249,9 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     }
 
     /// <summary>M6 PR-D: IP = (ushort)(the value on the IL stack) — stash through DataLocal so the Stfld receiver
-    /// (Ldarg_0) is loaded after the value is consumed.</summary>
+    /// (Ldarg_0) is loaded after the value is consumed.
+    /// <para>CLOBBERS <c>ctx.DataLocal</c>: the IL-stack value is staged through that local before the store to
+    /// <c>_fpc</c>, so its prior contents do not survive this call — callers must not rely on DataLocal across it.</para></summary>
     private void EmitM8086SetIpFromStack(EmitContext ctx)
     {
         ILGenerator il = ctx.Il;

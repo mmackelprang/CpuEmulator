@@ -234,10 +234,42 @@ public class M8086FlowEmitTests
 
     /// <summary>FF /2 CALL r/m16 near indirect with the SP-quirk: FF D4 = CALL SP (mod=11, reg=2, rm=4=SP). The oracle
     /// reads the target (= SP) BEFORE PushWord decrements SP, so the new IP is the PRE-push SP, not the post-decrement
-    /// SP. Pins the read-target-before-push ordering (the TomHarte "call sp" cases). Asserts IP + SP.</summary>
+    /// SP. Pins the read-target-before-push ordering (the TomHarte "call sp" cases). Asserts IP + SP AND the pushed
+    /// return-address word in SS:SP RAM — the subtlest FF /2 invariant is that the return address (= fallThrough =
+    /// pc+length) lands on the stack while the jumped-to target stays the PRE-push SP.</summary>
     [Fact]
-    public void Ff_call_indirect_sp_reads_target_before_the_push() =>
-        AssertFlowMatchesOracle(0x2000, 0x0000, [("SS", 0x3000), ("SP", 0x0100)], ["IP", "SP"], 0xFF, 0xD4);   // CALL SP
+    public void Ff_call_indirect_sp_reads_target_before_the_push()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        const ushort cs = 0x2000, ip = 0x0000, ss = 0x3000, sp = 0x0100;
+        byte[] code = [0xFF, 0xD4];   // CALL SP (mod=11, reg=2=/2 CALL near, rm=4=SP)
+
+        // ── the JIT run ──
+        var jbus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        jbus.MapMemory(0, new byte[0x100000], writable: true);
+        uint cphys = (uint)(((cs << 4) + ip) & 0xFFFFF);
+        for (int i = 0; i < code.Length; i++) jbus.Write8((cphys + (uint)i) & 0xFFFFF, code[i]);
+        var inner = new M8086Cpu(jbus);
+        inner.SetRegister("CS", cs); inner.SetRegister("IP", ip);
+        inner.SetRegister("SS", ss); inner.SetRegister("SP", sp);
+        var jit = new JittedCpu<M8086Cpu>(inner, M8086Cpu.JitTarget, jbus);
+        long budget = 1; jit.Run(ref budget);
+
+        // ── the interpreter oracle ──
+        var interp = NewInterp(out var ibus, cs, ip, code);
+        interp.SetRegister("SS", ss); interp.SetRegister("SP", sp);
+        interp.Step();
+
+        Assert.Equal(interp.GetRegister("IP"), inner.GetRegister("IP"));   // IP = the PRE-push SP (the call-sp quirk)
+        Assert.Equal(interp.GetRegister("SP"), inner.GetRegister("SP"));   // SP decremented by 2
+        // the pushed return-address word in SS:SP RAM (the new SP, post-decrement) — must equal fallThrough = pc+length:
+        uint stackPhys = (uint)(((ss << 4) + interp.GetRegister("SP")) & 0xFFFFF);
+        Assert.Equal(ibus.Read8(stackPhys), jbus.Read8(stackPhys));               // low byte matches the oracle
+        Assert.Equal(ibus.Read8((stackPhys + 1) & 0xFFFFF), jbus.Read8((stackPhys + 1) & 0xFFFFF));   // high byte matches
+        const ushort fallThrough = ip + 2;   // pc + length(FF D4) = $0002
+        Assert.Equal((byte)(fallThrough & 0xFF), jbus.Read8(stackPhys));                       // return IP low byte
+        Assert.Equal((byte)(fallThrough >> 8), jbus.Read8((stackPhys + 1) & 0xFFFFF));         // return IP high byte
+    }
 
     // ─────────────────────────── chaining: a near STATIC target chains ───────────────────────────
 

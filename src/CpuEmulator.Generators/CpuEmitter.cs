@@ -4694,7 +4694,7 @@ internal static class CpuEmitter
     {
         if (insn.Mnemonic is not ("JO" or "JNO" or "JB" or "JAE" or "JE" or "JNE" or "JBE" or "JA" or "JS" or "JNS"
                 or "JP" or "JNP" or "JL" or "JGE" or "JLE" or "JG"
-                or "JMP" or "CALL" or "RET" or "RETN"
+                or "JMP" or "CALL" or "RET"
                 or "LOOP" or "LOOPE" or "LOOPNE" or "LOOPZ" or "LOOPNZ" or "JCXZ"))
             return false;
 
