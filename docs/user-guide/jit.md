@@ -109,8 +109,11 @@ its own pages) — never chainable; and (2) every chain edge is gated on `!Dirty
 backstop for a store to a *different* block's code page). Any SMC activity forces a dispatcher
 round-trip, where the per-page block index evicts only the dirtied pages' blocks and severs their
 inbound chain links, then re-decodes the modified bytes. The committed differential fuzzer runs
-chaining-on AND chaining-off and asserts both match the interpreter, so chaining cannot silently
-defeat the SMC guard.
+chaining-on AND chaining-off — and, since M6 PR-S, the SMC/recompile-cost lever on AND off — and
+asserts all match the interpreter, so neither chaining nor the lever can silently defeat the SMC guard.
+A PC that thrashes this round-trip past the recompile cap is routed through the interpreter for a
+cooldown window (see *Benchmarks → the SMC/recompile-cost lever*); the interpreter still dirty-marks
+its own SMC stores, so the cooldown changes only which tier runs the PC, never whether SMC is observed.
 
 To disable chaining (for isolating a suspected chaining bug, or the M2-i one-block-per-dispatch
 behavior), construct with `new JitOptions { DisableChaining = true }`.
@@ -195,14 +198,27 @@ JIT (chaining on, decimal arms emitted) reaches its `$3469` success trap at the 
 cycle count (96,241,367) and is **dramatically faster than the M2-i fallback + dispatcher-round-trip
 path** (M2-i: ~40.9 min; M2-ii: well under two minutes — a large multiple over the prior JIT).
 
-**The honest measured headline, though, is that the Tier-1 JIT is currently SLOWER than the Tier-0
-interpreter on both benchmark workloads** — on the SMC-heavy Klaus run the JIT's per-dispatch
-`InvalidateIfDirty` thrashes (it evicts + recompiles blocks on Klaus's frequent code-page writes
-rather than executing them), and on the tight non-SMC arithmetic kernel the interpreter's
-well-predicted `switch` dispatch is hard for a block JIT to beat. The JIT's delivered value in M2 is
-**correctness parity** (the full TomHarte sweep through the JIT, the committed differential fuzzer,
-Klaus cycle-exact) — not raw throughput. Reducing the SMC-invalidation cost is the recorded next
-optimization. See the report for the numbers, the cross-language spread, and the full analysis.
+**The SMC/recompile-cost lever (M6 PR-S).** The original headline was that the Tier-1 JIT was *slower*
+than the Tier-0 interpreter on the SMC-heavy Klaus run, because the per-dispatch `InvalidateIfDirty`
+**thrashed** — Klaus writes test-vector bytes into code-adjacent pages on nearly every iteration, so
+the hot block was evicted and **recompiled per dispatch**, and `Compile()` (a discover walk + an IL
+emit) costs far more than the interpreter's own `Step()`. PR-S adds a **recompile-cost cap with an
+interpreter cooldown**: the block cache tracks per-PC recompiles, and once a PC recompiles past
+`SmcRecompileCap` (the thrash signature) the dispatcher stops re-JITing it and runs it through the
+interpreter oracle (`inner.Step`, the same byte-exact fallback) for `SmcCooldownDispatches` dispatches,
+then re-arms the JIT. This is a pure **performance policy** — the cooldown path is the interpreter, so
+the architectural result and the exact cycle count are unchanged (the differential fuzzer runs the lever
+ON *and* OFF and asserts both match the interpreter; the Klaus anchor stays 96,241,367). Over a bounded
+5M-cycle Klaus window the lever collapses recompiles by **several-fold** and the wall-clock improves
+correspondingly; on SMC-free workloads (the arithmetic kernel, the sieve) no PC ever recompiles, so the
+lever never trips and those runs are byte-identical to before. The JIT's M2 value remains **correctness
+parity** (the full TomHarte sweep through the JIT, the committed differential fuzzer, Klaus cycle-exact);
+PR-S removes the SMC pathology that was the recorded next optimization. The full W1/W2/W3 throughput
+re-capture is the arc-end benchmark. See the report for the numbers, the cross-language spread, and the
+full analysis.
+
+Tune or disable the lever via `JitOptions`: `SmcRecompileCap` (default 16), `SmcCooldownDispatches`
+(default 256), and `DisableSmcLever` (default false — the lever is on).
 
 For the full methodology, the JIT-vs-interpreter table, and the cross-language numbers, see
 [`bench/README.md`](../../bench/README.md) and the regenerated
