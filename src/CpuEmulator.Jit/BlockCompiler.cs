@@ -97,6 +97,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private static readonly MethodInfo MRead = typeof(IAddressSpace).GetMethod("Read8")!;
     private static readonly MethodInfo MWrite = typeof(IAddressSpace).GetMethod("Write8")!;
 
+    // M6 PR-4 (Task 2): the wide big-endian bus accessors — the 68000 needs word/long access (the JIT had
+    // BYTE-ONLY bus helpers, a hard GAP). IAddressSpace.Read16/Read32/Write16/Write32 are big-endian on the
+    // 68000 bus (high word first — Core/IAddressSpace.cs:46-89, matching the interpreter's ReadLongBus/
+    // WriteLongBus high-word-first decomposition, M68000Cpu.cs:199-210). Resolved on IAddressSpace so the
+    // callvirt binds against the same bus arg (Ldarg_1) the byte helpers use.
+    private static readonly MethodInfo MRead16 = typeof(IAddressSpace).GetMethod("Read16")!;
+    private static readonly MethodInfo MRead32 = typeof(IAddressSpace).GetMethod("Read32")!;
+    private static readonly MethodInfo MWrite16 = typeof(IAddressSpace).GetMethod("Write16")!;
+    private static readonly MethodInfo MWrite32 = typeof(IAddressSpace).GetMethod("Write32")!;
+
     private static readonly MethodInfo MPageBacking = typeof(Fastmem).GetProperty("PageBacking")!.GetGetMethod()!;
     private static readonly MethodInfo MPageOffset = typeof(Fastmem).GetProperty("PageOffset")!.GetGetMethod()!;
     private static readonly MethodInfo MPageWritable = typeof(Fastmem).GetProperty("PageWritable")!.GetGetMethod()!;
@@ -694,6 +704,119 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
         il.MarkLabel(noMark);
         il.MarkLabel(done);
+    }
+
+    // ── M6 PR-4 (Task 2): wide big-endian bus emit helpers ───────────────────────────────────
+    // The 68000 needs word/long bus access; the JIT had only byte helpers (GAP G1). These do a BUS-ONLY
+    // callvirt (Ldarg_1 = the IAddressSpace bus, the same arg the byte helpers' MMIO arm uses) — NOT the
+    // fastmem page-split fast path. Rationale: the interpreter itself just calls _bus.Read16/Write16 for
+    // wide access (M68000Cpu.cs:185-210); the fastmem fast path is byte-keyed (256-byte pages) and a wide
+    // access can straddle a page boundary, so replicating the page-split for wide access is not worth it in
+    // PR-4. Each helper charges 0 cycles (DECISION C-jit: the whole-op BaseCycles is charged ONCE by the
+    // MOVE arm via EmitChargeCycles; the data-axis parity gate ignores CycleCount — T2). The store helpers
+    // mark the touched page(s) dirty (SMC) exactly as EmitStoreByte does so a MOVE onto its own code page
+    // recompiles. Read16/Read32/Write16/Write32 are big-endian high-word-first (Core/IAddressSpace.cs),
+    // matching the interpreter's ReadLongBus/WriteLongBus store order.
+
+    /// <summary>Read a big-endian word from the bus. Stack: ..., address(uint) -> ..., value(int 0..0xFFFF).
+    /// Charges 0 cycles. Stashes the address in AddrLocal (NOT EaLocal, which the byte helpers clobber).</summary>
+    private void LoadWordFromBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        il.Emit(OpCodes.Ldarg_1);                // bus (IAddressSpace)
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Callvirt, MRead16);      // bus.Read16(addr) -> ushort (pushed as int 0..0xFFFF)
+    }
+
+    /// <summary>Read a big-endian long from the bus (high word first — ReadLongBus order). Stack: ...,
+    /// address(uint) -> ..., value(uint). Charges 0 cycles.</summary>
+    private void LoadLongFromBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Callvirt, MRead32);      // bus.Read32(addr) -> uint
+    }
+
+    /// <summary>Write a big-endian word to the bus. Stack: ..., address(uint), value(int) -> .... Marks the
+    /// spanned page(s) dirty (SMC). Charges 0 cycles.</summary>
+    private void EmitStoreWord(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        EmitMarkWidePagesDirty(ctx, byteSpan: 2);
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Callvirt, MWrite16);     // bus.Write16(addr, (ushort)value)
+    }
+
+    /// <summary>Write a big-endian long to the bus, HIGH WORD FIRST (the MOVE.l store order — WriteLongBus,
+    /// M68000Cpu.cs:206-210; the RMW low-word-first WriteLongBusRmw is PR-5, not MOVE). Stack: ...,
+    /// address(uint), value(uint) -> .... Marks the spanned page(s) dirty (SMC). Charges 0 cycles.</summary>
+    private void EmitStoreLong(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value (held as int; the bit pattern is the uint long)
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        EmitMarkWidePagesDirty(ctx, byteSpan: 4);
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Callvirt, MWrite32);     // bus.Write32(addr, (uint)value) — Write32 is high-word-first
+    }
+
+    /// <summary>M6 PR-4: mark the page(s) a wide write touches dirty (SMC) + record the SMC page for the
+    /// intra-block guard. A word/long spans 2/4 bytes and may cross a 256-byte page boundary, so this marks
+    /// the BASE page and, when it differs, the (base + byteSpan - 1) page. Mirrors EmitStoreByte's
+    /// dirty.Mark(page) idiom (Ldarg_3 = DirtyMap, MDirtyMark). The address is read from AddrLocal (the wide
+    /// store helpers stash it there). Unconditional (unlike EmitStoreByte, this does NOT gate on
+    /// PageWritable): a wide MOVE to ROM/MMIO marking a spurious dirty page is harmless — the store itself is
+    /// dropped/handled by the bus, and a non-code page being flagged dirty only triggers a (cheap) re-decode
+    /// check, never a correctness issue. Keeping it unconditional avoids the fastmem page-class branch this
+    /// bus-only path deliberately omits.</summary>
+    private void EmitMarkWidePagesDirty(EmitContext ctx, int byteSpan)
+    {
+        ILGenerator il = ctx.Il;
+        // dirty.Mark(addr >> 8)  — the base page
+        il.Emit(OpCodes.Ldarg_3);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Callvirt, MDirtyMark);
+        // SmcPageLocal = base page (the intra-block SMC guard reads this after the instruction)
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
+        // If the access crosses a page boundary, also mark the END page (base + byteSpan - 1) >> 8 when it
+        // differs from the base page. Emitted as a runtime compare so an aligned access marks one page only.
+        Label sameEndPage = il.DefineLabel();
+        // basePage
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        // endPage = (addr + byteSpan - 1) >> 8
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4, byteSpan - 1);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Beq, sameEndPage);       // basePage == endPage -> nothing more to mark
+        // dirty.Mark(endPage)
+        il.Emit(OpCodes.Ldarg_3);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4, byteSpan - 1);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Callvirt, MDirtyMark);
+        il.MarkLabel(sameEndPage);
     }
 
     // ── SetNZ: P = (P & 0x7D) | (src==0 ? 2 : 0) | (src & 0x80) ──────────────────────────────
