@@ -108,6 +108,38 @@ internal sealed class EmitContext
     /// stages a literal 0 here, since the helper owns the local's lifetime within one ALU op.</summary>
     public LocalBuilder M68kXInLocal { get; }
 
+    /// <summary>int — M6 PR-6: the shift/rotate loop COUNTER. The shift arm emits a per-bit runtime loop
+    /// (transcribing ShiftRotateExecute's loop body, M68000Cpu.Shift.cs:112-133) for every count source; this
+    /// holds the remaining iteration count. Dedicated so it survives a SHIFT_MEM bus RMW (which clobbers
+    /// AddrLocal/EaLocal/DataLocal). The runtime count is Dn%64 (register form), a constant 1-8 (imm), or 1
+    /// (memory) — all driven through the same loop for lowest-risk verbatim-oracle fidelity.</summary>
+    public LocalBuilder M68kShiftCountLocal { get; }
+
+    /// <summary>int — M6 PR-6: the ORIGINAL shift count, captured at the top BEFORE the loop decrements
+    /// M68kShiftCountLocal AND before the result write-back. CRITICAL for the count register == target register
+    /// aliasing (e.g. LSL.b D0,D0): the result write overwrites the count register, so the count&gt;width and
+    /// count==0 CCR tests MUST read this survivor, not re-read the (now-clobbered) Dn count register.</summary>
+    public LocalBuilder M68kShiftOrigCountLocal { get; }
+
+    /// <summary>uint — M6 PR-6: the live shift/rotate VALUE (v in the oracle's loop). Read once into this
+    /// survivor local BEFORE the loop (so a SHIFT_MEM bus RMW read does not clobber it mid-loop), shifted in
+    /// place each iteration, then written back (Dn partial / memory RMW) after the loop.</summary>
+    public LocalBuilder M68kShiftValLocal { get; }
+
+    /// <summary>int — M6 PR-6: the last-bit-out (0/1) captured by the shift/rotate loop body. After the loop it
+    /// feeds C/X in the shift-CCR helpers. For ASL/ASR/LSL/LSR with count &gt; width the post-loop clear forces
+    /// it to 0 (C/X cleared — M68000Cpu.Shift.cs:140-142).</summary>
+    public LocalBuilder M68kLastBitLocal { get; }
+
+    /// <summary>int — M6 PR-6: ASL's msbChanged (0/1) — set if the MSB flipped during any iteration of the
+    /// shift loop (the V input for ASL only; the other kinds leave it 0). M68000Cpu.Shift.cs:132.</summary>
+    public LocalBuilder M68kMsbChangedLocal { get; }
+
+    /// <summary>int — M6 PR-6: the through-X bit (xIn, 0/1) for ROXL/ROXR. Seeded from the live SR X at the top
+    /// of the arm, fed INTO each iteration AND updated to the last bit out each iteration (the rotate-through-X
+    /// chain — M68000Cpu.Shift.cs:127-130). Held in a dedicated local across the loop.</summary>
+    public LocalBuilder M68kShiftXLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -129,5 +161,11 @@ internal sealed class EmitContext
         M68kBLocal = il.DeclareLocal(typeof(uint));
         M68kResultLocal = il.DeclareLocal(typeof(uint));
         M68kXInLocal = il.DeclareLocal(typeof(uint));
+        M68kShiftCountLocal = il.DeclareLocal(typeof(int));
+        M68kShiftOrigCountLocal = il.DeclareLocal(typeof(int));
+        M68kShiftValLocal = il.DeclareLocal(typeof(uint));
+        M68kLastBitLocal = il.DeclareLocal(typeof(int));
+        M68kMsbChangedLocal = il.DeclareLocal(typeof(int));
+        M68kShiftXLocal = il.DeclareLocal(typeof(int));
     }
 }

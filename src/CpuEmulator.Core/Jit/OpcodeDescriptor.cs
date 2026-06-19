@@ -18,6 +18,12 @@ public enum JitOpClass
     M68000Alu,                          // M6 PR-5: the 68000 integer-ALU emit class (ADD/SUB/CMP/AND/OR/EOR
                                         // + I/Q/A forms + ADDX/SUBX). Dispatched to EmitM68kAlu. Block-
                                         // CONTINUING — EndsBlock=false/NeedsFallback=false on these rows.
+    M68000Shift,                        // M6 PR-6: the 68000 shift/rotate emit class (ASL/ASR/LSL/LSR/ROL/ROR/
+                                        // ROXL/ROXR — register + memory forms). Dispatched to EmitM68kShift.
+                                        // Block-CONTINUING — EndsBlock=false/NeedsFallback=false on these rows.
+    M68000Flow,                         // M6 PR-6: the 68000 control-flow emit class (Bcc/BRA/BSR/DBcc/JMP/JSR/
+                                        // RTS). Dispatched to EmitM68kFlow. Block-ENDING — EndsBlock=true on
+                                        // these rows (the taken/fall-through edges chain or exit per DECISION C).
     Port,                               // M3.2: IN/OUT — an Io-bus callout (NEVER fastmem); straight-line
     Undefined,                          // not in the dispatch table; fallback + ends block
 }

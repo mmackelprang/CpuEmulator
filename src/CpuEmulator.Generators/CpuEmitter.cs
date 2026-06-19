@@ -4092,7 +4092,9 @@ internal static class CpuEmitter
         if (model.FieldGrammar is not null)
         {
             EmitM68kMoveFamilyRows(sb, model.FieldGrammar);
-            EmitM68kAluFamilyRows(sb, model.FieldGrammar);   // M6 PR-5: the integer-ALU rows (M68000Alu)
+            EmitM68kAluFamilyRows(sb, model.FieldGrammar);     // M6 PR-5: the integer-ALU rows (M68000Alu)
+            EmitM68kShiftFamilyRows(sb, model.FieldGrammar);   // M6 PR-6: the shift/rotate rows (M68000Shift)
+            EmitM68kFlowFamilyRows(sb, model.FieldGrammar);    // M6 PR-6: the control-flow rows (M68000Flow)
         }
         sb.AppendLine("    };");
     }
@@ -4258,6 +4260,145 @@ internal static class CpuEmitter
         "ADDA" or "SUBA" or "CMPA" => 8,
         // Everything else: reg-reg 4 for .b/.w, 8 for .l (CMP/CMPI like SUB; ADDX/SUBX reg form 4/8).
         _ => size == 2 ? 8 : 4,
+    };
+
+    /// <summary>M6 PR-6 (DECISION P3): the set of shift/rotate grammar Operation strings whose operword scan
+    /// synthesizes a JitOpClass.M68000Shift keyed descriptor row. The register forms (ASLR_REG/LSLR_REG/
+    /// ROLR_REG/ROXLR_REG — operword bit 8 picks left/right within each pair) + the memory-by-1 form
+    /// (SHIFT_MEM — operword bits 10-9 pick the class, bit 8 left/right). The emit arm (EmitM68kShift) decodes
+    /// the exact kind + direction + count source from the operword at emit time.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> M68kShiftMnemonics = new()
+    {
+        "ASLR_REG", "LSLR_REG", "ROLR_REG", "ROXLR_REG", "SHIFT_MEM",
+    };
+
+    /// <summary>M6 PR-6 (DECISION P3): the set of control-flow grammar Operation strings whose operword scan
+    /// synthesizes a JitOpClass.M68000Flow keyed descriptor row. Bcc carries BRA (cc 0) + BSR (cc 1) + the 14
+    /// conditionals; DBcc is the decrement-and-branch loop primitive; JMP/JSR/RTS the jump/call/return. NOT
+    /// RTE/RTR (privileged / CCR-pop — stay fallback), NOT LINK/UNLK (rare — stay fallback). The emit arm
+    /// (EmitM68kFlow) decodes the exact form + condition + the static-vs-dynamic ea at emit time (DECISION C).</summary>
+    private static readonly System.Collections.Generic.HashSet<string> M68kFlowMnemonics = new()
+    {
+        "Bcc", "DBcc", "JMP", "JSR", "RTS",
+    };
+
+    /// <summary>M6 PR-6 (DECISION P3): synthesize the 68000 shift/rotate keyed descriptor rows for a FieldGrammar
+    /// CPU. A PARALLEL of EmitM68kAluFamilyRows: the SAME first-match-wins scan over all 65536 operwords + the
+    /// SAME MapSize size derivation (the shift ops are NOT AddrRegVariants, so no +1 remap), differing only in
+    /// WHICH ops it collects (the shift mnemonics) and the JitOpClass it emits (M68000Shift). Each row carries a
+    /// coarse Mnemonic + JitOpClass.M68000Shift + a representative BaseCycles (DECISION T2 — NOT correctness-
+    /// gated, >= 1) + NeedsFallback=false + EndsBlock=FALSE (a shift continues the block); the exact kind/count/
+    /// EA are decoded at emit time from the operword (EmitM68kShift). Gated on FieldGrammar so the 6502/Z80/8086
+    /// byte/prefix tables are provably untouched (the empty-diff regression gate, DECISION R).</summary>
+    private static void EmitM68kShiftFamilyRows(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var keysByOp = new System.Collections.Generic.SortedDictionary<int, System.Collections.Generic.SortedSet<uint>>();
+        for (uint operword = 0; operword <= 0xFFFFu; operword++)
+        {
+            for (int i = 0; i < grammar.Ops.Length; i++)
+            {
+                var op = grammar.Ops[i];
+                if ((operword & op.Mask) != op.Match) continue;   // first match wins (the walk's order)
+                uint sizeBits = (operword >> op.SizeShift) & (uint)((1 << op.SizeWidth) - 1);
+                uint size = M68kMapSize(sizeBits, (int)op.SizeEncoding);
+                if (M68kShiftMnemonics.Contains(op.Operation))
+                {
+                    if (!keysByOp.TryGetValue(i, out var sizes))
+                        keysByOp[i] = sizes = new System.Collections.Generic.SortedSet<uint>();
+                    sizes.Add(size);
+                }
+                break;   // only the first matching field op decodes this operword
+            }
+        }
+
+        foreach (var entry in keysByOp)
+        {
+            int opIndex = entry.Key;
+            string mnemonic = grammar.Ops[opIndex].Operation;
+            foreach (uint size in entry.Value)
+            {
+                uint key = (1u << 24) | ((uint)opIndex << 8) | size;
+                int baseCycles = M68kShiftFamilyBaseCycles(mnemonic, (int)size);
+                // EndsBlock=false (a shift continues the block); NeedsFallback=false (real IL via EmitM68kShift).
+                sb.AppendLine($"        [0x{key:X}u] = new(0x00, \"{mnemonic}\", "
+                    + "CpuEmulator.Core.Jit.JitMode.Implied, "
+                    + "CpuEmulator.Core.Jit.JitOpClass.M68000Shift, "
+                    + $"CpuEmulator.Core.Jit.LengthRule.Fixed, 2, {baseCycles}, false, "
+                    + "false, false, []),");
+            }
+        }
+    }
+
+    /// <summary>M6 PR-6 (DECISION T2): a representative BaseCycles for a synthesized 68000 shift row. NOT
+    /// correctness-gated (the JIT parity gate asserts the data axis ONLY); only needs >= 1 to keep the budget
+    /// loop honest. The register shifts cost ~6/8 + 2/count (pin to the long form: .l=10, .b/.w=8); the
+    /// memory-by-1 form is ~8. Keyed on the 68000-only shift mnemonics, which the 6502/Z80/8086 never name.</summary>
+    private static int M68kShiftFamilyBaseCycles(string mnemonic, int size) => mnemonic switch
+    {
+        // The memory-by-1 form (SHIFT_MEM) is .w only — ~8 clocks.
+        "SHIFT_MEM" => 8,
+        // The register forms: pin to the published-ish 8 (.b/.w) / 10 (.l) representative figure.
+        _ => size == 2 ? 10 : 8,
+    };
+
+    /// <summary>M6 PR-6 (DECISION P3): synthesize the 68000 control-flow keyed descriptor rows for a FieldGrammar
+    /// CPU. A PARALLEL of EmitM68kShiftFamilyRows: the SAME first-match-wins scan + MapSize derivation, differing
+    /// only in WHICH ops it collects (the flow mnemonics) and the JitOpClass it emits (M68000Flow). Each row
+    /// carries a coarse Mnemonic + JitOpClass.M68000Flow + a representative BaseCycles (DECISION T — >= 1, and the
+    /// taken edge charges before chaining so the budget loop never runs away) + NeedsFallback=false + EndsBlock=
+    /// TRUE (the flow ops set PC non-sequentially → they END the block; the emit arm self-terminates per
+    /// DECISION C). The exact form + condition + the static-vs-dynamic ea are decoded at emit time (EmitM68kFlow).
+    /// Gated on FieldGrammar so the 6502/Z80/8086 tables are provably untouched (the empty-diff gate).</summary>
+    private static void EmitM68kFlowFamilyRows(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        var keysByOp = new System.Collections.Generic.SortedDictionary<int, System.Collections.Generic.SortedSet<uint>>();
+        for (uint operword = 0; operword <= 0xFFFFu; operword++)
+        {
+            for (int i = 0; i < grammar.Ops.Length; i++)
+            {
+                var op = grammar.Ops[i];
+                if ((operword & op.Mask) != op.Match) continue;   // first match wins (the walk's order)
+                uint sizeBits = (operword >> op.SizeShift) & (uint)((1 << op.SizeWidth) - 1);
+                uint size = M68kMapSize(sizeBits, (int)op.SizeEncoding);
+                if (M68kFlowMnemonics.Contains(op.Operation))
+                {
+                    if (!keysByOp.TryGetValue(i, out var sizes))
+                        keysByOp[i] = sizes = new System.Collections.Generic.SortedSet<uint>();
+                    sizes.Add(size);
+                }
+                break;   // only the first matching field op decodes this operword
+            }
+        }
+
+        foreach (var entry in keysByOp)
+        {
+            int opIndex = entry.Key;
+            string mnemonic = grammar.Ops[opIndex].Operation;
+            foreach (uint size in entry.Value)
+            {
+                uint key = (1u << 24) | ((uint)opIndex << 8) | size;
+                int baseCycles = M68kFlowFamilyBaseCycles(mnemonic);
+                // EndsBlock=TRUE (a flow op ends the block); NeedsFallback=false (real IL via EmitM68kFlow).
+                sb.AppendLine($"        [0x{key:X}u] = new(0x00, \"{mnemonic}\", "
+                    + "CpuEmulator.Core.Jit.JitMode.Implied, "
+                    + "CpuEmulator.Core.Jit.JitOpClass.M68000Flow, "
+                    + $"CpuEmulator.Core.Jit.LengthRule.Fixed, 2, {baseCycles}, false, "
+                    + "false, true, []),");
+            }
+        }
+    }
+
+    /// <summary>M6 PR-6 (DECISION T): a representative BaseCycles for a synthesized 68000 flow row. NOT
+    /// correctness-gated; pinned to the published per-op figure (Bcc=10, DBcc=10, JMP=8, JSR=16, RTS=16). All
+    /// are >= 1 so the taken-transfer charge keeps the budget loop honest (no runaway second instruction).</summary>
+    private static int M68kFlowFamilyBaseCycles(string mnemonic) => mnemonic switch
+    {
+        "Bcc" => 10,
+        "DBcc" => 10,
+        "JMP" => 8,
+        "JSR" => 16,
+        "RTS" => 16,
+        _ => 10,
     };
 
     /// <summary>One descriptor row as a C# object-creation expression. Reuses ModeLength,
