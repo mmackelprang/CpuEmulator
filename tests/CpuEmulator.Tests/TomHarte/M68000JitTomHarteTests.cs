@@ -101,3 +101,56 @@ public sealed class M68000JitTom_P6(ITestOutputHelper o) : M68000JitSweepBase(o)
 public sealed class M68000JitTom_P7(ITestOutputHelper o) : M68000JitSweepBase(o)
 { public static TheoryData<string> Files() => Partition(7, 8);
   [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+/// <summary>M6 PR-4 (Task 7): the focused MOVE/MOVEA/MOVEQ EMITTED-IL data-axis parity gate. These six files
+/// (MOVE.b/.w/.l, MOVEA.w/.l, MOVE.q == MOVEQ) are the families PR-4 made EMIT real IL (they were 100% fallback
+/// before). Running them through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/> now exercises the EmitM68kMove
+/// arm — the 12-mode EA resolver, the A7 banking, the MOVE bits-11-6 swap, the MOVEA .w sign-extend, the size-aware
+/// Dn partial write, the big-endian wide bus, and the MOVEQ imm8 sign-extend — and asserts the JIT final state
+/// (D0–D7/A0–A6/USP/SSP/SR/RAM) is byte-identical to the interpreter for every non-exception case across the EA
+/// matrix the corpus exercises. (The broad data-axis sweep above ALSO covers these as part of the union corpus;
+/// this class isolates the MOVE-family emitted-IL gate so a MOVE regression is named directly, not buried in the
+/// 123-partition sweep.) NOT cycle/pc/prefetch (DECISION T2). A green run is the load-bearing PR-4 merge gate.</summary>
+public sealed class M68000JitMoveFamilyTests(ITestOutputHelper output)
+{
+    public static TheoryData<string> MoveFiles()
+    {
+        var data = new TheoryData<string>();
+        foreach (var f in new[]
+        {
+            "MOVE.b.json.gz", "MOVE.w.json.gz", "MOVE.l.json.gz",
+            "MOVEA.w.json.gz", "MOVEA.l.json.gz", "MOVE.q.json.gz",   // MOVE.q = MOVEQ's vector file
+        })
+            data.Add(f);
+        return data;
+    }
+
+    [M68000TomHarteTheory]
+    [MemberData(nameof(MoveFiles))]
+    public void Move_family_emitted_IL_is_data_axis_parity_green(string file)
+    {
+        string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
+        Assert.NotNull(dir);
+        string path = System.IO.Path.Combine(dir, file);
+        Assert.True(System.IO.File.Exists(path), $"MOVE-family vector file missing: {path}");
+
+        int sample = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sample,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        int executed = 0, deferred = 0, excluded = 0;
+        var failures = new List<string>();
+        foreach (var c in cases)
+        {
+            if (M68000DataAxisCorpus.IsExcludedCase(c)) { excluded++; continue; }
+            var rr = M68000TomHarteRunner.RunCaseThroughJit(c, assertExceptions: true);
+            if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
+            executed++;
+            if (rr is not null) { failures.Add(rr); if (failures.Count >= 8) break; }
+        }
+        output.WriteLine($"{file}: executed {executed}, deferred {deferred}, excluded {excluded} (MOVE emitted-IL JIT)");
+        Assert.True(executed > 0, $"{file}: 0 executed cases — the emitted-IL gate would be vacuous");
+        Assert.True(failures.Count == 0,
+            $"{file}: {failures.Count} MOVE emitted-IL parity failure(s) of {executed} executed:\n" +
+            string.Join("\n---\n", failures));
+    }
+}
