@@ -172,3 +172,73 @@ public sealed class M68000JitMoveFamilyTests(ITestOutputHelper output)
             string.Join("\n---\n", failures));
     }
 }
+
+/// <summary>M6 PR-5 (Task 6): the focused integer-ALU data-axis parity sweep — the X-bit gate. These files are the
+/// PR-5 families that generated JitOpClass.M68000Alu rows + an emit arm (ADD/SUB/CMP/AND/OR/EOR RegEa, ADDA/SUBA/
+/// CMPA AddrEa, ADDX/SUBX XAlu) at .b/.w/.l per the canonical list — NOT NEG/NEGX/NOT/CLR/TST/EXT/MUL/DIV (those
+/// stay fallback), NOT the immediate/quick forms (no v1 vector files exist for ADDI/ADDQ/SUBI/SUBQ — see the
+/// interpreter M68000AluTomHarteSweepBase HONESTY note; those forms ARE emitted, but the corpus exercises only
+/// the RegEa/AddrEa/XAlu shapes). Run through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/>, the JIT final
+/// state (D0-D7/A0-A6/USP/SSP/SR/RAM) is byte-identical to the interpreter for every executed case.
+///
+/// <para><b>The SR comparison is the entire X-bit safety net.</b> It catches: X=C errors (ADD/SUB), X-INPUT
+/// errors (ADDX/SUBX), X-restored errors (CMP/CMPA), and X-untouched errors (AND/OR/EOR — the reused Logic CCR).
+/// The corpus stresses exactly the dominant failure class: the SUB-self-to-zero C=X=0 case (proving the xIn:false
+/// hard-wire for plain SUB), the ADDX/SUBX sticky-Z + X-chain cases, the memory-dest RMW (An)+/-(An) An-mutation,
+/// and the per-size mask/signbit. The ALU rows are M68000Alu-emitted IL (proven non-vacuous by the
+/// M68kAluEmitSelections counter), so this diffs emitted IL vs the interpreter oracle, not interpreter-vs-
+/// interpreter. NOT cycle/pc/prefetch (DECISION T2).</para></summary>
+public sealed class M68000JitAluFamilyTests(ITestOutputHelper output)
+{
+    /// <summary>The integer-ALU vector files PR-5 emits (the in-corpus subset of the canonical ALU list — the
+    /// immediate/quick forms have no v1 vectors, and NEG/NEGX/NOT/CLR/TST/EXT/MUL/DIV stay fallback).</summary>
+    public static TheoryData<string> AluFiles()
+    {
+        var data = new TheoryData<string>();
+        foreach (var f in new[]
+        {
+            "ADD.b.json.gz", "ADD.w.json.gz", "ADD.l.json.gz",
+            "SUB.b.json.gz", "SUB.w.json.gz", "SUB.l.json.gz",
+            "CMP.b.json.gz", "CMP.w.json.gz", "CMP.l.json.gz",
+            "AND.b.json.gz", "AND.w.json.gz", "AND.l.json.gz",
+            "OR.b.json.gz",  "OR.w.json.gz",  "OR.l.json.gz",
+            "EOR.b.json.gz", "EOR.w.json.gz", "EOR.l.json.gz",
+            "ADDA.w.json.gz", "ADDA.l.json.gz",
+            "SUBA.w.json.gz", "SUBA.l.json.gz",
+            "CMPA.w.json.gz", "CMPA.l.json.gz",
+            "ADDX.b.json.gz", "ADDX.w.json.gz", "ADDX.l.json.gz",
+            "SUBX.b.json.gz", "SUBX.w.json.gz", "SUBX.l.json.gz",
+        })
+            data.Add(f);
+        return data;
+    }
+
+    [M68000TomHarteTheory]
+    [MemberData(nameof(AluFiles))]
+    public void Alu_family_emitted_IL_is_data_axis_parity_green(string file)
+    {
+        string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
+        Assert.NotNull(dir);
+        string path = System.IO.Path.Combine(dir, file);
+        Assert.True(System.IO.File.Exists(path), $"ALU-family vector file missing: {path}");
+
+        int sample = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sample,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        int executed = 0, deferred = 0, excluded = 0;
+        var failures = new List<string>();
+        foreach (var c in cases)
+        {
+            if (M68000DataAxisCorpus.IsExcludedCase(c)) { excluded++; continue; }
+            var rr = M68000TomHarteRunner.RunCaseThroughJit(c, assertExceptions: true);
+            if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
+            executed++;
+            if (rr is not null) { failures.Add(rr); if (failures.Count >= 8) break; }
+        }
+        output.WriteLine($"{file}: executed {executed}, deferred {deferred}, excluded {excluded} (ALU emitted-IL JIT)");
+        Assert.True(executed > 0, $"{file}: 0 executed cases — the emitted-IL X-bit gate would be vacuous");
+        Assert.True(failures.Count == 0,
+            $"{file}: {failures.Count} ALU emitted-IL parity failure(s) of {executed} executed:\n" +
+            string.Join("\n---\n", failures));
+    }
+}

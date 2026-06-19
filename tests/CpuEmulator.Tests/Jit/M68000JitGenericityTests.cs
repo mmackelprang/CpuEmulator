@@ -314,4 +314,148 @@ public class M68000JitGenericityTests
         Assert.True(executed > 0, $"{file}: 0 executed cases");
         Assert.True(failures.Count == 0, $"{file}: {failures.Count} tier-parity failures:\n" + string.Join("\n", failures));
     }
+
+    // ── M6 PR-5: the integer-ALU emit gates ──────────────────────────────────────────────────────────────────
+
+    /// <summary>M6 PR-5: the ALU analogue of <see cref="M68000_MOVE_arm_actually_dispatches_after_PR4a"/> — the
+    /// dead-arm-now-live proof. Compiling a block whose first op is an ALU-family op selects EmitM68kAlu at least
+    /// once, so M68kAluEmitSelections is &gt; 0: the ALU JIT parity is REAL emitted-IL-vs-interpreter, not a
+    /// degenerate tautology. 0xD041 = ADD.w D0,D1 (register-only EA — no ext words).</summary>
+    [Fact]
+    public void M68000_ALU_arm_actually_dispatches()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;   // emit-only proof
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0xD041);   // ADD.w D0,D1
+        bus.Write16(0x001002, 0x4E71);   // NOP — block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.True(compiler.M68kAluEmitSelections > 0,
+            "EmitM68kAlu was never selected — the ALU descriptor row did not reach the emit switch.");
+    }
+
+    /// <summary>M6 PR-5: the negative control — a non-ALU block (NOP) selects the ALU arm zero times, so the
+    /// positive case is meaningful (the counter can read 0).</summary>
+    [Fact]
+    public void M68000_non_ALU_block_selects_the_ALU_arm_zero_times()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x4E71);   // NOP only — falls back, no ALU row
+        compiler.Compile(0x1000);
+        Assert.Equal(0, compiler.M68kAluEmitSelections);
+    }
+
+    /// <summary>M6 PR-5: the integer-ALU FallbackEmitCount flip — each emitted ALU op in a one-op block
+    /// contributes 0 fallbacks (the block's ONLY fallback is the block-ending NOP). The "FallbackEmitCount drops
+    /// by exactly the emitted opcodes" gate AND the gate/arm lockstep check (each form must have a real EmitM68kAlu
+    /// path, or the arm throws and Compile fails). Operwords (big-endian words at PC; register-only EAs — no ext
+    /// words). Covers every PR-5 shape: RegEa (ADD/SUB/CMP/AND/OR/EOR), AddrEa (ADDA/SUBA/CMPA), QuickEa
+    /// (ADDQ/SUBQ — An-dest special case + Dn dest), XAlu (ADDX/SUBX reg form), and the memory-dest RMW RegEa.</summary>
+    [Theory]
+    [InlineData(0xD000)]   // ADD.b  D0,D0   (RegEa, toEa=false, Dn dest)
+    [InlineData(0xD041)]   // ADD.w  D0,D1
+    [InlineData(0xD082)]   // ADD.l  D0,D2
+    [InlineData(0x9000)]   // SUB.b  D0,D0
+    [InlineData(0xB000)]   // CMP.b  D0,D0   (writesResult=false)
+    [InlineData(0xC000)]   // AND.b  D0,D0   (Logic CCR — X untouched)
+    [InlineData(0x8000)]   // OR.b   D0,D0
+    [InlineData(0xB100)]   // EOR.b  D0,D0
+    [InlineData(0xD0C0)]   // ADDA.w D0,A0   (AddrEa, An dest, NO CCR)
+    [InlineData(0x90C0)]   // SUBA.w D0,A0
+    [InlineData(0xB0C0)]   // CMPA.w D0,A0   (Cmp CCR, no write)
+    [InlineData(0x5000)]   // ADDQ.b #8,D0   (QuickEa, Dn dest)
+    [InlineData(0x5100)]   // SUBQ.b #8,D0
+    [InlineData(0x5048)]   // ADDQ.w #8,A0   (QuickEa, An-dest special case — whole An, NO CCR)
+    [InlineData(0xD100)]   // ADDX.b D0,D0   (XAlu reg form — live X in, sticky Z)
+    [InlineData(0x9100)]   // SUBX.b D0,D0
+    [InlineData(0xD159)]   // ADD.w  D0,(A1)+ (RegEa, toEa=true — memory-dest RMW, address-once)
+    [InlineData(0xD161)]   // ADD.w  D0,-(A1) (RegEa, toEa=true — memory-dest RMW predecrement)
+    public void M68000_ALU_block_emits_no_fallback(int operword)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, (ushort)operword);   // the ALU op (register-only / single-EA — no ext words)
+        bus.Write16(0x001002, 0x4E71);             // NOP — the one block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the NOP; the ALU op emitted 0
+    }
+
+    /// <summary>M6 PR-5: the descriptor-state gate — the net-new ALU rows carry JitOpClass.M68000Alu,
+    /// NeedsFallback=false, EndsBlock=false. The keys are the decode walk's (1&lt;&lt;24)|(opIndex&lt;&lt;8)|size
+    /// packing (ADD opIndex 77, ADDX 76, CMP 69 from the grammar Ops order). A still-fallback ALU-adjacent op
+    /// (NEG, NOT in scope) proves the table is otherwise unchanged.</summary>
+    [Fact]
+    public void M68000_ALU_family_descriptors_are_emittable_and_classed_M68000Alu()
+    {
+        var add = M68000Cpu.DescriptorFor(0x1004D01u);   // ADD.w (opIndex 77, size 1)
+        Assert.Equal("ADD", add.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Alu, add.Class);
+        Assert.False(add.NeedsFallback);
+        Assert.False(add.EndsBlock);
+
+        var addx = M68000Cpu.DescriptorFor(0x1004C01u);  // ADDX.w (opIndex 76, size 1)
+        Assert.Equal("ADDX", addx.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Alu, addx.Class);
+        Assert.False(addx.NeedsFallback);
+
+        var cmp = M68000Cpu.DescriptorFor(0x1004501u);   // CMP.w (opIndex 69, size 1)
+        Assert.Equal("CMP", cmp.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Alu, cmp.Class);
+
+        // NEG stays fallback (NOT a PR-5 family) — proving the ALU rows are the in-scope set only.
+        // NEG opIndex is in the grammar; any NEG-key descriptor must remain Undefined/fallback.
+        var addqAn = M68000Cpu.DescriptorFor(0x1003701u); // ADDQ.w (opIndex 55, size 1) — emitted
+        Assert.Equal("ADDQ", addqAn.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Alu, addqAn.Class);
+    }
+
+    /// <summary>M6 PR-5: the memory-dest-RMW An-mutation tripwire (the plan's required tripwire). An ADD with an
+    /// (A1)+ / -(A1) MEMORY dest must write the RESULT (a+b) to memory AND advance A1 exactly once (address-once —
+    /// a double-resolve would advance A1 twice / write to the wrong address). Drives Tier-1 (JittedCpu.Run) and
+    /// diffs against the interpreter Step (Tier-0) on the written RAM + A1 + SR (the X-bit).
+    ///   0xD159 = ADD.w D0,(A1)+   |   0xD161 = ADD.w D0,-(A1)   (dest mode 3/4 reg 1; D0 = the other operand).</summary>
+    [Theory]
+    [InlineData(0xD159, /*postInc*/ true)]    // ADD.w D0,(A1)+
+    [InlineData(0xD161, /*postInc*/ false)]   // ADD.w D0,-(A1)
+    public void ADD_to_An_postinc_predec_writes_the_result_and_advances_An_once(int operword, bool postInc)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof
+
+        const uint d0 = 0x0011u;
+        const ushort memSeed = 0x2200;     // the existing memory word the RMW adds D0 to
+        const uint a1Base = 0x002000u;
+        uint writtenAddr = postInc ? a1Base : a1Base - 2;
+
+        (uint a1, ushort memWord, ushort sr) RunOne(bool throughJit)
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+            bus.Write16(0x001000, (ushort)operword);
+            bus.Write16(0x001002, 0x4E71);             // NOP — block-ending fallback
+            bus.Write16(writtenAddr, memSeed);         // the RMW reads this, adds D0, writes back
+            var inner = new M68000Cpu(bus);
+            inner.SetRegister("PC", 0x001000);
+            inner.SetRegister("SR", 0x2700);           // supervisor, ints masked
+            inner.SetRegister("D0", d0);
+            inner.SetRegister("A1", a1Base);
+            if (throughJit)
+            {
+                var jit = new JittedCpu<M68000Cpu>(inner, M68000Cpu.JitTarget, bus);
+                long budget = 1;                       // exactly one instruction (the ADD)
+                jit.Run(ref budget);
+            }
+            else inner.Step();
+            return ((uint)inner.GetRegister("A1"), bus.Read16(writtenAddr), (ushort)inner.GetRegister("SR"));
+        }
+        var (ja1, jmem, jsr) = RunOne(throughJit: true);
+        var (ia1, imem, isr) = RunOne(throughJit: false);
+
+        // The written word MUST be the ADD result (memSeed + D0), NOT D0 alone nor the advanced address.
+        Assert.Equal((ushort)(memSeed + d0), imem);   // interpreter oracle: writes the RMW result
+        Assert.Equal(imem, jmem);                     // JIT byte-identical on the written RAM
+        Assert.Equal(ia1, ja1);                        // ... and on the address-once-advanced A1
+        Assert.Equal(isr, jsr);                        // ... and on SR (the X=C output bit)
+    }
 }

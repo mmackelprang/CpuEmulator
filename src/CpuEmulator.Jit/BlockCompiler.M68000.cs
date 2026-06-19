@@ -432,6 +432,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private static bool IsM68kDestEaHandled(int mode, int reg) =>
         mode < 7 ? mode <= 6 : reg <= 1;
 
+    /// <summary>M6 PR-5: the MEMORY-alterable dest EAs EmitM68kResolveEaAddr can address: modes 2-6 (no Dn/An
+    /// direct) + mode 7 reg 0/1 (abs.w/abs.l). EXCLUDES mode 0 (Dn) and mode 1 (An) — those are register-direct
+    /// destinations the ALU arms handle inline (NOT via the memory-EA resolver), and a register-direct toEa RegEa
+    /// is illegal/lookahead garbage. Mirrors the switch in EmitM68kResolveEaAddr.</summary>
+    private static bool IsM68kMemDestHandled(int mode, int reg) =>
+        (mode >= 2 && mode <= 6) || (mode == 7 && reg <= 1);
+
     /// <summary>M6 PR-4: the 68000 MOVE/MOVEA/MOVEQ emit arm. Decodes the operword's EA matrix at emit time
     /// (DECISION P3), resolves+reads the source EA (FIRST, so its An mutation lands before the dest), stashes
     /// the operand, sets the MOVE CCR (MOVEA/MOVEQ differ), resolves+writes the dest, charges BaseCycles.
@@ -568,4 +575,775 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         7 => reg switch { 0 => 1, 1 => 2, 2 => 1, 3 => 1, 4 => size == 2 ? 2 : 1, _ => 0 },
         _ => 0,
     };
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+    // M6 PR-5: the 68000 integer-ALU emit arm + the shared CCR-compute helpers (DECISION X1).
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>M6 PR-5: where xIn comes from for the arithmetic CCR. Zero = plain ADD/SUB/CMP (xIn forced 0 — the
+    /// hard-wired false, M68000Cpu.Alu.cs:262-263). LiveX = ADDX/SUBX (the live X is an INPUT to carry/borrow).</summary>
+    private enum M68kXIn { Zero, LiveX }
+
+    /// <summary>M6 PR-5: the X-output tail variant. Arith = X = C (the OUTPUT-X tail, plain ADD/SUB). Cmp = X
+    /// RESTORED from old (CMP never touches X). ArithX = sticky Z + the Arith X=C tail (ADDX/SUBX).</summary>
+    private enum M68kCcrVariant { Arith, Cmp, ArithX }
+
+    /// <summary>M6 PR-5: the per-family ALU op + its CCR rule + shape, decoded from d.Mnemonic.</summary>
+    private enum M68kAluFn { Add, Sub, And, Or, Eor }
+    private enum M68kAluCcr { Arith, Cmp, ArithX, Logic, None }
+    private enum M68kAluShape { RegEa, ImmEa, QuickEa, AddrEa, XAlu }
+
+    private readonly struct M68kAluFam
+    {
+        public readonly M68kAluFn Fn;
+        public readonly M68kAluCcr Ccr;
+        public readonly M68kAluShape Shape;
+        public readonly bool IsSub;          // true for SUB/CMP/SUBX (the borrow form)
+        public readonly bool WritesResult;   // false for CMP/CMPI/CMPA
+        public M68kAluFam(M68kAluFn fn, M68kAluCcr ccr, M68kAluShape shape, bool isSub, bool writes)
+        { Fn = fn; Ccr = ccr; Shape = shape; IsSub = isSub; WritesResult = writes; }
+    }
+
+    /// <summary>M6 PR-5: classify the family from the descriptor mnemonic (the descriptor key already disambiguated
+    /// the first-match-wins family, so the mnemonic is authoritative). Mirrors the interpreter registrations
+    /// (M68000Cpu.Alu.cs:323-403, 476-479): ADD/SUB/AND/OR/EOR/CMP = RegEa; *I = ImmEa; ADDQ/SUBQ = QuickEa;
+    /// ADDA/SUBA/CMPA = AddrEa; ADDX/SUBX = XAlu. The CCR rule + isSub + writesResult per the recon table.</summary>
+    private static M68kAluFam M68kAluFamily(string mnemonic) => mnemonic switch
+    {
+        // RegEa
+        "ADD" => new(M68kAluFn.Add, M68kAluCcr.Arith, M68kAluShape.RegEa, false, true),
+        "SUB" => new(M68kAluFn.Sub, M68kAluCcr.Arith, M68kAluShape.RegEa, true, true),
+        "AND" => new(M68kAluFn.And, M68kAluCcr.Logic, M68kAluShape.RegEa, false, true),
+        "OR"  => new(M68kAluFn.Or,  M68kAluCcr.Logic, M68kAluShape.RegEa, false, true),
+        "EOR" => new(M68kAluFn.Eor, M68kAluCcr.Logic, M68kAluShape.RegEa, false, true),
+        "CMP" => new(M68kAluFn.Sub, M68kAluCcr.Cmp,   M68kAluShape.RegEa, true, false),
+        // ImmEa
+        "ADDI" => new(M68kAluFn.Add, M68kAluCcr.Arith, M68kAluShape.ImmEa, false, true),
+        "SUBI" => new(M68kAluFn.Sub, M68kAluCcr.Arith, M68kAluShape.ImmEa, true, true),
+        "ANDI" => new(M68kAluFn.And, M68kAluCcr.Logic, M68kAluShape.ImmEa, false, true),
+        "ORI"  => new(M68kAluFn.Or,  M68kAluCcr.Logic, M68kAluShape.ImmEa, false, true),
+        "EORI" => new(M68kAluFn.Eor, M68kAluCcr.Logic, M68kAluShape.ImmEa, false, true),
+        "CMPI" => new(M68kAluFn.Sub, M68kAluCcr.Cmp,   M68kAluShape.ImmEa, true, false),
+        // QuickEa
+        "ADDQ" => new(M68kAluFn.Add, M68kAluCcr.Arith, M68kAluShape.QuickEa, false, true),
+        "SUBQ" => new(M68kAluFn.Sub, M68kAluCcr.Arith, M68kAluShape.QuickEa, true, true),
+        // AddrEa (An dest)
+        "ADDA" => new(M68kAluFn.Add, M68kAluCcr.None, M68kAluShape.AddrEa, false, true),
+        "SUBA" => new(M68kAluFn.Sub, M68kAluCcr.None, M68kAluShape.AddrEa, true, true),
+        "CMPA" => new(M68kAluFn.Sub, M68kAluCcr.Cmp,  M68kAluShape.AddrEa, true, false),
+        // XAlu
+        "ADDX" => new(M68kAluFn.Add, M68kAluCcr.ArithX, M68kAluShape.XAlu, false, true),
+        "SUBX" => new(M68kAluFn.Sub, M68kAluCcr.ArithX, M68kAluShape.XAlu, true, true),
+        _ => throw new EmulationException($"M68kAluFamily: not a PR-5 ALU mnemonic '{mnemonic}'"),
+    };
+
+    /// <summary>M6 PR-5: the ALU size decode from the operword. RegEa/ImmEa/QuickEa/XAlu use the STANDARD size
+    /// field (bits 7-6: 00=.b/01=.w/10=.l). AddrEa (ADDA/SUBA/CMPA) carries the size in opmode bit 8: 0=.w(1)/
+    /// 1=.l(2) — matching the decoder's +1 remap (so the body always sees a genuine 1=.w/2=.l index). The
+    /// descriptor's Opcode byte is 0x00 and carries no key (exactly like MOVE), so size is re-decoded here.</summary>
+    private static int M68kAluSize(ushort operword, M68kAluShape shape)
+    {
+        if (shape == M68kAluShape.AddrEa)
+            return ((operword >> 8) & 1) == 0 ? 1 : 2;   // .w / .l (genuine 1=.w/2=.l index)
+        uint bits = (uint)((operword >> 6) & 3);
+        return bits switch { 0u => 0, 1u => 1, 2u => 2, _ => 0 };   // standard 00=b,01=w,10=l
+    }
+
+    /// <summary>M6 PR-5: can the ALU-family row at <paramref name="pc"/> be emitted, or must it fall back? The EA
+    /// resolver (EmitM68kEaRead) handles src modes 0-6 + mode 7 reg 0-4; the DataAlterable dest forms (toEa RegEa,
+    /// ImmEa, QuickEa) write modes 0-6 + mode 7 reg 0/1. A row whose decoded EA is outside the set the form needs
+    /// is a DISCOVERY artifact (lookahead garbage) and falls back rather than throwing. ADDX/SUBX (XAlu) decode no
+    /// EA from the matrix (the regs are bit fields) so they are always emittable.</summary>
+    private bool CanEmitM68kAlu(ushort pc, OpcodeDescriptor d)
+    {
+        var fam = M68kAluFamily(d.Mnemonic);
+        if (fam.Shape == M68kAluShape.XAlu) return true;   // no EA matrix — reg/predec bit fields only
+        ushort operword = _bus.Read16(pc);
+        int srcMode = (operword >> 3) & 7, srcReg = operword & 7;
+        switch (fam.Shape)
+        {
+            case M68kAluShape.RegEa:
+            {
+                bool toEa = (operword & 0x0100) != 0;
+                // toEa=false: the EA is a SOURCE read (DataAddressing — any readable EA). toEa=true: the EA is a
+                // MEMORY-alterable DEST (read + RMW write-back). The toEa direction requires a MEMORY EA on real
+                // hardware (ADD Dn,<ea> has ea in modes 2-6 + 7/0/1 only — a Dn/An direct toEa is illegal/lookahead
+                // garbage the EA resolver cannot address). CMP (writesResult=false) has NO toEa form at all.
+                if (!toEa) return IsM68kSrcEaHandled(srcMode, srcReg);
+                if (!fam.WritesResult) return false;       // CMP toEa: not a real form
+                // toEa dest: a Dn DIRECT (mode 0 — the EOR Dn,Dn form, written to the register inline) OR a MEMORY-
+                // alterable EA (modes 2-6 + 7/0/1 — the resolver-addressable RMW set). An direct (mode 1) and the
+                // PC-relative/#imm modes (7/2/3/4) are NOT alterable dests -> fall back.
+                return srcMode == 0 || IsM68kMemDestHandled(srcMode, srcReg);
+            }
+            case M68kAluShape.QuickEa:
+                // ADDQ/SUBQ: the EA is the alterable dest: a Dn DIRECT (mode 0, register write — handled inline), An
+                // DIRECT (mode 1 — the whole-An / no-CCR special case EmitM68kAluQuickEa handles explicitly), or a
+                // MEMORY-alterable EA (modes 2-6 + 7/0/1 — the resolver-addressable set). Anything else (mode 7 reg
+                // 2/3/4: PC-relative/#imm) is not an alterable dest -> fall back.
+                return srcMode == 0 || srcMode == 1 || IsM68kMemDestHandled(srcMode, srcReg);
+            case M68kAluShape.ImmEa:
+                // ADDI/SUBI/ANDI/ORI/EORI/CMPI: the EA is the alterable dest: a Dn DIRECT (mode 0, register write —
+                // handled inline) or a MEMORY-alterable EA (modes 2-6 + 7/0/1 — the resolver-addressable RMW set).
+                // An DIRECT (mode 1) is ILLEGAL for an immediate-to-An on real hardware AND EmitM68kAluImmEa has no
+                // mode-1 path (unlike QuickEa's whole-An special case) — so it MUST fall back, NOT report emittable
+                // (else a lookahead garbage word decoding as ImmEa-to-An would throw mid-compile in
+                // EmitM68kResolveEaAddr and kill the whole block compile rather than gracefully fall back to Step).
+                // Pre-merge review (M6 PR-5): split out of the shared QuickEa case to close that valve/body mismatch.
+                // PC-relative/#imm dests (mode 7 reg 2/3/4) are likewise not alterable -> fall back.
+                return srcMode == 0 || IsM68kMemDestHandled(srcMode, srcReg);
+            case M68kAluShape.AddrEa:
+                // ADDA/SUBA/CMPA: the EA is a SOURCE read (any readable EA, incl. An direct + #imm + PC-relative).
+                return IsM68kSrcEaHandled(srcMode, srcReg);
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>M6 PR-5: push the live X bit (0 or 1) — (SR &amp; 0x10) != 0 ? 1 : 0. Leaves an int 0/1 on the
+    /// stack. Only ADDX/SUBX read the live X; ADD/SUB/CMP stage a literal 0 (the xIn:false hard-wire).</summary>
+    private void EmitM68kLiveX(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, 0x10);
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Cgt_Un);                   // (SR & 0x10) != 0 -> 1/0
+    }
+
+    /// <summary>M6 PR-5 (DECISION X1): the parametrized arithmetic CCR — a VERBATIM IL transcription of
+    /// AluCcr.Arith + the ArithAdd/ArithSub/Cmp/ArithX wrappers (M68000Cpu.Alu.cs:227-305). aLocal/bLocal hold the
+    /// masked inputs; resultLocal the masked result; size 0/1/2. <paramref name="xInSource"/> picks the xIn source
+    /// (Zero = literal 0; LiveX = read SR's X NOW); <paramref name="variant"/> picks the X-output tail (Arith: X=C;
+    /// Cmp: restore old X; ArithX: sticky Z). <paramref name="isSub"/> picks the add vs sub carry/borrow + overflow.
+    /// Builds the new CCR byte into TmpInt, then writes SR = (ushort)((SR &amp; 0xFF00) | ccr).
+    /// <para>Scratch usage: HiLocal=oldCcr, LoLocal=r (masked result), SumLocal=the running ccr int, TmpInt=n/z/v/c
+    /// scratch, TmpLong=the ulong carry/borrow accumulator. NONE of these are AddrLocal/EaLocal/DataLocal (the bus-
+    /// access clobber set) NOR the dedicated M68kA/B/Result/XIn locals the caller holds the operands in — so the CCR
+    /// compute never disturbs a live operand. All bus access is already DONE before the CCR compute is emitted.</para></summary>
+    private void EmitM68kArithCcr(EmitContext ctx, LocalBuilder aLocal, LocalBuilder bLocal,
+                                  LocalBuilder resultLocal, LocalBuilder xInLocal, int size,
+                                  M68kXIn xInSource, M68kCcrVariant variant, bool isSub)
+    {
+        ILGenerator il = ctx.Il;
+        uint m = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        uint sb = size == 0 ? 0x80u : size == 1 ? 0x8000u : 0x80000000u;
+
+        // xIn (0 or 1) into xInLocal — LiveX reads SR's X NOW; Zero stages a literal 0.
+        if (xInSource == M68kXIn.LiveX) EmitM68kLiveX(ctx); else il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Stloc, xInLocal);
+
+        // oldCcr = (byte)(SR & 0xFF)  -> HiLocal
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, 0xFF);
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.HiLocal);
+
+        // r = result & m  -> LoLocal
+        il.Emit(OpCodes.Ldloc, resultLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)m));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.LoLocal);
+
+        // ── ccr = (oldCcr & ~0x1F)   (clear X N Z V C; keep the system-byte-shadow bits) -> SumLocal (the running ccr int)
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x1F));   // ~0x1F = 0xFFFFFFE0; & keeps only bits 5-7 of the byte
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+
+        // ── N: if ((r & sb) != 0) ccr |= 0x08
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)sb));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Cgt_Un);                          // (r & sb) != 0 -> 1/0
+        il.Emit(OpCodes.Ldc_I4, 0x08);
+        il.Emit(OpCodes.Mul);
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+
+        // ── Z: if (r == 0) ccr |= 0x04
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ceq);                             // r == 0 -> 1/0
+        il.Emit(OpCodes.Ldc_I4, 0x04);
+        il.Emit(OpCodes.Mul);
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+
+        // ── C and V (the carry/borrow + overflow). Compute c (0/1) into TmpInt, then V folds in.
+        if (!isSub)
+        {
+            // full = (ulong)(a & m) + (ulong)(b & m) + (ulong)xIn   -> TmpLong
+            il.Emit(OpCodes.Ldloc, aLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)m)); il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U8);
+            il.Emit(OpCodes.Ldloc, bLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)m)); il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U8);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldloc, xInLocal);
+            il.Emit(OpCodes.Conv_U8);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Stloc, ctx.TmpLong);
+            // c = (full & ~(ulong)m) != 0
+            il.Emit(OpCodes.Ldloc, ctx.TmpLong);
+            il.Emit(OpCodes.Ldc_I8, unchecked((long)~(ulong)m));
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Ldc_I8, 0L);
+            il.Emit(OpCodes.Cgt_Un);                      // (full & ~m) != 0 -> 1/0
+            il.Emit(OpCodes.Stloc, ctx.TmpInt);           // c -> TmpInt
+            // v = (((a ^ r) & (b ^ r)) & sb) != 0
+            il.Emit(OpCodes.Ldloc, aLocal);
+            il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+            il.Emit(OpCodes.Xor);                         // a ^ r
+            il.Emit(OpCodes.Ldloc, bLocal);
+            il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+            il.Emit(OpCodes.Xor);                         // b ^ r
+            il.Emit(OpCodes.And);                         // (a^r) & (b^r)
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)sb));
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Cgt_Un);                      // v -> 1/0
+        }
+        else
+        {
+            // sub = (ulong)(b & m) + (ulong)xIn   -> TmpLong
+            il.Emit(OpCodes.Ldloc, bLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)m)); il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U8);
+            il.Emit(OpCodes.Ldloc, xInLocal);
+            il.Emit(OpCodes.Conv_U8);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Stloc, ctx.TmpLong);
+            // c = (ulong)(a & m) < sub
+            il.Emit(OpCodes.Ldloc, aLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)m)); il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U8);
+            il.Emit(OpCodes.Ldloc, ctx.TmpLong);
+            il.Emit(OpCodes.Clt_Un);                      // (a&m) < sub -> 1/0
+            il.Emit(OpCodes.Stloc, ctx.TmpInt);           // c -> TmpInt
+            // v = (((a ^ (b & m)) & (a ^ r)) & sb) != 0
+            il.Emit(OpCodes.Ldloc, aLocal);
+            il.Emit(OpCodes.Ldloc, bLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)m)); il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Xor);                         // a ^ (b & m)
+            il.Emit(OpCodes.Ldloc, aLocal);
+            il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+            il.Emit(OpCodes.Xor);                         // a ^ r
+            il.Emit(OpCodes.And);                         // (a ^ (b&m)) & (a ^ r)
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)sb));
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Cgt_Un);                      // v -> 1/0
+        }
+        // stack top = v (0/1). ccr |= v * 0x02
+        il.Emit(OpCodes.Ldc_I4, 0x02);
+        il.Emit(OpCodes.Mul);
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        // ccr |= c * 0x01
+        il.Emit(OpCodes.Ldloc, ctx.TmpInt);
+        il.Emit(OpCodes.Ldc_I4, 0x01);
+        il.Emit(OpCodes.Mul);
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+
+        // ── The X tail per variant ──────────────────────────────────────────────────────────────────────────
+        switch (variant)
+        {
+            case M68kCcrVariant.Arith:
+            case M68kCcrVariant.ArithX:
+                // X = C: if (c) ccr |= 0x10 else ccr &= ~0x10. (c in TmpInt as 0/1.)  ccr = (ccr & ~0x10) | (c<<4)
+                il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+                il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x10));
+                il.Emit(OpCodes.And);                     // ccr & ~0x10
+                il.Emit(OpCodes.Ldloc, ctx.TmpInt);       // c
+                il.Emit(OpCodes.Ldc_I4, 4);
+                il.Emit(OpCodes.Shl);                     // c << 4 (== c ? 0x10 : 0)
+                il.Emit(OpCodes.Or);
+                il.Emit(OpCodes.Stloc, ctx.SumLocal);
+                break;
+            case M68kCcrVariant.Cmp:
+                // X restored from old: ccr = (ccr & ~0x10) | (oldCcr & 0x10)
+                il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+                il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x10));
+                il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Ldloc, ctx.HiLocal);      // oldCcr
+                il.Emit(OpCodes.Ldc_I4, 0x10);
+                il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Or);
+                il.Emit(OpCodes.Stloc, ctx.SumLocal);
+                break;
+        }
+
+        // ── ArithX sticky Z: clear the freshly-set Z, re-OR the OLD Z only if the result is zero.
+        if (variant == M68kCcrVariant.ArithX)
+        {
+            // ccr &= ~0x04
+            il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)~0x04));
+            il.Emit(OpCodes.And);
+            // | ((r == 0) ? (oldCcr & 0x04) : 0)   ==   | ((r==0 ? 1 : 0) * (oldCcr & 0x04))
+            il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ceq);                         // (r == 0) -> 1/0
+            il.Emit(OpCodes.Ldloc, ctx.HiLocal);
+            il.Emit(OpCodes.Ldc_I4, 0x04);
+            il.Emit(OpCodes.And);                         // oldCcr & 0x04
+            il.Emit(OpCodes.Mul);                         // (r==0?1:0) * (oldCcr & 0x04)
+            il.Emit(OpCodes.Or);
+            il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        }
+
+        // ── SR = (ushort)((SR & 0xFF00) | (ccr & 0xFF)). Stage the new SR through a local (receiver-below-value).
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, _m68kSR!);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)0xFF00));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        il.Emit(OpCodes.Ldc_I4, 0xFF);
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);       // new SR (receiver-below-value fix — like EmitM68kMoveCcr)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stfld, _m68kSR!);
+    }
+
+    /// <summary>M6 PR-5: route to the per-family CCR helper. Arith -> Arith variant, xIn Zero; Cmp -> Cmp variant
+    /// (isSub forced true), xIn Zero; ArithX -> ArithX variant, xIn LiveX; Logic -> EmitM68kMoveCcr (the reused
+    /// PR-4 Logic rule: N/Z, V=C=0, X untouched); None -> ADDA/SUBA set no CCR. The xInLocal is the live-X local
+    /// the caller filled (XAlu) or M68kXInLocal (the helper restages a 0 for the non-X families).</summary>
+    private void EmitM68kFamilyCcr(EmitContext ctx, M68kAluFam fam, LocalBuilder a, LocalBuilder b,
+                                   LocalBuilder result, LocalBuilder xInLocal, int size)
+    {
+        switch (fam.Ccr)
+        {
+            case M68kAluCcr.Arith:
+                EmitM68kArithCcr(ctx, a, b, result, xInLocal, size, M68kXIn.Zero, M68kCcrVariant.Arith, fam.IsSub);
+                break;
+            case M68kAluCcr.Cmp:
+                EmitM68kArithCcr(ctx, a, b, result, xInLocal, size, M68kXIn.Zero, M68kCcrVariant.Cmp, isSub: true);
+                break;
+            case M68kAluCcr.ArithX:
+                EmitM68kArithCcr(ctx, a, b, result, xInLocal, size, M68kXIn.LiveX, M68kCcrVariant.ArithX, fam.IsSub);
+                break;
+            case M68kAluCcr.Logic:
+                EmitM68kMoveCcr(ctx, result, size);   // N/Z, V=C=0, X untouched (reused — MOVE and Logic share it)
+                break;
+            case M68kAluCcr.None:
+                break;                                 // ADDA/SUBA set no CCR
+        }
+    }
+
+    /// <summary>M6 PR-5: the pure ALU op a op b, masked to size, left on the stack as uint. Add/Sub/And/Or/Eor
+    /// (M68000Cpu.Alu.cs:30-34). The interpreter computes full-width then masks; the carry/overflow live in the
+    /// CCR helper, so here we just compute the value and mask.</summary>
+    private void EmitM68kAluOp(EmitContext ctx, M68kAluFam fam, LocalBuilder a, LocalBuilder b, int size)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, a);
+        il.Emit(OpCodes.Ldloc, b);
+        switch (fam.Fn)
+        {
+            case M68kAluFn.Add: il.Emit(OpCodes.Add); break;
+            case M68kAluFn.Sub: il.Emit(OpCodes.Sub); break;
+            case M68kAluFn.And: il.Emit(OpCodes.And); break;
+            case M68kAluFn.Or:  il.Emit(OpCodes.Or);  break;
+            case M68kAluFn.Eor: il.Emit(OpCodes.Xor); break;
+        }
+        uint mask = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        if (size != 2) { il.Emit(OpCodes.Ldc_I4, unchecked((int)mask)); il.Emit(OpCodes.And); }
+    }
+
+    /// <summary>M6 PR-5: the 68000 integer-ALU emit arm. Mirrors BinaryAluExecute (M68000Cpu.Alu.cs:55-139) on the
+    /// DATA axis (incl. SR/X). Family + shape + size are decoded from d.Mnemonic + the operword (DECISION P3);
+    /// each shape has its own sub-form. Charges the coarse BaseCycles once (DECISION T).</summary>
+    private void EmitM68kAlu(EmitContext ctx, ushort pc, OpcodeDescriptor d)
+    {
+        ushort operword = _bus.Read16(pc);
+        var fam = M68kAluFamily(d.Mnemonic);
+        int size = M68kAluSize(operword, fam.Shape);
+
+        switch (fam.Shape)
+        {
+            case M68kAluShape.RegEa:   EmitM68kAluRegEa(ctx, pc, operword, size, fam); break;
+            case M68kAluShape.ImmEa:   EmitM68kAluImmEa(ctx, pc, operword, size, fam); break;
+            case M68kAluShape.QuickEa: EmitM68kAluQuickEa(ctx, pc, operword, size, fam); break;
+            case M68kAluShape.AddrEa:  EmitM68kAluAddrEa(ctx, pc, operword, size, fam); break;
+            case M68kAluShape.XAlu:    EmitM68kAluX(ctx, pc, operword, size, fam); break;
+        }
+        EmitChargeCycles(ctx, d.BaseCycles);   // coarse cycle charge (PR-4 DECISION T)
+    }
+
+    /// <summary>M6 PR-5: the RegEa form (ADD/SUB/AND/OR/EOR/CMP). Direction bit (operword &amp; 0x100):
+    ///   toEa=false: dest=Dn; a=Dn, b=read(ea); result=a op b; write Dn (size-aware); CCR(a,b,result).
+    ///   toEa=true:  dest=ea (the EA is operand A AND the dest); a=read(ea), b=Dn; result=a op b; write-back to the
+    ///               SAME ea; CCR(a,b,result). For a Dn-DIRECT ea (mode 0) the dest is a data register (the EOR
+    ///               Dn,Dn form — EOR is always toEa direction); for memory the ea is resolved ONCE (RMW).
+    /// CMP (writesResult=false) computes a-b for the CCR but writes nothing (and only the toEa=false direction is a
+    /// real CMP form — CanEmitM68kAlu fell back a toEa CMP). a/b/result live in the dedicated M68kA/B/Result locals
+    /// so the bus read/write never clobbers them.</summary>
+    private void EmitM68kAluRegEa(EmitContext ctx, ushort pc, ushort operword, int size, M68kAluFam fam)
+    {
+        ILGenerator il = ctx.Il;
+        int dnReg = (operword >> 9) & 7, srcMode = (operword >> 3) & 7, srcReg = operword & 7;
+        bool toEa = (operword & 0x0100) != 0;
+        int extIndex = 0;
+
+        if (!toEa)
+        {
+            // b = read(ea); a = Dn(sized)
+            EmitM68kEaRead(ctx, pc, srcMode, srcReg, size, ref extIndex);
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+            EmitLoadDataRegSized(ctx, $"D{dnReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            // result = a op b
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+            il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+            if (fam.WritesResult)
+            {
+                il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+                EmitStoreDataRegSized(ctx, $"D{dnReg}", size);
+            }
+            EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+        }
+        else if (srcMode == 0)
+        {
+            // Dn-DIRECT dest (the EOR Dn,Dn form — EOR is always toEa direction; ADD/SUB/AND/OR with a Dn dest use
+            // toEa=false instead, but a Dn-direct toEa is a legal EOR encoding and must emit, not fall back). The EA
+            // (srcReg's Dn) is operand A AND the dest; b = the dnReg operand; result -> write Dn(srcReg).
+            EmitLoadDataRegSized(ctx, $"D{srcReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            EmitLoadDataRegSized(ctx, $"D{dnReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+            il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+            if (fam.WritesResult)
+            {
+                il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+                EmitStoreDataRegSized(ctx, $"D{srcReg}", size);
+            }
+            EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+        }
+        else
+        {
+            // memory dest: resolve ea ONCE into M68kAddr2Local; a = read(ea); b = Dn; result; write-back to ea.
+            EmitM68kResolveEaAddr(ctx, pc, srcMode, srcReg, size, ref extIndex);   // address -> M68kAddr2Local
+            // a = read(ea)  (load the address from the survivor local each time — the read helper clobbers AddrLocal)
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            EmitM68kReadSized(ctx, size);
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            // b = Dn
+            EmitLoadDataRegSized(ctx, $"D{dnReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+            // result = a op b
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+            il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+            // write-back to the SAME ea (RMW; .l is low-word-first). fam.WritesResult is true here (CMP fell back).
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+            EmitM68kWriteSizedRmw(ctx, size);
+            EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+        }
+    }
+
+    /// <summary>M6 PR-5: the ImmEa form (ADDI/SUBI/ANDI/ORI/EORI/CMPI). The #imm is the LEADING extension word(s)
+    /// (immCount = .l ? 2 : 1), the EA's words FOLLOW (M68000Cpu.Alu.cs:99-110). Consume the imm ext words from
+    /// the FRONT (advancing extIndex), THEN resolve+read the dest EA (its own ext words now at ext[immCount..]).
+    /// dest=EA: a=read(ea), b=imm; result=a op b; write-back to the SAME ea (RMW; CMPI no write). For a Dn/An
+    /// direct dest the EA resolver reads/writes the register; for a memory dest it resolves the address ONCE.</summary>
+    private void EmitM68kAluImmEa(EmitContext ctx, ushort pc, ushort operword, int size, M68kAluFam fam)
+    {
+        ILGenerator il = ctx.Il;
+        int srcMode = (operword >> 3) & 7, srcReg = operword & 7;
+        int extIndex = 0;
+
+        // 1) read the #imm from the LEADING ext word(s) (advances extIndex past them) -> M68kBLocal
+        EmitImmOperand(ctx, pc, size, ref extIndex);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+
+        if (srcMode == 0)
+        {
+            // Dn direct dest: a = Dn(sized); result; write Dn; CCR.
+            EmitLoadDataRegSized(ctx, $"D{srcReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+            il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+            if (fam.WritesResult)
+            {
+                il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+                EmitStoreDataRegSized(ctx, $"D{srcReg}", size);
+            }
+            EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+            return;
+        }
+
+        // memory dest: resolve ea ONCE into M68kAddr2Local (its ext words now lead at ext[immCount..]).
+        EmitM68kResolveEaAddr(ctx, pc, srcMode, srcReg, size, ref extIndex);
+        il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+        EmitM68kReadSized(ctx, size);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+        EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+        il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+        if (fam.WritesResult)
+        {
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+            EmitM68kWriteSizedRmw(ctx, size);
+        }
+        EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+    }
+
+    /// <summary>M6 PR-5: the QuickEa form (ADDQ/SUBQ). imm3 = (operword&gt;&gt;9)&amp;7, 0-&gt;8. An dest (srcMode==1)
+    /// is SPECIAL: it operates on the WHOLE An (full-32), NO CCR (QuickAlu, M68000Cpu.Alu.cs:391-403). Else: ride
+    /// the QuickEa path (dest=EA, a=read(ea), b=imm3, write-back, set CCR — Arith). A Dn direct or a memory dest.</summary>
+    private void EmitM68kAluQuickEa(EmitContext ctx, ushort pc, ushort operword, int size, M68kAluFam fam)
+    {
+        ILGenerator il = ctx.Il;
+        int imm3 = (operword >> 9) & 7; if (imm3 == 0) imm3 = 8;
+        int srcMode = (operword >> 3) & 7, srcReg = operword & 7;
+        int extIndex = 0;
+
+        if (srcMode == 1)
+        {
+            // An dest: whole-An full-32 op, NO CCR.  An = An <op> imm3 (full 32, size index 2).
+            EmitLoadAreg(ctx, srcReg);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            il.Emit(OpCodes.Ldc_I4, imm3);
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, 2);   // full-32 op
+            EmitStoreAreg(ctx, srcReg);
+            return;
+        }
+
+        // b = imm3 (constant)
+        il.Emit(OpCodes.Ldc_I4, imm3);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+
+        if (srcMode == 0)
+        {
+            EmitLoadDataRegSized(ctx, $"D{srcReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+            il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+            il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+            EmitStoreDataRegSized(ctx, $"D{srcReg}", size);
+            EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+            return;
+        }
+
+        // memory dest: resolve ea ONCE; a = read(ea); result; write-back; CCR.
+        EmitM68kResolveEaAddr(ctx, pc, srcMode, srcReg, size, ref extIndex);
+        il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+        EmitM68kReadSized(ctx, size);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+        EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+        il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+        il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+        EmitM68kWriteSizedRmw(ctx, size);
+        EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+    }
+
+    /// <summary>M6 PR-5: the AddrEa form (ADDA/SUBA/CMPA). An dest = bits 11-9. The decoder remapped the size so
+    /// the index is genuine (1=.w/2=.l). A .w source SIGN-EXTENDS to 32; the op is ALWAYS full-32 (AddrAlu,
+    /// M68000Cpu.Alu.cs:349-361). ADDA/SUBA write An, NO CCR; CMPA sets a full-32 Cmp CCR and writes nothing.</summary>
+    private void EmitM68kAluAddrEa(EmitContext ctx, ushort pc, ushort operword, int size, M68kAluFam fam)
+    {
+        ILGenerator il = ctx.Il;
+        int anReg = (operword >> 9) & 7, srcMode = (operword >> 3) & 7, srcReg = operword & 7;
+        bool isWord = size == 1;
+        int extIndex = 0;
+
+        // b = source EA (read at the genuine size); .w sign-extends to 32.
+        EmitM68kEaRead(ctx, pc, srcMode, srcReg, size, ref extIndex);
+        if (isWord) { il.Emit(OpCodes.Conv_I2); il.Emit(OpCodes.Conv_I4); }   // .w -> 32 (sign-extend)
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+        // a = An (whole 32)
+        EmitLoadAreg(ctx, anReg);
+        il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+        // result = a op b (full-32, size index 2)
+        EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, 2);
+        il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+        if (fam.WritesResult)
+        {
+            il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+            EmitStoreAreg(ctx, anReg);
+        }
+        // CMPA sets a full-32 Cmp CCR (size index 2); ADDA/SUBA set None.
+        EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, 2);
+    }
+
+    /// <summary>M6 PR-5: the XAlu form (ADDX/SUBX — the X-INPUT family). Read the LIVE X into M68kXInLocal at the
+    /// TOP (mirroring the interpreter's read-at-top, M68000Cpu.Alu.cs:484). bit 3 (operword &amp; 0x0008): 0 =
+    /// Dx op Dy -&gt; Dy (register); 1 = -(Ax) op -(Ay) -&gt; (Ay) (memory predecrement). yReg = (ow&gt;&gt;9)&amp;7
+    /// (dest/A = Dy/Ay), xReg = ow&amp;7 (source/B = Dx/Ax). MEMORY form predecrements SOURCE Ax FIRST then dest Ay
+    /// (M68000Cpu.Alu.cs:500-503). aluFn honors the live X; CCR = ArithX (sticky Z, live xIn).</summary>
+    private void EmitM68kAluX(EmitContext ctx, ushort pc, ushort operword, int size, M68kAluFam fam)
+    {
+        ILGenerator il = ctx.Il;
+        int yReg = (operword >> 9) & 7;   // Dy / Ay  (dest, operand A)
+        int xReg = operword & 7;          // Dx / Ax  (source, operand B)
+        bool mem = (operword & 0x0008) != 0;
+
+        // Read the live X into M68kXInLocal at the TOP (the interpreter reads xIn before the op; the op never
+        // touches SR, so this equals the pre-op X — held in a local and passed to the CCR helper).
+        EmitM68kLiveX(ctx);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Stloc, ctx.M68kXInLocal);
+
+        if (!mem)
+        {
+            // Dx op Dy -> Dy. a = Dy(sized), b = Dx(sized).
+            EmitLoadDataRegSized(ctx, $"D{yReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            EmitLoadDataRegSized(ctx, $"D{xReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+            EmitM68kAluXResult(ctx, fam, size);   // result = a op b (+/- live X), masked -> M68kResultLocal
+            // write Dy (partial)
+            il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+            EmitStoreDataRegSized(ctx, $"D{yReg}", size);
+        }
+        else
+        {
+            // -(Ax) op -(Ay) -> (Ay). Predecrement SOURCE Ax FIRST (b = read(-(Ax))), then dest Ay (a = read(-(Ay))).
+            // mode-4 predecrement = An -= mag; mag honors the A7 word-align (M68kMag).
+            EmitAdvanceAreg(ctx, xReg, -M68kMag(xReg, 4, size));
+            EmitLoadAreg(ctx, xReg);
+            EmitM68kReadSized(ctx, size);
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);       // b = read(-(Ax))
+            EmitAdvanceAreg(ctx, yReg, -M68kMag(yReg, 4, size));
+            EmitLoadAreg(ctx, yReg);
+            il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);   // dest address = the predecremented Ay (survives the read)
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            EmitM68kReadSized(ctx, size);
+            il.Emit(OpCodes.Conv_U4);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);       // a = read(-(Ay))
+            EmitM68kAluXResult(ctx, fam, size);           // result -> M68kResultLocal
+            // write-back to the SAME dest address (RMW; .l low-word-first)
+            il.Emit(OpCodes.Ldloc, ctx.M68kAddr2Local);
+            il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+            EmitM68kWriteSizedRmw(ctx, size);
+        }
+        // CCR = ArithX (sticky Z, live xIn) — pass the X local read at the top.
+        EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+    }
+
+    /// <summary>M6 PR-5: result = aluFn(a, b, LIVE-X) masked, for ADDX/SUBX. AddX = a + b + X; SubX = a - b - X
+    /// (M68000Cpu.Alu.cs:37-38). a in M68kALocal, b in M68kBLocal, X in M68kXInLocal. Leaves the result in
+    /// M68kResultLocal.</summary>
+    private void EmitM68kAluXResult(EmitContext ctx, M68kAluFam fam, int size)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.M68kALocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kBLocal);
+        if (fam.Fn == M68kAluFn.Add)
+        {
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldloc, ctx.M68kXInLocal);
+            il.Emit(OpCodes.Add);                         // a + b + X
+        }
+        else
+        {
+            il.Emit(OpCodes.Sub);
+            il.Emit(OpCodes.Ldloc, ctx.M68kXInLocal);
+            il.Emit(OpCodes.Sub);                         // a - b - X
+        }
+        uint mask = size == 0 ? 0xFFu : size == 1 ? 0xFFFFu : 0xFFFFFFFFu;
+        if (size != 2) { il.Emit(OpCodes.Ldc_I4, unchecked((int)mask)); il.Emit(OpCodes.And); }
+        il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+    }
+
+    /// <summary>M6 PR-5: resolve a 68000 EA to its memory ADDRESS (no read), leaving the address in M68kAddr2Local
+    /// (the survivor local — distinct from AddrLocal which the bus helpers clobber). Mirrors the address-computing
+    /// slice of EmitM68kEaWrite (modes 2-6 + mode 7 reg 0/1), so the ALU RMW forms resolve the dest address ONCE
+    /// and read-then-write the SAME address ((An)+/-(An) advances An exactly once — the address-once discipline).
+    /// Threads extIndex so the EA's ext words follow any leading imm words. Dn/An direct (modes 0/1) are NOT
+    /// address EAs and are handled inline by the calling arms; this is the memory-EA resolver only.</summary>
+    private void EmitM68kResolveEaAddr(EmitContext ctx, ushort pc, int eaMode, int eaReg, int size, ref int extIndex)
+    {
+        ILGenerator il = ctx.Il;
+        switch (eaMode)
+        {
+            case 2:   // (An)
+                EmitLoadAreg(ctx, eaReg);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 3:   // (An)+ : ea = An; An += mag
+                EmitLoadAreg(ctx, eaReg);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                EmitAdvanceAreg(ctx, eaReg, +M68kMag(eaReg, eaMode, size));
+                return;
+            case 4:   // -(An) : An -= mag FIRST, then ea = An
+                EmitAdvanceAreg(ctx, eaReg, -M68kMag(eaReg, eaMode, size));
+                EmitLoadAreg(ctx, eaReg);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 5:   // d16(An)
+                EmitLoadAreg(ctx, eaReg);
+                EmitAddDisp16(ctx, pc, ref extIndex);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 6:   // d8(An,Xn)
+                EmitM68kBriefIndex(ctx, pc, eaReg, isPc: false, ref extIndex);
+                il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                return;
+            case 7:
+                switch (eaReg)
+                {
+                    case 0:   // abs.w
+                        EmitAbsW(ctx, pc, ref extIndex);
+                        il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                        return;
+                    case 1:   // abs.l
+                        EmitAbsL(ctx, pc, ref extIndex);
+                        il.Emit(OpCodes.Stloc, ctx.M68kAddr2Local);
+                        return;
+                }
+                break;
+        }
+        throw new EmulationException($"EmitM68kResolveEaAddr: unhandled / non-memory EA mode {eaMode}/{eaReg}");
+    }
+
+    /// <summary>M6 PR-5: write the sized operand (on the stack BELOW the address) to a resolved dest address. Stack:
+    /// ..., address(uint), value(uint) -> .... Like EmitM68kWriteSized but the .l case uses the low-word-first RMW
+    /// store (EmitStoreLongRmw) — the 68000 read-modify-write write-back order. The address is the SAME resolved
+    /// dest the read used (held by the caller in M68kAddr2Local and pushed before the value).</summary>
+    private void EmitM68kWriteSizedRmw(EmitContext ctx, int size)
+    {
+        switch (size)
+        {
+            case 0:
+                // .b — EmitStoreByte stack contract is (address, value as int); Conv_U1.
+                ctx.Il.Emit(OpCodes.Conv_U1);
+                EmitStoreByte(ctx);
+                break;
+            case 1:
+                EmitStoreWord(ctx);     // (address, value) — big-endian Write16
+                break;
+            default:
+                EmitStoreLongRmw(ctx);  // (address, value) — LOW WORD FIRST (RMW order)
+                break;
+        }
+    }
 }
