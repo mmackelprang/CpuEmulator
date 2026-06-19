@@ -223,6 +223,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         return 0;
     }
 
+    /// <summary>M6 PR-2b: is this an EMITTED Z80 PREFIXED row (a 2-byte opcode key: prefix + opcode)? The
+    /// ONLY emitted prefixed family in PR-2b is the ED ADC/SBC HL,rr lane (op-kind EdAdcSbc16); keying on the
+    /// emitted kind is exact and self-documenting (OpcodeDescriptor carries no KeyShape). EmitInstruction uses
+    /// this to charge the 2nd opcode-fetch cycle, advance PC past the 2nd key byte, and bump R twice (the
+    /// interpreter's Step charges/bumps once per opcode byte). Every other emitted row is base-plane (1 byte).</summary>
+    private static bool IsZ80PrefixedEmittedRow(OpcodeDescriptor d) =>
+        !d.NeedsFallback && d.Ops.Length > 0 && d.Ops[0].Kind == "EdAdcSbc16";
+
     /// <summary>Decode from pc until an EndsBlock opcode or the block-length cap, running the
     /// generated decode walk (Ground truth B) — NOT a static descriptor Length field. The walk
     /// reads opcode/operand bytes through a BusFetchStream (a debugger-view decode; never executes,
@@ -342,13 +350,25 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // charges follow, in order, after this.
         EmitChargeOneCycle(ctx);   // opcode-fetch cycle (was: trailing in each arm — moved up for GT-F(a))
         EmitIncrementPC(ctx, 1);
+        // M6 PR-2b: a PREFIXED emitted row (the ED ADC/SBC HL,rr lane — the only emitted prefixed family)
+        // fetches a SECOND opcode byte (the 0xED prefix + the 0x4A.. opcode), so it charges a second fetch
+        // cycle, advances PC past the second key byte, AND bumps R a second time (the interpreter's Step
+        // charges/bumps once per opcode byte). keyBytes = 2 for an emitted PrefixedOpcode row, 1 otherwise.
+        // PR-1: base-plane single-byte fetch (keyBytes == 1); PR-2b: prefixed rows pass the prefix-byte count.
+        // The base-plane path (every PR-1/PR-2 row) keeps keyBytes == 1, so it stays byte-identical to before.
+        int keyBytes = IsZ80PrefixedEmittedRow(d) ? 2 : 1;
+        if (keyBytes == 2)
+        {
+            EmitChargeOneCycle(ctx);   // the second (prefix) fetch cycle
+            EmitIncrementPC(ctx, 1);   // consume the second key byte
+        }
         // M6 PR-1: the Z80 memory-refresh (R) bump. The interpreter's Step calls OnInstructionFetched
         // once per M1 opcode fetch, which bumps R; an EMITTED Z80 instruction never runs Step, so the
-        // emit path must replicate the bump itself (a fallback op keeps its own Step bump). Every emitted
-        // Z80 row in PR-1 is a base-plane single-opcode-byte LD (keyBytes == 1), so the bump is applied
-        // once; PR-2+ that emit prefixed rows pass the prefix-byte count.
+        // emit path must replicate the bump itself (a fallback op keeps its own Step bump). keyBytes is the
+        // opcode-byte count (1 base-plane, 2 for the PR-2b ED prefix+opcode); EmitZ80RefreshR's
+        // (R + keyBytes) & 0x7F single bump is identical to the interpreter's per-byte +1 bumps (mod 128).
         if (TargetIsZ80)
-            EmitZ80RefreshR(ctx, 1);
+            EmitZ80RefreshR(ctx, keyBytes);
         // Reset the SMC "wrote page" marker before any instruction that might write RAM, so the
         // intra-block guard only trips on this instruction's own writable-RAM store.
         // M6 PR-1: the Z80 LD store-to-memory forms LD (HL),n (StoreImm8) and LD (nn),HL (Store16) ride
