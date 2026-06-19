@@ -398,6 +398,112 @@ public class Z80JitGenericityTests
         Assert.Equal(2, Mos6502Cpu.DescriptorFor(0xA9).BaseCycles); // LDA #imm — shared template, untouched
     }
 
+    /// <summary>M6 PR-3: the FallbackEmitCount flips for the branch/call/stack families. Block-CONTINUING
+    /// PUSH/POP (Push16/Pop16) emit inline like the ALU rows, so a one-op block terminated by the still-fallback
+    /// HALT yields exactly 1 fallback (the HALT). Block-ENDING flow ops (JP/JR/CALL/RET/DJNZ/RST + their cc
+    /// forms) ARE the block terminator — the whole single-instruction block emits, so FallbackEmitCount is 0.
+    /// This proves the "FallbackEmitCount drops by exactly the emitted opcodes" gate AND the gate/arm lockstep
+    /// (each form must have a real EmitZ80Stack/EmitZ80Flow branch, or the arm's default throws and Compile
+    /// fails). The JP/CALL static targets (0x0200) are valid addresses the discovery walk reads at compile time
+    /// via _bus.Read8 for the chain edge.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0xC5, 0x76 }, 1)]              // PUSH BC + HALT → 1 (the HALT)
+    [InlineData(new byte[] { 0xC1, 0x76 }, 1)]              // POP BC + HALT → 1
+    [InlineData(new byte[] { 0xF5, 0x76 }, 1)]              // PUSH AF + HALT → 1
+    [InlineData(new byte[] { 0xC3, 0x00, 0x02 }, 0)]        // JP 0x0200 — block-ending, 0 fallbacks
+    [InlineData(new byte[] { 0x18, 0xFE }, 0)]              // JR -2 — block-ending
+    [InlineData(new byte[] { 0xCD, 0x00, 0x02 }, 0)]        // CALL 0x0200
+    [InlineData(new byte[] { 0xC9 }, 0)]                    // RET
+    [InlineData(new byte[] { 0xC2, 0x00, 0x02 }, 0)]        // JP NZ,0x0200
+    [InlineData(new byte[] { 0x20, 0x05 }, 0)]              // JR NZ,+5
+    [InlineData(new byte[] { 0x10, 0x05 }, 0)]              // DJNZ +5
+    [InlineData(new byte[] { 0xC4, 0x00, 0x02 }, 0)]        // CALL NZ,0x0200
+    [InlineData(new byte[] { 0xC0 }, 0)]                    // RET NZ
+    [InlineData(new byte[] { 0xC7 }, 0)]                    // RST 0
+    public void Z80_PR3_block_fallback_count(byte[] program, int expected)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var bus = NewRamBus();
+        for (int i = 0; i < program.Length; i++) bus.Write8((ushort)(0x0100 + i), program[i]);
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        compiler.Compile(0x0100);
+        Assert.Equal(expected, compiler.FallbackEmitCount);
+    }
+
+    /// <summary>M6 PR-3: a block-ending flow op terminates the discovered run immediately — the discovered run
+    /// length is 1 (the flow op IS the block terminator; Discover stops AFTER it). Proves the self-terminating
+    /// block-ending arm + the EndsBlock=true derivation on the emitted flow rows.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0xC3, 0x00, 0x02 })]          // JP 0x0200
+    [InlineData(new byte[] { 0x18, 0xFE })]                // JR -2
+    [InlineData(new byte[] { 0xCD, 0x00, 0x02 })]          // CALL 0x0200
+    [InlineData(new byte[] { 0xC9 })]                      // RET
+    [InlineData(new byte[] { 0xC2, 0x00, 0x02 })]          // JP NZ,0x0200
+    [InlineData(new byte[] { 0x10, 0x05 })]                // DJNZ +5
+    [InlineData(new byte[] { 0xC7 })]                      // RST 0
+    public void Z80_PR3_flow_op_ends_the_block_immediately(byte[] program)
+    {
+        var bus = NewRamBus();
+        for (int i = 0; i < program.Length; i++) bus.Write8((ushort)(0x0100 + i), program[i]);
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        var run = compiler.Discover(0x0100);
+        Assert.Single(run);                                // the flow op ends the block immediately
+        Assert.Equal(0x0100, run[0].Pc);
+        Assert.True(run[0].D.EndsBlock);
+    }
+
+    /// <summary>M6 PR-3 (the descriptor-state gate): the whitelisted flow rows flip to NeedsFallback=false but
+    /// KEEP EndsBlock=true (they still end the straight-line run) with BaseCycles UNCHANGED (the not-taken base
+    /// for the conditional forms); the stack rows flip to NeedsFallback=false with EndsBlock=false (they
+    /// continue the block) and BaseCycles unchanged. The untouched controls (JP (HL) 0xE9 / LD SP,HL 0xF9 still
+    /// fallback; the PR-1/PR-2 rows) are byte-identical — proving the change is flow+stack scoped and no
+    /// committed cycle number moved (no JitBaseCycles/Z80Cycles edit).</summary>
+    [Fact]
+    public void Z80_PR3_descriptors_flip_to_emitted_with_unchanged_cycles()
+    {
+        // ── Flow rows: NeedsFallback=false, EndsBlock=true, BaseCycles unchanged (the not-taken base). ──
+        var jp = Z80Cpu.DescriptorFor(0xC3);
+        Assert.False(jp.NeedsFallback); Assert.True(jp.EndsBlock); Assert.Equal(10, jp.BaseCycles);   // JP nn
+        Assert.Equal(JitOpClass.Z80Flow, jp.Class);
+        Assert.False(Z80Cpu.DescriptorFor(0x18).NeedsFallback);   // JR d
+        Assert.Equal(12, Z80Cpu.DescriptorFor(0x18).BaseCycles);
+        Assert.False(Z80Cpu.DescriptorFor(0x20).NeedsFallback);   // JR NZ,d
+        Assert.Equal(7, Z80Cpu.DescriptorFor(0x20).BaseCycles);   // not-taken base
+        Assert.False(Z80Cpu.DescriptorFor(0x10).NeedsFallback);   // DJNZ d
+        Assert.Equal(8, Z80Cpu.DescriptorFor(0x10).BaseCycles);   // not-taken base
+        Assert.False(Z80Cpu.DescriptorFor(0xCD).NeedsFallback);   // CALL nn
+        Assert.Equal(17, Z80Cpu.DescriptorFor(0xCD).BaseCycles);
+        Assert.False(Z80Cpu.DescriptorFor(0xC4).NeedsFallback);   // CALL NZ,nn
+        Assert.Equal(10, Z80Cpu.DescriptorFor(0xC4).BaseCycles);  // not-taken base
+        Assert.False(Z80Cpu.DescriptorFor(0xC9).NeedsFallback);   // RET
+        Assert.Equal(10, Z80Cpu.DescriptorFor(0xC9).BaseCycles);
+        Assert.False(Z80Cpu.DescriptorFor(0xC0).NeedsFallback);   // RET NZ
+        Assert.Equal(5, Z80Cpu.DescriptorFor(0xC0).BaseCycles);   // not-taken base
+        Assert.False(Z80Cpu.DescriptorFor(0xC7).NeedsFallback);   // RST 0
+        Assert.Equal(11, Z80Cpu.DescriptorFor(0xC7).BaseCycles);
+        Assert.True(Z80Cpu.DescriptorFor(0xC7).EndsBlock);        // RST still ends the block
+        Assert.True(Z80Cpu.DescriptorFor(0xC9).EndsBlock);        // RET still ends the block
+
+        // ── Stack rows: NeedsFallback=false, EndsBlock=FALSE (block-continuing), BaseCycles unchanged. ──
+        var push = Z80Cpu.DescriptorFor(0xC5);
+        Assert.False(push.NeedsFallback); Assert.False(push.EndsBlock); Assert.Equal(11, push.BaseCycles);  // PUSH BC
+        Assert.Equal(JitOpClass.Register, push.Class);
+        var pop = Z80Cpu.DescriptorFor(0xC1);
+        Assert.False(pop.NeedsFallback); Assert.False(pop.EndsBlock); Assert.Equal(10, pop.BaseCycles);     // POP BC
+
+        // ── Untouched controls: JP (HL) / LD SP,HL still fallback; PR-1/PR-2 rows byte-identical. ──
+        Assert.True(Z80Cpu.DescriptorFor(0xE9).NeedsFallback);    // JP (HL) (JumpIndirect) — still fallback
+        Assert.True(Z80Cpu.DescriptorFor(0xF9).NeedsFallback);    // LD SP,HL — still fallback
+        Assert.Equal(7, Z80Cpu.DescriptorFor(0x06).BaseCycles);   // LD B,n — PR-1 value, unchanged
+        Assert.Equal(4, Z80Cpu.DescriptorFor(0x80).BaseCycles);   // ADD A,B — PR-2 value, unchanged
+        Assert.Equal(2, Mos6502Cpu.DescriptorFor(0xA9).BaseCycles); // LDA #imm — shared template, untouched
+    }
+
     [Fact]
     public void JittedCpu_of_Z80_runs_a_NOP_via_fallback()
     {
