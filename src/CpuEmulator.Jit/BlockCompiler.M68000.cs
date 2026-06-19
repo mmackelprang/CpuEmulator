@@ -671,7 +671,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 // garbage the EA resolver cannot address). CMP (writesResult=false) has NO toEa form at all.
                 if (!toEa) return IsM68kSrcEaHandled(srcMode, srcReg);
                 if (!fam.WritesResult) return false;       // CMP toEa: not a real form
-                return IsM68kMemDestHandled(srcMode, srcReg);
+                // toEa dest: a Dn DIRECT (mode 0 — the EOR Dn,Dn form, written to the register inline) OR a MEMORY-
+                // alterable EA (modes 2-6 + 7/0/1 — the resolver-addressable RMW set). An direct (mode 1) and the
+                // PC-relative/#imm modes (7/2/3/4) are NOT alterable dests -> fall back.
+                return srcMode == 0 || IsM68kMemDestHandled(srcMode, srcReg);
             }
             case M68kAluShape.ImmEa:
             case M68kAluShape.QuickEa:
@@ -977,11 +980,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 
     /// <summary>M6 PR-5: the RegEa form (ADD/SUB/AND/OR/EOR/CMP). Direction bit (operword &amp; 0x100):
     ///   toEa=false: dest=Dn; a=Dn, b=read(ea); result=a op b; write Dn (size-aware); CCR(a,b,result).
-    ///   toEa=true:  dest=ea(memory); resolve ea ONCE (address held in M68kAddr2Local), a=read(ea), b=Dn;
-    ///               result=a op b; write-back to the SAME ea (RMW); CCR(a,b,result).
-    /// CMP (writesResult=false) computes a-b for the CCR but writes nothing (and only the toEa=false direction is
-    /// a real CMP form — CanEmitM68kAlu fell back a toEa CMP). a/b/result live in the dedicated M68kA/B/Result
-    /// locals so the bus read/write never clobbers them.</summary>
+    ///   toEa=true:  dest=ea (the EA is operand A AND the dest); a=read(ea), b=Dn; result=a op b; write-back to the
+    ///               SAME ea; CCR(a,b,result). For a Dn-DIRECT ea (mode 0) the dest is a data register (the EOR
+    ///               Dn,Dn form — EOR is always toEa direction); for memory the ea is resolved ONCE (RMW).
+    /// CMP (writesResult=false) computes a-b for the CCR but writes nothing (and only the toEa=false direction is a
+    /// real CMP form — CanEmitM68kAlu fell back a toEa CMP). a/b/result live in the dedicated M68kA/B/Result locals
+    /// so the bus read/write never clobbers them.</summary>
     private void EmitM68kAluRegEa(EmitContext ctx, ushort pc, ushort operword, int size, M68kAluFam fam)
     {
         ILGenerator il = ctx.Il;
@@ -1004,6 +1008,24 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             {
                 il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
                 EmitStoreDataRegSized(ctx, $"D{dnReg}", size);
+            }
+            EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
+        }
+        else if (srcMode == 0)
+        {
+            // Dn-DIRECT dest (the EOR Dn,Dn form — EOR is always toEa direction; ADD/SUB/AND/OR with a Dn dest use
+            // toEa=false instead, but a Dn-direct toEa is a legal EOR encoding and must emit, not fall back). The EA
+            // (srcReg's Dn) is operand A AND the dest; b = the dnReg operand; result -> write Dn(srcReg).
+            EmitLoadDataRegSized(ctx, $"D{srcReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kALocal);
+            EmitLoadDataRegSized(ctx, $"D{dnReg}", size);
+            il.Emit(OpCodes.Stloc, ctx.M68kBLocal);
+            EmitM68kAluOp(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, size);
+            il.Emit(OpCodes.Stloc, ctx.M68kResultLocal);
+            if (fam.WritesResult)
+            {
+                il.Emit(OpCodes.Ldloc, ctx.M68kResultLocal);
+                EmitStoreDataRegSized(ctx, $"D{srcReg}", size);
             }
             EmitM68kFamilyCcr(ctx, fam, ctx.M68kALocal, ctx.M68kBLocal, ctx.M68kResultLocal, ctx.M68kXInLocal, size);
         }
