@@ -1,16 +1,26 @@
 using CpuEmulator.Core;
-using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Host;
-using CpuEmulator.Monitor;
+using CpuEmulator.Machines;
 
 namespace CpuEmulator.Tests.Host;
 
+/// <summary>The breadboard6502 memory-map facts, now proven through the host's registry boot
+/// path (BoardRegistry.TryBoot("6502", ...)) rather than the retired hand-wired Breadboard6502
+/// class. Same board-spec (Breadboard6502Board.Spec + DemoRom), same assertions: RAM r/w, the
+/// UART STATUS/DATA mirrors, the open-bus hole, the timer page + mirrors, and ROM write-protect.</summary>
 public class Breadboard6502Tests
 {
+    private static BootedBoard Boot()
+    {
+        Assert.True(BoardRegistry.TryBoot("6502", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+        return board!;
+    }
+
     [Fact]
     public void Ram_read_write_at_zero_page()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         space.Write8(0x0000, 0xAB);
@@ -21,7 +31,7 @@ public class Breadboard6502Tests
     [Fact]
     public void Ram_read_write_at_cfff()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         space.Write8(0xCFFF, 0xCD);
@@ -32,7 +42,7 @@ public class Breadboard6502Tests
     [Fact]
     public void Uart_status_at_D001_reads_0x02_when_empty()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         uint status = space.Read8(0xD001);
@@ -43,7 +53,7 @@ public class Breadboard6502Tests
     [Fact]
     public void Mirror_feed_input_readable_at_D004()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         board.Uart.FeedInput(0x42);
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
@@ -56,7 +66,7 @@ public class Breadboard6502Tests
     [Fact]
     public void Rom_at_E000_ignores_writes()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         byte originalByte = space.Read8(0xE000); // LDX opcode = 0xA2
@@ -71,7 +81,7 @@ public class Breadboard6502Tests
     {
         // Relocated from $D100 (authorized change #6): the timer now owns $D100;
         // the first open-bus page is $D200.
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         uint value = space.Read8(0xD200);
@@ -88,7 +98,7 @@ public class Breadboard6502Tests
         // (PR #11), so verify-after-write is feasible — recorded monitor-v3 backlog
         // (bypassing ROM write-protect from the monitor is a feature decision, not a
         // transparency fix). See README known behaviors.
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var engine = board.NewMonitor();
 
         Assert.True(engine.TryAssembleAt(0xE000, "NOP", out _, out _));
@@ -99,7 +109,7 @@ public class Breadboard6502Tests
     [Fact]
     public void Timer_ctrl_at_D100_reads_zero_at_boot()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         Assert.Equal(0x00u, space.Read8(0xD100)); // CTRL: all bits clear at boot
@@ -108,7 +118,7 @@ public class Breadboard6502Tests
     [Fact]
     public void Timer_mirrors_at_D104()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var space = board.Machine.Space(AddressSpaceKind.Program);
 
         space.Write8(0xD101, 0x42); // PERIODL via the canonical address

@@ -1,20 +1,14 @@
+using CpuEmulator.Machines;
 using CpuEmulator.Monitor;
 
 namespace CpuEmulator.Host;
 
-/// <summary>Console host: boots a Breadboard6502, wires the UART to the console, and
-/// either runs the demo ROM on a bounded budget (--demo), or drops into the monitor
-/// REPL on stdio (default; --load preloads a binary first).</summary>
+/// <summary>Console host: boots ANY registered board (default 6502) from a BoardSpec via
+/// BoardMachineFactory, wires the board's UART to the console, and either runs the boot
+/// program on a bounded budget (--demo), or drops into the CPU-agnostic monitor REPL on
+/// stdio (default; --load preloads a binary first). '--board list' prints the catalog.</summary>
 internal static class Program
 {
-    /// <summary>The banner for REPL mode. The README transcript and the manual smoke quote it.</summary>
-    private const string Banner =
-        """
-        CpuEmulator — Breadboard6502
-        6502 · RAM $0000-$CFFF · UART $D000 (DATA/STATUS/CTRL) · timer $D100 · ROM $E000-$FFFF (demo)
-        UART output prints inline; 'i TEXT' feeds UART input; 'g' runs (reset entry $E000); '?' help; 'q' quit.
-        """;
-
     public static int Main(string[] args)
     {
         if (!HostOptions.TryParse(args, out HostOptions options, out string? error))
@@ -23,16 +17,35 @@ internal static class Program
             Console.Error.WriteLine(HostOptions.Usage);
             return 2;
         }
-        var board = new Breadboard6502();
-        board.Uart.OnTransmit = b => Console.Write((char)b); // raw passthrough
-        board.Machine.Reset();                               // PC = $E000 via the ROM vector
-        if (options.Demo)
+
+        if (options.ListBoards)
         {
-            board.Machine.Run(10_000); // hello completes at cycle 436; bounded, then exit
+            Console.WriteLine("available boards:");
+            foreach (string name in BoardRegistry.AvailableBoards)
+                Console.WriteLine($"  {name}");
             return 0;
         }
+
+        if (!BoardRegistry.TryBoot(options.Board, ExecutionTier.Interpreter,
+                                   out BootedBoard? booted, out string? bootError))
+        {
+            Console.Error.WriteLine($"? {bootError}");
+            Console.Error.WriteLine(HostOptions.Usage);
+            return 2;
+        }
+        BootedBoard board = booted!;
+
+        board.Uart.OnTransmit = b => Console.Write((char)b); // raw passthrough
+        board.Machine.Reset();                               // CPU lands at its reset entry
+
+        if (options.Demo)
+        {
+            board.Machine.Run(10_000); // bounded; the boot program completes, then exit
+            return 0;
+        }
+
         MonitorEngine engine = board.NewMonitor();
-        Console.WriteLine(Banner);
+        Console.WriteLine(board.Banner);
         if (options.LoadPath is not null)
         {
             int count;
@@ -45,17 +58,14 @@ internal static class Program
                 Console.Error.WriteLine($"? {ex.Message}");
                 return 2;
             }
-            Console.WriteLine($"loaded ${count:X} bytes at ${options.LoadAt:X4}");
+            Console.WriteLine(
+                $"loaded ${count:X} bytes at ${options.LoadAt.ToString("X" + engine.AddressDigits)}");
             if (options.Pc is uint pc)
                 engine.ProgramCounter = pc;
         }
+
         if (options.Terminal)
         {
-            // Raw-mode terminal: per-keystroke loop into the UART; Ctrl-] falls through
-            // to the monitor prompt below. TreatControlCAsInput makes Ctrl+C a guest
-            // byte (0x03) for the session; the prior value is restored in finally.
-            // Under redirected stdin the console raw facilities throw IOException —
-            // terminal mode is interactive-only by nature: clear error, exit 2.
             Console.WriteLine("(terminal — Ctrl-] exits to the monitor)");
             try
             {
@@ -82,10 +92,7 @@ internal static class Program
                 return 2;
             }
         }
-        // Ctrl/EOF posture (REPL mode, deliberately not engineered): Ctrl+C terminates
-        // the process — no CancelKeyPress handler; runaway-guest protection is the
-        // bounded 'g' budget (default 1M cycles), which always returns to the prompt.
-        // EOF (Ctrl+Z+Enter / Ctrl+D) ends the REPL like 'q' via the null-ReadLine path.
+
         new MonitorRepl(engine, Console.In, Console.Out,
                         prompt: true, inject: board.Uart.FeedInput).Run();
         return 0;

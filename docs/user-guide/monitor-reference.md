@@ -2,6 +2,35 @@
 
 The machine-language monitor provides a line-oriented REPL for interacting with the emulated machine: load and save memory, inspect and set registers, disassemble, assemble, step, and run programs. The monitor engine (`CpuEmulator.Monitor`) is CPU-agnostic; the REPL command surface is the same for every CPU.
 
+## Selecting a board (`--board`)
+
+The host boots any registered board into the same CPU-agnostic monitor:
+
+```
+CpuEmulator.Host --board <name>
+```
+
+| Name | CPU | Address bus | Boot behavior |
+|---|---|---|---|
+| `6502` (default) | MOS 6502 | 16-bit | the breadboard demo (hello-print + polled echo) |
+| `z80` | Zilog Z80 | 16-bit | prints `OK\r`, then halts |
+| `68000` | Motorola 68000 | 24-bit | prints `OK\r`, then self-loops |
+| `8086` | Intel 8086 | 20-bit | prints `OK\r`, then self-loops |
+| `breadboard6502` | MOS 6502 | 16-bit | alias of `6502` |
+
+`--board list` prints the catalog. With no `--board`, the host boots `6502`. The monitor renders
+each CPU's own registers and address width automatically.
+
+**Known limitation — 68000 disassembly.** The `d` (disassemble) command renders `???` for 68000
+instructions: the 68000 uses the field-grammar decoder and has no flat per-opcode disassembly table
+yet, so the mnemonic text is unavailable. The byte dump (`m`), register rendering, and step/run
+(`s`/`g`) are all correct on the 68000 — step/run execute the real interpreter, not the disasm path.
+But the `d` walk's per-line address advance is **1 byte** per instruction on the 68000, because the
+monitor's byte-walk length lookup can't index the field-grammar descriptor table by raw opcode byte
+(that table is keyed by a compound operation key, so the lookup falls back to 1). A single-instruction
+`d <addr>` correctly shows `???`; a multi-instruction `d` mis-aligns its displayed addresses on the
+68000. (6502/Z80/8086 disassemble normally.)
+
 ## Argument conventions
 
 All addresses, counts, lengths, and byte values are **hexadecimal**, with the `$` prefix optional — except where noted:

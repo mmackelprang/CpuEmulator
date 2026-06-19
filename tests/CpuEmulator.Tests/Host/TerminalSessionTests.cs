@@ -1,5 +1,6 @@
 using System.Text;
 using CpuEmulator.Host;
+using CpuEmulator.Machines;
 
 namespace CpuEmulator.Tests.Host;
 
@@ -9,6 +10,13 @@ namespace CpuEmulator.Tests.Host;
 /// </summary>
 public class TerminalSessionTests
 {
+    private static BootedBoard BootBreadboard()
+    {
+        Assert.True(BoardRegistry.TryBoot("6502", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+        return board!;
+    }
+
     /// <summary>Scripted console: a queue of keys where null entries are one
     /// "no key available" poll each — letting a Run slice pass between keystrokes
     /// deterministically (KeyAvailable consumes the null and reports false for that
@@ -116,7 +124,7 @@ public class TerminalSessionTests
     [Fact]
     public void Session_returns_cycle_limit_when_the_seam_trips()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = BootBreadboard();
         board.Machine.Reset();
         var console = new ScriptedConsole();
         console.Pause(); // one empty poll — a Run slice executes, then the seam trips
@@ -131,7 +139,7 @@ public class TerminalSessionTests
     [Fact]
     public void Session_restores_the_previous_transmit_sink_on_exit()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = BootBreadboard();
         board.Machine.Reset();
         var prior = new StringBuilder();
         Action<byte> priorSink = b => prior.Append((char)b);
@@ -153,7 +161,7 @@ public class TerminalSessionTests
         // print its hello, type "AB" at the echo loop, leave with Ctrl-]. The injectable
         // console keeps this byte-exact (the encoding caveat never enters); the real
         // console is covered by the captured manual-smoke transcript.
-        var board = new Breadboard6502();
+        BootedBoard board = BootBreadboard();
         board.Machine.Reset();
         var console = new ScriptedConsole();
         console.Type('A');

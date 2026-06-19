@@ -7,19 +7,23 @@ using CpuEmulator.Peripherals;
 
 namespace CpuEmulator.Tests.Machines;
 
-/// <summary>The un-fakeable zero-behavior-change gate (spec section 8): the Breadboard6502-via-
-/// BoardSpec must reproduce, byte for byte and cycle for cycle, the hand-wired Breadboard6502 over
-/// the EXACT host sessions HostUatTests exercises. Both machines run the same monitor script from
-/// the same reset; the test asserts the two transmit streams and the two cycle counts are equal to
-/// EACH OTHER (not to a constant), so a behavioral drift cannot be hidden by editing an expectation.</summary>
+/// <summary>The un-fakeable zero-behavior-change gate (spec section 8): the 6502 board the host
+/// registry boots must reproduce, byte for byte and cycle for cycle, the direct BoardSpec build
+/// over the EXACT host sessions HostUatTests exercises. Both machines run the same monitor script
+/// from the same reset; the test asserts the two transmit streams and the two cycle counts are equal
+/// to EACH OTHER (not to a constant), so a behavioral drift cannot be hidden by editing an
+/// expectation. (The hand-wired Breadboard6502 host class was retired in piece #3 — the registry
+/// path replaces it, so this gate now guards the registry path against the direct factory build.)</summary>
 [Trait("Category", "UAT")]
 public class Breadboard6502GateTests
 {
     private sealed record Rig(Machine Machine, SimpleUart Uart, MonitorEngine Engine, StringBuilder Tx);
 
-    private static Rig HandWired()
+    private static Rig RegistryBooted()
     {
-        var board = new Breadboard6502();
+        Assert.True(BoardRegistry.TryBoot("6502", ExecutionTier.Interpreter,
+            out BootedBoard? booted, out string? error), error);
+        BootedBoard board = booted!;
         var tx = new StringBuilder();
         board.Uart.OnTransmit = b => tx.Append((char)b);
         board.Machine.Reset();
@@ -52,7 +56,7 @@ public class Breadboard6502GateTests
     [Fact]
     public void Hello_stream_and_cycles_match_the_hand_wired_board()
     {
-        Rig hand = HandWired();
+        Rig hand = RegistryBooted();
         Rig spec = BoardSpecRig();
 
         const string session = """
@@ -70,7 +74,7 @@ public class Breadboard6502GateTests
     [Fact]
     public void Echo_stream_and_cycles_match_the_hand_wired_board()
     {
-        Rig hand = HandWired();
+        Rig hand = RegistryBooted();
         Rig spec = BoardSpecRig();
 
         const string session = """

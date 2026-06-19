@@ -321,14 +321,18 @@ public sealed class MonitorEngine
         return true;
     }
 
-    /// <summary>Parse a '$'+4-hex-digit absolute address, returning false otherwise.</summary>
-    private static bool TryParseAbsoluteTarget(string operand, out uint target)
+    /// <summary>Parse a '$' + N-hex-digit absolute address, where N is the address space's
+    /// digit width (4 for 16-bit, 5 for 20-bit, 6 for 24-bit). Width-aware so the a-command's
+    /// branch-offset resolution works on every board, not just 16-bit ones. Returns false for
+    /// the wrong width, a non-'$' token, a non-hex body, or a value past the address mask.</summary>
+    private bool TryParseAbsoluteTarget(string operand, out uint target)
     {
         target = 0;
         string t = operand.Trim();
-        if (t.Length == 5 && t[0] == '$'
-            && ushort.TryParse(t.Substring(1), System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out ushort v))
+        if (t.Length == _addressDigits + 1 && t[0] == '$'
+            && uint.TryParse(t.Substring(1), System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out uint v)
+            && v <= _addressMask)
         {
             target = v;
             return true;

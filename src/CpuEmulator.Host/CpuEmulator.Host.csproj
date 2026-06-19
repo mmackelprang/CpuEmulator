@@ -1,30 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Not IsAotCompatible: this is an Exe (app), not a library.
-    All project references are AOT-clean (Core, Cpus.Mos6502, Peripherals, Monitor) — none pulls in
-    the Jit (Reflection.Emit) assembly, so the Host's runtime graph is NativeAOT-publishable.
-
-    PublishAot CI scoping (M2-ii Task 10, the M2-i finding): PublishAot is set HERE, on the
-    publishable Host project, rather than passed as a global `-p:PublishAot=true` on the command
-    line. A global property propagates to EVERY project in the build graph — including the
-    netstandard2.0 Roslyn analyzer CpuEmulator.Generators (referenced transitively through
-    Cpus.Mos6502 as an Analyzer with ReferenceOutputAssembly="false"). Analyzers inherently cannot
-    AOT-publish, so a global PublishAot makes `dotnet publish` fail with NETSDK1207 on Generators
-    even though the analyzer is build-time-only and NOT in the runtime graph. Scoping the property
-    to this csproj keeps it off the analyzer's build, so the publish targets only the runtime graph.
-
-    Recorded CI command (succeeds with this scoping):
-        dotnet publish src/CpuEmulator.Host -c Release -r <rid>
-    (PublishAot is read from this file; do NOT add -p:PublishAot=true on the command line — that
-    reintroduces the NETSDK1207-on-Generators failure.)
+    NOT NativeAOT-publishable (changed in "CPUs → computers" piece #3).
+    The Host now boots any board through CpuEmulator.Machines / BoardMachineFactory and
+    supports the JIT execution tier (there is a Z80-on-JIT host smoke). CpuEmulator.Machines
+    transitively references CpuEmulator.Jit, which uses System.Reflection.Emit.DynamicMethod
+    (RequiresDynamicCode) — so `dotnet publish -r <rid>` with PublishAot fails IL3050. The
+    prior AOT-publish invariant (when the Host hand-wired only the AOT-clean Mos6502 core)
+    retired with piece #3; PublishAot is intentionally NOT set here anymore. If a NativeAOT
+    Host is wanted in future it needs a slim, Jit-free board-build seam (a roadmap follow-on).
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,6 +22,7 @@
     <ProjectReference Include="..\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
     <ProjectReference Include="..\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
     <ProjectReference Include="..\CpuEmulator.Monitor\CpuEmulator.Monitor.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Machines\CpuEmulator.Machines.csproj" />
   </ItemGroup>
 
 </Project>

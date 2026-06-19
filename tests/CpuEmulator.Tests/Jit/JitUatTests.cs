@@ -27,11 +27,11 @@ namespace CpuEmulator.Tests.Jit;
 [Trait("Category", "UAT")]
 public class JitUatTests
 {
-    // ── JIT-wrapped board fixtures (mirror Breadboard6502 / IrqBoard / MonitorUatTests) ─────────
+    // ── JIT-wrapped board fixtures (mirror the breadboard6502 geometry / IrqBoard / MonitorUatTests) ─────────
 
     /// <summary>The breadboard6502 geometry (RAM $0000-$CFFF, UART $D000, Timer $D100, unmapped
-    /// $D200-$DFFF, demo ROM $E000) but JIT-wrapped. Mirrors <see cref="Breadboard6502"/>, which
-    /// lives in the AOT-clean Host assembly and therefore cannot itself reference the JIT.</summary>
+    /// $D200-$DFFF, demo ROM $E000) but JIT-wrapped. Mirrors the host's <c>Breadboard6502Board.Spec</c>
+    /// geometry, JIT-wrapped here because the AOT-clean Host assembly cannot reference the JIT.</summary>
     private static (Machine Machine, SimpleUart Uart, IntervalTimer Timer) NewJitBreadboard()
     {
         var uart = new SimpleUart();
@@ -39,8 +39,8 @@ public class JitUatTests
         var machine = Machine.Create("jit-breadboard6502")
             .WithAddressSpace(AddressSpaceKind.Program, addressBits: 16)
             .WithRam(AddressSpaceKind.Program, 0x0000, 0xD000)
-            .WithPeripheral(AddressSpaceKind.Program, Breadboard6502.UartBase, 0x0100, uart)
-            .WithPeripheral(AddressSpaceKind.Program, Breadboard6502.TimerBase, 0x0100, timer)
+            .WithPeripheral(AddressSpaceKind.Program, 0xD000, 0x0100, uart)
+            .WithPeripheral(AddressSpaceKind.Program, 0xD100, 0x0100, timer)
             .WithRom(AddressSpaceKind.Program, 0xE000, DemoRom.Build())
             .WithCpu(ctx =>
             {
