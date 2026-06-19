@@ -119,6 +119,8 @@ public class M68000JitGenericityTests
     [InlineData(0x2248)]   // MOVEA.l A0,A1
     [InlineData(0x7001)]   // MOVEQ #1,D0
     [InlineData(0x7E80)]   // MOVEQ #-128,D7
+    [InlineData(0x32C0)]   // PROBE: MOVE.w D0,(A1)+  (memory dest, no ext words)
+    [InlineData(0x3300)]   // PROBE: MOVE.w D0,-(A1)
     public void M68000_MOVE_block_emits_no_fallback_after_PR4(int operword)
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
@@ -157,13 +159,22 @@ public class M68000JitGenericityTests
         Assert.True(M68000Cpu.DescriptorFor(0x011C00u).NeedsFallback);   // NOP (opIndex 28) — still fallback
     }
 
-    /// <summary>M6 PR-4 (pre-merge review HIGH regression guard): a MOVE with an <c>(An)+</c> / <c>-(An)</c>
-    /// MEMORY DESTINATION must write the SOURCE operand to memory and advance An — NOT write the
-    /// post-incremented/pre-decremented An value (the bug where the dest write-back's register-store staging
-    /// clobbered the live MOVE operand local). This is a DETERMINISTIC unit gate (not corpus-sampled), so it
-    /// catches the clobber regardless of which TomHarte vectors a CI sample happens to draw. Drives Tier-1
-    /// directly and diffs against the interpreter Step (Tier-0) on BOTH the written RAM and A1.
-    ///   0x32C0 = MOVE.w D0,(A1)+   |   0x3300 = MOVE.w D0,-(A1)   (dest mode 3/4, reg 1; src mode 0, reg 0)</summary>
+    /// <summary>M6 PR-4: a MOVE with an <c>(An)+</c> / <c>-(An)</c> MEMORY DESTINATION must write the SOURCE
+    /// operand to memory and advance An. Drives Tier-1 (JittedCpu.Run) and diffs against the interpreter Step
+    /// (Tier-0) on the written RAM + A1.
+    ///   0x32C0 = MOVE.w D0,(A1)+   |   0x3300 = MOVE.w D0,-(A1)   (dest mode 3/4, reg 1; src mode 0, reg 0)
+    ///
+    /// <para><b>BLOCKED — NOT load-bearing yet (see the "## Blocker" note in the PR / docs/BUILDER_QUEUE.md).</b>
+    /// The 68000 MOVE emit arm does NOT execute through the normal JIT dispatch path: BlockCompiler.Discover
+    /// builds a BYTE-granular BusFetchStream (UnitBytes==1), but the 68000's generated Decode() expects a
+    /// WORD-granular stream (M68000FetchStream, UnitBytes==2) and reads <c>uint operword = stream.NextUnit()</c>
+    /// (M68000Cpu.g.cs:748). Fed a byte stream, Decode reads only the operword's HIGH BYTE, mis-matches the
+    /// field-op table, and DescriptorFor returns Undefined/NeedsFallback → every 68000 block (MOVE included)
+    /// falls back to inner.Step at RUNTIME. So <c>throughJit</c> and the interpreter both run the SAME
+    /// interpreter Step here — this assertion is interpreter-vs-interpreter (trivially equal), NOT a real
+    /// emitted-IL gate. It becomes load-bearing only once Discover feeds the 68000 a word-granular fetch stream
+    /// (the blocking fix, out of PR-4 scope). Kept GREEN + annotated so the gap is visible, not silently
+    /// passing under a misleading "exercises the emit arm" claim.</para></summary>
     [Theory]
     [InlineData(0x32C0, /*postInc*/ true)]    // MOVE.w D0,(A1)+
     [InlineData(0x3300, /*postInc*/ false)]   // MOVE.w D0,-(A1)

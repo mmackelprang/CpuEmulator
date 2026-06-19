@@ -102,15 +102,20 @@ public sealed class M68000JitTom_P7(ITestOutputHelper o) : M68000JitSweepBase(o)
 { public static TheoryData<string> Files() => Partition(7, 8);
   [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
 
-/// <summary>M6 PR-4 (Task 7): the focused MOVE/MOVEA/MOVEQ EMITTED-IL data-axis parity gate. These six files
-/// (MOVE.b/.w/.l, MOVEA.w/.l, MOVE.q == MOVEQ) are the families PR-4 made EMIT real IL (they were 100% fallback
-/// before). Running them through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/> now exercises the EmitM68kMove
-/// arm — the 12-mode EA resolver, the A7 banking, the MOVE bits-11-6 swap, the MOVEA .w sign-extend, the size-aware
-/// Dn partial write, the big-endian wide bus, and the MOVEQ imm8 sign-extend — and asserts the JIT final state
-/// (D0–D7/A0–A6/USP/SSP/SR/RAM) is byte-identical to the interpreter for every non-exception case across the EA
-/// matrix the corpus exercises. (The broad data-axis sweep above ALSO covers these as part of the union corpus;
-/// this class isolates the MOVE-family emitted-IL gate so a MOVE regression is named directly, not buried in the
-/// 123-partition sweep.) NOT cycle/pc/prefetch (DECISION T2). A green run is the load-bearing PR-4 merge gate.</summary>
+/// <summary>M6 PR-4 (Task 7): the focused MOVE/MOVEA/MOVEQ data-axis parity sweep. These six files
+/// (MOVE.b/.w/.l, MOVEA.w/.l, MOVE.q == MOVEQ) are the families PR-4 generated descriptor rows + an emit arm for.
+/// Run through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/>, the JIT final state (D0–D7/A0–A6/USP/SSP/SR/RAM)
+/// is byte-identical to the interpreter for every non-exception case. NOT cycle/pc/prefetch (DECISION T2).
+///
+/// <para><b>BLOCKED — this is NOT yet an emitted-IL gate (see the "## Blocker" note in the PR /
+/// docs/BUILDER_QUEUE.md).</b> The 68000 MOVE emit arm (EmitM68kMove) does NOT execute at runtime: BlockCompiler.Discover
+/// uses a BYTE-granular BusFetchStream (UnitBytes==1), but the 68000's generated Decode() needs a WORD-granular stream
+/// (M68000FetchStream, UnitBytes==2 — it reads <c>uint operword = stream.NextUnit()</c>, M68000Cpu.g.cs:748). Fed bytes,
+/// Decode reads only the operword's high byte, mis-decodes, and DescriptorFor returns Undefined/NeedsFallback → every
+/// 68000 block falls back to inner.Step. A compile-time arm-selection counter confirmed EmitM68kMove is selected 0 times
+/// across the executed corpus. So this sweep is GREEN because it degrades to interpreter-vs-interpreter, NOT because the
+/// emit arm is proven correct against the oracle. The emit arm's IL is statically reviewed as correct, but cannot be
+/// runtime-verified until Discover feeds the 68000 a word-granular fetch stream (the blocking fix, out of PR-4 scope).</para></summary>
 public sealed class M68000JitMoveFamilyTests(ITestOutputHelper output)
 {
     public static TheoryData<string> MoveFiles()
