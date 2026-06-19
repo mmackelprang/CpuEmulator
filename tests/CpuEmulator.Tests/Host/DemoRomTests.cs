@@ -1,16 +1,21 @@
-using CpuEmulator.Core;
-using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Host;
-using CpuEmulator.Monitor;
+using CpuEmulator.Machines;
 
 namespace CpuEmulator.Tests.Host;
 
 public class DemoRomTests
 {
+    private static BootedBoard Boot()
+    {
+        Assert.True(BoardRegistry.TryBoot("6502", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+        return board!;
+    }
+
     [Fact]
     public void Listing_disassembles_back_verbatim()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var engine = board.NewMonitor();
 
         string expected = string.Join(Environment.NewLine, new[]
@@ -64,16 +69,16 @@ public class DemoRomTests
     [Fact]
     public void Reset_boots_to_the_entry()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         board.Machine.Reset();
 
-        Assert.Equal(0xE000u, (uint)board.Cpu.PC);
+        Assert.Equal(0xE000u, board.NewMonitor().ProgramCounter);
     }
 
     [Fact]
     public void Hello_arrives_on_the_uart_after_a_bounded_run()
     {
-        var board = new Breadboard6502();
+        BootedBoard board = Boot();
         var collected = new System.Text.StringBuilder();
         board.Uart.OnTransmit = b => collected.Append((char)b);
         board.Machine.Reset();

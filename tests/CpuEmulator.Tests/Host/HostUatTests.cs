@@ -1,26 +1,29 @@
 using System.Text;
 using CpuEmulator.Host;
+using CpuEmulator.Machines;
 using CpuEmulator.Monitor;
 using CpuEmulator.Tests.Klaus;
 
 namespace CpuEmulator.Tests.Host;
 
-/// <summary>End-to-end UAT over the REAL host composition (spec §8): the Breadboard6502
-/// the user boots, the REPL the user types into, the run-delegate wiring the host ships —
-/// headless, with the UART's sinks captured.</summary>
+/// <summary>End-to-end UAT over the REAL host composition (spec §8): the 6502 board
+/// the user boots through the registry, the REPL the user types into, the run-delegate
+/// wiring the host ships — headless, with the UART's sinks captured.</summary>
 [Trait("Category", "UAT")]
 public class HostUatTests
 {
-    private static (Breadboard6502 Board, MonitorEngine Engine, StringBuilder Tx) NewBoard()
+    private static (BootedBoard Board, MonitorEngine Engine, StringBuilder Tx) NewBoard()
     {
-        var board = new Breadboard6502();
+        Assert.True(BoardRegistry.TryBoot("6502", ExecutionTier.Interpreter,
+            out BootedBoard? booted, out string? error), error);
+        BootedBoard board = booted!;
         var tx = new StringBuilder();
         board.Uart.OnTransmit = b => tx.Append((char)b);
         board.Machine.Reset(); // PC = $E000 via the ROM reset vector — the host's boot path
         return (board, board.NewMonitor(), tx);
     }
 
-    private static string RunSession(Breadboard6502 board, MonitorEngine engine, string session)
+    private static string RunSession(BootedBoard board, MonitorEngine engine, string session)
     {
         var output = new StringWriter();
         new MonitorRepl(engine, new StringReader(session), output,
