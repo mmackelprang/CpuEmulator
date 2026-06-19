@@ -312,11 +312,17 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     }
 
     /// <summary>d16(An): ea = An + (int)(short)ext[0]. An is on the stack (uint); add the compile-time signed
-    /// 16-bit displacement (baked Ldc_I4). Leaves ea (uint, via the unchecked Add) on the stack.</summary>
+    /// 16-bit displacement (baked Ldc_I4). Leaves ea (uint, via the unchecked Add) on the stack.
+    /// <para>PR-4b: <paramref name="disp"/> is held as an <c>int</c> (the sign-extended short), NOT a <c>short</c>.
+    /// ILGenerator has both an <c>Emit(OpCode, short)</c> (Int16) and an <c>Emit(OpCode, int)</c> overload; passing
+    /// a <c>short</c> silently binds to the Int16 overload, which writes the <c>Ldc_I4</c> opcode (0x20, a 4-byte
+    /// inline operand) but emits only a TRUNCATED 2-byte operand — a malformed IL stream the CLR rejects at execute
+    /// with <c>InvalidProgramException</c>. Sign-extending to <c>int</c> first selects <c>Emit(OpCode, int)</c> and
+    /// emits the correct operand (this mirrors <see cref="EmitAbsW"/>, which already uses an <c>int</c>).</para></summary>
     private void EmitAddDisp16(EmitContext ctx, ushort pc, ref int extIndex)
     {
-        short disp = unchecked((short)NextExtWord(pc, ref extIndex));
-        ctx.Il.Emit(OpCodes.Ldc_I4, disp);           // sign-extended to int
+        int disp = unchecked((short)NextExtWord(pc, ref extIndex));   // sign-extend short -> int (selects Emit(OpCode,int))
+        ctx.Il.Emit(OpCodes.Ldc_I4, disp);
         ctx.Il.Emit(OpCodes.Add);
     }
 

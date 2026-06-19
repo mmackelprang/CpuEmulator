@@ -114,14 +114,17 @@ public sealed class M68000JitTom_P7(ITestOutputHelper o) : M68000JitSweepBase(o)
 /// So this sweep now diffs the emitted IL against the interpreter oracle for every executed case — load-bearing,
 /// NOT interpreter-vs-interpreter.</para>
 ///
-/// <para><b>RED — PR-4 EMIT-ARM DEFECTS surfaced by PR-4a (do NOT mark green; tracked as PR-4 follow-up).</b> Now
-/// that the arm is live this full-EA-matrix sweep FAILS: the EA mode 5 <c>d16(An)</c> path (both as a MOVE source
-/// AND destination) emits INVALID CIL (System.InvalidProgramException at execute), and the A7 <c>-(A7)</c> dest /
-/// A7 brief-index path raises System.IndexOutOfRangeException in the 32-bit register map. The simple EA forms
-/// (Dn/An direct, (An), (An)+, -(An) for A0-A6, abs.w/abs.l) are byte-identical — see the GREEN controlled
-/// M68000JitGenericityTests (M68000_MOVE_block_emits_no_fallback_after_PR4 + MOVE_to_An_postinc_predec). The bug is
-/// in PR-4's EmitM68kMove EA helpers (EmitAddDisp16 / the wide-bus path for d16(An); the A7 register resolution),
-/// NOT in PR-4a's word-granular Discover. Re-enable this as a merge gate once those EA helpers are fixed.</para></summary>
+/// <para><b>GREEN — full EA matrix, byte-identical (PR-4b).</b> Every EA mode — Dn/An direct, (An), (An)+,
+/// -(An) (A0-A6 AND A7), d16(An), d8(An,Xn), abs.w/abs.l, d16(PC)/d8(PC,Xn)/#imm sources — is byte-identical on the
+/// data axis (D0-D7/A0-A6/USP/SSP/SR/RAM). PR-4b fixed the two emit-arm defects PR-4a surfaced: (1) the EA mode 5
+/// <c>d16(An)</c> path passed its sign-extended displacement to <c>ILGenerator.Emit</c> as a <c>short</c>, which
+/// silently bound to the <c>Emit(OpCode, Int16)</c> overload and emitted a truncated <c>Ldc_I4</c> operand
+/// (InvalidProgramException at execute); it now sign-extends to <c>int</c> (EmitAddDisp16). (2) The wide-store /
+/// byte-store page derivation (<c>ea &gt;&gt; 8</c>) did not clamp the resolved EA to the bus address width, so a
+/// MOVE dest whose full-32-bit A-register-relative address carried bits above the 24-bit bus overran the
+/// fastmem/DirtyMap page arrays (IndexOutOfRangeException — mis-attributed to "A7" in the PR-4a notes; A7 banking
+/// was always correct); the page derivation now masks with <c>_bus.AddressMask</c> (EmitMaskAddrLocalToBus /
+/// EmitMaskEaLocalToBus). This sweep is a load-bearing merge gate.</para></summary>
 public sealed class M68000JitMoveFamilyTests(ITestOutputHelper output)
 {
     public static TheoryData<string> MoveFiles()
@@ -136,12 +139,11 @@ public sealed class M68000JitMoveFamilyTests(ITestOutputHelper output)
         return data;
     }
 
-    // M6 PR-4a: this REAL emitted-IL gate is SKIPPED pending a PR-4 emit-arm fix — see the class XML doc. With the
-    // arm now live (PR-4a), the full EA-matrix sweep surfaces that PR-4's EmitM68kMove EA helpers emit invalid IL
-    // for mode 5 d16(An) (InvalidProgramException) and raise IndexOutOfRange for the A7 -(A7)/index path. The simple
-    // EA forms ARE byte-identical (the GREEN controlled M68000JitGenericityTests prove dispatch + data parity); this
-    // headline full-matrix sweep re-arms as a merge gate once those EA helpers are fixed. NOT silently passing.
-    [M68000TomHarteTheory(Skip = "PR-4 emit-arm defect: MOVE EA mode 5 d16(An) emits invalid IL + A7 index OOB; re-arm after the EA-helper fix (see class doc).")]
+    // M6 PR-4b: the REAL emitted-IL gate — LIVE (was Skip'd in PR-4a pending the two EA-helper fixes; both are now
+    // fixed — see the class XML doc). The full EA-matrix sweep diffs the emitted MOVE IL against the interpreter
+    // oracle for every executed case and is byte-identical on the data axis, including the d16(An) (src+dest) and
+    // A7 edges that PR-4a surfaced as defective.
+    [M68000TomHarteTheory]
     [MemberData(nameof(MoveFiles))]
     public void Move_family_emitted_IL_is_data_axis_parity_green(string file)
     {

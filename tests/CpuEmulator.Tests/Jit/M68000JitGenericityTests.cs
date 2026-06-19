@@ -242,6 +242,54 @@ public class M68000JitGenericityTests
         Assert.Equal(ia1, ja1);                 // ... and on the post-inc/pre-dec An
     }
 
+    /// <summary>PR-4b regression: a wide MOVE whose destination sits at the very TOP of the 24-bit bus
+    /// (<c>(A1)</c> with A1 = 0x00FFFFFF) makes the .l write straddle the address-space boundary — bytes land at
+    /// 0xFFFFFF then WRAP to 0x000000.. (the bus masks each component access). The JIT derives the SMC dirty page
+    /// from <c>(addr + byteSpan - 1) &gt;&gt; 8</c>; before PR-4b that end-page term was unmasked, so the trailing
+    /// bytes produced a page index past the DirtyMap's <c>bool[PageCount]</c> (IndexOutOfRangeException). This pins
+    /// the masked-end-page fix (EmitWideEndPage): the emitted MOVE must run AND be byte-identical to the
+    /// interpreter, which wraps the write. Deterministic — does NOT depend on the random TomHarte corpus hitting
+    /// the boundary (it does not).</summary>
+    [Theory]
+    [InlineData(0x2281, 4)]   // MOVE.l D1,(A1)  — wide write at the top of the space
+    [InlineData(0x3281, 2)]   // MOVE.w D1,(A1)
+    public void Wide_MOVE_to_top_of_address_space_wraps_like_the_interpreter(int operword, int span)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof
+
+        const uint topBase = 0x00FFFFFFu;   // the highest legal 24-bit byte address — the wide write wraps past it
+        const uint srcValue = 0xDEADBEEFu;
+
+        byte[] RunOne(bool throughJit)
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+            bus.Write16(0x001000, (ushort)operword);
+            bus.Write16(0x001002, 0x4E71);             // NOP — block-ending fallback
+            var inner = new M68000Cpu(bus);
+            inner.SetRegister("PC", 0x001000);
+            inner.SetRegister("SR", 0x2700);
+            inner.SetRegister("D1", srcValue);
+            inner.SetRegister("A1", topBase);
+            if (throughJit)
+            {
+                var jit = new JittedCpu<M68000Cpu>(inner, M68000Cpu.JitTarget, bus);
+                long budget = 1;
+                jit.Run(ref budget);
+            }
+            else inner.Step();
+            // Read back every byte the wide write touched (wrapping), so the comparison covers the wrapped tail.
+            var bytes = new byte[span];
+            for (int i = 0; i < span; i++) bytes[i] = bus.Read8((topBase + (uint)i) & bus.AddressMask);
+            return bytes;
+        }
+
+        byte[] jit = RunOne(throughJit: true);    // must not throw IndexOutOfRange (the PR-4b end-page fix)
+        byte[] interp = RunOne(throughJit: false);
+        Assert.Equal(interp, jit);                // byte-identical wrapped write
+    }
+
     [M68000TomHarteTheory]   // skips when the 680x0 vectors are absent (same attribute the data-axis sweeps use)
     [InlineData("NOP.json.gz")]
     public void One_family_file_is_tier_parity_green_through_the_JIT(string file)

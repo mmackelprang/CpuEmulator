@@ -646,6 +646,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     {
         ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Stloc, ctx.EaLocal);   // ea = address
+        EmitMaskEaLocalToBus(ctx);             // PR-4b: clamp to the bus width before the fastmem page index (see EmitMarkWidePagesDirty)
         EmitChargeOneCycle(ctx);               // charge BEFORE the access (matches ReadBus)
 
         Label mmio = il.DefineLabel(), done = il.DefineLabel();
@@ -696,6 +697,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // stack: address, value  -> stash both (value on top)
         il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value
         il.Emit(OpCodes.Stloc, ctx.EaLocal);     // address
+        EmitMaskEaLocalToBus(ctx);               // PR-4b: clamp to the bus width before the fastmem page index (see EmitMarkWidePagesDirty)
         EmitChargeOneCycle(ctx);                 // charge BEFORE the access (MMIO ordering)
 
         Label mmio = il.DefineLabel(), drop = il.DefineLabel(), done = il.DefineLabel();
@@ -863,6 +865,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private void EmitMarkWidePagesDirty(EmitContext ctx, int byteSpan)
     {
         ILGenerator il = ctx.Il;
+        // PR-4b: clamp the address to the bus width BEFORE deriving any page index. The resolved EA can carry
+        // bits above the address bus (the 68000's A-registers / displacements are full 32-bit, but the bus is
+        // 24-bit), and the page derived from `addr >> 8` indexes the DirtyMap's bool[PageCount] (PageCount =
+        // 2^addressBits / 256). An unmasked high address overruns that array (IndexOutOfRangeException) — the
+        // interpreter never hits it because every bus access masks `address & AddressMask` first. Masking
+        // AddrLocal here keeps the page in range and is a no-op for the byte CPUs (whose EA is already in range).
+        EmitMaskAddrLocalToBus(ctx);
         // dirty.Mark(addr >> 8)  — the base page
         il.Emit(OpCodes.Ldarg_3);
         il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
@@ -874,29 +883,70 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Ldc_I4_8);
         il.Emit(OpCodes.Shr_Un);
         il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
-        // If the access crosses a page boundary, also mark the END page (base + byteSpan - 1) >> 8 when it
-        // differs from the base page. Emitted as a runtime compare so an aligned access marks one page only.
+        // If the access crosses a page boundary, also mark the END page ((base + byteSpan - 1) & mask) >> 8 when
+        // it differs from the base page. Emitted as a runtime compare so an aligned access marks one page only.
+        // PR-4b: the end address is re-clamped to the bus width — a wide access whose base is at the very top of the
+        // space (e.g. MOVE.l to 0x00FFFFFF on the 24-bit 68000 bus) wraps the trailing bytes to low addresses
+        // exactly as the interpreter does (each component Write8 masks with AddressMask), so the end page must wrap
+        // to 0 rather than overrun the DirtyMap. Masking only the base (above) is NOT sufficient for this term.
         Label sameEndPage = il.DefineLabel();
         // basePage
         il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
         il.Emit(OpCodes.Ldc_I4_8);
         il.Emit(OpCodes.Shr_Un);
-        // endPage = (addr + byteSpan - 1) >> 8
-        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
-        il.Emit(OpCodes.Ldc_I4, byteSpan - 1);
-        il.Emit(OpCodes.Add);
-        il.Emit(OpCodes.Ldc_I4_8);
-        il.Emit(OpCodes.Shr_Un);
+        // endPage = ((addr + byteSpan - 1) & AddressMask) >> 8
+        EmitWideEndPage(ctx, byteSpan);
         il.Emit(OpCodes.Beq, sameEndPage);       // basePage == endPage -> nothing more to mark
         // dirty.Mark(endPage)
         il.Emit(OpCodes.Ldarg_3);
+        EmitWideEndPage(ctx, byteSpan);
+        il.Emit(OpCodes.Callvirt, MDirtyMark);
+        il.MarkLabel(sameEndPage);
+    }
+
+    /// <summary>PR-4b: push <c>((AddrLocal + byteSpan - 1) &amp; _bus.AddressMask) &gt;&gt; 8</c> — the page index of
+    /// the LAST byte a wide access touches, clamped to the bus width so a top-of-space access wraps (matching the
+    /// interpreter's per-component <c>Write8</c> masking) instead of overrunning the DirtyMap. Stack: ... -> ...,
+    /// endPage(int).</summary>
+    private void EmitWideEndPage(EmitContext ctx, int byteSpan)
+    {
+        ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
         il.Emit(OpCodes.Ldc_I4, byteSpan - 1);
         il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);
         il.Emit(OpCodes.Ldc_I4_8);
         il.Emit(OpCodes.Shr_Un);
-        il.Emit(OpCodes.Callvirt, MDirtyMark);
-        il.MarkLabel(sameEndPage);
+    }
+
+    /// <summary>PR-4b: <c>AddrLocal = AddrLocal &amp; _bus.AddressMask</c> — clamp the wide-store address local to
+    /// the bus address width before any <c>addr &gt;&gt; 8</c> page derivation. The mask is a COMPILE-TIME constant
+    /// (the concrete bus's width: 0xFFFF for the 16-bit boards, 0xFFFFF for the 8086, 0xFFFFFF for the 68000), so
+    /// this is a single <c>Ldc_I4; And</c>. For the byte CPUs the resolved EA is already within the width (their EA
+    /// arms mask to the address width as part of EA computation), so this And is the identity — it changes no
+    /// emitted behaviour for 6502/Z80/8086, and only clamps the 68000's full-width A-register-relative addresses.</summary>
+    private void EmitMaskAddrLocalToBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);
+    }
+
+    /// <summary>PR-4b: <c>EaLocal = EaLocal &amp; _bus.AddressMask</c> — the byte-path counterpart of
+    /// <see cref="EmitMaskAddrLocalToBus"/>. The byte read/store helpers index the fastmem page arrays
+    /// (<c>PageBacking</c>/<c>PageOffset</c>/<c>PageWritable</c>, each sized to PageCount) and the DirtyMap with
+    /// <c>ea &gt;&gt; 8</c>; a 68000 MOVE.b to/from a full-width address would overrun those arrays. Identity for the
+    /// already-in-range byte CPUs (see <see cref="EmitMaskAddrLocalToBus"/>).</summary>
+    private void EmitMaskEaLocalToBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.EaLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.EaLocal);
     }
 
     // ── SetNZ: P = (P & 0x7D) | (src==0 ? 2 : 0) | (src & 0x80) ──────────────────────────────
