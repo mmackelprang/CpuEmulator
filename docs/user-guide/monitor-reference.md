@@ -23,8 +23,13 @@ each CPU's own registers and address width automatically.
 
 **Known limitation — 68000 disassembly.** The `d` (disassemble) command renders `???` for 68000
 instructions: the 68000 uses the field-grammar decoder and has no flat per-opcode disassembly table
-yet, so only the mnemonic text is unavailable. Instruction *lengths*, the byte dump, register
-rendering, and step/run are all correct on the 68000. (6502/Z80/8086 disassemble normally.)
+yet, so the mnemonic text is unavailable. The byte dump (`m`), register rendering, and step/run
+(`s`/`g`) are all correct on the 68000 — step/run execute the real interpreter, not the disasm path.
+But the `d` walk's per-line address advance is **1 byte** per instruction on the 68000, because the
+monitor's byte-walk length lookup can't index the field-grammar descriptor table by raw opcode byte
+(that table is keyed by a compound operation key, so the lookup falls back to 1). A single-instruction
+`d <addr>` correctly shows `???`; a multi-instruction `d` mis-aligns its displayed addresses on the
+68000. (6502/Z80/8086 disassemble normally.)
 
 ## Argument conventions
 
