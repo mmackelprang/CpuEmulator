@@ -1213,12 +1213,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                     disp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
                                     | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
 
-                if (reg == 2u)        // FF /2 CALL r/m16 near (key 0x7FA): push the return IP, then IP = r/m16.
-                {
+                if (reg == 2u)        // FF /2 CALL r/m16 near (key 0x7FA): IP = r/m16 (read FIRST), then push the
+                {                     // return IP. The oracle (Control.cs:148-150) reads the target BEFORE PushWord —
+                                      // load-bearing for `CALL SP` (mod=11,rm=4): the target must be the PRE-push SP,
+                                      // not the post-decrement SP. So stash the target, then push, then set IP.
+                    EmitM8086LoadRmWordTarget(ctx, mod, rm, disp, over);   // push the r/m16 target (the PRE-push value)
+                    il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);   // stash target (survives the push)
                     EmitM8086PushWord(ctx, () => il.Emit(OpCodes.Ldc_I4, (int)fallThrough));   // PushWord(IP)
-                    EmitM8086LoadRmWordTarget(ctx, mod, rm, disp, over);                       // push the r/m16 target
-                    EmitM8086SetIpFromStack(ctx);                                              // IP = target
-                    EmitNormalExit(ctx);                                                       // DYNAMIC — NOT chainable
+                    il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Stfld, _fpc);   // IP = target
+                    EmitNormalExit(ctx);                                  // DYNAMIC — NOT chainable
                     return;
                 }
                 if (reg == 4u)        // FF /4 JMP r/m16 near (key 0x7FC): IP = r/m16.
