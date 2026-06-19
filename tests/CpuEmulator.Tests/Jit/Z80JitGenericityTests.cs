@@ -197,6 +197,91 @@ public class Z80JitGenericityTests
         Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the HALT; the ALU op emitted 0
     }
 
+    /// <summary>M6 PR-2b: every emitted PR-2b form contributes 0 fallbacks — the "FallbackEmitCount drops by
+    /// exactly the emitted opcodes" half of the §8 parity gate AND the gate/arm lockstep check (each form must
+    /// have a real EmitZ80Alu branch, or its default throws and Compile fails). One PR-2b op per block, terminated
+    /// by the still-fallback HALT (0x76); the block's only fallback is the HALT. The ED cases (0xED ..) are the
+    /// FIRST emitted-prefixed-row tests — they also prove the discovery walk spans the 2-byte ED key (the HALT
+    /// decodes at PC 0x0102, not 0x0101).</summary>
+    [Theory]
+    [InlineData(new byte[] { 0xED, 0x4A, 0x76 })]   // ADC HL,BC
+    [InlineData(new byte[] { 0xED, 0x52, 0x76 })]   // SBC HL,DE
+    [InlineData(new byte[] { 0xED, 0x6A, 0x76 })]   // ADC HL,HL
+    [InlineData(new byte[] { 0xED, 0x72, 0x76 })]   // SBC HL,SP
+    [InlineData(new byte[] { 0x03, 0x76 })]         // INC BC
+    [InlineData(new byte[] { 0x2B, 0x76 })]         // DEC HL
+    [InlineData(new byte[] { 0x33, 0x76 })]         // INC SP
+    public void Z80_PR2b_block_emits_no_fallback_for_the_op(byte[] program)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var bus = NewRamBus();
+        for (int i = 0; i < program.Length; i++) bus.Write8((ushort)(0x0100 + i), program[i]);
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        compiler.Compile(0x0100);
+        Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the HALT; the PR-2b op emitted 0
+    }
+
+    /// <summary>M6 PR-2b: the ED row's 2-byte opcode key is spanned by the discovery walk — the HALT after an
+    /// ED ADC/SBC HL,rr decodes at opcode+2 (NOT opcode+1, which would mis-decode the ED opcode byte as the next
+    /// op). This is the prefixed-row analogue of the PR-2 immediate-footprint test.</summary>
+    [Fact]
+    public void Z80_ED_row_discovery_walk_spans_the_two_byte_key()
+    {
+        var bus = NewRamBus();
+        bus.Write8(0x0100, 0xED); bus.Write8(0x0101, 0x4A);   // ADC HL,BC (2-byte ED key)
+        bus.Write8(0x0102, 0x76);                              // HALT — the real next instruction, at opcode+2
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        var run = compiler.Discover(0x0100);
+        Assert.Equal(2, run.Count);
+        Assert.Equal(0x0100, run[0].Pc);
+        Assert.Equal(2, run[0].Length);            // prefix + opcode (the 2-byte ED key)
+        Assert.Equal(0x0102, run[1].Pc);           // HALT at opcode+2, NOT the ED opcode byte at opcode+1
+        Assert.Equal("HALT", run[1].D.Mnemonic);
+    }
+
+    /// <summary>M6 PR-2b regression (DECISION G safety): the two-fetch ED charge MUST NOT perturb the base
+    /// plane. A base-plane emitted block (LD B,5; HALT) run through the JIT reaches the SAME CycleCount as the
+    /// pure interpreter — keyBytes == 1 for every base-plane row, so the second-fetch charge never fires there.
+    /// The interpreter is the invariant oracle (unaffected by the JIT keyBytes change), so equal CycleCount is
+    /// the non-perturbation proof.</summary>
+    [Fact]
+    public void Z80_base_plane_block_cyclecount_unperturbed_by_the_ED_two_fetch_change()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit path; skip where dynamic code is disabled (AOT)
+        // Program: LD B,5 (0x06 0x05) then HALT (0x76). LD B,5 is base-plane emitted (keyBytes == 1).
+        static (Z80Cpu cpu, AddressSpace bus) Load()
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+            bus.MapMemory(0x0000, new byte[0x10000], writable: true);
+            bus.Write8(0x0100, 0x06); bus.Write8(0x0101, 0x05);   // LD B,5
+            bus.Write8(0x0102, 0x76);                              // HALT
+            var cpu = new Z80Cpu(bus);
+            cpu.SetRegister("PC", 0x0100);
+            return (cpu, bus);
+        }
+        // Reference: the pure interpreter executes LD B,5 (7 T), consuming the budget.
+        var (refCpu, _) = Load();
+        long refBudget = 7;
+        refCpu.Run(ref refBudget);
+
+        // JIT: the same program through JittedCpu<Z80Cpu> — the base-plane fetch charge must be identical.
+        var (inner, jbus) = Load();
+        var jit = new JittedCpu<Z80Cpu>(inner, Z80Cpu.JitTarget, jbus, inner.IoBus);
+        long jitBudget = 7;
+        jit.Run(ref jitBudget);
+
+        Assert.Equal(0x0102ul, inner.GetRegister("PC"));            // LD B,5 advanced PC past both bytes
+        Assert.Equal(5ul, inner.GetRegister("B"));                  // the load happened
+        Assert.Equal(refCpu.CycleCount, inner.CycleCount);          // base-plane cycles unperturbed by PR-2b
+        Assert.Equal(7, inner.CycleCount);                          // LD B,n = 7 T (the fixed base-plane value)
+    }
+
     /// <summary>M6 PR-2 regression: an EMITTED ALU-Immediate op (ADD A,n etc.) must advance the block
     /// discovery cursor past BOTH its opcode AND its immediate operand byte (footprint = 2), so the
     /// NEXT instruction is decoded at opcode+2 — NOT at the operand byte (opcode+1). The decode walk's
@@ -234,8 +319,9 @@ public class Z80JitGenericityTests
     }
 
     /// <summary>M6 PR-2 (DECISION C): the descriptor-state assertions. The whitelisted ALU rows flip to
-    /// NeedsFallback=false but keep their BaseCycles UNCHANGED (no JitBaseCycles edit — J-CYC); the
-    /// DECISION-E deferrals (ED ADC HL,rr, Inc16) and the PR-1 exclusion (LD SP,HL) STILL fall back.</summary>
+    /// NeedsFallback=false but keep their BaseCycles UNCHANGED (no JitBaseCycles edit — J-CYC). The former
+    /// DECISION-E deferrals (ED ADC HL,rr, Inc16) are now emitted in PR-2b (see the dedicated PR-2b test); only
+    /// the PR-1 exclusion (LD SP,HL) STILL falls back.</summary>
     [Fact]
     public void Z80_ALU_descriptors_flip_to_emitted_with_unchanged_cycles()
     {
@@ -251,14 +337,65 @@ public class Z80JitGenericityTests
         Assert.False(Z80Cpu.DescriptorFor(0x34).NeedsFallback);   // INC (HL)
         Assert.Equal(11, Z80Cpu.DescriptorFor(0x34).BaseCycles);  // memory INC — unchanged
 
-        // The DECISION-E deferrals + the PR-1 exclusion STILL fall back (the whitelist did NOT admit them).
-        Assert.True(Z80Cpu.DescriptorFor(0xED4A).NeedsFallback);  // ED ADC HL,BC (EdAdcSbc16) — DECISION E
-        Assert.True(Z80Cpu.DescriptorFor(0x03).NeedsFallback);    // INC BC (Inc16) — DECISION E
-        Assert.True(Z80Cpu.DescriptorFor(0xF9).NeedsFallback);    // LD SP,HL — PR-1 exclusion
+        // The former DECISION-E deferrals are now EMITTED in PR-2b (see the dedicated PR-2b descriptor test);
+        // only the PR-1 LD SP,HL exclusion STILL falls back here.
+        Assert.False(Z80Cpu.DescriptorFor(0xED4A).NeedsFallback); // ED ADC HL,BC (EdAdcSbc16) — emitted in PR-2b
+        Assert.False(Z80Cpu.DescriptorFor(0x03).NeedsFallback);   // INC BC (Inc16) — emitted in PR-2b
+        Assert.True(Z80Cpu.DescriptorFor(0xF9).NeedsFallback);    // LD SP,HL — PR-1 exclusion (still fallback)
 
         // PR-1's untouched controls still hold (the change is scoped to the Z80 ALU rows only).
         Assert.Equal(7, Z80Cpu.DescriptorFor(0x06).BaseCycles);        // LD B,n — PR-1's corrected value
         Assert.Equal(2, Mos6502Cpu.DescriptorFor(0xA9).BaseCycles);    // LDA #imm — the shared template, untouched
+    }
+
+    /// <summary>M6 PR-2b (DECISION F + the gate flip): the descriptor-state assertions for the 16 PR-2b rows.
+    /// The eight ED ADC/SBC HL,rr rows flip to NeedsFallback=false with BaseCycles UNCHANGED (15) AND carry the
+    /// populated slots (RegB = the addend pair "BC".."SP", BoolArg = the SBC sense); the eight INC16/DEC16 rows
+    /// flip to NeedsFallback=false with BaseCycles UNCHANGED (6). The untouched controls (other ED ops, LDI,
+    /// LD SP,HL, the PR-2 ADD A,B, the 6502 LDA #imm) are byte-identical — proving the change is ED+Inc16/Dec16
+    /// scoped and no committed cycle number moved (no JitBaseCycles/Z80Cycles edit).</summary>
+    [Fact]
+    public void Z80_PR2b_descriptors_flip_to_emitted_with_populated_slots_and_unchanged_cycles()
+    {
+        // ── The eight ED ADC/SBC HL,rr rows: emitted, BaseCycles 15 unchanged, slots populated. ──
+        // ADC (boolArg=false): 0xED4A/5A/6A/7A → BC/DE/HL/SP.
+        var adcBc = Z80Cpu.DescriptorFor(0xED4A);
+        Assert.False(adcBc.NeedsFallback); Assert.Equal(15, adcBc.BaseCycles);
+        Assert.Equal("EdAdcSbc16", adcBc.Ops[0].Kind);
+        Assert.Equal("BC", adcBc.Ops[0].RegB); Assert.False(adcBc.Ops[0].BoolArg);   // ADC
+        Assert.Equal("DE", Z80Cpu.DescriptorFor(0xED5A).Ops[0].RegB);
+        Assert.Equal("HL", Z80Cpu.DescriptorFor(0xED6A).Ops[0].RegB);
+        Assert.Equal("SP", Z80Cpu.DescriptorFor(0xED7A).Ops[0].RegB);
+        Assert.False(Z80Cpu.DescriptorFor(0xED7A).Ops[0].BoolArg);                    // ADC HL,SP
+        // SBC (boolArg=true): 0xED42/52/62/72 → BC/DE/HL/SP.
+        var sbcBc = Z80Cpu.DescriptorFor(0xED42);
+        Assert.False(sbcBc.NeedsFallback); Assert.Equal(15, sbcBc.BaseCycles);
+        Assert.Equal("BC", sbcBc.Ops[0].RegB); Assert.True(sbcBc.Ops[0].BoolArg);     // SBC
+        Assert.Equal("DE", Z80Cpu.DescriptorFor(0xED52).Ops[0].RegB);
+        Assert.Equal("HL", Z80Cpu.DescriptorFor(0xED62).Ops[0].RegB);
+        Assert.Equal("SP", Z80Cpu.DescriptorFor(0xED72).Ops[0].RegB);
+        Assert.True(Z80Cpu.DescriptorFor(0xED72).Ops[0].BoolArg);                     // SBC HL,SP
+
+        // ── The eight INC16/DEC16 rows: emitted, BaseCycles 6 unchanged, RegA = the pair (no flag/sense slot). ──
+        var incBc = Z80Cpu.DescriptorFor(0x03);
+        Assert.False(incBc.NeedsFallback); Assert.Equal(6, incBc.BaseCycles);
+        Assert.Equal("Inc16", incBc.Ops[0].Kind); Assert.Equal("BC", incBc.Ops[0].RegA);
+        Assert.False(Z80Cpu.DescriptorFor(0x13).NeedsFallback);   // INC DE
+        Assert.False(Z80Cpu.DescriptorFor(0x23).NeedsFallback);   // INC HL
+        Assert.False(Z80Cpu.DescriptorFor(0x33).NeedsFallback);   // INC SP
+        var decHl = Z80Cpu.DescriptorFor(0x2B);
+        Assert.False(decHl.NeedsFallback); Assert.Equal(6, decHl.BaseCycles);
+        Assert.Equal("Dec16", decHl.Ops[0].Kind); Assert.Equal("HL", decHl.Ops[0].RegA);
+        Assert.False(Z80Cpu.DescriptorFor(0x0B).NeedsFallback);   // DEC BC
+        Assert.False(Z80Cpu.DescriptorFor(0x1B).NeedsFallback);   // DEC DE
+        Assert.False(Z80Cpu.DescriptorFor(0x3B).NeedsFallback);   // DEC SP
+
+        // ── Untouched controls: other ED ops + LDI + LD SP,HL STILL fall back; PR-2 + 6502 rows unchanged. ──
+        Assert.True(Z80Cpu.DescriptorFor(0xED57).NeedsFallback);  // LD A,I (EdLdIaRa) — still fallback
+        Assert.True(Z80Cpu.DescriptorFor(0xEDA0).NeedsFallback);  // LDI (EdBlock) — still fallback
+        Assert.True(Z80Cpu.DescriptorFor(0xF9).NeedsFallback);    // LD SP,HL — PR-1 exclusion
+        Assert.Equal(4, Z80Cpu.DescriptorFor(0x80).BaseCycles);   // ADD A,B — PR-2 cycle, unchanged
+        Assert.Equal(2, Mos6502Cpu.DescriptorFor(0xA9).BaseCycles); // LDA #imm — shared template, untouched
     }
 
     [Fact]
