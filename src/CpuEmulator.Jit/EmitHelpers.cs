@@ -63,6 +63,30 @@ internal sealed class EmitContext
     /// each store/RMW instruction so a no-store instruction never trips the guard.</summary>
     public LocalBuilder SmcPageLocal { get; }
 
+    /// <summary>uint — M6 PR-4: a 32-bit staging local for the 68000 emit arms. EmitStoreReg32 stages the
+    /// to-be-stored value here (the value arrives on the stack BELOW the receiver, so it must be stashed,
+    /// the receiver pushed, then the value reloaded). Typed uint so the 68000's 32-bit register/operand
+    /// values round-trip without the sign-extension a signed int local would impose. The next PR-4 agent's
+    /// EA resolver + MOVE arm (Tasks 4-7) reuse it to hold a resolved EA value / the MOVE operand across the
+    /// dest-EA resolution. Distinct from DataLocal (int) — keeping a separate uint local avoids Conv churn.</summary>
+    public LocalBuilder M68kValueLocal { get; }
+
+    /// <summary>uint — M6 PR-4 (Task 4/5): a SECOND 32-bit address staging local for the 68000 MOVE arm. The
+    /// source EA read uses AddrLocal (the wide-bus helpers stash the access address there) and the dest-EA
+    /// resolution would CLOBBER it, so the dest EA is resolved into THIS local (held across the dest store).
+    /// The MOVE crux: the source read (with its (An)+/-(An) mutation) happens FIRST and the dest EA is
+    /// resolved AFTER it, so the dest address needs a survivor local distinct from the source's AddrLocal.</summary>
+    public LocalBuilder M68kAddr2Local { get; }
+
+    /// <summary>uint — M6 PR-4: a DEDICATED staging local for the 68000 register-store helpers
+    /// (EmitStoreReg32 / EmitStoreDataRegSized / EmitStoreAreg). These helpers receive the value BELOW the
+    /// receiver on the stack, so they must stash it, push the receiver, then reload. CRITICAL: this staging
+    /// local must be DISTINCT from M68kValueLocal — the dest (An)+/-(An) write path calls EmitAdvanceAreg
+    /// (a register store) WHILE the MOVE operand is live in M68kValueLocal; sharing one local let the An
+    /// write-back clobber the operand, writing the post-incremented/pre-decremented address to memory
+    /// instead of the MOVE source value. (Pre-merge review HIGH finding, M6 PR-4.)</summary>
+    public LocalBuilder M68kStoreStageLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -77,5 +101,8 @@ internal sealed class EmitContext
         TmpInt = il.DeclareLocal(typeof(int));
         NibLocal = il.DeclareLocal(typeof(int));
         SumLocal = il.DeclareLocal(typeof(int));
+        M68kValueLocal = il.DeclareLocal(typeof(uint));
+        M68kAddr2Local = il.DeclareLocal(typeof(uint));
+        M68kStoreStageLocal = il.DeclareLocal(typeof(uint));
     }
 }

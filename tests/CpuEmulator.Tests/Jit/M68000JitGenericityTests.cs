@@ -94,6 +94,202 @@ public class M68000JitGenericityTests
         Assert.Equal(icyc, jcyc);   // the fallback charged the same cycles (CycleCount delta)
     }
 
+    private static (M68000Cpu Cpu, AddressSpace Bus, BlockCompiler<M68000Cpu> Compiler) NewM68k()
+    {
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+        bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+        var cpu = new M68000Cpu(bus);
+        var opts = new JitOptions();
+        return (cpu, bus, new BlockCompiler<M68000Cpu>(cpu, M68000Cpu.JitTarget, bus, new Fastmem(bus, opts), opts));
+    }
+
+    /// <summary>M6 PR-4a: the DEAD-ARM-NOW-LIVE gate. Pre-PR-4a the byte-granular Discover mis-decoded every 68000
+    /// op, so EmitM68kMove was NEVER selected (0 dispatches across 847 MOVE.w cases — the PR-4 Builder's finding) and
+    /// the MOVE parity sweep was vacuous (interpreter-vs-interpreter via the all-fallback valve). With the
+    /// word-granular Discover (PR-4a) the MOVE descriptor matches, reaches the emit switch, and EmitM68kMove
+    /// DISPATCHES — so M68kMoveEmitSelections is &gt; 0. This is the un-fakeable proof the 68000 MOVE JIT parity is
+    /// now REAL emitted-IL-vs-interpreter, not a degenerate tautology.</summary>
+    [Fact]
+    public void M68000_MOVE_arm_actually_dispatches_after_PR4a()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;   // emit-only proof
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x3200);   // MOVE.w D0,D1 (register-only EA — no ext words)
+        bus.Write16(0x001002, 0x4E71);   // NOP — the block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.True(compiler.M68kMoveEmitSelections > 0,
+            "EmitM68kMove was never selected — Discover is still feeding the 68000 a byte-granular stream (the dead-arm blocker).");
+    }
+
+    /// <summary>M6 PR-4a: the NEGATIVE control — proves the M68kMoveEmitSelections counter can read 0, so the
+    /// positive case (<see cref="M68000_MOVE_arm_actually_dispatches_after_PR4a"/>) is meaningful and not a counter
+    /// that always trips. A block of ONLY a fallback 68000 op (NOP) selects the MOVE arm zero times.</summary>
+    [Fact]
+    public void M68000_non_MOVE_block_selects_the_MOVE_arm_zero_times()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x4E71);   // NOP only — falls back, no MOVE row
+        compiler.Compile(0x1000);
+        Assert.Equal(0, compiler.M68kMoveEmitSelections);
+    }
+
+    /// <summary>M6 PR-4: the 68000 MOVE-family FallbackEmitCount flip. Before PR-4 the 68000 was 100% fallback
+    /// (every op = 1 fallback); after PR-4 a MOVE/MOVEA/MOVEQ emits real IL (0 fallbacks). Each block is one
+    /// MOVE-family op (register-only EAs, so no extension words) terminated by the still-fallback NOP (0x4E71),
+    /// which ends the block — so the block's ONLY fallback is the NOP. This is the "FallbackEmitCount drops by
+    /// exactly the emitted opcodes" gate AND the gate/arm lockstep check (each form must have a real EmitM68kMove
+    /// path, or the arm's default throws and Compile fails). Operwords (big-endian words at PC):
+    ///   0x3200 MOVE.w  D0,D1   |  0x1200 MOVE.b  D0,D1   |  0x2200 MOVE.l  D0,D1
+    ///   0x3248 MOVEA.w A0,A1   |  0x2248 MOVEA.l A0,A1   |  0x7001 MOVEQ #1,D0  |  0x7E80 MOVEQ #-128,D7</summary>
+    [Theory]
+    [InlineData(0x3200)]   // MOVE.w  D0,D1
+    [InlineData(0x1200)]   // MOVE.b  D0,D1
+    [InlineData(0x2200)]   // MOVE.l  D0,D1
+    [InlineData(0x3248)]   // MOVEA.w A0,A1
+    [InlineData(0x2248)]   // MOVEA.l A0,A1
+    [InlineData(0x7001)]   // MOVEQ #1,D0
+    [InlineData(0x7E80)]   // MOVEQ #-128,D7
+    [InlineData(0x32C0)]   // PROBE: MOVE.w D0,(A1)+  (memory dest, no ext words)
+    [InlineData(0x3300)]   // PROBE: MOVE.w D0,-(A1)
+    public void M68000_MOVE_block_emits_no_fallback_after_PR4(int operword)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, (ushort)operword);   // the MOVE-family op (register-only EA — no ext words)
+        bus.Write16(0x001002, 0x4E71);             // NOP — the one block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the NOP; the MOVE-family op emitted 0
+    }
+
+    /// <summary>M6 PR-4: the descriptor-state gate — the net-new MOVE/MOVEA/MOVEQ rows carry
+    /// JitOpClass.M68000Move, NeedsFallback=false, EndsBlock=false. The keys are the decode walk's
+    /// (1&lt;&lt;24)|(opIndex&lt;&lt;8)|size packing: MOVEA opIndex 21, MOVE opIndex 22, MOVEQ opIndex 58.
+    /// A still-fallback 68000 op (NOP key 0x011C00 — opIndex 28) proves the table is otherwise unchanged.</summary>
+    [Fact]
+    public void M68000_MOVE_family_descriptors_are_emittable_and_classed_M68000Move()
+    {
+        var move = M68000Cpu.DescriptorFor(0x1001601u);   // MOVE.w (opIndex 22, size 1)
+        Assert.Equal("MOVE", move.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Move, move.Class);
+        Assert.False(move.NeedsFallback);
+        Assert.False(move.EndsBlock);
+
+        var movea = M68000Cpu.DescriptorFor(0x1001501u);  // MOVEA.w (opIndex 21, size 1)
+        Assert.Equal("MOVEA", movea.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Move, movea.Class);
+        Assert.False(movea.NeedsFallback);
+
+        var moveq = M68000Cpu.DescriptorFor(0x1003A00u);  // MOVEQ (opIndex 58)
+        Assert.Equal("MOVEQ", moveq.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Move, moveq.Class);
+        Assert.False(moveq.NeedsFallback);
+
+        // A non-MOVE 68000 op stays Undefined/fallback (the table is MOVE-family-only after PR-4).
+        Assert.True(M68000Cpu.DescriptorFor(0x011C00u).NeedsFallback);   // NOP (opIndex 28) — still fallback
+    }
+
+    /// <summary>M6 PR-4: a MOVE with an <c>(An)+</c> / <c>-(An)</c> MEMORY DESTINATION must write the SOURCE
+    /// operand to memory and advance An. Drives Tier-1 (JittedCpu.Run) and diffs against the interpreter Step
+    /// (Tier-0) on the written RAM + A1.
+    ///   0x32C0 = MOVE.w D0,(A1)+   |   0x3300 = MOVE.w D0,-(A1)   (dest mode 3/4, reg 1; src mode 0, reg 0)
+    ///
+    /// <para>M6 PR-4a made this a REAL emitted-IL gate: BlockCompiler.Discover now feeds the 68000 a word-granular
+    /// M68000FetchStream, so the MOVE descriptor matches, EmitM68kMove dispatches at runtime (proven by
+    /// M68kMoveEmitSelections &gt; 0, see <see cref="M68000_MOVE_arm_actually_dispatches_after_PR4a"/>), and
+    /// <c>throughJit</c> runs the emitted IL — this assertion now diffs emitted IL vs the interpreter oracle, not
+    /// interpreter-vs-interpreter.</para></summary>
+    [Theory]
+    [InlineData(0x32C0, /*postInc*/ true)]    // MOVE.w D0,(A1)+
+    [InlineData(0x3300, /*postInc*/ false)]   // MOVE.w D0,-(A1)
+    public void MOVE_to_An_postinc_predec_writes_the_source_operand_not_the_advanced_address(int operword, bool postInc)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof
+
+        const uint srcValue = 0x1234u;   // the operand to MOVE — distinct from the A1 base/advanced address
+        const uint a1Base = 0x002000u;
+        // (A1)+ wrote at a1Base then A1=a1Base+2; -(A1) set A1=a1Base-2 then wrote there.
+        uint writtenAddr = postInc ? a1Base : a1Base - 2;
+
+        (uint a1, ushort memWord) RunOne(bool throughJit)
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+            bus.Write16(0x001000, (ushort)operword);   // MOVE.w D0,(A1)+ / -(A1)
+            bus.Write16(0x001002, 0x4E71);             // NOP — block-ending fallback
+            var inner = new M68000Cpu(bus);
+            inner.SetRegister("PC", 0x001000);
+            inner.SetRegister("SR", 0x2700);           // supervisor, ints masked
+            inner.SetRegister("D0", srcValue);
+            inner.SetRegister("A1", a1Base);
+            if (throughJit)
+            {
+                var jit = new JittedCpu<M68000Cpu>(inner, M68000Cpu.JitTarget, bus);
+                long budget = 1;                       // exactly one instruction (the MOVE)
+                jit.Run(ref budget);
+            }
+            else inner.Step();
+            return ((uint)inner.GetRegister("A1"), bus.Read16(writtenAddr));
+        }
+        var (ja1, jmem) = RunOne(throughJit: true);
+        var (ia1, imem) = RunOne(throughJit: false);
+
+        // The written word MUST be the source operand (0x1234), NOT the advanced A1 (0x2002 / 0x1FFE).
+        Assert.Equal((ushort)srcValue, imem);   // interpreter oracle: writes the operand
+        Assert.Equal(imem, jmem);               // JIT byte-identical on the written RAM
+        Assert.Equal(ia1, ja1);                 // ... and on the post-inc/pre-dec An
+    }
+
+    /// <summary>PR-4b regression: a wide MOVE whose destination sits at the very TOP of the 24-bit bus
+    /// (<c>(A1)</c> with A1 = 0x00FFFFFF) makes the .l write straddle the address-space boundary — bytes land at
+    /// 0xFFFFFF then WRAP to 0x000000.. (the bus masks each component access). The JIT derives the SMC dirty page
+    /// from <c>(addr + byteSpan - 1) &gt;&gt; 8</c>; before PR-4b that end-page term was unmasked, so the trailing
+    /// bytes produced a page index past the DirtyMap's <c>bool[PageCount]</c> (IndexOutOfRangeException). This pins
+    /// the masked-end-page fix (EmitWideEndPage): the emitted MOVE must run AND be byte-identical to the
+    /// interpreter, which wraps the write. Deterministic — does NOT depend on the random TomHarte corpus hitting
+    /// the boundary (it does not).</summary>
+    [Theory]
+    [InlineData(0x2281, 4)]   // MOVE.l D1,(A1)  — wide write at the top of the space
+    [InlineData(0x3281, 2)]   // MOVE.w D1,(A1)
+    public void Wide_MOVE_to_top_of_address_space_wraps_like_the_interpreter(int operword, int span)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof
+
+        const uint topBase = 0x00FFFFFFu;   // the highest legal 24-bit byte address — the wide write wraps past it
+        const uint srcValue = 0xDEADBEEFu;
+
+        byte[] RunOne(bool throughJit)
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+            bus.Write16(0x001000, (ushort)operword);
+            bus.Write16(0x001002, 0x4E71);             // NOP — block-ending fallback
+            var inner = new M68000Cpu(bus);
+            inner.SetRegister("PC", 0x001000);
+            inner.SetRegister("SR", 0x2700);
+            inner.SetRegister("D1", srcValue);
+            inner.SetRegister("A1", topBase);
+            if (throughJit)
+            {
+                var jit = new JittedCpu<M68000Cpu>(inner, M68000Cpu.JitTarget, bus);
+                long budget = 1;
+                jit.Run(ref budget);
+            }
+            else inner.Step();
+            // Read back every byte the wide write touched (wrapping), so the comparison covers the wrapped tail.
+            var bytes = new byte[span];
+            for (int i = 0; i < span; i++) bytes[i] = bus.Read8((topBase + (uint)i) & bus.AddressMask);
+            return bytes;
+        }
+
+        byte[] jit = RunOne(throughJit: true);    // must not throw IndexOutOfRange (the PR-4b end-page fix)
+        byte[] interp = RunOne(throughJit: false);
+        Assert.Equal(interp, jit);                // byte-identical wrapped write
+    }
+
     [M68000TomHarteTheory]   // skips when the 680x0 vectors are absent (same attribute the data-axis sweeps use)
     [InlineData("NOP.json.gz")]
     public void One_family_file_is_tier_parity_green_through_the_JIT(string file)

@@ -101,3 +101,74 @@ public sealed class M68000JitTom_P6(ITestOutputHelper o) : M68000JitSweepBase(o)
 public sealed class M68000JitTom_P7(ITestOutputHelper o) : M68000JitSweepBase(o)
 { public static TheoryData<string> Files() => Partition(7, 8);
   [M68000TomHarteTheory][MemberData(nameof(Files))] public void Tier_parity_through_the_JIT(string f) => RunFile(f); }
+
+/// <summary>M6 PR-4 (Task 7): the focused MOVE/MOVEA/MOVEQ data-axis parity sweep. These six files
+/// (MOVE.b/.w/.l, MOVEA.w/.l, MOVE.q == MOVEQ) are the families PR-4 generated descriptor rows + an emit arm for.
+/// Run through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/>, the JIT final state (D0–D7/A0–A6/USP/SSP/SR/RAM)
+/// is byte-identical to the interpreter for every non-exception case. NOT cycle/pc/prefetch (DECISION T2).
+///
+/// <para>M6 PR-4a made this a REAL emitted-IL gate. BlockCompiler.Discover now feeds the 68000 a WORD-granular
+/// M68000FetchStream (UnitBytes==2), so the generated Decode() matches the operword, DescriptorFor returns the
+/// real MOVE/MOVEA/MOVEQ rows, and EmitM68kMove DISPATCHES at runtime (proven by the committed
+/// M68kMoveEmitSelections &gt; 0 counter — M68000JitGenericityTests.M68000_MOVE_arm_actually_dispatches_after_PR4a).
+/// So this sweep now diffs the emitted IL against the interpreter oracle for every executed case — load-bearing,
+/// NOT interpreter-vs-interpreter.</para>
+///
+/// <para><b>GREEN — full EA matrix, byte-identical (PR-4b).</b> Every EA mode — Dn/An direct, (An), (An)+,
+/// -(An) (A0-A6 AND A7), d16(An), d8(An,Xn), abs.w/abs.l, d16(PC)/d8(PC,Xn)/#imm sources — is byte-identical on the
+/// data axis (D0-D7/A0-A6/USP/SSP/SR/RAM). PR-4b fixed the two emit-arm defects PR-4a surfaced: (1) the EA mode 5
+/// <c>d16(An)</c> path passed its sign-extended displacement to <c>ILGenerator.Emit</c> as a <c>short</c>, which
+/// silently bound to the <c>Emit(OpCode, Int16)</c> overload and emitted a truncated <c>Ldc_I4</c> operand
+/// (InvalidProgramException at execute); it now sign-extends to <c>int</c> (EmitAddDisp16). (2) The wide-store /
+/// byte-store page derivation (<c>ea &gt;&gt; 8</c>) did not clamp the resolved EA to the bus address width, so a
+/// MOVE dest whose full-32-bit A-register-relative address carried bits above the 24-bit bus overran the
+/// fastmem/DirtyMap page arrays (IndexOutOfRangeException — mis-attributed to "A7" in the PR-4a notes; A7 banking
+/// was always correct); the page derivation now masks with <c>_bus.AddressMask</c> (EmitMaskAddrLocalToBus /
+/// EmitMaskEaLocalToBus). This sweep is a load-bearing merge gate.</para></summary>
+public sealed class M68000JitMoveFamilyTests(ITestOutputHelper output)
+{
+    public static TheoryData<string> MoveFiles()
+    {
+        var data = new TheoryData<string>();
+        foreach (var f in new[]
+        {
+            "MOVE.b.json.gz", "MOVE.w.json.gz", "MOVE.l.json.gz",
+            "MOVEA.w.json.gz", "MOVEA.l.json.gz", "MOVE.q.json.gz",   // MOVE.q = MOVEQ's vector file
+        })
+            data.Add(f);
+        return data;
+    }
+
+    // M6 PR-4b: the REAL emitted-IL gate — LIVE (was Skip'd in PR-4a pending the two EA-helper fixes; both are now
+    // fixed — see the class XML doc). The full EA-matrix sweep diffs the emitted MOVE IL against the interpreter
+    // oracle for every executed case and is byte-identical on the data axis, including the d16(An) (src+dest) and
+    // A7 edges that PR-4a surfaced as defective.
+    [M68000TomHarteTheory]
+    [MemberData(nameof(MoveFiles))]
+    public void Move_family_emitted_IL_is_data_axis_parity_green(string file)
+    {
+        string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
+        Assert.NotNull(dir);
+        string path = System.IO.Path.Combine(dir, file);
+        Assert.True(System.IO.File.Exists(path), $"MOVE-family vector file missing: {path}");
+
+        int sample = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sample,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        int executed = 0, deferred = 0, excluded = 0;
+        var failures = new List<string>();
+        foreach (var c in cases)
+        {
+            if (M68000DataAxisCorpus.IsExcludedCase(c)) { excluded++; continue; }
+            var rr = M68000TomHarteRunner.RunCaseThroughJit(c, assertExceptions: true);
+            if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
+            executed++;
+            if (rr is not null) { failures.Add(rr); if (failures.Count >= 8) break; }
+        }
+        output.WriteLine($"{file}: executed {executed}, deferred {deferred}, excluded {excluded} (MOVE emitted-IL JIT)");
+        Assert.True(executed > 0, $"{file}: 0 executed cases — the emitted-IL gate would be vacuous");
+        Assert.True(failures.Count == 0,
+            $"{file}: {failures.Count} MOVE emitted-IL parity failure(s) of {executed} executed:\n" +
+            string.Join("\n---\n", failures));
+    }
+}

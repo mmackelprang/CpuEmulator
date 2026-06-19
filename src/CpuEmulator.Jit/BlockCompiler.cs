@@ -30,6 +30,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// emits 1 (BRK/RTI/undefined stay fallbacks).</summary>
     internal int FallbackEmitCount { get; private set; }
 
+    /// <summary>M6 PR-4a: a per-instance count of how many times an M68000Move row was DISPATCHED to
+    /// <see cref="EmitM68kMove"/> across this compiler's Compile calls (the arm-selection probe). Pre-PR-4a this
+    /// was always 0 — the byte-stream decode mis-matched the table so no MOVE descriptor ever reached the emit
+    /// switch (the dead-arm blocker). A test asserts it is &gt; 0 after a MOVE block compiles, so the 68000 MOVE
+    /// parity gate is proven NON-vacuous (the emit IL actually ran), not interpreter-vs-interpreter. Distinct from
+    /// <see cref="FallbackEmitCount"/> (which resets per Compile); this ACCUMULATES across Compiles so a sweep can
+    /// assert one positive total.</summary>
+    internal int M68kMoveEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -56,6 +65,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // introspection — no generator change, no new ctor arg (Decision 2: the register file stays data).
     private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regWideFields;
     private readonly System.Collections.Generic.Dictionary<string, (FieldInfo Hi, FieldInfo Lo)> _regPairFields;
+
+    // M6 PR-4 (Task 3): the 32-bit register file (GAP G2). The 68000's D0-D7/A0-A6/USP/SSP/PC are uint
+    // FIELDS (M68000Cpu.g.cs:51-68); the ushort-gated _regWideFields above SKIPS them, so a parallel
+    // uint-gated map reaches them. A7 is NOT here — it is a banked PROPERTY (USP/SSP by the SR S-bit,
+    // M68000Cpu.cs:60-64), handled by the EA resolver's EmitLoadAreg/EmitStoreAreg (Task 4, DECISION A7).
+    // Built per-compile from the same target.RegisterNames + CpuType introspection (no generator change).
+    private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regWide32Fields;
 
     // P (Status), PC (ProgramCounter), and A (the accumulator) are NOT operand-driven — the
     // flow/flag/PC arms and the ALU/RMW/decimal A-convention arms reference them directly, by the
@@ -84,6 +100,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // a fallback op keeps its inner.Step bump. Null for non-Z80 CPUs.
     private readonly FieldInfo? _z80R;
 
+    // M6 PR-4: the 68000's status register (ushort SR). The EA resolver's A7-banking branch reads its S-bit
+    // ((SR>>13)&1) to choose USP/SSP for A7, and the MOVE CCR helper writes N/Z into its low byte. Resolved
+    // by name on the CPU type; null for non-68000 CPUs (harmless — only dereferenced under TargetIsM68000).
+    private readonly FieldInfo? _m68kSR;
+
     // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
     // typeof(Mos6502Cpu)). Resolved from the injected target's reflection handles.
     private readonly MethodInfo _mAdvance;
@@ -96,6 +117,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // (fastmem mode) or a TracingAddressSpace (trace mode) — see the BlockDelegate deviation note.
     private static readonly MethodInfo MRead = typeof(IAddressSpace).GetMethod("Read8")!;
     private static readonly MethodInfo MWrite = typeof(IAddressSpace).GetMethod("Write8")!;
+
+    // M6 PR-4 (Task 2): the wide big-endian bus accessors — the 68000 needs word/long access (the JIT had
+    // BYTE-ONLY bus helpers, a hard GAP). IAddressSpace.Read16/Read32/Write16/Write32 are big-endian on the
+    // 68000 bus (high word first — Core/IAddressSpace.cs:46-89, matching the interpreter's ReadLongBus/
+    // WriteLongBus high-word-first decomposition, M68000Cpu.cs:199-210). Resolved on IAddressSpace so the
+    // callvirt binds against the same bus arg (Ldarg_1) the byte helpers use.
+    private static readonly MethodInfo MRead16 = typeof(IAddressSpace).GetMethod("Read16")!;
+    private static readonly MethodInfo MRead32 = typeof(IAddressSpace).GetMethod("Read32")!;
+    private static readonly MethodInfo MWrite16 = typeof(IAddressSpace).GetMethod("Write16")!;
+    private static readonly MethodInfo MWrite32 = typeof(IAddressSpace).GetMethod("Write32")!;
 
     private static readonly MethodInfo MPageBacking = typeof(Fastmem).GetProperty("PageBacking")!.GetGetMethod()!;
     private static readonly MethodInfo MPageOffset = typeof(Fastmem).GetProperty("PageOffset")!.GetGetMethod()!;
@@ -151,6 +182,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // is a composed pair-view. (Names absent from both stay 8-bit-only, exactly as before.)
         _regWideFields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
         _regPairFields = new System.Collections.Generic.Dictionary<string, (FieldInfo, FieldInfo)>(System.StringComparer.Ordinal);
+        // M6 PR-4: the parallel 32-bit (uint-field) map — the 68000's D/A/USP/SSP/PC. Gated on uint so it
+        // captures EXACTLY the 68000's wide fields and is empty for the 6502/Z80/8086 (whose register fields
+        // are byte/ushort), so no other CPU's emit path is affected.
+        _regWide32Fields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
         foreach (string name in target.RegisterNames)
         {
             if (target.CpuType.GetField(name) is { } wf && wf.FieldType == typeof(ushort))
@@ -163,6 +198,8 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             {
                 _regPairFields[name] = (hf, lf);                 // AF/BC/DE/HL/IX/IY + shadows; AX/BX/CX/DX
             }
+            if (target.CpuType.GetField(name) is { } uf && uf.FieldType == typeof(uint))
+                _regWide32Fields[name] = uf;                     // D0-D7/A0-A6/USP/SSP/PC (68000) — real uint
         }
 
         // M6 PR-1: the Z80 LD emit arm's Q/WZ side-effect handles. Resolved by name on the CPU type;
@@ -174,6 +211,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         _z80WZ = target.CpuType.GetField("WZ");
         _z80R = target.CpuType.GetField("R");
         _z80F = target.CpuType.GetField("F");   // M6 PR-2: the Z80 flag register (byte F)
+        _m68kSR = target.CpuType.GetField("SR");   // M6 PR-4: the 68000 SR (A7 banking + the MOVE CCR)
     }
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
@@ -261,7 +299,20 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length)> Discover(ushort pc)
     {
         var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor, int)>();
-        var stream = new BusFetchStream(_bus, pc);          // byte-granular, positioned at pc
+        // M6 PR-4a: the decode-walk fetch stream is per-target GRANULAR. The 6502/Z80/8086 generated Decode()
+        // walks are BYTE-granular (BusFetchStream, UnitBytes==1, Read8) — authored against a byte stream. The
+        // 68000's generated Decode() is WORD-granular (M68000FetchStream, UnitBytes==2, big-endian — it reads
+        // `uint operword = stream.NextUnit()` as a 16-bit word, M68000Cpu.g.cs:748). Fed the byte stream the
+        // 68000 read only the operword's HIGH byte, mis-matched the field-op table, and DescriptorFor returned
+        // Undefined/NeedsFallback — so EVERY 68000 block fell back and the MOVE emit arm never dispatched (the
+        // PR-4 blocker). The ternary keys on the SAME TargetIsM68000 discriminator that already routes the MOVE
+        // arm (EmitInstruction). The non-68000 branch is byte-for-byte the pre-PR-4a construction, so the
+        // byte-granular CPUs see an IDENTICAL Discover (proven by their empty-diff descriptor tables + unchanged
+        // FallbackEmitCount + green JIT sweeps — the PR-4a regression gate).
+        IFetchStream NewStream(ushort at) => TargetIsM68000
+            ? new M68000FetchStream(_bus, at)   // word-granular: Seeds the queue from the two physical words at `at`
+            : new BusFetchStream(_bus, at);     // byte-granular: == the pre-PR-4a `new BusFetchStream(_bus, pc)`
+        IFetchStream stream = NewStream(pc);                // positioned at pc (byte- or word-granular per target)
         for (int i = 0; i < _opts.BlockLengthCap; i++)
         {
             DecodeResult r = _target.Decode(stream);        // J3: the per-CPU decode seam (was static)
@@ -275,11 +326,25 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             // FALLBACK Z80 op ends the block (Discover stops; its nextPc is never read — it self-terminates
             // via inner.Step), so only emitted LD rows need the correction. The 6502 is unaffected (its walk
             // length already includes operands).
+            // M6 PR-4: NO 68000 footprint correction here. Unlike the Z80 (whose r.Length is the opcode-KEY
+            // length, so the emitted-LD operand bytes must be added back via Z80EmitOperandBytes), the 68000's
+            // generated Decode() consumes the operword AND every extension word — source AND dest — and returns
+            // `UnitsConsumed * UnitBytes` as r.Length (g.cs Decode, the `int len = ...` line). So r.Length is
+            // ALREADY the exact next-instruction footprint for an emitted block-continuing MOVE; adding
+            // M68kEmitOperandBytes would DOUBLE-count. M68kEmitOperandBytes exists only as the standalone
+            // footprint oracle the FallbackEmitCount discovery unit tests assert against (it must equal r.Length).
             int length = r.Length + Z80EmitOperandBytes(d);
             run.Add((pc, d, length));
             if (d.EndsBlock) break;
             pc = unchecked((ushort)(pc + length));           // advance by the FULL footprint
-            stream.SeekTo(pc);                               // reposition at the next instruction
+            // M6 PR-4a: reposition at the next instruction. The byte stream supports in-place SeekTo (its IL is
+            // UNCHANGED from pre-PR-4a — same instance reused, same reset); the word stream (a stateful queue
+            // with no SeekTo) is re-CONSTRUCTED fresh at the new pc — its stateless decode-walk ctor re-Seeds
+            // the queue from `pc`, the correct per-instruction decode start (the runtime Seed/Reseed/refill
+            // machinery is irrelevant to the never-executing discovery walk). Re-constructing the BYTE stream
+            // would be equivalent to SeekTo, but keeping SeekTo on the byte path leaves its IL untouched.
+            if (stream is BusFetchStream bfs) bfs.SeekTo(pc);
+            else stream = NewStream(pc);                     // 68000: fresh word-granular stream re-Seeded at pc
         }
         return run;
     }
@@ -361,6 +426,22 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
     {
         if (d.NeedsFallback) { EmitFallbackStep(ctx); return; }
+        // M6 PR-4a: a 68000 MOVE is BLOCK-CONTINUING (NeedsFallback=false), so Discover walks PAST it into the
+        // next word. In the single-instruction TomHarte corpus that next word is the prefetch-queue LOOKAHEAD
+        // (pf[1]), NOT a real instruction — and ~1-in-5 of those words classify as a MOVE-family descriptor with
+        // an ARBITRARY dest EA, including the PC-relative / immediate modes (mode 7 reg 2/3/4) that are ILLEGAL
+        // MOVE destinations and that EmitM68kEaWrite cannot emit. (In a real program the next word IS a real
+        // instruction, but discovery can still walk into data / illegal-EA words at a block boundary.) Rather
+        // than ABORT the whole block compile with the EmitM68kEaWrite throw (which kills the REAL first MOVE too),
+        // fall back to inner.Step for the unhandled op — exactly as every other unemittable 68000 op does. The
+        // fallback ENDS the block (EmitNormalExit), which is correct: at runtime the budget exit after the first
+        // instruction means this op never executes anyway. NOT counted in M68kMoveEmitSelections (it did not emit
+        // MOVE IL). MOVEQ has no dest EA (EmitM68kMoveQ handles it wholly), so it is always emittable.
+        if (TargetIsM68000 && d.Class == JitOpClass.M68000Move && !CanEmitM68kMove(pc, d))
+        {
+            EmitFallbackStep(ctx);
+            return;
+        }
         // Mirror the interpreter Step's opcode fetch EXACTLY: charge the opcode-fetch cycle FIRST
         // (the interpreter does `ReadBus(PC)` — which does `_cycles++` — then `PC++` in Step,
         // then `Execute` resolves operands). Charging the fetch cycle up-front (rather than as a
@@ -398,8 +479,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // here to ARM the intra-block SMC guard for a PUSH onto a code page. CALL/RST also push, but they END
         // the block and self-terminate via EmitChainOrExit, whose dirty.Any gate is the coarse SMC backstop for
         // their stack writes — so NO mayWriteRam entry for the flow kinds (only Push16, the block-continuing one).
+        // M6 PR-4: a 68000 MOVE/MOVEA to a memory EA writes RAM, so the intra-block SMC guard must arm (a MOVE
+        // onto its own code page must recompile). MOVEQ (Dn dest) and reg-dest MOVE never write RAM, but the
+        // class-level gate is conservative-correct: an instruction that does NOT write RAM never trips the guard
+        // (SmcPageLocal stays -1), so arming it on every M68000Move row is harmless and keeps the gate simple.
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
-            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16");
+            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
+            || (TargetIsM68000 && d.Class == JitOpClass.M68000Move);
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -417,6 +503,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;
             case JitOpClass.Z80Flow: EmitZ80Flow(ctx, pc, d, length); break;   // M6 PR-3 (DECISION H2)
+            case JitOpClass.M68000Move:
+                M68kMoveEmitSelections++;   // M6 PR-4a: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
+                EmitM68kMove(ctx, pc, d);   // M6 PR-4 (DECISION P3)
+                break;
             case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:
                 throw new EmulationException(
@@ -556,6 +646,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     {
         ILGenerator il = ctx.Il;
         il.Emit(OpCodes.Stloc, ctx.EaLocal);   // ea = address
+        EmitMaskEaLocalToBus(ctx);             // PR-4b: clamp to the bus width before the fastmem page index (see EmitMarkWidePagesDirty)
         EmitChargeOneCycle(ctx);               // charge BEFORE the access (matches ReadBus)
 
         Label mmio = il.DefineLabel(), done = il.DefineLabel();
@@ -606,6 +697,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // stack: address, value  -> stash both (value on top)
         il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value
         il.Emit(OpCodes.Stloc, ctx.EaLocal);     // address
+        EmitMaskEaLocalToBus(ctx);               // PR-4b: clamp to the bus width before the fastmem page index (see EmitMarkWidePagesDirty)
         EmitChargeOneCycle(ctx);                 // charge BEFORE the access (MMIO ordering)
 
         Label mmio = il.DefineLabel(), drop = il.DefineLabel(), done = il.DefineLabel();
@@ -694,6 +786,167 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
         il.MarkLabel(noMark);
         il.MarkLabel(done);
+    }
+
+    // ── M6 PR-4 (Task 2): wide big-endian bus emit helpers ───────────────────────────────────
+    // The 68000 needs word/long bus access; the JIT had only byte helpers (GAP G1). These do a BUS-ONLY
+    // callvirt (Ldarg_1 = the IAddressSpace bus, the same arg the byte helpers' MMIO arm uses) — NOT the
+    // fastmem page-split fast path. Rationale: the interpreter itself just calls _bus.Read16/Write16 for
+    // wide access (M68000Cpu.cs:185-210); the fastmem fast path is byte-keyed (256-byte pages) and a wide
+    // access can straddle a page boundary, so replicating the page-split for wide access is not worth it in
+    // PR-4. Each helper charges 0 cycles (DECISION C-jit: the whole-op BaseCycles is charged ONCE by the
+    // MOVE arm via EmitChargeCycles; the data-axis parity gate ignores CycleCount — T2). The store helpers
+    // mark the touched page(s) dirty (SMC) exactly as EmitStoreByte does so a MOVE onto its own code page
+    // recompiles. Read16/Read32/Write16/Write32 are big-endian high-word-first (Core/IAddressSpace.cs),
+    // matching the interpreter's ReadLongBus/WriteLongBus store order.
+
+    /// <summary>Read a big-endian word from the bus. Stack: ..., address(uint) -> ..., value(int 0..0xFFFF).
+    /// Charges 0 cycles. Stashes the address in AddrLocal (NOT EaLocal, which the byte helpers clobber).</summary>
+    private void LoadWordFromBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        il.Emit(OpCodes.Ldarg_1);                // bus (IAddressSpace)
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Callvirt, MRead16);      // bus.Read16(addr) -> ushort (pushed as int 0..0xFFFF)
+    }
+
+    /// <summary>Read a big-endian long from the bus (high word first — ReadLongBus order). Stack: ...,
+    /// address(uint) -> ..., value(uint). Charges 0 cycles.</summary>
+    private void LoadLongFromBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Callvirt, MRead32);      // bus.Read32(addr) -> uint
+    }
+
+    /// <summary>Write a big-endian word to the bus. Stack: ..., address(uint), value(int) -> .... Marks the
+    /// spanned page(s) dirty (SMC). Charges 0 cycles.</summary>
+    private void EmitStoreWord(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        EmitMarkWidePagesDirty(ctx, byteSpan: 2);
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Callvirt, MWrite16);     // bus.Write16(addr, (ushort)value)
+    }
+
+    /// <summary>Write a big-endian long to the bus, HIGH WORD FIRST (the MOVE.l store order — WriteLongBus,
+    /// M68000Cpu.cs:206-210; the RMW low-word-first WriteLongBusRmw is PR-5, not MOVE). Stack: ...,
+    /// address(uint), value(uint) -> .... Marks the spanned page(s) dirty (SMC). Charges 0 cycles.</summary>
+    private void EmitStoreLong(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.DataLocal);   // value (held as int; the bit pattern is the uint long)
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // address
+        EmitMarkWidePagesDirty(ctx, byteSpan: 4);
+        il.Emit(OpCodes.Ldarg_1);                // bus
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(OpCodes.Conv_U4);
+        il.Emit(OpCodes.Callvirt, MWrite32);     // bus.Write32(addr, (uint)value) — Write32 is high-word-first
+    }
+
+    /// <summary>M6 PR-4: mark the page(s) a wide write touches dirty (SMC) + record the SMC page for the
+    /// intra-block guard. A word/long spans 2/4 bytes and may cross a 256-byte page boundary, so this marks
+    /// the BASE page and, when it differs, the (base + byteSpan - 1) page. Mirrors EmitStoreByte's
+    /// dirty.Mark(page) idiom (Ldarg_3 = DirtyMap, MDirtyMark). The address is read from AddrLocal (the wide
+    /// store helpers stash it there). Unconditional (unlike EmitStoreByte, this does NOT gate on
+    /// PageWritable): a wide MOVE to ROM/MMIO marking a spurious dirty page is harmless — the store itself is
+    /// dropped/handled by the bus, and a non-code page being flagged dirty only triggers a (cheap) re-decode
+    /// check, never a correctness issue. Keeping it unconditional avoids the fastmem page-class branch this
+    /// bus-only path deliberately omits.</summary>
+    private void EmitMarkWidePagesDirty(EmitContext ctx, int byteSpan)
+    {
+        ILGenerator il = ctx.Il;
+        // PR-4b: clamp the address to the bus width BEFORE deriving any page index. The resolved EA can carry
+        // bits above the address bus (the 68000's A-registers / displacements are full 32-bit, but the bus is
+        // 24-bit), and the page derived from `addr >> 8` indexes the DirtyMap's bool[PageCount] (PageCount =
+        // 2^addressBits / 256). An unmasked high address overruns that array (IndexOutOfRangeException) — the
+        // interpreter never hits it because every bus access masks `address & AddressMask` first. Masking
+        // AddrLocal here keeps the page in range and is a no-op for the byte CPUs (whose EA is already in range).
+        EmitMaskAddrLocalToBus(ctx);
+        // dirty.Mark(addr >> 8)  — the base page
+        il.Emit(OpCodes.Ldarg_3);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Callvirt, MDirtyMark);
+        // SmcPageLocal = base page (the intra-block SMC guard reads this after the instruction)
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Stloc, ctx.SmcPageLocal);
+        // If the access crosses a page boundary, also mark the END page ((base + byteSpan - 1) & mask) >> 8 when
+        // it differs from the base page. Emitted as a runtime compare so an aligned access marks one page only.
+        // PR-4b: the end address is re-clamped to the bus width — a wide access whose base is at the very top of the
+        // space (e.g. MOVE.l to 0x00FFFFFF on the 24-bit 68000 bus) wraps the trailing bytes to low addresses
+        // exactly as the interpreter does (each component Write8 masks with AddressMask), so the end page must wrap
+        // to 0 rather than overrun the DirtyMap. Masking only the base (above) is NOT sufficient for this term.
+        Label sameEndPage = il.DefineLabel();
+        // basePage
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+        // endPage = ((addr + byteSpan - 1) & AddressMask) >> 8
+        EmitWideEndPage(ctx, byteSpan);
+        il.Emit(OpCodes.Beq, sameEndPage);       // basePage == endPage -> nothing more to mark
+        // dirty.Mark(endPage)
+        il.Emit(OpCodes.Ldarg_3);
+        EmitWideEndPage(ctx, byteSpan);
+        il.Emit(OpCodes.Callvirt, MDirtyMark);
+        il.MarkLabel(sameEndPage);
+    }
+
+    /// <summary>PR-4b: push <c>((AddrLocal + byteSpan - 1) &amp; _bus.AddressMask) &gt;&gt; 8</c> — the page index of
+    /// the LAST byte a wide access touches, clamped to the bus width so a top-of-space access wraps (matching the
+    /// interpreter's per-component <c>Write8</c> masking) instead of overrunning the DirtyMap. Stack: ... -> ...,
+    /// endPage(int).</summary>
+    private void EmitWideEndPage(EmitContext ctx, int byteSpan)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4, byteSpan - 1);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_8);
+        il.Emit(OpCodes.Shr_Un);
+    }
+
+    /// <summary>PR-4b: <c>AddrLocal = AddrLocal &amp; _bus.AddressMask</c> — clamp the wide-store address local to
+    /// the bus address width before any <c>addr &gt;&gt; 8</c> page derivation. The mask is a COMPILE-TIME constant
+    /// (the concrete bus's width: 0xFFFF for the 16-bit boards, 0xFFFFF for the 8086, 0xFFFFFF for the 68000), so
+    /// this is a single <c>Ldc_I4; And</c>. For the byte CPUs the resolved EA is already within the width (their EA
+    /// arms mask to the address width as part of EA computation), so this And is the identity — it changes no
+    /// emitted behaviour for 6502/Z80/8086, and only clamps the 68000's full-width A-register-relative addresses.</summary>
+    private void EmitMaskAddrLocalToBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);
+    }
+
+    /// <summary>PR-4b: <c>EaLocal = EaLocal &amp; _bus.AddressMask</c> — the byte-path counterpart of
+    /// <see cref="EmitMaskAddrLocalToBus"/>. The byte read/store helpers index the fastmem page arrays
+    /// (<c>PageBacking</c>/<c>PageOffset</c>/<c>PageWritable</c>, each sized to PageCount) and the DirtyMap with
+    /// <c>ea &gt;&gt; 8</c>; a 68000 MOVE.b to/from a full-width address would overrun those arrays. Identity for the
+    /// already-in-range byte CPUs (see <see cref="EmitMaskAddrLocalToBus"/>).</summary>
+    private void EmitMaskEaLocalToBus(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.EaLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)_bus.AddressMask));
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.EaLocal);
     }
 
     // ── SetNZ: P = (P & 0x7D) | (src==0 ? 2 : 0) | (src & 0x80) ──────────────────────────────
@@ -808,6 +1061,80 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         throw new EmulationException(
             $"compiled descriptor names 16-bit register '{name}' which the CPU type declares neither as a "
           + "ushort field nor as a composable pair-view (PR-0 wide-register helper)");
+    }
+
+    // ── M6 PR-4 (Task 3): 32-bit + size-aware register emit helpers (GAP G2) ──────────────────
+    // The 68000's D0-D7/A0-A6/USP/SSP/PC are uint fields (resolved into _regWide32Fields). MOVE operates on
+    // the .b/.w/.l slice of a uint register, preserving the upper bits on a narrow write (the SetDataRegPartial
+    // oracle, M68000Cpu.Move.cs:41-49); MOVEA writes the WHOLE An (with .w sign-extension — a distinct path
+    // the caller handles, NOT a partial write).
+
+    /// <summary>M6 PR-4: load the full 32-bit register value. Stack: ... -> ..., value(uint).</summary>
+    private void EmitLoadReg32(EmitContext ctx, string name)
+    {
+        if (!_regWide32Fields.TryGetValue(name, out var f))
+            throw new EmulationException(
+                $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
+              + "uint field (PR-4 32-bit register helper)");
+        ctx.Il.Emit(OpCodes.Ldarg_0);
+        ctx.Il.Emit(OpCodes.Ldfld, f);
+    }
+
+    /// <summary>M6 PR-4: store the full 32-bit register. Stack: ..., value(uint) -> .... The value arrives
+    /// BELOW the receiver, so stage it through M68kStoreStageLocal (uint), push cpu, reload, Stfld.
+    /// The staging local is the DEDICATED register-store stage — NOT M68kValueLocal — so a register
+    /// write-back (e.g. EmitAdvanceAreg on a dest (An)+/-(An)) never clobbers a live MOVE operand parked in
+    /// M68kValueLocal. (Pre-merge review HIGH finding, M6 PR-4.)</summary>
+    private void EmitStoreReg32(EmitContext ctx, string name)
+    {
+        if (!_regWide32Fields.TryGetValue(name, out var f))
+            throw new EmulationException(
+                $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
+              + "uint field (PR-4 32-bit register helper)");
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.M68kStoreStageLocal);   // value
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.M68kStoreStageLocal);
+        il.Emit(OpCodes.Stfld, f);
+    }
+
+    /// <summary>M6 PR-4: size-aware register READ. Loads the full 32-bit register, then masks to the low
+    /// byte (.b) / word (.w); .l leaves the whole value. Stack: ... -> ..., value (the masked slice as uint).
+    /// size: 0=.b, 1=.w, 2=.l. Mirrors ReadEaOperand's <c>DataReg(reg) &amp; SizeMask(size)</c> for Dn
+    /// (M68000Cpu.Move.cs:26); for An (mode 1) the source read is the WHOLE register, so the caller uses
+    /// .l/EmitLoadReg32 for An, not this masked read.</summary>
+    private void EmitLoadDataRegSized(EmitContext ctx, string name, int size)
+    {
+        EmitLoadReg32(ctx, name);
+        if (size == 0) { ctx.Il.Emit(OpCodes.Ldc_I4, 0xFF); ctx.Il.Emit(OpCodes.And); }
+        else if (size == 1) { ctx.Il.Emit(OpCodes.Ldc_I4, 0xFFFF); ctx.Il.Emit(OpCodes.And); }
+        // size 2 (.l): leave the whole 32-bit value
+    }
+
+    /// <summary>M6 PR-4: size-aware data-register WRITE preserving the upper bits on .b/.w (the
+    /// SetDataRegPartial oracle, M68000Cpu.Move.cs:41-49). Stack: ..., value -> ....
+    ///   .b: reg = (reg &amp; ~0xFF)   | (value &amp; 0xFF);
+    ///   .w: reg = (reg &amp; ~0xFFFF) | (value &amp; 0xFFFF);
+    ///   .l: reg = value   (whole 32 — delegates to EmitStoreReg32).
+    /// NOTE: this is the Dn-dest partial write. MOVEA's An dest is the WHOLE register with .w sign-extension
+    /// — a DISTINCT path the MOVE arm emits via EmitStoreReg32 (Task 5), never through here.</summary>
+    private void EmitStoreDataRegSized(EmitContext ctx, string name, int size)
+    {
+        if (size == 2) { EmitStoreReg32(ctx, name); return; }
+        if (!_regWide32Fields.TryGetValue(name, out var f))
+            throw new EmulationException(
+                $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
+              + "uint field (PR-4 32-bit register helper)");
+        ILGenerator il = ctx.Il;
+        uint mask = size == 0 ? 0xFFu : 0xFFFFu;
+        il.Emit(OpCodes.Stloc, ctx.M68kStoreStageLocal);            // new value (dedicated store stage — NOT
+        il.Emit(OpCodes.Ldarg_0);                                   //   M68kValueLocal, so a live MOVE operand
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, f);        //   parked there survives this write)
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~mask)); il.Emit(OpCodes.And);   // old & ~mask  (keep upper bits)
+        il.Emit(OpCodes.Ldloc, ctx.M68kStoreStageLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)mask)); il.Emit(OpCodes.And);    // value & mask
+        il.Emit(OpCodes.Or);                                        // (old & ~mask) | (value & mask)
+        il.Emit(OpCodes.Stfld, f);                                  // reg = merged
     }
 
     /// <summary>Test seam (PR-0): compile a one-shot method that writes <paramref name="value"/> into the
