@@ -60,25 +60,26 @@ public class WordGranularDiscoverRegressionTests
         Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the HALT — the LD + ADD emitted (unchanged)
     }
 
-    // 8086: MOV AL,imm8. The 8086 is ALL-FALLBACK in M5 (every op NeedsFallback/EndsBlock — Mirrors the 68000's
-    // pre-PR-4 all-fallback model, M8086JitGenericityTests.Generic_compiler_discovers_an_8086_block_as_a_single_fallback).
-    // So Discover returns a SINGLE op: the first byte-granular decode at the entry pc, computed-length == the
-    // MOV AL,imm8 footprint (2), NeedsFallback, EndsBlock. PR-4a keeps the 8086 on the BYTE path (the ternary's
-    // else branch), so this single-op byte-granular shape is byte-for-byte unchanged.
+    // 8086: MOV AL,imm8 (0xB0). The Discover BYTE-granularity is unchanged by PR-4a (the 8086 stays on the byte
+    // path — the NewStream ternary's TargetIsM8086 branch is byte-granular, just SEGMENTED). M6 PR-B flips the MOV
+    // family emittable (NeedsFallback=false, EndsBlock=false), so Discover now WALKS PAST the MOV into the next op
+    // (0x00 at 0x0202 = ADD, still fallback → ends the block). The MOV's computed footprint stays 2 (opcode + imm8),
+    // which is the byte-granular invariant this regression pins. (This block runs at CS=0, so the segmented physical
+    // == the flat IP — the same bytes pre/post Task 0.)
     [Fact]
     public void M8086_discover_is_byte_granular_and_unchanged()
     {
         var space = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);   // LittleEndian (8086 default)
         space.MapMemory(0x00000, new byte[0x100000], writable: true);
-        space.Write8(0x0200, 0xB0); space.Write8(0x0201, 0x01);   // MOV AL,1
+        space.Write8(0x0200, 0xB0); space.Write8(0x0201, 0x01);   // MOV AL,1  (0x0202 = 0x00 = ADD, still fallback)
         var opts = new JitOptions();
         var compiler = new BlockCompiler<M8086Cpu>(
             new M8086Cpu(space), M8086Cpu.JitTarget, space, new Fastmem(space, opts), opts);
         var run = compiler.Discover(0x0200);
-        Assert.Single(run);                          // 8086 is all-fallback → one op ends the block
         Assert.Equal(0x0200, run[0].Pc);
-        Assert.Equal(2, run[0].Length);              // MOV AL,imm8 byte-granular footprint (opcode + imm8)
-        Assert.True(run[0].D.NeedsFallback);         // ... falls back to inner.Step (all-fallback M5)
-        Assert.True(run[0].D.EndsBlock);             // ... and ends the block
+        Assert.Equal(2, run[0].Length);              // MOV AL,imm8 byte-granular footprint (opcode + imm8) — UNCHANGED
+        Assert.False(run[0].D.NeedsFallback);        // M6 PR-B: the MOV row now EMITS real IL (gate-flipped)
+        Assert.False(run[0].D.EndsBlock);            // ... so the block CONTINUES past it (byte-granular walk)
+        Assert.Equal("MOV", run[0].D.Mnemonic);
     }
 }

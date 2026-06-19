@@ -56,13 +56,13 @@ public class DiscoverComputedLengthTests
     [Fact]
     public void Discover_run_tuple_carries_the_computed_length()
     {
-        // The run is List<(ushort Pc, OpcodeDescriptor D, int Length)>; each tuple's Length equals
+        // The run is List<(ushort Pc, OpcodeDescriptor D, int Length, byte X86Seg)>; each tuple's Length equals
         // DescriptorFor(key).FixedLength for the 6502 (the Fixed degenerate equality).
         var space = NewRamSpace();
         Poke(space, 0x0200, 0xA9, 0x01, 0xAD, 0x34, 0x12, 0x00); // LDA #1 / LDA $1234 / BRK
         var run = NewCompiler(space).Discover(0x0200);
 
-        foreach (var (_, d, length) in run)
+        foreach (var (_, d, length, _) in run)
             Assert.Equal(Mos6502Cpu.DescriptorFor(d.Opcode).FixedLength, length);
     }
 
