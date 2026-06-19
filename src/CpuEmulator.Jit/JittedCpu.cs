@@ -205,6 +205,13 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
     {
         exit = BlockExit.Normal;
         if (_opts.DisableChaining) return;          // flag -> no chaining; round-trip
+        // M6 PR-S: do NOT chain INTO an SMC-hot/cooling PC. ResolveChain -> GetOrCompile would
+        // recompile (and re-arm) that PC, paying the very per-dispatch Compile() the cooldown exists
+        // to suppress and leaking the cooldown window. Break the chain instead (leave _chainNext null)
+        // so RunChain rounds back to the dispatcher, where ShouldInterpret routes the cooling PC
+        // through inner.Step. Breaking a chain only forces a dispatcher round-trip — always correct
+        // (the DisableChaining path above proves it), so this is a pure scheduling refinement.
+        if (_cache.ShouldInterpret(targetPc)) return;
         _chainNext = _cache.ResolveChain(targetPc, _chainPredecessor!, _compiler); // link + resolve
     }
 
