@@ -1091,4 +1091,176 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 return;
         }
     }
+
+    /// <summary>M6 PR-D: emit one 8086 NEAR control-flow instruction (DECISION D-1/D-2). Reached when TargetIsM8086
+    /// &amp;&amp; the row is an in-scope flow opcode. STATIC targets (Jcc/JMP/CALL rel, LOOP*) chain via EmitChainOrExit
+    /// (the target is the compile-time constant (pc+length) + rel); DYNAMIC targets (RET pop, FF /2 /4 indirect) set
+    /// IP from a runtime value and EmitNormalExit. Conditional forms chain BOTH the taken (static) and not-taken
+    /// (pc+length) edges. The arm SELF-TERMINATES (it sets the IP field then exits via EmitChainOrExit/EmitNormalExit,
+    /// each of which ends with ret) — it does NOT use the MOV/ALU length-1 tail (flow leaves IP at the successor, not
+    /// the next-instruction base). Sets NO flags. The default throws (the gate↔arm lockstep tripwire).
+    /// <paramref name="length"/> is the walk's exact footprint (the fall-through base); <paramref name="x86Seg"/> is
+    /// the captured segment-override prefix byte (used only by the FF-group indirect memory operand).</summary>
+    private void EmitM8086Flow(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
+    {
+        ILGenerator il = ctx.Il;
+        M8086Cpu_Override over = M8086OverrideFromByte(x86Seg);
+        ushort fallThrough = (ushort)(pc + length);   // the post-instruction IP (== the interpreter's pre-body IP).
+
+        // Scan past any prefix byte(s) at the SEGMENTED physical to find the opcode; the const operand reads start at
+        // operandPc = (opcode pos)+1 (the EmitM8086Mov / EmitM8086Alu decode preamble verbatim).
+        int opcodePc = pc;
+        while (M8086IsPrefixByte(_bus.Read8(M8086CodePhys((ushort)opcodePc)))) opcodePc++;
+        byte opcode = _bus.Read8(M8086CodePhys((ushort)opcodePc));
+        int operandPc = opcodePc + 1;
+
+        switch (opcode)
+        {
+            // ── 70-7F Jcc rel8: conditional; both edges static (chainable). ───────────────────────────────────────
+            case >= 0x70 and <= 0x7F:
+            {
+                short rel = (sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc));   // sign-extended rel8
+                ushort target = (ushort)(fallThrough + rel);
+                Label notTaken = il.DefineLabel();
+                EmitM8086JccTaken(ctx, opcode);                // push taken? (0/1)
+                il.Emit(OpCodes.Brfalse, notTaken);
+                EmitM8086SetIp(ctx, target);                   // IP = target
+                EmitChainOrExit(ctx, target);                  // STATIC taken edge — chainable (self-terminates)
+                il.MarkLabel(notTaken);
+                EmitM8086SetIp(ctx, fallThrough);              // IP = fall-through
+                EmitChainOrExit(ctx, fallThrough);             // STATIC not-taken edge — chainable (self-terminates)
+                return;
+            }
+
+            // ── EB JMP rel8: unconditional static. ────────────────────────────────────────────────────────────────
+            case 0xEB:
+            {
+                short rel = (sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc));   // sign-extended rel8
+                ushort target = (ushort)(fallThrough + rel);
+                EmitM8086SetIp(ctx, target);
+                EmitChainOrExit(ctx, target);
+                return;
+            }
+
+            // ── E9 JMP rel16: unconditional static. ──────────────────────────────────────────────────────────────
+            case 0xE9:
+            {
+                short rel = (short)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                    | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));   // (short) rel16
+                ushort target = (ushort)(fallThrough + rel);
+                EmitM8086SetIp(ctx, target);
+                EmitChainOrExit(ctx, target);
+                return;
+            }
+
+            // ── E8 CALL rel16: push the return IP (== fallThrough), then jump to the static target (chainable). ────
+            case 0xE8:
+            {
+                short rel = (short)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                    | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));   // (short) rel16
+                ushort target = (ushort)(fallThrough + rel);
+                EmitM8086PushWord(ctx, () => il.Emit(OpCodes.Ldc_I4, (int)fallThrough));   // PushWord(IP) — the return IP
+                EmitM8086SetIp(ctx, target);
+                EmitChainOrExit(ctx, target);                  // STATIC call entry — chainable (Z80 EmitZ80Call shape)
+                return;
+            }
+
+            // ── C3 RET / C2 RET imm16: pop IP (dynamic target → exit), C2 also adds imm16 to SP. ──────────────────
+            case 0xC3: case 0xC2:
+            {
+                EmitM8086PopWord(ctx); EmitM8086SetIpFromStack(ctx);   // IP = PopWord()
+                if (opcode == 0xC2)                                     // SP += imm16
+                {
+                    ushort imm16 = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                            | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("SP")); il.Emit(OpCodes.Ldc_I4, (int)imm16); il.Emit(OpCodes.Add);
+                    il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("SP"));
+                }
+                EmitNormalExit(ctx);                                   // DYNAMIC popped target — NOT chainable
+                return;
+            }
+
+            // ── E0/E1/E2/E3 LOOP family: CX-conditioned static short jump (both edges chainable). ─────────────────
+            case 0xE0: case 0xE1: case 0xE2: case 0xE3:
+            {
+                short rel = (sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc));   // sign-extended rel8
+                ushort target = (ushort)(fallThrough + rel);
+                Label notTaken = il.DefineLabel();
+                EmitM8086LoopTaken(ctx, opcode);               // push taken? (decrements CX for E0-E2; reads ZF/CX)
+                il.Emit(OpCodes.Brfalse, notTaken);
+                EmitM8086SetIp(ctx, target); EmitChainOrExit(ctx, target);
+                il.MarkLabel(notTaken);
+                EmitM8086SetIp(ctx, fallThrough); EmitChainOrExit(ctx, fallThrough);
+                return;
+            }
+
+            // ── FF /2 CALL r/m16 near (key 0x7FA) / FF /4 JMP r/m16 near (key 0x7FC): dynamic target. The GATE admits
+            //    ONLY the near /2 /4 keys (far /3 /5 stay fallback), so a 0xFF row reaching here is guaranteed near —
+            //    re-decode the ModR/M reg field to pick CALL (/2) vs JMP (/4). The descriptor's d.Opcode is the BYTE
+            //    0xFF for EVERY FF-group row (the dictionary key 0x7FA/0x7FC is NOT carried on d), so reg is the only
+            //    in-arm discriminator. ─────────────────────────────────────────────────────────────────────────────
+            case 0xFF:
+            {
+                byte modrm = _bus.Read8(M8086CodePhys((ushort)operandPc)); operandPc++;
+                uint mod = (uint)(modrm >> 6) & 3u;
+                uint reg = (uint)(modrm >> 3) & 7u;
+                uint rm  = (uint)modrm & 7u;
+                int dispLen = mod switch { 0u => rm == 6u ? 2 : 0, 1u => 1, 2u => 2, _ => 0 };
+                ushort disp = 0;
+                if (dispLen == 1) disp = unchecked((ushort)(sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc)));
+                else if (dispLen == 2)
+                    disp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                    | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+
+                if (reg == 2u)        // FF /2 CALL r/m16 near (key 0x7FA): push the return IP, then IP = r/m16.
+                {
+                    EmitM8086PushWord(ctx, () => il.Emit(OpCodes.Ldc_I4, (int)fallThrough));   // PushWord(IP)
+                    EmitM8086LoadRmWordTarget(ctx, mod, rm, disp, over);                       // push the r/m16 target
+                    EmitM8086SetIpFromStack(ctx);                                              // IP = target
+                    EmitNormalExit(ctx);                                                       // DYNAMIC — NOT chainable
+                    return;
+                }
+                if (reg == 4u)        // FF /4 JMP r/m16 near (key 0x7FC): IP = r/m16.
+                {
+                    EmitM8086LoadRmWordTarget(ctx, mod, rm, disp, over);
+                    EmitM8086SetIpFromStack(ctx);
+                    EmitNormalExit(ctx);
+                    return;
+                }
+                goto default;   // any other FF /reg is far/PUSH — the gate excludes it; a lockstep bug if reached.
+            }
+
+            default:
+                throw new EmulationException(
+                    $"BlockCompiler: no 8086 flow emit branch for opcode 0x{opcode:X2} (key 0x{d.Opcode:X}); "
+                  + "the gate (IsEmittableX86Family) admitted a form the arm does not handle — a lockstep bug.");
+        }
+    }
+
+    /// <summary>M6 PR-D: IP = (ushort)target (a compile-time constant) — the resolved IP field (_fpc, "IP").</summary>
+    private void EmitM8086SetIp(EmitContext ctx, ushort target)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldc_I4, (int)target); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+    }
+
+    /// <summary>M6 PR-D: IP = (ushort)(the value on the IL stack) — stash through DataLocal so the Stfld receiver
+    /// (Ldarg_0) is loaded after the value is consumed.</summary>
+    private void EmitM8086SetIpFromStack(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Stfld, _fpc);
+    }
+
+    /// <summary>M6 PR-D: push the FF-group r/m16 target word (int) on the IL stack — ReadRmWord (Control.cs:148/157).
+    /// For mod==3 the target is the 16-bit register M8086Reg16[rm] (a register operand is valid only for the NEAR
+    /// forms, the contract the gate enforces); else resolve the EA + read the word (the PR-B offset-wrap
+    /// EmitM8086LoadWordEa).</summary>
+    private void EmitM8086LoadRmWordTarget(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        if (mod == 3u) EmitLoadReg16(ctx, M8086Reg16[rm]);
+        else EmitM8086LoadWordEa(ctx, mod, rm, disp, over);
+    }
 }
