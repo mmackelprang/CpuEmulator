@@ -63,6 +63,14 @@ internal sealed class EmitContext
     /// each store/RMW instruction so a no-store instruction never trips the guard.</summary>
     public LocalBuilder SmcPageLocal { get; }
 
+    /// <summary>uint — M6 PR-4: a 32-bit staging local for the 68000 emit arms. EmitStoreReg32 stages the
+    /// to-be-stored value here (the value arrives on the stack BELOW the receiver, so it must be stashed,
+    /// the receiver pushed, then the value reloaded). Typed uint so the 68000's 32-bit register/operand
+    /// values round-trip without the sign-extension a signed int local would impose. The next PR-4 agent's
+    /// EA resolver + MOVE arm (Tasks 4-7) reuse it to hold a resolved EA value / the MOVE operand across the
+    /// dest-EA resolution. Distinct from DataLocal (int) — keeping a separate uint local avoids Conv churn.</summary>
+    public LocalBuilder M68kValueLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -77,5 +85,6 @@ internal sealed class EmitContext
         TmpInt = il.DeclareLocal(typeof(int));
         NibLocal = il.DeclareLocal(typeof(int));
         SumLocal = il.DeclareLocal(typeof(int));
+        M68kValueLocal = il.DeclareLocal(typeof(uint));
     }
 }

@@ -57,6 +57,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regWideFields;
     private readonly System.Collections.Generic.Dictionary<string, (FieldInfo Hi, FieldInfo Lo)> _regPairFields;
 
+    // M6 PR-4 (Task 3): the 32-bit register file (GAP G2). The 68000's D0-D7/A0-A6/USP/SSP/PC are uint
+    // FIELDS (M68000Cpu.g.cs:51-68); the ushort-gated _regWideFields above SKIPS them, so a parallel
+    // uint-gated map reaches them. A7 is NOT here — it is a banked PROPERTY (USP/SSP by the SR S-bit,
+    // M68000Cpu.cs:60-64), handled by the EA resolver's EmitLoadAreg/EmitStoreAreg (Task 4, DECISION A7).
+    // Built per-compile from the same target.RegisterNames + CpuType introspection (no generator change).
+    private readonly System.Collections.Generic.Dictionary<string, FieldInfo> _regWide32Fields;
+
     // P (Status), PC (ProgramCounter), and A (the accumulator) are NOT operand-driven — the
     // flow/flag/PC arms and the ALU/RMW/decimal A-convention arms reference them directly, by the
     // 6502 convention baked into those templates (NOT from a descriptor's RegA/RegB). They are now
@@ -161,6 +168,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // is a composed pair-view. (Names absent from both stay 8-bit-only, exactly as before.)
         _regWideFields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
         _regPairFields = new System.Collections.Generic.Dictionary<string, (FieldInfo, FieldInfo)>(System.StringComparer.Ordinal);
+        // M6 PR-4: the parallel 32-bit (uint-field) map — the 68000's D/A/USP/SSP/PC. Gated on uint so it
+        // captures EXACTLY the 68000's wide fields and is empty for the 6502/Z80/8086 (whose register fields
+        // are byte/ushort), so no other CPU's emit path is affected.
+        _regWide32Fields = new System.Collections.Generic.Dictionary<string, FieldInfo>(System.StringComparer.Ordinal);
         foreach (string name in target.RegisterNames)
         {
             if (target.CpuType.GetField(name) is { } wf && wf.FieldType == typeof(ushort))
@@ -173,6 +184,8 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             {
                 _regPairFields[name] = (hf, lf);                 // AF/BC/DE/HL/IX/IY + shadows; AX/BX/CX/DX
             }
+            if (target.CpuType.GetField(name) is { } uf && uf.FieldType == typeof(uint))
+                _regWide32Fields[name] = uf;                     // D0-D7/A0-A6/USP/SSP/PC (68000) — real uint
         }
 
         // M6 PR-1: the Z80 LD emit arm's Q/WZ side-effect handles. Resolved by name on the CPU type;
@@ -931,6 +944,77 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         throw new EmulationException(
             $"compiled descriptor names 16-bit register '{name}' which the CPU type declares neither as a "
           + "ushort field nor as a composable pair-view (PR-0 wide-register helper)");
+    }
+
+    // ── M6 PR-4 (Task 3): 32-bit + size-aware register emit helpers (GAP G2) ──────────────────
+    // The 68000's D0-D7/A0-A6/USP/SSP/PC are uint fields (resolved into _regWide32Fields). MOVE operates on
+    // the .b/.w/.l slice of a uint register, preserving the upper bits on a narrow write (the SetDataRegPartial
+    // oracle, M68000Cpu.Move.cs:41-49); MOVEA writes the WHOLE An (with .w sign-extension — a distinct path
+    // the caller handles, NOT a partial write).
+
+    /// <summary>M6 PR-4: load the full 32-bit register value. Stack: ... -> ..., value(uint).</summary>
+    private void EmitLoadReg32(EmitContext ctx, string name)
+    {
+        if (!_regWide32Fields.TryGetValue(name, out var f))
+            throw new EmulationException(
+                $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
+              + "uint field (PR-4 32-bit register helper)");
+        ctx.Il.Emit(OpCodes.Ldarg_0);
+        ctx.Il.Emit(OpCodes.Ldfld, f);
+    }
+
+    /// <summary>M6 PR-4: store the full 32-bit register. Stack: ..., value(uint) -> .... The value arrives
+    /// BELOW the receiver, so stage it through M68kValueLocal (uint), push cpu, reload, Stfld.</summary>
+    private void EmitStoreReg32(EmitContext ctx, string name)
+    {
+        if (!_regWide32Fields.TryGetValue(name, out var f))
+            throw new EmulationException(
+                $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
+              + "uint field (PR-4 32-bit register helper)");
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Stloc, ctx.M68kValueLocal);   // value
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal);
+        il.Emit(OpCodes.Stfld, f);
+    }
+
+    /// <summary>M6 PR-4: size-aware register READ. Loads the full 32-bit register, then masks to the low
+    /// byte (.b) / word (.w); .l leaves the whole value. Stack: ... -> ..., value (the masked slice as uint).
+    /// size: 0=.b, 1=.w, 2=.l. Mirrors ReadEaOperand's <c>DataReg(reg) &amp; SizeMask(size)</c> for Dn
+    /// (M68000Cpu.Move.cs:26); for An (mode 1) the source read is the WHOLE register, so the caller uses
+    /// .l/EmitLoadReg32 for An, not this masked read.</summary>
+    private void EmitLoadDataRegSized(EmitContext ctx, string name, int size)
+    {
+        EmitLoadReg32(ctx, name);
+        if (size == 0) { ctx.Il.Emit(OpCodes.Ldc_I4, 0xFF); ctx.Il.Emit(OpCodes.And); }
+        else if (size == 1) { ctx.Il.Emit(OpCodes.Ldc_I4, 0xFFFF); ctx.Il.Emit(OpCodes.And); }
+        // size 2 (.l): leave the whole 32-bit value
+    }
+
+    /// <summary>M6 PR-4: size-aware data-register WRITE preserving the upper bits on .b/.w (the
+    /// SetDataRegPartial oracle, M68000Cpu.Move.cs:41-49). Stack: ..., value -> ....
+    ///   .b: reg = (reg &amp; ~0xFF)   | (value &amp; 0xFF);
+    ///   .w: reg = (reg &amp; ~0xFFFF) | (value &amp; 0xFFFF);
+    ///   .l: reg = value   (whole 32 — delegates to EmitStoreReg32).
+    /// NOTE: this is the Dn-dest partial write. MOVEA's An dest is the WHOLE register with .w sign-extension
+    /// — a DISTINCT path the MOVE arm emits via EmitStoreReg32 (Task 5), never through here.</summary>
+    private void EmitStoreDataRegSized(EmitContext ctx, string name, int size)
+    {
+        if (size == 2) { EmitStoreReg32(ctx, name); return; }
+        if (!_regWide32Fields.TryGetValue(name, out var f))
+            throw new EmulationException(
+                $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
+              + "uint field (PR-4 32-bit register helper)");
+        ILGenerator il = ctx.Il;
+        uint mask = size == 0 ? 0xFFu : 0xFFFFu;
+        il.Emit(OpCodes.Stloc, ctx.M68kValueLocal);                 // new value (stack now empty of it)
+        il.Emit(OpCodes.Ldarg_0);                                   // cpu (receiver for the final Stfld)
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, f);        // old reg
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)~mask)); il.Emit(OpCodes.And);   // old & ~mask  (keep upper bits)
+        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)mask)); il.Emit(OpCodes.And);    // value & mask
+        il.Emit(OpCodes.Or);                                        // (old & ~mask) | (value & mask)
+        il.Emit(OpCodes.Stfld, f);                                  // reg = merged
     }
 
     /// <summary>Test seam (PR-0): compile a one-shot method that writes <paramref name="value"/> into the
