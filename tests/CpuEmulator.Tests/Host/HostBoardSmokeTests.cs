@@ -92,4 +92,17 @@ public class HostBoardSmokeTests
         board.Machine.Run(2000);
         Assert.Equal("OK\r", tx.ToString());
     }
+
+    [Fact]
+    public void Z80_host_smoke_on_the_jit_tier_also_prints_OK()
+    {
+        Assert.True(BoardRegistry.TryBoot("z80", ExecutionTier.Jit,
+            out BootedBoard? board, out string? error), error);
+
+        var tx = new StringBuilder();
+        board!.Uart.OnTransmit = b => tx.Append((char)b);
+        board.Machine.Reset();
+        board.Machine.Run(2000);
+        Assert.Equal("OK\r", tx.ToString());
+    }
 }
