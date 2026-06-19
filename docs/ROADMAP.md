@@ -75,10 +75,19 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
    Z80/68000/8086 REPL machine ships yet. The monitor engine is CPU-agnostic, so this is wiring a board,
    not new core work.
 
-**Further candidates (unprioritized):** Z80 / 68000 **tail emit** (PR-2b-style — emit selected hot
-prefix-plane / microcoded members as profiles dictate; the Z80 ED 16-bit ops showed this is cheap when a
-tail op recurs); a **cycle-exact 8086 timing model** (M5 charges a rudimentary one-cycle-per-bus-access
-model today).
+**Further candidates (unprioritized):**
+
+- **[candidate] Per-dispatch JIT-overhead reduction.** On SMC-heavy / integration workloads the JIT
+  `Run`-loop's per-dispatch cost dominates — the `InvalidateIfDirty` page scan on constantly-dirtied code
+  + the per-dispatch interrupt/halt checks. The 6502 Klaus JIT stays ~140× slower than the interpreter
+  **even with the recompile-cost lever (PR-S) engaged** — the lever cut recompiles ~6.8×, but dispatch
+  overhead, not recompilation, is the floor. Cheaper / finer invalidation would make the JIT viable on
+  self-modifying + integration code. *(Surfaced by the #40 investigation — distinct from, and larger
+  than, the PR-S recompile lever.)*
+- **[candidate] Z80 / 68000 tail emit** (PR-2b-style — emit selected hot prefix-plane / microcoded
+  members as profiles dictate; the Z80 ED 16-bit ops showed this is cheap when a tail op recurs).
+- **[candidate] A cycle-exact 8086 timing model** (M5 charges a rudimentary one-cycle-per-bus-access
+  model today).
 
 ---
 

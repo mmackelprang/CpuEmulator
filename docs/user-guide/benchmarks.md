@@ -88,10 +88,12 @@ interpreter** — on the 6502 (SMC-invalidation thrash on Klaus; per-instruction
 non-SMC kernel) and on the Z80/68000/8086, whose Tier-1 was then **all-fallback** (every op fell back to
 the interpreter Step — no hot-op IL emit; a ratio ≈ 1.0× minus block-dispatch overhead). **M6 closed
 that gap** on the **compute kernels (W2/W3)**: the high-ROI op families of all four CPUs now emit IL.
-(The 6502 SMC/recompile-cost lever that removes the Klaus thrash is proven in the Klaus functional test,
-but is **not yet enabled in the bench Tier-1 path** — so the SMC-heavy rows below are still the
-unmitigated worst case; enabling + generalizing the lever across CPUs is a tracked follow-on.) So this
-section is the before/after speedup story with the "after" now landed.
+(On the SMC-heavy W1 rows the JIT is still *slower* than the interpreter — the recompile-cost lever IS
+engaged by default and cuts the 6502 Klaus recompiles ~6.8×, but the dominant remaining cost there is
+**per-dispatch overhead, not recompilation**: the `InvalidateIfDirty` page scan that Klaus's constant
+code-page dirtying triggers, plus all-fallback dispatch on the non-emitting W1/W3 paths. Reducing that
+per-dispatch cost is a recorded next optimization — see the [Roadmap](../ROADMAP.md).) So this section is
+the before/after speedup story with the "after" now landed.
 
 **The "after" (arc-end re-measure, post-M6).** On the no-SMC **compute kernels**, the Tier-1 JIT now
 *beats* the Tier-0 interpreter for the three CPUs M6 targeted (Tier-1 ÷ Tier-0):
@@ -105,8 +107,11 @@ section is the before/after speedup story with the "after" now landed.
 
 The **SMC-heavy W1** runs (6502 Klaus, Z80 ZEXDOC, 68000 W1, 8086 W1) — and the 68000/8086 **W3** —
 stay JIT-*slower* and are **capped at 10s** in the report: the recompiler thrashes on self-modifying
-code. Two honest caveats: (1) those are the *worst case* — the bench Tier-1 path does not yet enable the
-6502 SMC/recompile-cost lever (PR-S), so it is the unmitigated thrash; and (2) the cap is a valid
+code, and the JIT's per-dispatch overhead dominates. Two honest caveats: (1) the recompile-cost lever
+(PR-S) **IS engaged by default** — it cuts the 6502 Klaus recompiles ~6.8× — but the JIT still loses on
+these rows because **per-dispatch overhead dominates** (the `InvalidateIfDirty` page scan on
+constantly-dirtied code, plus all-fallback dispatch on the non-emitting paths), not recompilation;
+reducing that is a recorded follow-on; and (2) the cap is a valid
 measurement (cycles ÷ wall over a bounded window), not a truncation. The clean emit signal is the **W2**
 column. _(Numbers from the [arc-end `REPORT.md`](../../bench/results/REPORT.md); the per-CPU ratio is
 host-independent — it cancels machine speed.)_
@@ -137,8 +142,8 @@ canonical host — lives in [`bench/README.md`](../../bench/README.md) under "Ba
 The "before" is the committed all-fallback baseline; the "after" re-runs the **identical frozen
 workloads** with hot-op IL emit landed. The 6502 was already a partial-emit JIT before M6 (its W2/W3 sit
 at 0.51×/0.60× — the established block-JIT-vs-tight-switch case), so its W2 is not part of the M6 emit
-delta. SMC-heavy W1/W3 are excluded from the emit-signal comparison (they're dominated by the
-recompile-thrash pathology, and the bench does not yet enable the SMC lever — see above).
+delta. SMC-heavy W1/W3 are excluded from the emit-signal comparison (they're dominated by per-dispatch
+JIT overhead — see the caveat above — not by emit quality).
 
 > **Known benchmark-harness caveats (not core correctness):** a 68000 W2 bench-harness cycle off-by-2
 > and the 68000 W3 workload's absence from the hot-op profiler arm are tracked backlog items (see the
