@@ -144,4 +144,37 @@ public class HostBoardSmokeTests
         board.Machine.Run(2000);
         Assert.Equal("OK\r", tx.ToString());
     }
+
+    [Fact]
+    public void I8086_host_smoke_registers_20bit_address_disasm_and_uart_prints_OK()
+    {
+        Assert.True(BoardRegistry.TryBoot("8086", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+
+        var tx = new StringBuilder();
+        board!.Uart.OnTransmit = b => tx.Append((char)b);
+        board.Machine.Reset();        // 8086: CS=FFFF, IP=0, DS=ES=SS=0, FLAGS=0
+        var engine = board.NewMonitor();
+
+        // Registers: the 8086 names segment + general registers (AX, CS, ...) + the program
+        // counter. The 8086's program counter renders as 'IP' (its own register name — the
+        // engine's register dump iterates RegisterNames directly), not '6502-style' PC.
+        string regs = engine.Registers();
+        Assert.Contains("IP=", regs);    // the 8086 program counter (observed name)
+        Assert.Contains("AX=", regs);    // an 8086 general register
+        Assert.Contains("CS=", regs);    // a segment register — proves 8086-shaped state
+
+        // 20-bit address width: 5 hex digits.
+        Assert.Equal(5, engine.AddressDigits);
+
+        // Disassembly at the body (physical 0xF0000) is MOV (opcode 0xB8). The 8086 disasm
+        // renders a real mnemonic (284 arms), not '???'.
+        string dis = engine.Disassemble(0xF0000, 1);
+        Assert.Contains("MOV", dis);
+        Assert.DoesNotContain("???", dis);
+
+        // UART round-trip: run to completion; the boot FAR-JMPs to the body and writes "OK\r".
+        board.Machine.Run(2000);
+        Assert.Equal("OK\r", tx.ToString());
+    }
 }
