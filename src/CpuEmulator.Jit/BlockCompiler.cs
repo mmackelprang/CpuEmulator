@@ -91,6 +91,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // a fallback op keeps its inner.Step bump. Null for non-Z80 CPUs.
     private readonly FieldInfo? _z80R;
 
+    // M6 PR-4: the 68000's status register (ushort SR). The EA resolver's A7-banking branch reads its S-bit
+    // ((SR>>13)&1) to choose USP/SSP for A7, and the MOVE CCR helper writes N/Z into its low byte. Resolved
+    // by name on the CPU type; null for non-68000 CPUs (harmless — only dereferenced under TargetIsM68000).
+    private readonly FieldInfo? _m68kSR;
+
     // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
     // typeof(Mos6502Cpu)). Resolved from the injected target's reflection handles.
     private readonly MethodInfo _mAdvance;
@@ -197,6 +202,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         _z80WZ = target.CpuType.GetField("WZ");
         _z80R = target.CpuType.GetField("R");
         _z80F = target.CpuType.GetField("F");   // M6 PR-2: the Z80 flag register (byte F)
+        _m68kSR = target.CpuType.GetField("SR");   // M6 PR-4: the 68000 SR (A7 banking + the MOVE CCR)
     }
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
@@ -298,6 +304,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             // FALLBACK Z80 op ends the block (Discover stops; its nextPc is never read — it self-terminates
             // via inner.Step), so only emitted LD rows need the correction. The 6502 is unaffected (its walk
             // length already includes operands).
+            // M6 PR-4: NO 68000 footprint correction here. Unlike the Z80 (whose r.Length is the opcode-KEY
+            // length, so the emitted-LD operand bytes must be added back via Z80EmitOperandBytes), the 68000's
+            // generated Decode() consumes the operword AND every extension word — source AND dest — and returns
+            // `UnitsConsumed * UnitBytes` as r.Length (g.cs Decode, the `int len = ...` line). So r.Length is
+            // ALREADY the exact next-instruction footprint for an emitted block-continuing MOVE; adding
+            // M68kEmitOperandBytes would DOUBLE-count. M68kEmitOperandBytes exists only as the standalone
+            // footprint oracle the FallbackEmitCount discovery unit tests assert against (it must equal r.Length).
             int length = r.Length + Z80EmitOperandBytes(d);
             run.Add((pc, d, length));
             if (d.EndsBlock) break;
@@ -421,8 +434,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // here to ARM the intra-block SMC guard for a PUSH onto a code page. CALL/RST also push, but they END
         // the block and self-terminate via EmitChainOrExit, whose dirty.Any gate is the coarse SMC backstop for
         // their stack writes — so NO mayWriteRam entry for the flow kinds (only Push16, the block-continuing one).
+        // M6 PR-4: a 68000 MOVE/MOVEA to a memory EA writes RAM, so the intra-block SMC guard must arm (a MOVE
+        // onto its own code page must recompile). MOVEQ (Dn dest) and reg-dest MOVE never write RAM, but the
+        // class-level gate is conservative-correct: an instruction that does NOT write RAM never trips the guard
+        // (SmcPageLocal stays -1), so arming it on every M68000Move row is harmless and keeps the gate simple.
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
-            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16");
+            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
+            || (TargetIsM68000 && d.Class == JitOpClass.M68000Move);
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -440,6 +458,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;
             case JitOpClass.Z80Flow: EmitZ80Flow(ctx, pc, d, length); break;   // M6 PR-3 (DECISION H2)
+            case JitOpClass.M68000Move: EmitM68kMove(ctx, pc, d); break;       // M6 PR-4 (DECISION P3)
             case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:
                 throw new EmulationException(

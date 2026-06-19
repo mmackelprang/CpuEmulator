@@ -71,6 +71,13 @@ internal sealed class EmitContext
     /// dest-EA resolution. Distinct from DataLocal (int) — keeping a separate uint local avoids Conv churn.</summary>
     public LocalBuilder M68kValueLocal { get; }
 
+    /// <summary>uint — M6 PR-4 (Task 4/5): a SECOND 32-bit address staging local for the 68000 MOVE arm. The
+    /// source EA read uses AddrLocal (the wide-bus helpers stash the access address there) and the dest-EA
+    /// resolution would CLOBBER it, so the dest EA is resolved into THIS local (held across the dest store).
+    /// The MOVE crux: the source read (with its (An)+/-(An) mutation) happens FIRST and the dest EA is
+    /// resolved AFTER it, so the dest address needs a survivor local distinct from the source's AddrLocal.</summary>
+    public LocalBuilder M68kAddr2Local { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -86,5 +93,6 @@ internal sealed class EmitContext
         NibLocal = il.DeclareLocal(typeof(int));
         SumLocal = il.DeclareLocal(typeof(int));
         M68kValueLocal = il.DeclareLocal(typeof(uint));
+        M68kAddr2Local = il.DeclareLocal(typeof(uint));
     }
 }
