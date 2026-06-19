@@ -6,10 +6,13 @@ using Xunit.Abstractions;
 
 namespace CpuEmulator.Tests.TomHarte;
 
-/// <summary>M5.6 headline gate: the 8086 SingleStepTests/8088 DATA-AXIS family sweep run THROUGH
-/// JittedCpu&lt;M8086Cpu&gt; (all-fallback). Every 8086 op falls back to inner.Step in M5 (the empty-Ops
-/// NeedsFallback descriptors), so the JIT final state MUST equal the interpreter's (which already passes these
-/// vectors — M5.5a–d). A green sweep proves the GENERIC COMPILER (the discovery walk, the keyed DescriptorFor,
+/// <summary>M5.6 headline gate (extended in M6): the 8086 SingleStepTests/8088 DATA-AXIS family sweep run THROUGH
+/// JittedCpu&lt;M8086Cpu&gt;. In M5.6 this was all-fallback (every 8086 op deferred to inner.Step via the empty-Ops
+/// NeedsFallback descriptors). As of M6 PR-B/PR-C the ALU + MOV families now EMIT real IL through the JIT — so for
+/// those rows the sweep proves genuine EMIT parity (the compiled IL's final state == the oracle), not just
+/// fallback-passthrough. The remaining families (MUL/IMUL/DIV/IDIV and the string/control/stack ops not yet
+/// emitted) STILL fall back to inner.Step, where the JIT final state equals the interpreter's (which already passes
+/// these vectors — M5.5a–d). A green sweep proves the GENERIC COMPILER (the discovery walk, the keyed DescriptorFor,
 /// the per-CPU BlockDelegate, the data-driven register map, the cycle/budget/dispatch machinery) runs the
 /// complete 8086 faithfully — the same proof M4.6 delivered for the 68000, now on the 16-bit-register /
 /// 20-bit-segmented-address / little-endian / byte-variable-length-decode CPU. The data axis is the 14 registers
@@ -84,8 +87,11 @@ public abstract class M8088JitSweepBase(ITestOutputHelper output)
             if (run >= sampleSize) break;
             run++;
 
-            // Run ONE instruction through Tier-1 JittedCpu<M8086Cpu> (all-fallback → IS the interpreter), then
-            // classify a failure exactly as the interpreter ALU sweep does. The DIVIDE-ERROR → INT0 push is
+            // Run ONE instruction through Tier-1 JittedCpu<M8086Cpu>, then classify a failure exactly as the
+            // interpreter ALU sweep does. In M6 the ALU + MOV rows emit real IL (the sweep proves EMIT parity for
+            // them); the DIV/IDIV/AAM rows handled by the classifiers below are NOT emitted — they still fall back
+            // to inner.Step, so the JIT result == the interpreter result for them and the classifiers (which re-run
+            // the interpreter to confirm the quirk shape) correctly classify the JIT discrepancy. The DIVIDE-ERROR → INT0 push is
             // MODELED; the silicon's UNDEFINED arithmetic flags from the aborted division (DD6) and the IDIV
             // quotient-sign quirk are the documented genuinely-resistant classes — counted-deferred only after the
             // classifier confirms the discrepancy is PRECISELY that quirk (every other register + RAM byte exact).
