@@ -1,6 +1,7 @@
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Cpus.Z80;
+using CpuEmulator.Jit;
 
 namespace CpuEmulator.Machines;
 
@@ -13,12 +14,14 @@ namespace CpuEmulator.Machines;
 public static class CpuCoreFactory
 {
     public static Func<IMachineContext, ICpuCore> ForKind(
-        CpuKind kind, AddressSpaceKind programSpace, ExecutionTier tier) => tier switch
-    {
-        ExecutionTier.Interpreter => ctx => BuildInterpreter(kind, ctx, programSpace),
-        _ => throw new MachineConfigurationException(
-            $"Execution tier {tier} is not supported yet for {kind}."),
-    };
+        CpuKind kind, AddressSpaceKind programSpace, ExecutionTier tier) =>
+        ctx => tier switch
+        {
+            ExecutionTier.Interpreter => BuildInterpreter(kind, ctx, programSpace),
+            ExecutionTier.Jit => BuildJit(kind, ctx, programSpace),
+            _ => throw new MachineConfigurationException(
+                $"Execution tier {tier} is not supported."),
+        };
 
     private static ICpuCore BuildInterpreter(CpuKind kind, IMachineContext ctx, AddressSpaceKind programSpace)
     {
@@ -30,5 +33,27 @@ public static class CpuCoreFactory
             _ => throw new MachineConfigurationException(
                 $"CpuKind {kind} cannot boot a board yet (no real reset). Deferred to piece #2."),
         };
+    }
+
+    private static ICpuCore BuildJit(CpuKind kind, IMachineContext ctx, AddressSpaceKind programSpace)
+    {
+        // The JIT binds fastmem to the CONCRETE AddressSpace (page table + backing arrays). The
+        // Machine builds AddressSpace as the only IAddressSpace, so this cast always holds.
+        var bus = (AddressSpace)ctx.Space(programSpace);
+        return kind switch
+        {
+            CpuKind.Mos6502 => new JittedCpu<Mos6502Cpu>(new Mos6502Cpu(bus), Mos6502Cpu.JitTarget, bus),
+            CpuKind.Z80 => BuildZ80Jit(bus),
+            _ => throw new MachineConfigurationException(
+                $"CpuKind {kind} cannot boot a board yet (no real reset). Deferred to piece #2."),
+        };
+    }
+
+    private static ICpuCore BuildZ80Jit(AddressSpace bus)
+    {
+        var inner = new Z80Cpu(bus);
+        // The Z80's JIT routes Port-op callouts to its own Io space (inner.IoBus). The board's
+        // peripherals are memory-mapped (spec section 6), so the Io space stays empty here.
+        return new JittedCpu<Z80Cpu>(inner, Z80Cpu.JitTarget, bus, inner.IoBus);
     }
 }

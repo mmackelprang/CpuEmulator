@@ -1,6 +1,7 @@
 using CpuEmulator.Core;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Cpus.Z80;
+using CpuEmulator.Jit;
 using CpuEmulator.Machines;
 
 namespace CpuEmulator.Tests.Machines;
@@ -34,5 +35,20 @@ public class CpuCoreFactoryTests
         // The 68000/8086 cores have no-op Reset stubs and cannot boot a board yet (piece #2).
         Assert.Throws<MachineConfigurationException>(() =>
             MachineFor(CpuKind.M68000, ExecutionTier.Interpreter));
+    }
+
+    [Fact]
+    public void Jit_tier_6502_builds_a_JittedCpu()
+    {
+        var machine = MachineFor(CpuKind.Mos6502, ExecutionTier.Jit);
+        Assert.IsType<JittedCpu<Mos6502Cpu>>(machine.Cpu);
+        Assert.Equal("mos6502", machine.Cpu.Architecture);
+    }
+
+    [Fact]
+    public void Jit_tier_z80_builds_a_JittedCpu()
+    {
+        var machine = MachineFor(CpuKind.Z80, ExecutionTier.Jit);
+        Assert.IsType<JittedCpu<Z80Cpu>>(machine.Cpu);
     }
 }
