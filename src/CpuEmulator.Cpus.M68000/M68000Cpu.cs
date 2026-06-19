@@ -63,10 +63,18 @@ public sealed partial class M68000Cpu
         set { if (SupervisorMode) SSP = value; else USP = value; }
     }
 
-    /// <summary>Reset — M4.1 stub (the real reset reads the initial SSP + PC from the vector table at
-    /// addresses 0/4 via the wide bus; that is M4.5). Sets nothing else (the harness sets registers
-    /// explicitly in the M4.5 TomHarte runner).</summary>
-    public void Reset() { }
+    /// <summary>Reset (piece #2) — the functional 68000 reset. The processor reads its initial SSP from
+    /// the LONG at $000000 and its initial PC from the LONG at $000004 (big-endian, via the wide bus), then
+    /// enters supervisor mode (S=1) with the interrupt mask at 7 and trace off — SR = 0x2700. No TomHarte
+    /// reset vector exists, so this is asserted functionally (landed state), not cycle-gated; the cycle
+    /// charge ReadLongBus adds is incidental. After SR is set with S=1, A7 aliases SSP (the banking view),
+    /// so the loaded supervisor stack pointer is the live A7.</summary>
+    public void Reset()
+    {
+        SR = 0x2700;                 // S(bit 13)=1, interrupt mask(bits 10-8)=7, trace(bit 15)=0, CCR=0
+        SSP = ReadLongBus(0x0000_0000u);
+        PC = ReadLongBus(0x0000_0004u);
+    }
 
     // ── The policy hooks the generated partial requires (M4.5d-1, DD5: the thin IPL-level model) ──────────
     // The 68000's real interrupt input is the 3-bit IPL line (0-7), set via SetInterruptLevel. The generic
