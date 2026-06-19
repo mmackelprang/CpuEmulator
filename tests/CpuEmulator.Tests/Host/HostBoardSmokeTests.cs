@@ -105,4 +105,43 @@ public class HostBoardSmokeTests
         board.Machine.Run(2000);
         Assert.Equal("OK\r", tx.ToString());
     }
+
+    [Fact]
+    public void M68000_host_smoke_registers_24bit_address_step_and_uart_prints_OK()
+    {
+        Assert.True(BoardRegistry.TryBoot("68000", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+
+        var tx = new StringBuilder();
+        board!.Uart.OnTransmit = b => tx.Append((char)b);
+        board.Machine.Reset();        // 68000: SSP/PC from $0/$4, SR=0x2700 (supervisor)
+        var engine = board.NewMonitor();
+
+        // Registers: the 68000 names D-registers + a PC + SR (NOT a 6502 'A'/'P').
+        string regs = engine.Registers();
+        Assert.Contains("PC=", regs);
+        Assert.Contains("D0=", regs);    // a 68000 data register — proves 68000-shaped state
+
+        // 24-bit address width: the memory dump renders 6 hex digits (e.g. "000008:").
+        Assert.Equal(6, engine.AddressDigits);
+        string dump = engine.ReadMemory(0x000008, 1);
+        Assert.StartsWith("000008:", dump);
+
+        // KNOWN LIMITATION (piece #3): the generated 68000 disassembler is a '???' stub
+        // (the field-grammar CPU has no flat per-opcode disasm table). The monitor renders
+        // '???' honestly; the InstructionLength byte-walk + step/run are still correct. This
+        // assertion guards the limitation: when a real 68000 disassembler lands, it flips,
+        // signalling this test (and the docs/roadmap note) to update.
+        string dis = engine.Disassemble(0x000008, 1);
+        Assert.Contains("???", dis);
+
+        // Step still advances PC (length comes from the real DescriptorFor, not the disasm).
+        uint pcBefore = engine.ProgramCounter;
+        engine.Step();
+        Assert.NotEqual(pcBefore, engine.ProgramCounter);
+
+        // UART round-trip: run to completion; the boot writes "OK\r".
+        board.Machine.Run(2000);
+        Assert.Equal("OK\r", tx.ToString());
+    }
 }
