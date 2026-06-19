@@ -820,12 +820,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             // lo = ReadBus(SP) → LoLocal; SP += 1
             EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal);
             EmitIncrementSp(ctx);
-            // hi = ReadBus(SP); SP += 1
+            // hi = ReadBus(SP); SP += 1   (the second SP++ precedes the pair write, mirroring the oracle
+            // ordering CpuEmitter.cs:2456-2459 one-for-one: lo,SP++,hi,SP++,pair — pre-merge review Finding 1)
             EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx);   // hi (int) on stack
             il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
             il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or);                   // hi<<8 | lo
+            EmitIncrementSp(ctx);                                                       // SP += 1 (before the pair write)
             EmitStoreReg16(ctx, op.RegA);                                               // pair = value (AF → A=hi,F=lo)
-            EmitIncrementSp(ctx);
             EmitZ80ClearQ(ctx);
             EmitChargeCycles(ctx, 7);                                    // 10 T = fetch1 + 2 reads + 7
         }
@@ -987,7 +988,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Conv_U2);
         il.Emit(OpCodes.Stloc, ctx.HiLocal);
         EmitIncrementSp(ctx);
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Stfld, _fpc);   // PC = popped
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);   // PC = popped (Conv_U2 for _fpc-store consistency — pre-merge review Finding 2)
     }
 
     /// <summary>M6 PR-3: push 1 (int) if the Z80 condition code holds, else 0. cc = (((F >> bit) &amp; 1) == sense).
