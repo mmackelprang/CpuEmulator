@@ -12,6 +12,9 @@ public enum JitOpClass
     Flow,                               // BRK/RTI — interrupt/vector machinery; fallback + ends block
     Z80Flow,                            // M6 PR-3: the EMITTABLE Z80 control-flow class (JP/JR/CALL/RET/
                                         // DJNZ/RST) — dispatched to EmitZ80Flow; ends a block (DECISION H2)
+    M68000Move,                         // M6 PR-4: the 68000 MOVE/MOVEA/MOVEQ emit class. Dispatched by
+                                        // BlockCompiler.EmitInstruction to EmitM68kMove. Block-CONTINUING
+                                        // (MOVE does not end the block) — EndsBlock=false on these rows.
     Port,                               // M3.2: IN/OUT — an Io-bus callout (NEVER fastmem); straight-line
     Undefined,                          // not in the dispatch table; fallback + ends block
 }

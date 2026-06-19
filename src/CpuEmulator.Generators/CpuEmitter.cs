@@ -4082,8 +4082,100 @@ internal static class CpuEmitter
                 : modRm.Contains(insn.Opcode) && insn.KeyShape == KeyShape.OpcodeByte;
             sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm, flags)},");
         }
+        // M6 PR-4 (DECISION P3, mechanism 1a): a FieldGrammar CPU (the 68000) carries NO InstructionDef rows
+        // (model.Instructions is []), so the foreach above emits nothing — its JitDescriptorsByKey is empty
+        // (the all-fallback status quo). Synthesize the MOVE/MOVEA/MOVEQ keyed rows DIRECTLY from the
+        // field-grammar Ops, keyed by the SAME (1<<24)|(opIndex<<8)|size packing the decode walk computes
+        // (EmitFieldDecodeWalk). This is the ONLY net-new descriptor-row generation in the M6 arc; it is
+        // gated on FieldGrammar so the 6502/Z80/8086 byte/prefix paths are provably untouched (an empty
+        // git-diff on their generated tables — the regression-safety gate, DECISION R).
+        if (model.FieldGrammar is not null)
+            EmitM68kMoveFamilyRows(sb, model.FieldGrammar);
         sb.AppendLine("    };");
     }
+
+    /// <summary>M6 PR-4 (DECISION P3): synthesize the 68000 MOVE/MOVEA/MOVEQ keyed descriptor rows for a
+    /// FieldGrammar CPU. The rows carry a coarse Mnemonic + JitOpClass.M68000Move + a representative BaseCycles
+    /// (DECISION C/T — NOT correctness-gated; the JIT parity gate ignores CycleCount) + NeedsFallback=false +
+    /// EndsBlock=false; the EA matrix is decoded at emit time from the operword (DECISION P3). The keys are
+    /// derived by REPLICATING the decode walk's first-match-wins scan over all 65536 operwords + the SAME
+    /// MapSize/IsAddressRegVariant size derivation, so the synthesized key set is byte-identical to the set
+    /// the generated Decode() produces — no manual size-set reasoning that could drift. MOVE produces 3 keys
+    /// (.b/.w/.l), MOVEA 3 (the bare encoding admits a spurious .b key — illegal in hardware but the walk
+    /// still tags it, and the descriptor lookup must cover it), MOVEQ 2 (bit 0 of the imm8 byte sits in the
+    /// Standard size field, so the walk yields both size 0 and size 1 — both route to the same emit arm).</summary>
+    private static void EmitM68kMoveFamilyRows(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        // Replicate the walk's IsAddressRegVariant set (ADDA/SUBA/CMPA get a +1 size remap; MOVE/MOVEA/MOVEQ
+        // are NOT in it — they keep the raw MapSize index).
+        var addrRegVariants = new System.Collections.Generic.HashSet<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "ADDA" or "SUBA" or "CMPA") addrRegVariants.Add(i);
+
+        // For each MOVE-family op, collect the (size) indices the walk's first-match scan yields. A sorted set
+        // keeps the emitted rows deterministic (stable generated-file output for the empty-diff gate).
+        var keysByOp = new System.Collections.Generic.SortedDictionary<int, System.Collections.Generic.SortedSet<uint>>();
+        for (uint operword = 0; operword <= 0xFFFFu; operword++)
+        {
+            for (int i = 0; i < grammar.Ops.Length; i++)
+            {
+                var op = grammar.Ops[i];
+                if ((operword & op.Mask) != op.Match) continue;   // first match wins (the walk's order)
+                uint sizeBits = (operword >> op.SizeShift) & (uint)((1 << op.SizeWidth) - 1);
+                uint size = M68kMapSize(sizeBits, (int)op.SizeEncoding);
+                if (addrRegVariants.Contains(i)) size += 1u;
+                if (op.Operation is "MOVE" or "MOVEA" or "MOVEQ")
+                {
+                    if (!keysByOp.TryGetValue(i, out var sizes))
+                        keysByOp[i] = sizes = new System.Collections.Generic.SortedSet<uint>();
+                    sizes.Add(size);
+                }
+                break;   // only the first matching field op decodes this operword
+            }
+        }
+
+        foreach (var entry in keysByOp)
+        {
+            int opIndex = entry.Key;
+            string mnemonic = grammar.Ops[opIndex].Operation;   // "MOVE" / "MOVEA" / "MOVEQ"
+            foreach (uint size in entry.Value)
+            {
+                uint key = (1u << 24) | ((uint)opIndex << 8) | size;
+                int baseCycles = M68kMoveFamilyBaseCycles(mnemonic, (int)size);
+                // The dual-EA matrix is decoded at emit time (DECISION P3), so the row carries an empty Ops
+                // array + a coarse Implied mode (a class marker only — the EA is NOT in JitMode). EndsBlock=
+                // false (MOVE continues the block); NeedsFallback=false (it emits real IL via EmitM68kMove).
+                sb.AppendLine($"        [0x{key:X}u] = new(0x00, \"{mnemonic}\", "
+                    + "CpuEmulator.Core.Jit.JitMode.Implied, "
+                    + "CpuEmulator.Core.Jit.JitOpClass.M68000Move, "
+                    + $"CpuEmulator.Core.Jit.LengthRule.Fixed, 2, {baseCycles}, false, "
+                    + "false, false, []),");
+            }
+        }
+    }
+
+    /// <summary>M6 PR-4: the generator-side mirror of the emitted MapSize(bits, enc) helper (the SAME size
+    /// derivation the decode walk uses), so the synthesized key set matches the walk's exactly. Standard
+    /// (enc 0): 00=b,01=w,10=l. Move (enc 1, the MOVE outlier): 01=b,11=w,10=l (C4).</summary>
+    private static uint M68kMapSize(uint bits, int enc) => enc == 1
+        ? bits switch { 1u => 0u, 3u => 1u, 2u => 2u, _ => 0u }    // Move: 01=b,11=w,10=l
+        : bits switch { 0u => 0u, 1u => 1u, 2u => 2u, _ => 0u };   // Standard: 00=b,01=w,10=l
+
+    /// <summary>M6 PR-4 (DECISION C/T): a representative BaseCycles for a synthesized 68000 MOVE-family row.
+    /// At GENERATION time the dest EA is unknown (DECISION P3 decodes it at emit time), so this returns a
+    /// published-ish per-(mnemonic,size) representative MOVE timing — NOT a per-EA-pair exact count. This is
+    /// NOT correctness-gated: the JIT parity gate asserts the data axis ONLY and never compares CycleCount
+    /// (DECISION T2); it only requires >= 1 cycle per instruction to keep the budget loop honest (T3). The
+    /// 68000-only mnemonics ("MOVE"/"MOVEA"/"MOVEQ") are never named by the 6502/Z80/8086, so this is
+    /// unreachable for them (their ComputeCycles path is provably untouched — the empty-diff gate, R2).</summary>
+    private static int M68kMoveFamilyBaseCycles(string mnemonic, int size) => mnemonic switch
+    {
+        // MOVEQ #imm8,Dn — a fixed 4 clocks (imm8 -> Dn, no EA).
+        "MOVEQ" => 4,
+        // MOVE/MOVEA: the published register-to-register MOVE base (4) + a representative word/long bus EA cost
+        // (a Dn,(An) shape: word=8, long=12; the spurious .b key floors at the word cost). >= 1 always (T3).
+        _ => size == 2 ? 12 : 8,
+    };
 
     /// <summary>One descriptor row as a C# object-creation expression. Reuses ModeLength,
     /// ComputeCycles, and the isPageCross predicate — the SAME functions the interpreter
