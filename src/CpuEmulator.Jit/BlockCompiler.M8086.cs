@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Emit;
 using CpuEmulator.Core;
 using CpuEmulator.Core.Jit;
@@ -30,11 +31,178 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private static readonly string[] M8086Reg16 = ["AX", "CX", "DX", "BX", "SP", "BP", "SI", "DI"];
     private static readonly string[] M8086Sreg  = ["ES", "CS", "SS", "DS"];
 
+    // M6 PR-C: the 8086 FLAGS bit masks (M8086Cpu.Alu.cs:28-33 — the M8086Spec layout).
+    private const int M8086FlagCF = 1 << 0;    // carry
+    private const int M8086FlagPF = 1 << 2;    // parity (of the low 8 bits)
+    private const int M8086FlagAF = 1 << 4;    // auxiliary / BCD half-carry (the spec's `H`)
+    private const int M8086FlagZF = 1 << 6;    // zero
+    private const int M8086FlagSF = 1 << 7;    // sign (top bit of the width)
+    private const int M8086FlagOF = 1 << 11;   // signed overflow (the spec's `V`)
+
+    // The BitOperations.PopCount(uint) handle for the parity bit (resolved once; CPU-agnostic static — the
+    // 8086 PF is the even-parity of the LOW 8 bits of the result, ParityEven, M8086Cpu.Alu.cs:44).
+    private static readonly MethodInfo MPopCount =
+        typeof(System.Numerics.BitOperations).GetMethod("PopCount", [typeof(uint)])!;
+
     // The 8086 prefix bytes (segment-override 26/2E/36/3E, LOCK F0/F1, REP F2/F3) — mirrors the generated
     // walk's s_x86Prefixes (M8086Cpu.g.cs). The arm scans these at emit time to find the opcode position past
     // any prefix(es), so the const reads land on the real ModR/M / disp / imm bytes.
     private static bool M8086IsPrefixByte(byte b) =>
         b is 0x26 or 0x2E or 0x36 or 0x3E or 0xF0 or 0xF1 or 0xF2 or 0xF3;
+
+    // ── M6 PR-C: the shared 8086 FLAGS helper family (a one-for-one IL transcription of the oracle's
+    //    SetFlag/SetSzp/AddFlags/SubFlags/LogicFlags/IncDecFlags, M8086Cpu.Alu.cs:36-111). Each helper reads the
+    //    operand survivor locals (M8086ALocal/M8086BLocal/M8086CarryInLocal), writes the six flag bits into the
+    //    FLAGS field via a read-modify-write, and leaves the width-masked result on the stack for the arm to
+    //    store (or discard, for CMP/TEST). The result also lands in M8086ResultLocal. ───────────────────────
+
+    /// <summary>M6 PR-C: FLAGS = (FLAGS &amp; ~mask) | (cond ? mask : 0). The boolean condition is on the stack
+    /// (any nonzero ⇒ set the bit). Mirrors M8086Cpu.SetFlag (Alu.cs:36).</summary>
+    private void EmitM8086SetFlag(EmitContext ctx, int mask)
+    {
+        ILGenerator il = ctx.Il;
+        // stack: cond(int)  ->  bit = (cond!=0 ? mask : 0); FLAGS = (FLAGS & ~mask) | bit
+        Label setIt = il.DefineLabel(), done = il.DefineLabel();
+        il.Emit(OpCodes.Brtrue, setIt);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Br, done);
+        il.MarkLabel(setIt); il.Emit(OpCodes.Ldc_I4, mask);
+        il.MarkLabel(done);
+        il.Emit(OpCodes.Stloc, ctx.DataLocal);                  // bit (0 or mask) — DataLocal is free here
+        il.Emit(OpCodes.Ldarg_0);                               // receiver for the Stfld below
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!);
+        il.Emit(OpCodes.Ldc_I4, ~mask); il.Emit(OpCodes.And);   // FLAGS & ~mask
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _m8086FLAGS!);
+    }
+
+    /// <summary>M6 PR-C: SF/ZF/PF from the result in M8086ResultLocal (SetSzp, Alu.cs:48). width16 picks the
+    /// sign bit (0x8000 vs 0x80) and the zero-width mask (0xFFFF vs 0xFF). PF = even parity of the LOW 8 bits
+    /// (for BOTH byte and word — ParityEven, Alu.cs:44).</summary>
+    private void EmitM8086SetSzp(EmitContext ctx, bool width16)
+    {
+        ILGenerator il = ctx.Il;
+        int signBit = width16 ? 0x8000 : 0x80;
+        int widthMask = width16 ? 0xFFFF : 0xFF;
+        // ZF: (result & widthMask) == 0
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, widthMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);       // (… == 0) ? 1 : 0
+        EmitM8086SetFlag(ctx, M8086FlagZF);
+        // SF: (result & signBit) != 0
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, signBit); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagSF);
+        // PF: (PopCount((uint)(result & 0xFF)) & 1) == 0  (even ⇒ set)
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Conv_U4); il.Emit(OpCodes.Call, MPopCount);
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);
+        EmitM8086SetFlag(ctx, M8086FlagPF);
+    }
+
+    /// <summary>M6 PR-C: ADD/ADC flag set (AddFlags, Alu.cs:62). a in M8086ALocal, ORIGINAL b in M8086BLocal,
+    /// carryIn in M8086CarryInLocal (0 for ADD, FLAGS&amp;CF for ADC). full = a+b+carry (wide, so the carry-out
+    /// lands above the width); result = full &amp; widthMask. Sets CF/AF/OF then SF/ZF/PF; stores result in
+    /// M8086ResultLocal and leaves it on the stack. The AF/OF predicates read the ORIGINAL b (M8086BLocal),
+    /// which is NEVER overwritten — `full` lives in its own M8086FullLocal.</summary>
+    private void EmitM8086AddFlags(EmitContext ctx, bool width16)
+    {
+        ILGenerator il = ctx.Il;
+        int widthMask = width16 ? 0xFFFF : 0xFF;
+        int signBit = width16 ? 0x8000 : 0x80;
+        // full = a + b + carryIn  -> M8086FullLocal
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldloc, ctx.M8086CarryInLocal); il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Stloc, ctx.M8086FullLocal);
+        // result = full & widthMask  -> M8086ResultLocal
+        il.Emit(OpCodes.Ldloc, ctx.M8086FullLocal); il.Emit(OpCodes.Ldc_I4, widthMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+        // CF: (full & (widthMask+1)) != 0
+        il.Emit(OpCodes.Ldloc, ctx.M8086FullLocal); il.Emit(OpCodes.Ldc_I4, widthMask + 1); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagCF);
+        // AF: ((a ^ b ^ result) & 0x10) != 0   — reads the ORIGINAL b (M8086BLocal)
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Xor);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Xor);
+        il.Emit(OpCodes.Ldc_I4, 0x10); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagAF);
+        // OF (ADD form): (~(a ^ b) & (a ^ result) & signBit) != 0
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Xor); il.Emit(OpCodes.Not);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Xor); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4, signBit); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagOF);
+        EmitM8086SetSzp(ctx, width16);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal);           // leave result on the stack
+    }
+
+    /// <summary>M6 PR-C: SUB/SBB/CMP/NEG flag set (SubFlags, Alu.cs:77). a in M8086ALocal, ORIGINAL b in
+    /// M8086BLocal, borrowIn in M8086CarryInLocal. full = a-b-borrow; result = full &amp; widthMask; CF=borrow;
+    /// AF=(a^b^result)&amp;0x10; OF=((a^b)&amp;(a^result)&amp;signBit) (NO ~, the SUB form); then SetSzp. Stores result
+    /// in M8086ResultLocal and leaves it on the stack.</summary>
+    private void EmitM8086SubFlags(EmitContext ctx, bool width16)
+    {
+        ILGenerator il = ctx.Il;
+        int widthMask = width16 ? 0xFFFF : 0xFF;
+        int signBit = width16 ? 0x8000 : 0x80;
+        // full = a - b - borrowIn  -> M8086FullLocal
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Ldloc, ctx.M8086CarryInLocal); il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stloc, ctx.M8086FullLocal);
+        // result = full & widthMask  -> M8086ResultLocal
+        il.Emit(OpCodes.Ldloc, ctx.M8086FullLocal); il.Emit(OpCodes.Ldc_I4, widthMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+        // CF (borrow): (full & (widthMask+1)) != 0
+        il.Emit(OpCodes.Ldloc, ctx.M8086FullLocal); il.Emit(OpCodes.Ldc_I4, widthMask + 1); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagCF);
+        // AF: ((a ^ b ^ result) & 0x10) != 0
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Xor);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Xor);
+        il.Emit(OpCodes.Ldc_I4, 0x10); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagAF);
+        // OF (SUB form): ((a ^ b) & (a ^ result) & signBit) != 0   — NO ~ (differs from ADD)
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Xor);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Xor); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4, signBit); il.Emit(OpCodes.And);
+        EmitM8086SetFlag(ctx, M8086FlagOF);
+        EmitM8086SetSzp(ctx, width16);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal);
+    }
+
+    /// <summary>M6 PR-C: AND/OR/XOR/TEST flag set (LogicFlags, Alu.cs:93). The result is ALREADY in
+    /// M8086ResultLocal (the caller computed a&amp;b / a|b / a^b). CF=0, OF=0, AF=0; then SetSzp from the
+    /// width-masked result. Leaves result on the stack.</summary>
+    private void EmitM8086LogicFlags(EmitContext ctx, bool width16)
+    {
+        ILGenerator il = ctx.Il;
+        int widthMask = width16 ? 0xFFFF : 0xFF;
+        // result &= widthMask
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, widthMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+        il.Emit(OpCodes.Ldc_I4_0); EmitM8086SetFlag(ctx, M8086FlagCF);
+        il.Emit(OpCodes.Ldc_I4_0); EmitM8086SetFlag(ctx, M8086FlagOF);
+        il.Emit(OpCodes.Ldc_I4_0); EmitM8086SetFlag(ctx, M8086FlagAF);
+        EmitM8086SetSzp(ctx, width16);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal);
+    }
+
+    /// <summary>M6 PR-C: INC/DEC flag set (IncDecFlags, Alu.cs:105) — ADD/SUB of 1 but CF is PRESERVED. Save CF,
+    /// run the add/sub-1 flag set (b=1, carry/borrow-in=0), restore CF. a in M8086ALocal. Leaves result on the
+    /// stack (and in M8086ResultLocal).</summary>
+    private void EmitM8086IncDecFlags(EmitContext ctx, bool decrement, bool width16)
+    {
+        ILGenerator il = ctx.Il;
+        // savedCf = FLAGS & CF  -> M8086SavedCfLocal
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagCF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.M8086SavedCfLocal);
+        // b = 1 ; carry/borrow-in = 0
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086CarryInLocal);
+        if (decrement) EmitM8086SubFlags(ctx, width16); else EmitM8086AddFlags(ctx, width16);
+        il.Emit(OpCodes.Pop);                                   // the helper left result on the stack; it is in M8086ResultLocal
+        // restore CF: FLAGS = (FLAGS & ~CF) | savedCf
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, ~M8086FlagCF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.M8086SavedCfLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _m8086FLAGS!);
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal);          // leave result on the stack
+    }
 
     /// <summary>The override-prefix enum (mirrors M8086Cpu.X86SegmentOverride) — the compile-time-decoded
     /// segment override the arm threads into EmitM8086SegValue. None=no override.</summary>
@@ -355,4 +523,450 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
       pushValue(); ctx.Il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // word value -> AddrLocal (survives EmitStoreByte)
       EmitM8086PushPhysical(ctx, false); ctx.Il.Emit(OpCodes.Ldloc, ctx.AddrLocal); ctx.Il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx);
       EmitM8086PushPhysical(ctx, true); ctx.Il.Emit(OpCodes.Ldloc, ctx.AddrLocal); ctx.Il.Emit(OpCodes.Ldc_I4_8); ctx.Il.Emit(OpCodes.Shr_Un); ctx.Il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx); }
+
+    // ── M6 PR-C: the 8086 integer-ALU emit arm. ────────────────────────────────────────────────────────────
+
+    /// <summary>The eight ALU operations (mirrors M8086Cpu.AluOp, Alu.cs:192). The flag helper chosen per kind:
+    /// Add/Adc → EmitM8086AddFlags; Sub/Sbb/Cmp → EmitM8086SubFlags; And/Or/Xor → EmitM8086LogicFlags.</summary>
+    private enum M8086AluKind { Add, Adc, Sub, Sbb, Cmp, And, Or, Xor }
+
+    /// <summary>Map the 80/81/83 + F6/F7 group's ModR/M reg field (the normalized key's low 3 bits) to the op
+    /// (AluGroupImm, Alu.cs:291-295): 0=ADD 1=OR 2=ADC 3=SBB 4=AND 5=SUB 6=XOR 7=CMP.</summary>
+    private static M8086AluKind M8086GroupOp(uint reg) => reg switch
+    {
+        0u => M8086AluKind.Add, 1u => M8086AluKind.Or, 2u => M8086AluKind.Adc, 3u => M8086AluKind.Sbb,
+        4u => M8086AluKind.And, 5u => M8086AluKind.Sub, 6u => M8086AluKind.Xor, _ => M8086AluKind.Cmp,
+    };
+
+    /// <summary>Stage the carry/borrow-in (M8086CarryInLocal) then call the kind's flag helper. a is in
+    /// M8086ALocal, ORIGINAL b in M8086BLocal. For ADC/SBB the carry-in is FLAGS&amp;CF (0 or 1) read BEFORE the
+    /// helper overwrites CF (DECISION C-3); for ADD/SUB/CMP it is 0. AND/OR/XOR precompute a OP b into
+    /// M8086ResultLocal first (LogicFlags reads it). Leaves the result on the stack (and in M8086ResultLocal).</summary>
+    private void EmitM8086Compute(EmitContext ctx, M8086AluKind kind, bool width16)
+    {
+        ILGenerator il = ctx.Il;
+        switch (kind)
+        {
+            case M8086AluKind.Add:
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086CarryInLocal);
+                EmitM8086AddFlags(ctx, width16);
+                break;
+            case M8086AluKind.Adc:
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagCF); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M8086CarryInLocal);
+                EmitM8086AddFlags(ctx, width16);
+                break;
+            case M8086AluKind.Sub:
+            case M8086AluKind.Cmp:
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086CarryInLocal);
+                EmitM8086SubFlags(ctx, width16);
+                break;
+            case M8086AluKind.Sbb:
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagCF); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, ctx.M8086CarryInLocal);
+                EmitM8086SubFlags(ctx, width16);
+                break;
+            default:   // And / Or / Xor — compute a OP b into M8086ResultLocal, then LogicFlags
+                il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal);
+                il.Emit(kind == M8086AluKind.And ? OpCodes.And : kind == M8086AluKind.Or ? OpCodes.Or : OpCodes.Xor);
+                il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+                EmitM8086LogicFlags(ctx, width16);
+                break;
+        }
+    }
+
+    /// <summary>M6 PR-C: emit one 8086 ALU-family instruction (DECISION C-1..C-4). Reached only when
+    /// TargetIsM8086 &amp;&amp; d.Mnemonic is an in-scope ALU mnemonic. Decodes the ModR/M / disp / imm at emit time
+    /// from the SEGMENTED code stream (M8086CodePhys), reconstructs the interpreter's normalized OperationKey,
+    /// and transcribes the matching AluExecute case one-for-one. The default throws (the gate↔arm lockstep
+    /// tripwire). <paramref name="length"/> is the FULL instruction footprint (incl. any prefix); PC advances by
+    /// length-1 (EmitInstruction already advanced by 1, like EmitM8086Mov). <paramref name="x86Seg"/> is the
+    /// captured override prefix byte.</summary>
+    private void EmitM8086Alu(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
+    {
+        M8086Cpu_Override over = M8086OverrideFromByte(x86Seg);
+
+        // Scan past any prefix byte(s) at the SEGMENTED physical to find the opcode position; the const reads
+        // (ModR/M / disp / imm) start at operandPc = (opcode pos)+1 (the EmitM8086Mov decode preamble verbatim).
+        int opcodePc = pc;
+        while (M8086IsPrefixByte(_bus.Read8(M8086CodePhys((ushort)opcodePc)))) opcodePc++;
+        byte opcode = _bus.Read8(M8086CodePhys((ushort)opcodePc));
+        int operandPc = opcodePc + 1;
+
+        // Does this opcode carry a ModR/M? The AluStd forms 0-3 (the 0x00-0x3D family rows with opcode&7 <= 3),
+        // TEST 84/85, and EVERY group opcode (80/81/83/F6/F7/FE/FF) do; the acc-imm forms (xx04/xx05, A8/A9) and
+        // INC/DEC r16 (40-4F) do NOT. (The eight ALU families are base+{0..5}; base+{6,7} are non-ALU rows the
+        // mnemonic gate already excludes — so opcode&7 <= 5 IS the AluStd membership, and <= 3 its ModR/M forms.)
+        bool isGroup = opcode is 0x80 or 0x81 or 0x83 or 0xF6 or 0xF7 or 0xFE or 0xFF;
+        bool isStdModRm = opcode <= 0x3D && (opcode & 7u) <= 3u;   // AluStd forms 0-3 (r/m,reg + reg,r/m)
+        bool hasModRm = isGroup || isStdModRm || opcode is 0x84 or 0x85;
+
+        uint mod = 0, reg = 0, rm = 0; ushort disp = 0;
+        if (hasModRm)
+        {
+            byte modrm = _bus.Read8(M8086CodePhys((ushort)operandPc)); operandPc++;
+            mod = (uint)(modrm >> 6) & 3u;
+            reg = (uint)(modrm >> 3) & 7u;
+            rm  = (uint)modrm & 7u;
+            int dispLen = mod switch { 0u => rm == 6u ? 2 : 0, 1u => 1, 2u => 2, _ => 0 };
+            if (dispLen == 1) { disp = unchecked((ushort)(sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc))); operandPc++; }
+            else if (dispLen == 2)
+            {
+                byte lo = _bus.Read8(M8086CodePhys((ushort)operandPc));
+                byte hi = _bus.Read8(M8086CodePhys((ushort)(operandPc + 1)));
+                disp = (ushort)(lo | (hi << 8)); operandPc += 2;
+            }
+        }
+
+        // Reconstruct the interpreter's normalized OperationKey: group opcodes → (opcode<<3)|reg; plain → opcode.
+        uint key = isGroup ? ((uint)opcode << 3) | reg : opcode;
+
+        switch (key)
+        {
+            // 00-3D the eight ALU families (AluStd). baseOp = the family base; form = key - baseOp.
+            case >= 0x00 and <= 0x05: EmitM8086AluStd(ctx, 0x00, key, M8086AluKind.Add, mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x08 and <= 0x0D: EmitM8086AluStd(ctx, 0x08, key, M8086AluKind.Or,  mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x10 and <= 0x15: EmitM8086AluStd(ctx, 0x10, key, M8086AluKind.Adc, mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x18 and <= 0x1D: EmitM8086AluStd(ctx, 0x18, key, M8086AluKind.Sbb, mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x20 and <= 0x25: EmitM8086AluStd(ctx, 0x20, key, M8086AluKind.And, mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x28 and <= 0x2D: EmitM8086AluStd(ctx, 0x28, key, M8086AluKind.Sub, mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x30 and <= 0x35: EmitM8086AluStd(ctx, 0x30, key, M8086AluKind.Xor, mod, reg, rm, disp, over, operandPc); break;
+            case >= 0x38 and <= 0x3D: EmitM8086AluStd(ctx, 0x38, key, M8086AluKind.Cmp, mod, reg, rm, disp, over, operandPc); break;
+
+            // 84/85 TEST r/m,reg ; A8/A9 TEST acc,imm.
+            case 0x84: EmitM8086TestRm(ctx, false, mod, reg, rm, disp, over); break;
+            case 0x85: EmitM8086TestRm(ctx, true,  mod, reg, rm, disp, over); break;
+            case 0xA8: EmitM8086TestAccImm(ctx, false, _bus.Read8(M8086CodePhys((ushort)operandPc))); break;
+            case 0xA9: EmitM8086TestAccImm(ctx, true,  (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                                                | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8))); break;
+
+            // 40-47 INC r16 ; 48-4F DEC r16 (CF preserved).
+            case >= 0x40 and <= 0x47: EmitM8086IncDecReg16(ctx, key & 7u, decrement: false); break;
+            case >= 0x48 and <= 0x4F: EmitM8086IncDecReg16(ctx, key & 7u, decrement: true);  break;
+
+            // 80/81/83 group: ALU r/m,imm (keys 0x400-0x41F; reg selects the op; 0x83 sign-extends imm8→16).
+            case >= 0x400 and <= 0x407: EmitM8086AluGroupImm(ctx, false, false, mod, reg, rm, disp, over, operandPc); break; // 0x80 r/m8,imm8
+            case >= 0x408 and <= 0x40F: EmitM8086AluGroupImm(ctx, true,  false, mod, reg, rm, disp, over, operandPc); break; // 0x81 r/m16,imm16
+            case >= 0x418 and <= 0x41F: EmitM8086AluGroupImm(ctx, true,  true,  mod, reg, rm, disp, over, operandPc); break; // 0x83 r/m16,imm8 SX
+
+            // FE/FF /0 /1: INC/DEC r/m (CF preserved). Keys 0x7F0/0x7F1 (r/m8), 0x7F8/0x7F9 (r/m16).
+            case 0x7F0: EmitM8086IncDecRm(ctx, false, false, mod, rm, disp, over); break;
+            case 0x7F1: EmitM8086IncDecRm(ctx, false, true,  mod, rm, disp, over); break;
+            case 0x7F8: EmitM8086IncDecRm(ctx, true,  false, mod, rm, disp, over); break;
+            case 0x7F9: EmitM8086IncDecRm(ctx, true,  true,  mod, rm, disp, over); break;
+
+            // F6/F7 /0 /1 TEST imm ; /2 NOT (no flags) ; /3 NEG (SUB-form flags). /4../7 (MUL/DIV) stay fallback.
+            case 0x7B0: case 0x7B1: EmitM8086UnaryTestImm(ctx, false, mod, rm, disp, over, _bus.Read8(M8086CodePhys((ushort)operandPc))); break;
+            case 0x7B8: case 0x7B9: EmitM8086UnaryTestImm(ctx, true,  mod, rm, disp, over,
+                                        (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                                 | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8))); break;
+            case 0x7B2: EmitM8086UnaryNot(ctx, false, mod, rm, disp, over); break;
+            case 0x7BA: EmitM8086UnaryNot(ctx, true,  mod, rm, disp, over); break;
+            case 0x7B3: EmitM8086UnaryNeg(ctx, false, mod, rm, disp, over); break;
+            case 0x7BB: EmitM8086UnaryNeg(ctx, true,  mod, rm, disp, over); break;
+
+            default:
+                throw new EmulationException(
+                    $"BlockCompiler: no 8086 ALU emit branch for key 0x{key:X} (opcode 0x{opcode:X2}); "
+                  + "the gate (IsEmittableX86Family) admitted a form the arm does not handle — a lockstep bug.");
+        }
+
+        // PC advance: EmitInstruction already advanced PC by 1 (the first/opcode-fetch byte). Advance by the
+        // REMAINING footprint (length - 1) so the block's nextPc == r.Length exactly, for any prefix combination
+        // (the EmitM8086Mov discipline — the length-1 form is proven correct in PR-B).
+        int tail = length - 1;
+        if (tail > 0) EmitIncrementPC(ctx, tail);
+    }
+
+    /// <summary>M6 PR-C: the 00-3D standard ALU forms (AluStd, Alu.cs:238). form = key - baseOp selects the
+    /// operand layout (0=r/m8&lt;-r8 ; 1=r/m16&lt;-r16 ; 2=r8&lt;-r/m8 ; 3=r16&lt;-r/m16 ; 4=AL,imm8 ; 5=AX,imm16).
+    /// Reads a + b into the survivor locals, computes via the kind's flag helper, writes the result (unless CMP).
+    /// The memory r/m forms 0/1 read `a` from the EA and write `result` back to the SAME EA — re-resolving the
+    /// EA is correct (the 8086 r/m EA has NO auto-increment side effect, so re-forming the physical is exact).</summary>
+    private void EmitM8086AluStd(EmitContext ctx, uint baseOp, uint key, M8086AluKind kind,
+        uint mod, uint reg, uint rm, ushort disp, M8086Cpu_Override over, int operandPc)
+    {
+        ILGenerator il = ctx.Il;
+        uint form = key - baseOp;
+        bool width16 = form is 1u or 3u or 5u;
+
+        switch (form)
+        {
+            case 0u:   // r/m8, r8 — dest = r/m (a + write-back), src = reg8
+                EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);                  // a = r/m8 -> M8086ALocal
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(M8086Reg8[reg])); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = reg8
+                EmitM8086Compute(ctx, kind, false);
+                EmitM8086WriteRmByteResult(ctx, kind, mod, rm, disp, over);
+                break;
+            case 1u:   // r/m16, r16
+                EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);                  // a = r/m16
+                EmitLoadReg16(ctx, M8086Reg16[reg]); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = reg16
+                EmitM8086Compute(ctx, kind, true);
+                EmitM8086WriteRmWordResult(ctx, kind, mod, rm, disp, over);
+                break;
+            case 2u:   // r8, r/m8 — dest = reg8, src = r/m8
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(M8086Reg8[reg])); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = reg8
+                EmitM8086LoadRmByteToB(ctx, mod, rm, disp, over);                  // b = r/m8
+                EmitM8086Compute(ctx, kind, false);
+                EmitM8086WriteReg8Result(ctx, kind, M8086Reg8[reg]);
+                break;
+            case 3u:   // r16, r/m16
+                EmitLoadReg16(ctx, M8086Reg16[reg]); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = reg16
+                EmitM8086LoadRmWordToB(ctx, mod, rm, disp, over);                  // b = r/m16
+                EmitM8086Compute(ctx, kind, true);
+                EmitM8086WriteReg16Result(ctx, kind, M8086Reg16[reg]);
+                break;
+            case 4u:   // AL, imm8
+            {
+                byte imm8 = _bus.Read8(M8086CodePhys((ushort)operandPc));
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AL")); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = AL
+                il.Emit(OpCodes.Ldc_I4, (int)imm8); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = imm8
+                EmitM8086Compute(ctx, kind, false);
+                EmitM8086WriteReg8Result(ctx, kind, "AL");
+                break;
+            }
+            default:   // 5u — AX, imm16
+            {
+                ushort imm16 = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                        | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+                EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = AX
+                il.Emit(OpCodes.Ldc_I4, (int)imm16); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = imm16
+                EmitM8086Compute(ctx, kind, true);
+                EmitM8086WriteReg16Result(ctx, kind, "AX");
+                break;
+            }
+        }
+    }
+
+    /// <summary>M6 PR-C: the 80/81/83 group — ALU r/m,imm (AluGroupImm, Alu.cs:288). The ModR/M reg field selects
+    /// the op. 0x80: r/m8,imm8 (byte). 0x81: r/m16,imm16. 0x83: r/m16, imm8 SIGN-EXTENDED to 16. The r/m is both
+    /// the read source (a) and (unless CMP) the write-back dest.</summary>
+    private void EmitM8086AluGroupImm(EmitContext ctx, bool width16, bool signExtend,
+        uint mod, uint reg, uint rm, ushort disp, M8086Cpu_Override over, int operandPc)
+    {
+        ILGenerator il = ctx.Il;
+        M8086AluKind kind = M8086GroupOp(reg);
+        if (!width16)
+        {
+            byte imm8 = _bus.Read8(M8086CodePhys((ushort)operandPc));
+            EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);                      // a = r/m8
+            il.Emit(OpCodes.Ldc_I4, (int)imm8); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = imm8
+            EmitM8086Compute(ctx, kind, false);
+            EmitM8086WriteRmByteResult(ctx, kind, mod, rm, disp, over);
+        }
+        else
+        {
+            // 0x83: sign-extend the imm8 to 16 bits; 0x81: read the imm16 directly.
+            ushort imm = signExtend
+                ? unchecked((ushort)(sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc)))
+                : (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                           | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+            EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);                      // a = r/m16
+            il.Emit(OpCodes.Ldc_I4, (int)imm); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = imm16
+            EmitM8086Compute(ctx, kind, true);
+            EmitM8086WriteRmWordResult(ctx, kind, mod, rm, disp, over);
+        }
+    }
+
+    /// <summary>M6 PR-C: 84/85 TEST r/m,reg — AND with the result discarded (flags only; AluTestRm, Alu.cs:313).</summary>
+    private void EmitM8086TestRm(EmitContext ctx, bool width16, uint mod, uint reg, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);                      // a = r/m8
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(M8086Reg8[reg])); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = reg8
+            EmitM8086Compute(ctx, M8086AluKind.And, false);
+        }
+        else
+        {
+            EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);                      // a = r/m16
+            EmitLoadReg16(ctx, M8086Reg16[reg]); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = reg16
+            EmitM8086Compute(ctx, M8086AluKind.And, true);
+        }
+        il.Emit(OpCodes.Pop);   // TEST discards the result
+    }
+
+    /// <summary>M6 PR-C: A8/A9 TEST acc,imm — AL&amp;imm8 / AX&amp;imm16, flags only (Alu.cs:148-149).</summary>
+    private void EmitM8086TestAccImm(EmitContext ctx, bool width16, ushort imm)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AL")); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = AL
+            il.Emit(OpCodes.Ldc_I4, (int)(byte)imm); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = imm8
+            EmitM8086Compute(ctx, M8086AluKind.And, false);
+        }
+        else
+        {
+            EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = AX
+            il.Emit(OpCodes.Ldc_I4, (int)imm); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);   // b = imm16
+            EmitM8086Compute(ctx, M8086AluKind.And, true);
+        }
+        il.Emit(OpCodes.Pop);
+    }
+
+    /// <summary>M6 PR-C: 40-4F INC/DEC r16 (CF preserved; Alu.cs:152-155). a = Reg16(reg); IncDecFlags; store.</summary>
+    private void EmitM8086IncDecReg16(EmitContext ctx, uint reg, bool decrement)
+    {
+        ILGenerator il = ctx.Il;
+        EmitLoadReg16(ctx, M8086Reg16[reg]); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);   // a = Reg16(reg)
+        EmitM8086IncDecFlags(ctx, decrement, true);                                       // result on stack + in M8086ResultLocal
+        EmitStoreReg16(ctx, M8086Reg16[reg]);                                            // store the stack result
+    }
+
+    /// <summary>M6 PR-C: FE/FF /0 /1 INC/DEC r/m (CF preserved; AluIncDecRm, Alu.cs:320). a = r/m; IncDecFlags;
+    /// write result back to the SAME r/m.</summary>
+    private void EmitM8086IncDecRm(EmitContext ctx, bool width16, bool decrement, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);
+            EmitM8086IncDecFlags(ctx, decrement, false);
+            il.Emit(OpCodes.Pop);   // result is in M8086ResultLocal
+            EmitM8086StoreRmByteResult(ctx, mod, rm, disp, over);
+        }
+        else
+        {
+            EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);
+            EmitM8086IncDecFlags(ctx, decrement, true);
+            il.Emit(OpCodes.Pop);
+            EmitM8086StoreRmWordResult(ctx, mod, rm, disp, over);
+        }
+    }
+
+    /// <summary>M6 PR-C: F6/F7 /0 /1 TEST r/m,imm — AND with imm, flags only (AluUnaryTestImm, Alu.cs:336).</summary>
+    private void EmitM8086UnaryTestImm(EmitContext ctx, bool width16, uint mod, uint rm, ushort disp, M8086Cpu_Override over, ushort imm)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);
+            il.Emit(OpCodes.Ldc_I4, (int)(byte)imm); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);
+            EmitM8086Compute(ctx, M8086AluKind.And, false);
+        }
+        else
+        {
+            EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);
+            il.Emit(OpCodes.Ldc_I4, (int)imm); il.Emit(OpCodes.Stloc, ctx.M8086BLocal);
+            EmitM8086Compute(ctx, M8086AluKind.And, true);
+        }
+        il.Emit(OpCodes.Pop);
+    }
+
+    /// <summary>M6 PR-C: F6/F7 /2 NOT r/m — bitwise complement, sets NO flags (AluUnaryNot, Alu.cs:343).</summary>
+    private void EmitM8086UnaryNot(EmitContext ctx, bool width16, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);                      // a = r/m8 -> M8086ALocal
+            il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Not); il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);   // ~a
+            EmitM8086StoreRmByteResult(ctx, mod, rm, disp, over);
+        }
+        else
+        {
+            EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);
+            il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Not); il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+            EmitM8086StoreRmWordResult(ctx, mod, rm, disp, over);
+        }
+    }
+
+    /// <summary>M6 PR-C: F6/F7 /3 NEG r/m — 0 - operand (SUB-form flags; AluUnaryNeg, Alu.cs:350). a=0, b=operand,
+    /// borrow-in=0.</summary>
+    private void EmitM8086UnaryNeg(EmitContext ctx, bool width16, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            EmitM8086LoadRmByteToB(ctx, mod, rm, disp, over);                      // b = operand
+            il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);    // a = 0
+            EmitM8086Compute(ctx, M8086AluKind.Sub, false);
+            EmitM8086WriteRmByteResult(ctx, M8086AluKind.Sub, mod, rm, disp, over);
+        }
+        else
+        {
+            EmitM8086LoadRmWordToB(ctx, mod, rm, disp, over);
+            il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086ALocal);
+            EmitM8086Compute(ctx, M8086AluKind.Sub, true);
+            EmitM8086WriteRmWordResult(ctx, M8086AluKind.Sub, mod, rm, disp, over);
+        }
+    }
+
+    // ── operand read helpers: push the r/m operand and stash into the named survivor local ──────────────────
+
+    private void EmitM8086LoadRmByteToA(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (mod == 3u) { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(M8086Reg8[rm])); }
+        else EmitM8086LoadByteEa(ctx, mod, rm, disp, over);
+        il.Emit(OpCodes.Stloc, ctx.M8086ALocal);
+    }
+    private void EmitM8086LoadRmByteToB(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (mod == 3u) { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(M8086Reg8[rm])); }
+        else EmitM8086LoadByteEa(ctx, mod, rm, disp, over);
+        il.Emit(OpCodes.Stloc, ctx.M8086BLocal);
+    }
+    private void EmitM8086LoadRmWordToA(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (mod == 3u) EmitLoadReg16(ctx, M8086Reg16[rm]);
+        else EmitM8086LoadWordEa(ctx, mod, rm, disp, over);
+        il.Emit(OpCodes.Stloc, ctx.M8086ALocal);
+    }
+    private void EmitM8086LoadRmWordToB(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (mod == 3u) EmitLoadReg16(ctx, M8086Reg16[rm]);
+        else EmitM8086LoadWordEa(ctx, mod, rm, disp, over);
+        il.Emit(OpCodes.Stloc, ctx.M8086BLocal);
+    }
+
+    // ── result write helpers: pop the helper's stack result (it is also in M8086ResultLocal), then write the
+    //    result from M8086ResultLocal to the dest — UNLESS the op is CMP (flags-only, the result is discarded). ──
+
+    private void EmitM8086WriteRmByteResult(EmitContext ctx, M8086AluKind kind, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ctx.Il.Emit(OpCodes.Pop);
+        if (kind == M8086AluKind.Cmp) return;
+        EmitM8086StoreRmByteResult(ctx, mod, rm, disp, over);
+    }
+    private void EmitM8086WriteRmWordResult(EmitContext ctx, M8086AluKind kind, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ctx.Il.Emit(OpCodes.Pop);
+        if (kind == M8086AluKind.Cmp) return;
+        EmitM8086StoreRmWordResult(ctx, mod, rm, disp, over);
+    }
+    private void EmitM8086WriteReg8Result(EmitContext ctx, M8086AluKind kind, string reg8)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Pop);
+        if (kind == M8086AluKind.Cmp) return;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField(reg8));
+    }
+    private void EmitM8086WriteReg16Result(EmitContext ctx, M8086AluKind kind, string reg16)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Pop);
+        if (kind == M8086AluKind.Cmp) return;
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitStoreReg16(ctx, reg16);
+    }
+
+    // r/m write-back (used by the RMW dest forms + INC/DEC/NOT/NEG). The memory store re-resolves the EA (no
+    // auto-increment side effect, so the re-formed physical is the SAME address — address-once-equivalent).
+    private void EmitM8086StoreRmByteResult(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (mod == 3u) { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField(M8086Reg8[rm])); }
+        else EmitM8086StoreByteEa(ctx, mod, rm, disp, over, () => il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal));
+    }
+    private void EmitM8086StoreRmWordResult(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (mod == 3u) { il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitStoreReg16(ctx, M8086Reg16[rm]); }
+        else EmitM8086StoreWordEa(ctx, mod, rm, disp, over, () => il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal));
+    }
 }
