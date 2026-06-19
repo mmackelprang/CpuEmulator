@@ -87,13 +87,29 @@ report. **The original M6 baseline finding was that the Tier-1 JIT was slower th
 interpreter** — on the 6502 (SMC-invalidation thrash on Klaus; per-instruction overhead on the tiny
 non-SMC kernel) and on the Z80/68000/8086, whose Tier-1 was then **all-fallback** (every op fell back to
 the interpreter Step — no hot-op IL emit; a ratio ≈ 1.0× minus block-dispatch overhead). **M6 closed
-that gap:** the high-ROI op families of all four CPUs now emit IL, and the 6502 SMC/recompile-cost lever
-removed the Klaus thrash. So this section is the before/after speedup story with the "after" now landed.
+that gap** on the **compute kernels (W2/W3)**: the high-ROI op families of all four CPUs now emit IL.
+(The 6502 SMC/recompile-cost lever that removes the Klaus thrash is proven in the Klaus functional test,
+but is **not yet enabled in the bench Tier-1 path** — so the SMC-heavy rows below are still the
+unmitigated worst case; enabling + generalizing the lever across CPUs is a tracked follow-on.) So this
+section is the before/after speedup story with the "after" now landed.
 
-<!-- FIGURES: refresh from arc-end REPORT.md — the per-CPU Tier-1-vs-interpreter and Tier-1-vs-best
-     ratios for the emitted (post-M6) workloads. The pre-M6 all-fallback numbers (e.g. the 8086's
-     ≈0.59-0.61x guest-MIPS baseline, the Z80/68000 0.45-0.75x-of-interpreter, the 6502 W1 0.00x) are
-     the deliberately-captured "before"; the "after" figures land with the arc-end benchmark. -->
+**The "after" (arc-end re-measure, post-M6).** On the no-SMC **compute kernels**, the Tier-1 JIT now
+*beats* the Tier-0 interpreter for the three CPUs M6 targeted (Tier-1 ÷ Tier-0):
+
+| CPU | W2 kernel | W3 sieve | what emits |
+|---|---:|---:|---|
+| **Z80** | **2.28×** (569M vs 250M T-st/s) | 0.87× | LD, ALU+flags, branch/call/stack |
+| **68000** | **3.08×** (27.2 vs 8.8 MIPS) | _W3 capped_ | MOVE, ALU+CCR, shifts, branch |
+| **8086** | **1.18×** (30.9 vs 26.3 MIPS) | _W3 capped_ | MOV, ALU+FLAGS, near branch |
+| 6502 | 0.51× | 0.60× | (M2 baseline — block-JIT vs a tight switch-interpreter on a hot loop; not a regression) |
+
+The **SMC-heavy W1** runs (6502 Klaus, Z80 ZEXDOC, 68000 W1, 8086 W1) — and the 68000/8086 **W3** —
+stay JIT-*slower* and are **capped at 10s** in the report: the recompiler thrashes on self-modifying
+code. Two honest caveats: (1) those are the *worst case* — the bench Tier-1 path does not yet enable the
+6502 SMC/recompile-cost lever (PR-S), so it is the unmitigated thrash; and (2) the cap is a valid
+measurement (cycles ÷ wall over a bounded window), not a truncation. The clean emit signal is the **W2**
+column. _(Numbers from the [arc-end `REPORT.md`](../../bench/results/REPORT.md); the per-CPU ratio is
+host-independent — it cancels machine speed.)_
 
 The JIT's foundational value remains correctness parity (the full TomHarte sweep through the JIT, the
 committed differential fuzzer, Klaus cycle-exact); M6 adds the throughput. See
@@ -110,7 +126,19 @@ are **frozen** so the comparison is apples-to-apples; the per-CPU ratio is machi
 cancels host speed). The full re-measure contract — same bytes, same metric, same command, same
 canonical host — lives in [`bench/README.md`](../../bench/README.md) under "Baseline → re-measure (M6)".
 
-<!-- FIGURES: refresh from arc-end REPORT.md — the demonstrated before→after per-CPU/per-workload deltas. -->
+**Before → after on the W2 compute kernel** (the cleanest emit signal — no SMC, frozen workload):
+
+| CPU | before (pre-M6) | after (M6 emit) | swing |
+|---|---|---|---|
+| **Z80** W2 | ≈0.45× of interpreter (all-fallback) | **2.28×** | JIT now beats interp |
+| **68000** W2 | ≈1.0× minus block overhead (all-fallback) | **3.08×** (guest-MIPS) | emit lands |
+| **8086** W2 | ≈0.59–0.61× (all-fallback) | **1.18×** (guest-MIPS) | emit lands |
+
+The "before" is the committed all-fallback baseline; the "after" re-runs the **identical frozen
+workloads** with hot-op IL emit landed. The 6502 was already a partial-emit JIT before M6 (its W2/W3 sit
+at 0.51×/0.60× — the established block-JIT-vs-tight-switch case), so its W2 is not part of the M6 emit
+delta. SMC-heavy W1/W3 are excluded from the emit-signal comparison (they're dominated by the
+recompile-thrash pathology, and the bench does not yet enable the SMC lever — see above).
 
 > **Known benchmark-harness caveats (not core correctness):** a 68000 W2 bench-harness cycle off-by-2
 > and the 68000 W3 workload's absence from the hot-op profiler arm are tracked backlog items (see the
