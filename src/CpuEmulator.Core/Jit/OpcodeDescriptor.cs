@@ -10,6 +10,8 @@ public enum JitOpClass
     Branch,                             // conditional control flow; ends a block
     Jump, Jsr, Rts,                     // unconditional control flow; ends a block
     Flow,                               // BRK/RTI — interrupt/vector machinery; fallback + ends block
+    Z80Flow,                            // M6 PR-3: the EMITTABLE Z80 control-flow class (JP/JR/CALL/RET/
+                                        // DJNZ/RST) — dispatched to EmitZ80Flow; ends a block (DECISION H2)
     Port,                               // M3.2: IN/OUT — an Io-bus callout (NEVER fastmem); straight-line
     Undefined,                          // not in the dispatch table; fallback + ends block
 }

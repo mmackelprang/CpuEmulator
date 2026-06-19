@@ -449,11 +449,18 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                               or "EdAdcSbc16";               // M6 PR-2b: ED ADC/SBC HL,rr (prefixed)
     }
 
+    // M6 PR-3: is this descriptor a Z80 stack row that EmitZ80Stack handles? PUSH/POP rr ride
+    // JitOpClass.Register (block-continuing — they emit inline like the ALU rows), so EmitRegister routes
+    // them here. The flow ops (JP/JR/CALL/RET/DJNZ/RST) ride JitOpClass.Z80Flow and dispatch separately.
+    private static bool IsZ80StackKind(OpcodeDescriptor d) =>
+        d.Ops.Length > 0 && d.Ops[0].Kind is "Push16" or "Pop16";
+
     // ── Register class (Implied) — includes transfers, inc/dec, set/clear flag, stack ops, NOP ─
     private void EmitRegister(EmitContext ctx, OpcodeDescriptor d)
     {
         if (TargetIsZ80 && d.Mnemonic == "LD") { EmitZ80Ld(ctx, d); return; }   // M6 PR-1
         if (TargetIsZ80 && IsZ80AluKind(d))    { EmitZ80Alu(ctx, d); return; }  // M6 PR-2
+        if (TargetIsZ80 && IsZ80StackKind(d))  { EmitZ80Stack(ctx, d); return; }  // M6 PR-3
         ILGenerator il = ctx.Il;
         string firstKind = d.Ops.Length > 0 ? d.Ops[0].Kind : string.Empty;
 
