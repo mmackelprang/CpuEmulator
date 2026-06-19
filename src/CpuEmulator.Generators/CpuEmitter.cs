@@ -4090,7 +4090,10 @@ internal static class CpuEmitter
         // gated on FieldGrammar so the 6502/Z80/8086 byte/prefix paths are provably untouched (an empty
         // git-diff on their generated tables — the regression-safety gate, DECISION R).
         if (model.FieldGrammar is not null)
+        {
             EmitM68kMoveFamilyRows(sb, model.FieldGrammar);
+            EmitM68kAluFamilyRows(sb, model.FieldGrammar);   // M6 PR-5: the integer-ALU rows (M68000Alu)
+        }
         sb.AppendLine("    };");
     }
 
@@ -4175,6 +4178,86 @@ internal static class CpuEmitter
         // MOVE/MOVEA: the published register-to-register MOVE base (4) + a representative word/long bus EA cost
         // (a Dn,(An) shape: word=8, long=12; the spurious .b key floors at the word cost). >= 1 always (T3).
         _ => size == 2 ? 12 : 8,
+    };
+
+    /// <summary>M6 PR-5 (DECISION P3): the set of PR-5 integer-ALU mnemonics whose operword scan synthesizes a
+    /// JitOpClass.M68000Alu keyed descriptor row. EXACTLY the in-scope families (ADD/ADDA/ADDI/ADDQ, SUB/SUBA/
+    /// SUBI/SUBQ, CMP/CMPA/CMPI, AND/ANDI, OR/ORI, EOR/EORI, ADDX/SUBX) — NOT NEG/NEGX/NOT/CLR/TST/EXT/MUL/DIV
+    /// (those stay fallback), NOT CMPM (a distinct first-match-wins op before CMP, out of scope), NOT the *_CCR/
+    /// *_SR system-byte forms. Keyed by the grammar's Operation string so the family is unambiguous at emit.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> M68kAluMnemonics = new()
+    {
+        "ADD", "ADDA", "ADDI", "ADDQ",
+        "SUB", "SUBA", "SUBI", "SUBQ",
+        "CMP", "CMPA", "CMPI",
+        "AND", "ANDI", "OR", "ORI", "EOR", "EORI",
+        "ADDX", "SUBX",
+    };
+
+    /// <summary>M6 PR-5 (DECISION P3): synthesize the 68000 integer-ALU keyed descriptor rows for a FieldGrammar
+    /// CPU. A PARALLEL of EmitM68kMoveFamilyRows: it replicates the SAME first-match-wins scan over all 65536
+    /// operwords and the SAME MapSize + AddrRegVariants (+1) size remap so the synthesized key set is byte-
+    /// identical to the set the generated Decode() produces. It differs only in WHICH ops it collects (the PR-5
+    /// ALU mnemonics) and the JitOpClass it emits (M68000Alu). Each row carries a coarse Mnemonic + JitOpClass.
+    /// M68000Alu + a representative BaseCycles (DECISION T2 — NOT correctness-gated, >= 1) + NeedsFallback=false +
+    /// EndsBlock=false; the EA matrix + the exact family/shape are decoded at emit time from the operword
+    /// (EmitM68kAlu). Gated on FieldGrammar so the 6502/Z80/8086 byte/prefix tables are provably untouched.</summary>
+    private static void EmitM68kAluFamilyRows(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        // The AddrRegVariants set (ADDA/SUBA/CMPA) gets the +1 size remap — IDENTICAL to the MOVE scan + the
+        // decode walk. ADDX/SUBX/ADDI/ADDQ/etc are NOT in it (they keep the raw MapSize index).
+        var addrRegVariants = new System.Collections.Generic.HashSet<int>();
+        for (int i = 0; i < grammar.Ops.Length; i++)
+            if (grammar.Ops[i].Operation is "ADDA" or "SUBA" or "CMPA") addrRegVariants.Add(i);
+
+        var keysByOp = new System.Collections.Generic.SortedDictionary<int, System.Collections.Generic.SortedSet<uint>>();
+        for (uint operword = 0; operword <= 0xFFFFu; operword++)
+        {
+            for (int i = 0; i < grammar.Ops.Length; i++)
+            {
+                var op = grammar.Ops[i];
+                if ((operword & op.Mask) != op.Match) continue;   // first match wins (the walk's order)
+                uint sizeBits = (operword >> op.SizeShift) & (uint)((1 << op.SizeWidth) - 1);
+                uint size = M68kMapSize(sizeBits, (int)op.SizeEncoding);
+                if (addrRegVariants.Contains(i)) size += 1u;
+                if (M68kAluMnemonics.Contains(op.Operation))
+                {
+                    if (!keysByOp.TryGetValue(i, out var sizes))
+                        keysByOp[i] = sizes = new System.Collections.Generic.SortedSet<uint>();
+                    sizes.Add(size);
+                }
+                break;   // only the first matching field op decodes this operword
+            }
+        }
+
+        foreach (var entry in keysByOp)
+        {
+            int opIndex = entry.Key;
+            string mnemonic = grammar.Ops[opIndex].Operation;
+            foreach (uint size in entry.Value)
+            {
+                uint key = (1u << 24) | ((uint)opIndex << 8) | size;
+                int baseCycles = M68kAluFamilyBaseCycles(mnemonic, (int)size);
+                sb.AppendLine($"        [0x{key:X}u] = new(0x00, \"{mnemonic}\", "
+                    + "CpuEmulator.Core.Jit.JitMode.Implied, "
+                    + "CpuEmulator.Core.Jit.JitOpClass.M68000Alu, "
+                    + $"CpuEmulator.Core.Jit.LengthRule.Fixed, 2, {baseCycles}, false, "
+                    + "false, false, []),");
+            }
+        }
+    }
+
+    /// <summary>M6 PR-5 (DECISION T2): a representative BaseCycles for a synthesized 68000 ALU row. NOT
+    /// correctness-gated — the JIT parity gate asserts the data axis ONLY and never compares CycleCount; this
+    /// only needs to be >= 1 to keep the budget loop honest. Pinned to a reasonable published-ish register-to-
+    /// register figure (4 for .b/.w, 8 for .l; CMP is like SUB). Keyed on the 68000-only ALU mnemonics, which the
+    /// 6502/Z80/8086 never name — so their ComputeCycles path is provably untouched (the empty-diff gate).</summary>
+    private static int M68kAluFamilyBaseCycles(string mnemonic, int size) => mnemonic switch
+    {
+        // ADDA/SUBA/CMPA — An-dest, always full-32 (the .w form sign-extends); pin to the long figure.
+        "ADDA" or "SUBA" or "CMPA" => 8,
+        // Everything else: reg-reg 4 for .b/.w, 8 for .l (CMP/CMPI like SUB; ADDX/SUBX reg form 4/8).
+        _ => size == 2 ? 8 : 4,
     };
 
     /// <summary>One descriptor row as a C# object-creation expression. Reuses ModeLength,

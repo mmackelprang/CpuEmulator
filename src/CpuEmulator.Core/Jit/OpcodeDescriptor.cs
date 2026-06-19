@@ -15,6 +15,9 @@ public enum JitOpClass
     M68000Move,                         // M6 PR-4: the 68000 MOVE/MOVEA/MOVEQ emit class. Dispatched by
                                         // BlockCompiler.EmitInstruction to EmitM68kMove. Block-CONTINUING
                                         // (MOVE does not end the block) — EndsBlock=false on these rows.
+    M68000Alu,                          // M6 PR-5: the 68000 integer-ALU emit class (ADD/SUB/CMP/AND/OR/EOR
+                                        // + I/Q/A forms + ADDX/SUBX). Dispatched to EmitM68kAlu. Block-
+                                        // CONTINUING — EndsBlock=false/NeedsFallback=false on these rows.
     Port,                               // M3.2: IN/OUT — an Io-bus callout (NEVER fastmem); straight-line
     Undefined,                          // not in the dispatch table; fallback + ends block
 }
