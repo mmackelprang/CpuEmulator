@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The composition-root assembly for declarative board specs. This is the ONLY library that
+    references both the concrete CPU cores AND the Jit (Reflection.Emit) assembly, so it is the
+    one place a CpuKind -> core factory can build a JIT-wrapped core. Deliberately NOT
+    IsAotCompatible: it transitively references CpuEmulator.Jit (research section 4). NativeAOT
+    consumers compose machines via the interpreter tier and do not reference this assembly's JIT path.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CpuEmulator.Core\CpuEmulator.Core.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Jit\CpuEmulator.Jit.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Cpus.M68000\CpuEmulator.Cpus.M68000.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Cpus.M8086\CpuEmulator.Cpus.M8086.csproj" />
+  </ItemGroup>
+
+</Project>
