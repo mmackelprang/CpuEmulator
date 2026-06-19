@@ -61,4 +61,35 @@ public class HostBoardSmokeTests
         board.Machine.Run(20_000);     // the echo loop dequeues + retransmits
         Assert.Contains("Z", tx.ToString());
     }
+
+    [Fact]
+    public void Z80_host_smoke_registers_disasm_and_uart_prints_OK()
+    {
+        Assert.True(BoardRegistry.TryBoot("z80", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+
+        var tx = new StringBuilder();
+        board!.Uart.OnTransmit = b => tx.Append((char)b);
+        board.Machine.Reset();        // Z80: PC = 0 (the program was poked into RAM at boot)
+        var engine = board.NewMonitor();
+
+        // Registers: the Z80 names a PC + an A; it does NOT have a 6502 'P' status register.
+        string regs = engine.Registers();
+        Assert.Contains("PC=", regs);
+        Assert.Contains("A=", regs);
+
+        // Disassembly at $0000 is the boot program's first op: LD A,'O' (opcode 0x3E).
+        // The Z80 disassembler renders a real mnemonic (1605 arms), not '???'.
+        string dis = engine.Disassemble(0x0000, 1);
+        Assert.Contains("LD", dis);
+        Assert.DoesNotContain("???", dis);
+
+        // Step advances PC off $0000 (the boot program is executing real instructions).
+        engine.Step();
+        Assert.NotEqual(0x0000u, engine.ProgramCounter);
+
+        // UART round-trip: run to completion; the boot writes "OK\r" out the UART.
+        board.Machine.Run(2000);
+        Assert.Equal("OK\r", tx.ToString());
+    }
 }
