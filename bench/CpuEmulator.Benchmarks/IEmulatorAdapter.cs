@@ -10,28 +10,38 @@ namespace CpuEmulator.Benchmarks;
 /// on `main`, M4.5d-2 gating). 0 means "not reported" — a cycle-only subject (a subprocess that prints
 /// only <c>CYCLES</c>, or the 6502/Z80 W2 JIT path that advances by one large budgeted Run and so does
 /// not attribute a per-instruction count). guest-MIPS (M1) normalizes off this field.</param>
+/// <param name="Capped">Task 1 — true when the run STOPPED at the per-measurement wall-clock deadline
+/// (<see cref="BenchHarness.PerMeasurementWallCap"/>) rather than reaching its full cycle budget/trap.
+/// A capped result is STILL a valid measurement: <see cref="CyclesPerSecond"/> is the cycles actually
+/// executed in the bounded window / the wall elapsed (the SAME rate, just time-bounded). The report +
+/// console flag it distinctly so a reader knows the run was bounded (SMC-pathological).</param>
 public readonly record struct AdapterResult(
     bool Ran,
     double CyclesPerSecond,
     double WallSeconds,
     string Note,
-    double InstructionsPerSecond = 0)
+    double InstructionsPerSecond = 0,
+    bool Capped = false)
 {
     /// <summary>A skipped/absent subject: Ran=false with a clear reason + how to populate it.</summary>
     public static AdapterResult Skipped(string reason) => new(false, 0, 0, reason);
 
     /// <summary>A measured subject: cycles/host-second over the warmed window. No instruction count
-    /// (InstructionsPerSecond stays 0 — "not reported"), so guest-MIPS renders "—" for this row.</summary>
-    public static AdapterResult Measured(long cycles, double wallSeconds, string note) =>
-        new(true, wallSeconds > 0 ? cycles / wallSeconds : 0, wallSeconds, note);
+    /// (InstructionsPerSecond stays 0 — "not reported"), so guest-MIPS renders "—" for this row. When
+    /// <paramref name="capped"/> is true the run was stopped at the wall deadline — cycles/sec is still
+    /// the cycles actually executed over the bounded window (same rate, bounded time).</summary>
+    public static AdapterResult Measured(long cycles, double wallSeconds, string note, bool capped = false) =>
+        new(true, wallSeconds > 0 ? cycles / wallSeconds : 0, wallSeconds, note, Capped: capped);
 
     /// <summary>A measured subject reporting BOTH cycles and instructions over the window (our tiers
     /// that drive by a budget-1 advance — the 68000 — and any reference core that surfaces an
     /// instruction count). The 68000 baseline leads with instructions/sec because the cycle axis is
-    /// partial (M4.5d-2 gating); guest-MIPS (M1) normalizes off the instructions field.</summary>
-    public static AdapterResult MeasuredWithInstructions(long cycles, long instructions, double wallSeconds, string note) =>
+    /// partial (M4.5d-2 gating); guest-MIPS (M1) normalizes off the instructions field. When
+    /// <paramref name="capped"/> is true the run was stopped at the wall deadline — both rates are over
+    /// the bounded window (same rate, bounded time).</summary>
+    public static AdapterResult MeasuredWithInstructions(long cycles, long instructions, double wallSeconds, string note, bool capped = false) =>
         new(true, wallSeconds > 0 ? cycles / wallSeconds : 0, wallSeconds, note,
-            wallSeconds > 0 ? instructions / wallSeconds : 0);
+            wallSeconds > 0 ? instructions / wallSeconds : 0, Capped: capped);
 }
 
 /// <summary>A portable benchmark workload: the memory image, where it loads + starts, and how it

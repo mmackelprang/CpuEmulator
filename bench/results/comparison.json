@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "generatedUtc": "2026-06-17T20:39:47Z",
+  "generatedUtc": "2026-06-19T15:27:58Z",
   "host": {
     "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
     "os": "Microsoft Windows 10.0.26220",
-    "dotnet": ".NET 10.0.2"
+    "dotnet": ".NET 10.0.9"
   },
   "cpus": [
     {
@@ -19,7 +19,7 @@
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 178298450.0,
+              "cyclesPerSecond": 180660627.7116777,
               "allFallback": false,
               "source": null
             },
@@ -27,45 +27,13 @@
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 466574.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "Asm6502 (C#)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 80487537.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "fake6502 (C)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 500763790.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "py65 (Python)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 7358839.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "sfotty (JavaScript/Node)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 64364354.0,
+              "cyclesPerSecond": 947973.0060623419,
               "allFallback": false,
               "source": null
             }
           ],
-          "bestExisting": "fake6502 (C)",
-          "tier1VsBest": 0.0009317247159583963
+          "bestExisting": null,
+          "tier1VsBest": null
         },
         {
           "workload": "W2 arithmetic-kernel",
@@ -74,7 +42,7 @@
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 282333230.0,
+              "cyclesPerSecond": 174110533.72190163,
               "allFallback": false,
               "source": null
             },
@@ -82,45 +50,13 @@
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 138059957.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "Asm6502 (C#)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 84523927.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "fake6502 (C)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 425885352.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "py65 (Python)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 5130310.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "sfotty (JavaScript/Node)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 36814514.0,
+              "cyclesPerSecond": 88003954.19359075,
               "allFallback": false,
               "source": null
             }
           ],
-          "bestExisting": "fake6502 (C)",
-          "tier1VsBest": 0.3241716493691476
+          "bestExisting": null,
+          "tier1VsBest": null
         },
         {
           "workload": "W3 sieve-kernel",
@@ -129,7 +65,7 @@
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 206913227.2171993,
+              "cyclesPerSecond": 160788875.21111578,
               "allFallback": false,
               "source": null
             },
@@ -137,45 +73,13 @@
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 129249869.974636,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "Asm6502 (C#)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 144229077.59019184,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "fake6502 (C)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 553097400.442478,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "py65 (Python)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 6477382.621847542,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "sfotty (JavaScript/Node)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 34468852.221689865,
+              "cyclesPerSecond": 96963796.04713526,
               "allFallback": false,
               "source": null
             }
           ],
-          "bestExisting": "fake6502 (C)",
-          "tier1VsBest": 0.2336837415457677
+          "bestExisting": null,
+          "tier1VsBest": null
         }
       ]
     },
@@ -191,7 +95,7 @@
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 355699935.0,
+              "cyclesPerSecond": 262359135.57597223,
               "allFallback": false,
               "source": null
             },
@@ -199,37 +103,13 @@
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 169212152.0,
+              "cyclesPerSecond": 153514.60243441683,
               "allFallback": true,
-              "source": null
-            },
-            {
-              "subject": "Z80dotNet (C#)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 42273770.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "superzazu/z80 (C)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 1560428181.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "Z80.js (JavaScript/Node)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 154238931.0,
-              "allFallback": false,
               "source": null
             }
           ],
-          "bestExisting": "superzazu/z80 (C)",
-          "tier1VsBest": 0.10843956425572912
+          "bestExisting": null,
+          "tier1VsBest": null
         },
         {
           "workload": "Z80-W2 arithmetic-kernel",
@@ -238,7 +118,7 @@
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 384302955.0,
+              "cyclesPerSecond": 249847368.25799435,
               "allFallback": false,
               "source": null
             },
@@ -246,37 +126,13 @@
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 172158778.0,
+              "cyclesPerSecond": 568629024.1872017,
               "allFallback": true,
-              "source": null
-            },
-            {
-              "subject": "Z80dotNet (C#)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 51632879.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "superzazu/z80 (C)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 1401247180.0,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "Z80.js (JavaScript/Node)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 147946510.0,
-              "allFallback": false,
               "source": null
             }
           ],
-          "bestExisting": "superzazu/z80 (C)",
-          "tier1VsBest": 0.12286110577578468
+          "bestExisting": null,
+          "tier1VsBest": null
         },
         {
           "workload": "Z80-W3 sieve-kernel",
@@ -285,7 +141,7 @@
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 396716536.57011646,
+              "cyclesPerSecond": 305719397.34158695,
               "allFallback": false,
               "source": null
             },
@@ -293,37 +149,13 @@
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
               "guestMips": null,
-              "cyclesPerSecond": 215825486.99932274,
+              "cyclesPerSecond": 265400441.4139259,
               "allFallback": true,
-              "source": null
-            },
-            {
-              "subject": "Z80dotNet (C#)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 57043129.45453364,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "superzazu/z80 (C)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 1660302174.9958494,
-              "allFallback": false,
-              "source": null
-            },
-            {
-              "subject": "Z80.js (JavaScript/Node)",
-              "kind": "head-to-head",
-              "guestMips": null,
-              "cyclesPerSecond": 178016715.76961076,
-              "allFallback": false,
               "source": null
             }
           ],
-          "bestExisting": "superzazu/z80 (C)",
-          "tier1VsBest": 0.12999169081969209
+          "bestExisting": null,
+          "tier1VsBest": null
         }
       ]
     },
@@ -338,30 +170,30 @@
             {
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
-              "guestMips": 13.583734348528097,
-              "cyclesPerSecond": 96579744.25297403,
+              "guestMips": 10.895969909467173,
+              "cyclesPerSecond": 77469859.18923454,
               "allFallback": false,
               "source": null
             },
             {
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
-              "guestMips": 9.73472825263918,
-              "cyclesPerSecond": 69213482.89720994,
+              "guestMips": 0.24972863401729756,
+              "cyclesPerSecond": 2358367.9267660542,
               "allFallback": true,
               "source": null
             },
             {
               "subject": "Musashi (C)",
-              "kind": "head-to-head",
-              "guestMips": 63.49093476433434,
-              "cyclesPerSecond": 620754472.9363542,
+              "kind": "cited",
+              "guestMips": null,
+              "cyclesPerSecond": 0,
               "allFallback": false,
-              "source": null
+              "source": "https://github.com/kstenerud/Musashi"
             }
           ],
           "bestExisting": "Musashi (C)",
-          "tier1VsBest": 0.15332469570297783
+          "tier1VsBest": null
         },
         {
           "workload": "m68k-W2 arithmetic-kernel",
@@ -369,30 +201,30 @@
             {
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
-              "guestMips": 13.186577346074243,
-              "cyclesPerSecond": 63312016.17748637,
+              "guestMips": 8.840961259058114,
+              "cyclesPerSecond": 42447639.56316964,
               "allFallback": false,
               "source": null
             },
             {
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
-              "guestMips": 9.882199827293345,
-              "cyclesPerSecond": 47446883.21424166,
+              "guestMips": 27.215382942261613,
+              "cyclesPerSecond": 168871116.89325792,
               "allFallback": true,
               "source": null
             },
             {
               "subject": "Musashi (C)",
-              "kind": "head-to-head",
-              "guestMips": 69.47860475845069,
-              "cyclesPerSecond": 416979976.26610863,
+              "kind": "cited",
+              "guestMips": null,
+              "cyclesPerSecond": 0,
               "allFallback": false,
-              "source": null
+              "source": "https://github.com/kstenerud/Musashi"
             }
           ],
           "bestExisting": "Musashi (C)",
-          "tier1VsBest": 0.14223371153824693
+          "tier1VsBest": null
         },
         {
           "workload": "m68k-W3 sieve-kernel",
@@ -400,30 +232,30 @@
             {
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
-              "guestMips": 12.87450022407536,
-              "cyclesPerSecond": 109840862.5583255,
+              "guestMips": 8.475618433429247,
+              "cyclesPerSecond": 72311097.38164409,
               "allFallback": false,
               "source": null
             },
             {
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
-              "guestMips": 9.556488144817749,
-              "cyclesPerSecond": 81532710.59736082,
+              "guestMips": 0.4496393343426886,
+              "cyclesPerSecond": 4177200.233564667,
               "allFallback": true,
               "source": null
             },
             {
               "subject": "Musashi (C)",
-              "kind": "head-to-head",
-              "guestMips": 86.45328842373176,
-              "cyclesPerSecond": 832446054.0125564,
+              "kind": "cited",
+              "guestMips": null,
+              "cyclesPerSecond": 0,
               "allFallback": false,
-              "source": null
+              "source": "https://github.com/kstenerud/Musashi"
             }
           ],
           "bestExisting": "Musashi (C)",
-          "tier1VsBest": 0.11053932498181822
+          "tier1VsBest": null
         }
       ]
     },
@@ -438,16 +270,16 @@
             {
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
-              "guestMips": 34.33365353044367,
-              "cyclesPerSecond": 77292511.34499483,
+              "guestMips": 26.349324966482335,
+              "cyclesPerSecond": 59318053.55637238,
               "allFallback": false,
               "source": null
             },
             {
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
-              "guestMips": 20.1156781094011,
-              "cyclesPerSecond": 45284760.53690337,
+              "guestMips": 30.911591488233626,
+              "cyclesPerSecond": 30911591.488233626,
               "allFallback": true,
               "source": null
             }
@@ -461,16 +293,16 @@
             {
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
-              "guestMips": 35.13617278226674,
-              "cyclesPerSecond": 83448412.02685168,
+              "guestMips": 26.16583685968674,
+              "cyclesPerSecond": 62143863.784633234,
               "allFallback": false,
               "source": null
             },
             {
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
-              "guestMips": 20.848888323745033,
-              "cyclesPerSecond": 49516110.75921664,
+              "guestMips": 4.315242836527734,
+              "cyclesPerSecond": 6904388.538444375,
               "allFallback": true,
               "source": null
             }
@@ -484,16 +316,16 @@
             {
               "subject": "our Tier-0 interpreter",
               "kind": "ours",
-              "guestMips": 34.13323661820344,
-              "cyclesPerSecond": 68611759.1491374,
+              "guestMips": 26.084040849934333,
+              "cyclesPerSecond": 52431943.341625966,
               "allFallback": false,
               "source": null
             },
             {
               "subject": "our Tier-1 JIT (chaining on)",
               "kind": "ours",
-              "guestMips": 20.797252583019272,
-              "cyclesPerSecond": 41804886.57289831,
+              "guestMips": 2.365647316010309,
+              "cyclesPerSecond": 3122536.245717685,
               "allFallback": true,
               "source": null
             }

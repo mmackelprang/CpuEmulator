@@ -11,6 +11,15 @@ namespace CpuEmulator.Benchmarks;
 /// check, NOT a replacement for BDN's warmup/measurement windows.</summary>
 public static class BenchHarness
 {
+    /// <summary>The per-measurement wall-clock ceiling (default). A tier run that would exceed this is
+    /// STOPPED at the deadline and reported as a VALID-but-CAPPED measurement: cycles/sec is computed
+    /// over the cycles ACTUALLY executed in the bounded window (same rate, bounded time), flagged
+    /// <see cref="AdapterResult.Capped"/>. This bounds an SMC-pathological run (the 6502 W1 Klaus JIT
+    /// thrashes the recompiler — ~37.5s uncapped) so the whole benchmark always completes in a few
+    /// minutes. A fast workload (a W2/W3 kernel, sub-second) never reaches the deadline, so it is
+    /// byte-for-byte unchanged by the cap.</summary>
+    public static readonly TimeSpan PerMeasurementWallCap = TimeSpan.FromSeconds(10);
+
     /// <summary>One measured row in the report. <see cref="Architecture"/> groups + labels the row by
     /// CPU in the report (6502 → "cycles", Z80 → "T-states"); it defaults to "mos6502" so existing
     /// callers + tests that do not thread an architecture stay on the 6502 path.</summary>
@@ -96,6 +105,47 @@ public static class BenchHarness
             return r.Instructions > 0
                 ? AdapterResult.MeasuredWithInstructions(r.Cycles, r.Instructions, wall, tierName)
                 : AdapterResult.Measured(r.Cycles, wall, tierName);
+        }
+        catch (Exception ex)
+        {
+            return AdapterResult.Skipped($"tier run failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Measure one tier capturing BOTH cycles AND the guest instruction count, with a
+    /// per-measurement WALL-CLOCK CAP (Task 1). Identical to the uncapped
+    /// <see cref="MeasureTierCounted(string, Func{BenchWorkload, TierRunResult}, BenchWorkload)"/>
+    /// except the cap-aware <paramref name="run"/> stops at the wall deadline and returns
+    /// <see cref="TierRunResult.Capped"/>; the resulting row carries cycles/sec over the bounded window
+    /// (the SAME rate, just time-bounded — no data lost) plus the <see cref="AdapterResult.Capped"/>
+    /// flag. The cap is applied to BOTH the warmup pass (short workloads) and the timed pass, so a
+    /// pathological warmup cannot stall either. A null <paramref name="wallCap"/> defaults to
+    /// <see cref="PerMeasurementWallCap"/>.</summary>
+    /// <param name="tierName">The subject label recorded as the row's version note.</param>
+    /// <param name="run">The cap-aware tier run (e.g. <c>Tier0.RunCounted</c> / <c>Tier1.RunCounted</c>):
+    /// it takes the workload + the wall cap and returns the cycles/instructions executed + whether it
+    /// was capped.</param>
+    /// <param name="w">The workload to measure.</param>
+    /// <param name="wallCap">The wall-clock ceiling; null ⇒ <see cref="PerMeasurementWallCap"/>.</param>
+    public static AdapterResult MeasureTierCounted(string tierName,
+                                                   Func<BenchWorkload, TimeSpan?, TierRunResult> run,
+                                                   BenchWorkload w,
+                                                   TimeSpan? wallCap)
+    {
+        try
+        {
+            TimeSpan cap = wallCap ?? PerMeasurementWallCap;
+            bool warmup = w.FixedCycleCap is not null;   // W2 (short) warms; W1 (long) self-warms
+            if (warmup) run(w, cap);                      // the warmup pass respects the cap too
+            var sw = Stopwatch.StartNew();
+            TierRunResult r = run(w, cap);
+            sw.Stop();
+            double wall = sw.Elapsed.TotalSeconds;
+            // cycles/sec = (cycles ACTUALLY executed) / (wall elapsed): correct whether or not the run
+            // was capped — a capped run executed r.Cycles in the bounded window the outer Stopwatch timed.
+            return r.Instructions > 0
+                ? AdapterResult.MeasuredWithInstructions(r.Cycles, r.Instructions, wall, tierName, capped: r.Capped)
+                : AdapterResult.Measured(r.Cycles, wall, tierName, capped: r.Capped);
         }
         catch (Exception ex)
         {
