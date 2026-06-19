@@ -4629,6 +4629,16 @@ internal static class CpuEmitter
     /// unreachable for them (their descriptor tables are empty-diff, R2).</summary>
     private static bool IsEmittableX86Family(InstructionModel insn)
     {
+        // M6 PR-C: the integer-ALU families — the 00-3D standard forms + the 80/81/83 group + 84/85/A8/A9 TEST +
+        // 40-4F INC/DEC r16 + FE/FF /0 /1 INC/DEC r/m + F6/F7 /0 /1 /2 /3 (TEST/NOT/NEG). Admitted by MNEMONIC.
+        // The MUL/IMUL/DIV/IDIV exclusion is AUTOMATIC: the F6/F7 /4../7 rows carry the MUL/IMUL/DIV/IDIV
+        // mnemonics (and the FF /2../6 rows CALL/JMP/PUSH), which are NOT in the ALU mnemonic set below, so they
+        // fail this whitelist and stay interpreter-fallback (ADR 0011 §2) — no opcode-level exclusion needed. The
+        // gate sees the BASE opcode for the reg-extension group rows; the arm normalizes (opcode<<3)|reg.
+        if (insn.Mnemonic is "ADD" or "OR" or "ADC" or "SBB" or "AND" or "SUB" or "XOR" or "CMP"
+            or "TEST" or "INC" or "DEC" or "NOT" or "NEG")
+            return true;
+
         // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is
         // MOVE/MOVEA/MOVEQ, the Z80 LD, the 6502 LDA/STA), so "MOV" is unambiguously the 8086.
         if (insn.Mnemonic != "MOV") return false;
