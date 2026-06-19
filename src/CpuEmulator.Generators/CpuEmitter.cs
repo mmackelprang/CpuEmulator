@@ -4421,6 +4421,15 @@ internal static class CpuEmitter
                 regA = Quote(op.Args[0]);
                 regB = Quote(op.Args[1]);
                 break;
+            // M6 PR-2b: ED ADC/SBC HL,rr is now EMITTED — carry the addend pair (RegB) and the add/sub sense
+            // (boolArg = SBC). RegA stays empty (the target is always HL). EmitZ80EdAdcSbc16 reads these slots.
+            // EdAdcSbc16's Str args are stored WITH quotes (the importer emits EdAdcSbc16("ADC","BC") and the
+            // parser keeps Str args quoted — see EmitZ80EdAdcSbc16's Unquote use), so op.Args[1] is already the
+            // quoted "BC"/"DE"/"HL"/"SP" register literal (no Quote needed) and the sense compares via Unquote.
+            case "EdAdcSbc16":
+                regB = op.Args[1];                        // already-quoted "BC" / "DE" / "HL" / "SP"
+                boolArg = Unquote(op.Args[0]) == "SBC";   // true = SBC, false = ADC
+                break;
             case "BranchIf":   // (Flag, bool when)
             case "SetFlag":    // (Flag, bool value)
             case "JumpIf":     // (Flag cc, bool sense) — M3.4a
@@ -4435,7 +4444,6 @@ internal static class CpuEmitter
             // M3.4c ED-core ops — JIT fallback; slots unused (same treatment as CbRotate/CbBit).
             case "EdIn":
             case "EdOut":
-            case "EdAdcSbc16":
             case "EdLdNnRp":
             case "EdNeg":
             case "EdRetn":
