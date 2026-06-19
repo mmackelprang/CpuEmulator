@@ -28,4 +28,37 @@ public class HostBoardSmokeTests
 
         Assert.Contains("Hello from Breadboard6502!", tx.ToString());
     }
+
+    [Fact]
+    public void Mos6502_host_smoke_registers_disasm_step_and_uart_echo()
+    {
+        Assert.True(BoardRegistry.TryBoot("6502", ExecutionTier.Interpreter,
+            out BootedBoard? board, out string? error), error);
+        board!.Machine.Reset();
+        var engine = board.NewMonitor();
+
+        // Registers: the 6502 names — A, X, Y, S(P), P, PC — appear in the rendered line.
+        string regs = engine.Registers();
+        Assert.Contains("A=", regs);
+        Assert.Contains("PC=", regs);
+        Assert.Contains("P=", regs);   // the 6502 status register (proves 6502-shaped state)
+
+        // Disassembly at the reset entry $E000 is the demo's 'LDX #$00' (real 6502 mnemonic).
+        string dis = engine.Disassemble(0xE000, 1);
+        Assert.Contains("LDX", dis);
+
+        // Step advances PC past the 2-byte LDX.
+        var step = engine.Step();
+        Assert.Equal(0xE000u, step.PcBefore);
+        Assert.Equal(0xE002u, engine.ProgramCounter);
+
+        // UART round-trip: run the demo to its echo loop, feed a byte, run, observe it echoed.
+        var tx = new StringBuilder();
+        board.Uart.OnTransmit = b => tx.Append((char)b);
+        board.Machine.Run(20_000);     // hello prints, then the ROM parks in the polled echo loop
+        tx.Clear();
+        board.Uart.FeedInput((byte)'Z');
+        board.Machine.Run(20_000);     // the echo loop dequeues + retransmits
+        Assert.Contains("Z", tx.ToString());
+    }
 }
