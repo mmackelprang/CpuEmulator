@@ -1,3 +1,4 @@
+using CpuEmulator.Core;
 using CpuEmulator.Peripherals;
 
 namespace CpuEmulator.Machines;
@@ -101,7 +102,8 @@ public static class ReferenceSbc
                 new PeripheralSlot("timer", timer, TimerBase68k, 0x0100),
             ],
             Irq: SharedIrq(),
-            Reset: ResetConfig.None); // the 68000 reads its SSP/PC vectors from the low ROM image directly.
+            Reset: ResetConfig.None, // the 68000 reads its SSP/PC vectors from the low ROM image directly.
+            Endianness: Endianness.BigEndian); // the 68000 is big-endian: vectors + opcode words are MSB-first.
     }
 
     private static BoardSpec Build8086(SimpleUart uart, IntervalTimer timer, byte[] rom)
