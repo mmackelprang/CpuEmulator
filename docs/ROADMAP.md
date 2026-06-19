@@ -39,6 +39,14 @@ design rationale (the emit-vs-fallback boundary, the rollout order, the profilin
 
 ---
 
+## Recently shipped — the "CPUs → computers" arc
+
+| Piece | What it delivered |
+|---|---|
+| **#1 — the Machine model** | `CpuEmulator.Machines`, a new composition-root assembly: a declarative **`BoardSpec`** (memory map + peripheral slots + IRQ wiring + reset), a load-time **`BoardSpecValidator`** (overlap / address-width / page-alignment / MMIO-slot / IRQ-wired / ROM-size / vector-patch diagnostics), the **`CpuKind`→core factory** (interpreter + JIT tiers — the one place allowed to name both the concrete cores and the JIT, keeping `Core` AOT-clean), and **`BoardMachineFactory.Build`**, which compiles a validated spec down to the existing fluent `MachineBuilder`. The hand-wired `Breadboard6502` is re-expressed as a `BoardSpec` and proven **byte-identical (UART stream) + cycle-identical** to the original over the existing host sessions (the un-fakeable zero-behavior-change gate). A `ReferenceSbc(Z80)` reference board boots from PC=0 and prints `OK` on **both** tiers, proving the model generalizes across a genuinely different CPU + reset mechanic. Only the 6502 + Z80 boards ship (the 68000/8086 cores have no-op `Reset()` stubs — the recipe throws for them). No production file outside the new assembly was edited; the Host keeps its hand-wired board (wiring the host onto the board-spec is a later piece). |
+
+---
+
 ## Deferred & candidate follow-ons
 
 These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set priority order**
@@ -73,7 +81,9 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 
 6. **[candidate] A non-6502 monitor host.** The interactive host still boots only the Breadboard6502; no
    Z80/68000/8086 REPL machine ships yet. The monitor engine is CPU-agnostic, so this is wiring a board,
-   not new core work.
+   not new core work. *(The Machine model — "CPUs → computers" piece #1, now shipped — provides the
+   declarative `BoardSpec` + `ReferenceSbc(Z80)` board this builds on; what remains is wiring the host
+   onto a board-spec.)*
 
 **Further candidates (unprioritized):**
 
