@@ -30,10 +30,19 @@ public sealed partial class M8086Cpu
         _bus = bus;
     }
 
-    /// <summary>Reset — M5.1 stub. The real 8086 reset jams CS:IP to F000:FFF0 (and clears the rest of
-    /// the state) per ADR 0005 Decision 4; that is M5.5d. The M5.1 state tests set registers explicitly,
-    /// so this does nothing yet.</summary>
-    public void Reset() { }
+    /// <summary>Reset (piece #2) — the functional 8086 reset. Jams CS=0xFFFF, IP=0x0000 (so the first
+    /// fetch is the physical entry (CS&lt;&lt;4)+IP = 0xFFFF0), clears the data/extra/stack segments, and
+    /// clears FLAGS. A pure register jam — no bus access. No TomHarte reset vector exists, so this is the
+    /// landed-state gate (not cycle-gated). ReferenceSbc(I8086) places ROM high so 0xFFFF0 is mapped.</summary>
+    public void Reset()
+    {
+        CS = 0xFFFF;
+        IP = 0x0000;
+        DS = 0x0000;
+        ES = 0x0000;
+        SS = 0x0000;
+        FLAGS = 0x0000;
+    }
 
     // ── The inert policy hooks the generated partial requires. No GENERATED caller asserts these in the
     //    M5.1 path (the table is empty); they exist to satisfy the partial's contract. The real interrupt
