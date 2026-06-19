@@ -1015,4 +1015,80 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("SP"));
         il.Emit(OpCodes.Ldloc, ctx.AddrLocal);   // leave the popped word on the IL stack
     }
+
+    /// <summary>M6 PR-D: push the Jcc TAKEN predicate (int 0/1) for opcode 0x70-0x7F (JccTaken, Control.cs:26). Reads
+    /// CF/PF/ZF/SF/OF from the FLAGS field; the compound conditions (JBE = cf|zf, JL = sf!=of, …) compose the bit
+    /// tests inline. Sets NO flags.</summary>
+    private void EmitM8086JccTaken(EmitContext ctx, byte opcode)
+    {
+        ILGenerator il = ctx.Il;
+        // helper: push (FLAGS & mask) != 0 as int 0/1.
+        void Flag(int mask) { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, mask); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un); }
+        void NotFlag(int mask) { Flag(mask); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); }
+        switch (opcode)
+        {
+            case 0x70: Flag(M8086FlagOF); return;                                            // JO
+            case 0x71: NotFlag(M8086FlagOF); return;                                         // JNO
+            case 0x72: Flag(M8086FlagCF); return;                                            // JB/JC
+            case 0x73: NotFlag(M8086FlagCF); return;                                         // JAE/JNB
+            case 0x74: Flag(M8086FlagZF); return;                                            // JE/JZ
+            case 0x75: NotFlag(M8086FlagZF); return;                                         // JNE/JNZ
+            case 0x76: Flag(M8086FlagCF); Flag(M8086FlagZF); il.Emit(OpCodes.Or); return;    // JBE: cf|zf
+            case 0x77: NotFlag(M8086FlagCF); NotFlag(M8086FlagZF); il.Emit(OpCodes.And); return; // JA: !cf&!zf
+            case 0x78: Flag(M8086FlagSF); return;                                            // JS
+            case 0x79: NotFlag(M8086FlagSF); return;                                         // JNS
+            case 0x7A: Flag(M8086FlagPF); return;                                            // JP/JPE
+            case 0x7B: NotFlag(M8086FlagPF); return;                                         // JNP/JPO
+            case 0x7C: EmitM8086SfNeOf(ctx); return;                                         // JL: sf!=of
+            case 0x7D: EmitM8086SfNeOf(ctx); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); return; // JGE: sf==of
+            case 0x7E: Flag(M8086FlagZF); EmitM8086SfNeOf(ctx); il.Emit(OpCodes.Or); return; // JLE: zf|(sf!=of)
+            default:   // 0x7F JG: !zf & (sf==of)
+                NotFlag(M8086FlagZF);
+                EmitM8086SfNeOf(ctx); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);       // (sf==of)
+                il.Emit(OpCodes.And);
+                return;
+        }
+    }
+
+    /// <summary>M6 PR-D: push (SF != OF) as int 0/1 — both flags normalized to 0/1 (Cgt_Un), then compared (Ceq) and
+    /// negated (Ceq with 0) for "different". Used by JL/JGE/JLE/JG (Control.cs:47-50).</summary>
+    private void EmitM8086SfNeOf(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagSF); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagOF); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+        il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);   // (sf01 == of01) == 0  ⇒  sf != of
+    }
+
+    /// <summary>M6 PR-D: push the LOOP-family TAKEN predicate (int 0/1) for opcode E0-E3 (Control.cs:119-141). E0/E1/E2
+    /// DECREMENT CX as a side effect (CX = (ushort)(CX-1)) regardless of the predicate, BEFORE the taken test; E3
+    /// (JCXZ) does NOT decrement. taken: E2 LOOP = CX!=0; E1 LOOPE = CX!=0 &amp;&amp; ZF; E0 LOOPNE = CX!=0 &amp;&amp; !ZF;
+    /// E3 JCXZ = CX==0. Sets NO flags (it READS ZF for E0/E1).</summary>
+    private void EmitM8086LoopTaken(EmitContext ctx, byte opcode)
+    {
+        ILGenerator il = ctx.Il;
+        if (opcode == 0xE3)
+        {
+            // JCXZ: taken = (CX == 0). CX is NOT decremented.
+            EmitLoadReg16(ctx, "CX"); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);
+            return;
+        }
+        // E0/E1/E2: CX = (ushort)(CX - 1)  — the side-effecting decrement (Control.cs:121/127/133).
+        EmitLoadReg16(ctx, "CX"); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Sub); il.Emit(OpCodes.Conv_U2);
+        EmitStoreReg16(ctx, "CX");
+        // cxNonZero = (CX != 0)  (the post-decrement CX).
+        EmitLoadReg16(ctx, "CX"); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);   // int 0/1
+        switch (opcode)
+        {
+            case 0xE2: return;   // LOOP: taken = CX != 0
+            case 0xE1:           // LOOPE/LOOPZ: taken = CX != 0 && (FLAGS & ZF) != 0
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagZF); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);
+                il.Emit(OpCodes.And);
+                return;
+            default:             // 0xE0 LOOPNE/LOOPNZ: taken = CX != 0 && (FLAGS & ZF) == 0
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagZF); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);
+                il.Emit(OpCodes.And);
+                return;
+        }
+    }
 }
