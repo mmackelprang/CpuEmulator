@@ -20,7 +20,8 @@ public static class BoardMachineFactory
         spec = ApplyVectorPatches(spec);
 
         MachineBuilder builder = Machine.Create(spec.Name)
-            .WithAddressSpace(AddressSpaceKind.Program, spec.AddressBits);
+            .WithAddressSpace(AddressSpaceKind.Program, spec.AddressBits,
+                new AddressSpaceOptions { Endianness = spec.Endianness });
 
         foreach (MemoryRegion region in spec.Memory)
         {

@@ -40,8 +40,12 @@ public sealed class AddressSpace : IAddressSpace
         Kind = kind;
         AddressBits = addressBits;
         AddressMask = (1u << addressBits) - 1;
-        Endianness = endianness;
         _options = options ?? new AddressSpaceOptions();
+        // The options carry the per-space byte order (the seam a board recipe declares through
+        // MachineBuilder); when options are supplied they are authoritative. The explicit `endianness`
+        // parameter remains the order for callers that construct a space directly without options (the
+        // 68000 execute/TomHarte harnesses pass endianness: BigEndian and no options).
+        Endianness = options is not null ? options.Endianness : endianness;
         _pages = new PageEntry[(1 << addressBits) >> PageShift];
     }
 

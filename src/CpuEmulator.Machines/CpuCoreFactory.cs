@@ -1,4 +1,6 @@
 using CpuEmulator.Core;
+using CpuEmulator.Cpus.M68000;
+using CpuEmulator.Cpus.M8086;
 using CpuEmulator.Cpus.Mos6502;
 using CpuEmulator.Cpus.Z80;
 using CpuEmulator.Jit;
@@ -30,8 +32,10 @@ public static class CpuCoreFactory
         {
             CpuKind.Mos6502 => new Mos6502Cpu(bus),
             CpuKind.Z80 => new Z80Cpu(bus),
+            CpuKind.M68000 => new M68000Cpu(bus),
+            CpuKind.I8086 => new M8086Cpu(bus),
             _ => throw new MachineConfigurationException(
-                $"CpuKind {kind} cannot boot a board yet (no real reset). Deferred to piece #2."),
+                $"CpuKind {kind} has no interpreter core registered."),
         };
     }
 
@@ -44,8 +48,12 @@ public static class CpuCoreFactory
         {
             CpuKind.Mos6502 => new JittedCpu<Mos6502Cpu>(new Mos6502Cpu(bus), Mos6502Cpu.JitTarget, bus),
             CpuKind.Z80 => BuildZ80Jit(bus),
+            // The 68000 + 8086 are von Neumann with memory-mapped I/O (no separate I/O space, no IoBus),
+            // so they use the 6502-shape JittedCpu ctor (no ioBus arg), not the Z80's 3-bus form.
+            CpuKind.M68000 => new JittedCpu<M68000Cpu>(new M68000Cpu(bus), M68000Cpu.JitTarget, bus),
+            CpuKind.I8086 => new JittedCpu<M8086Cpu>(new M8086Cpu(bus), M8086Cpu.JitTarget, bus),
             _ => throw new MachineConfigurationException(
-                $"CpuKind {kind} cannot boot a board yet (no real reset). Deferred to piece #2."),
+                $"CpuKind {kind} has no JIT core registered."),
         };
     }
 
