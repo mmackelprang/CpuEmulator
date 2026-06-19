@@ -41,6 +41,10 @@ public class DifferentialFuzzTests
         // Chaining ON (the default), and chaining OFF — both must match the interpreter.
         AssertMatchesInterpreter(seed, program, new JitOptions());
         AssertMatchesInterpreter(seed, program, new JitOptions { DisableChaining = true });
+        // M6 PR-S: the SMC lever ON (default, redundant with the first call but explicit) and OFF —
+        // both must match the interpreter, proving the lever is parity-transparent (a scheduling
+        // policy over the oracle, not a correctness change).
+        AssertMatchesInterpreter(seed, program, new JitOptions { DisableSmcLever = true });
     }
 
     private static void AssertMatchesInterpreter(

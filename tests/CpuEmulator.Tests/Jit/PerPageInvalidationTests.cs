@@ -30,7 +30,7 @@ public class PerPageInvalidationTests
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
         var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
-        return (compiler, new BlockCache<Mos6502Cpu>(space.PageCount));
+        return (compiler, new BlockCache<Mos6502Cpu>(space.PageCount, opts));
     }
 
     [Fact]

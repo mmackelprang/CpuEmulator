@@ -131,4 +131,14 @@ public class JitOptionsTests
     {
         Assert.False(new JitOptions().DisableFastmem);
     }
+
+    // ── PR-S: the SMC-lever knobs have the documented defaults ──────────────────────────────────
+    [Fact]
+    public void SmcLever_defaults()
+    {
+        var o = new JitOptions();
+        Assert.Equal(16, o.SmcRecompileCap);
+        Assert.Equal(256, o.SmcCooldownDispatches);
+        Assert.False(o.DisableSmcLever);   // the lever is ON by default
+    }
 }
