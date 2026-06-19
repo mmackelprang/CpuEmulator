@@ -77,13 +77,16 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 
 **Further candidates (unprioritized):**
 
-- **[candidate] Per-dispatch JIT-overhead reduction.** On SMC-heavy / integration workloads the JIT
-  `Run`-loop's per-dispatch cost dominates — the `InvalidateIfDirty` page scan on constantly-dirtied code
-  + the per-dispatch interrupt/halt checks. The 6502 Klaus JIT stays ~140× slower than the interpreter
-  **even with the recompile-cost lever (PR-S) engaged** — the lever cut recompiles ~6.8×, but dispatch
-  overhead, not recompilation, is the floor. Cheaper / finer invalidation would make the JIT viable on
-  self-modifying + integration code. *(Surfaced by the #40 investigation — distinct from, and larger
-  than, the PR-S recompile lever.)*
+- **[planned] Per-dispatch JIT-overhead reduction (#42).** On SMC-heavy / integration workloads the JIT
+  `Run`-loop's per-dispatch cost dominates — the `InvalidateIfDirty` **full 256-page scan + full
+  `Array.Clear`**, run on ≈ every dispatch on constantly-dirtied code. The 6502 Klaus JIT stays ~140× slower
+  than the interpreter **even with the recompile-cost lever (PR-S) engaged** — the lever cut recompiles
+  ~6.8×, but dispatch overhead, not recompilation, is the floor. **Planned fix: a dirtied-page list** — the
+  `DirtyMap` tracks the 1–2 pages actually dirtied per dispatch so invalidation is O(dirty) not O(256), with
+  a byte-identical eviction set (page granularity unchanged). Plan:
+  [`docs/superpowers/plans/2026-06-19-jit-per-dispatch-overhead.md`](superpowers/plans/2026-06-19-jit-per-dispatch-overhead.md);
+  representation record: [ADR 0012](architecture/0012-jit-dirty-page-list-invalidation.md). *(Surfaced by
+  the #40 investigation — distinct from, and larger than, the PR-S recompile lever.)*
 - **[candidate] Z80 / 68000 tail emit** (PR-2b-style — emit selected hot prefix-plane / microcoded
   members as profiles dictate; the Z80 ED 16-bit ops showed this is cheap when a tail op recurs).
 - **[candidate] A cycle-exact 8086 timing model** (M5 charges a rudimentary one-cycle-per-bus-access
