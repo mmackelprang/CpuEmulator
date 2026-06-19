@@ -147,6 +147,21 @@ internal sealed class EmitContext
     public LocalBuilder M8086SegLocal { get; }
     public LocalBuilder M8086OffsetLocal { get; }
 
+    // M6 PR-C: the 8086 ALU survivors (DECISION C-2/C-3). a/b/result survive the operand reads + the flag
+    // compute + the dest write. The AF/OF predicates (AddFlags/SubFlags, M8086Cpu.Alu.cs:62/77) read the
+    // ORIGINAL b, so b is kept in its OWN local (NEVER overwritten by `full`); `full` (the wide a±b±carry
+    // intermediate where the carry-out lands above the width) lives in M8086FullLocal; the carry/borrow-in
+    // (0 for ADD/SUB/CMP/NEG, FLAGS&CF for ADC/SBB) lives in M8086CarryInLocal; the preserved CF for INC/DEC
+    // (which does NOT touch carry) lives in M8086SavedCfLocal. All int (byte/word values held wide). These are
+    // DISTINCT from AddrLocal/DataLocal/EaLocal and the M8086SegLocal/M8086OffsetLocal pair the PR-B EA
+    // helpers clobber, so an RMW memory dest can keep a/b/result live across a bus read + write.
+    public LocalBuilder M8086ALocal { get; }
+    public LocalBuilder M8086BLocal { get; }
+    public LocalBuilder M8086ResultLocal { get; }
+    public LocalBuilder M8086FullLocal { get; }
+    public LocalBuilder M8086CarryInLocal { get; }
+    public LocalBuilder M8086SavedCfLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -176,5 +191,11 @@ internal sealed class EmitContext
         M68kShiftXLocal = il.DeclareLocal(typeof(int));
         M8086SegLocal = il.DeclareLocal(typeof(int));
         M8086OffsetLocal = il.DeclareLocal(typeof(int));
+        M8086ALocal = il.DeclareLocal(typeof(int));
+        M8086BLocal = il.DeclareLocal(typeof(int));
+        M8086ResultLocal = il.DeclareLocal(typeof(int));
+        M8086FullLocal = il.DeclareLocal(typeof(int));
+        M8086CarryInLocal = il.DeclareLocal(typeof(int));
+        M8086SavedCfLocal = il.DeclareLocal(typeof(int));
     }
 }
