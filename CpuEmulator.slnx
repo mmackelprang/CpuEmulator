@@ -11,6 +11,7 @@
     <Project Path="src/CpuEmulator.Cpus.M68000/CpuEmulator.Cpus.M68000.csproj" />
     <Project Path="src/CpuEmulator.Cpus.M8086/CpuEmulator.Cpus.M8086.csproj" />
     <Project Path="src/CpuEmulator.Jit/CpuEmulator.Jit.csproj" />
+    <Project Path="src/CpuEmulator.Machines/CpuEmulator.Machines.csproj" />
     <Project Path="src/CpuEmulator.Monitor/CpuEmulator.Monitor.csproj" />
     <Project Path="src/CpuEmulator.Peripherals/CpuEmulator.Peripherals.csproj" />
     <Project Path="src/CpuEmulator.Host/CpuEmulator.Host.csproj" />
