@@ -69,8 +69,22 @@ public static class BoardSpecValidator
             bool mapped = spec.Memory.Any(r =>
                 patch.Address >= r.Start && patch.Address < (ulong)r.Start + r.Length);
             if (!mapped)
+            {
                 diagnostics.Add(new BoardDiagnostic("vector-unmapped",
                     $"Reset vector patch at ${patch.Address:X} lands in no declared region."));
+                continue;
+            }
+
+            // A patch pokes a byte into a ROM image before mapping, so it must land in a Rom region
+            // that carries an image. Surface this as a clean pre-flight diagnostic rather than letting
+            // BoardMachineFactory.ApplyVectorPatches throw "vector-not-rom" late at build time.
+            bool inRom = spec.Memory.Any(r =>
+                r.Kind == RegionKind.Rom && r.Image is not null &&
+                patch.Address >= r.Start && patch.Address < (ulong)r.Start + r.Length);
+            if (!inRom)
+                diagnostics.Add(new BoardDiagnostic("vector-not-in-rom",
+                    $"Reset vector patch at ${patch.Address:X} lands in a non-ROM region; "
+                  + "vector patches may only poke ROM images."));
         }
     }
 

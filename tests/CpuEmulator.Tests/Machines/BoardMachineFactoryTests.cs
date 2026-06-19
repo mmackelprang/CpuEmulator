@@ -62,4 +62,44 @@ public class BoardMachineFactoryTests
         var ex = Assert.Throws<BoardValidationException>(() => BoardMachineFactory.Build(bad));
         Assert.Contains(ex.Diagnostics, d => d.Code == "region-overlap");
     }
+
+    [Fact]
+    public void Vector_patch_applies_to_the_machine_without_mutating_the_caller_rom()
+    {
+        // A blank ROM whose $FFFC/$FFFD reset vector is seeded purely via VectorPatches.
+        var rom = new byte[0x2000];
+        rom[0] = 0xEA; // NOP at $E000
+        var spec = new BoardSpec("patched", CpuKind.Mos6502, 16,
+            Memory:
+            [
+                new MemoryRegion(0x0000, 0xD000, RegionKind.Ram),
+                new MemoryRegion(0xD000, 0x1000, RegionKind.Mmio),
+                new MemoryRegion(0xE000, 0x2000, RegionKind.Rom, rom),
+            ],
+            Peripherals: [new PeripheralSlot("uart", new SimpleUart(), 0xD000, 0x0100)],
+            Irq: new IrqWiring([new PeripheralIrq("uart", CpuInterrupt.Irq)]),
+            Reset: new ResetConfig(
+            [
+                new VectorPatch(0xFFFC, 0x00),
+                new VectorPatch(0xFFFD, 0xE0), // RESET -> $E000
+            ]));
+
+        Machine machine = BoardMachineFactory.Build(spec);
+        machine.Reset();
+
+        // The patch took effect inside the built machine...
+        Assert.Equal(0xE000u, machine.Cpu.GetRegister("PC"));
+        Assert.Equal(0x00, machine.Space(AddressSpaceKind.Program).Read8(0xFFFC));
+        Assert.Equal(0xE0, machine.Space(AddressSpaceKind.Program).Read8(0xFFFD));
+
+        // ...but the caller's ROM array was NOT mutated (Build clones before patching).
+        Assert.Equal(0x00, rom[0x1FFC]);
+        Assert.Equal(0x00, rom[0x1FFD]);
+
+        // And a second Build on the same spec is safe (no double-mutation, still resets clean).
+        Machine again = BoardMachineFactory.Build(spec);
+        again.Reset();
+        Assert.Equal(0xE000u, again.Cpu.GetRegister("PC"));
+        Assert.Equal(0x00, rom[0x1FFC]);
+    }
 }

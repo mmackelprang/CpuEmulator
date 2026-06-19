@@ -134,4 +134,34 @@ public class BoardSpecValidatorTests
 
         Assert.Contains(BoardSpecValidator.Validate(spec), d => d.Code == "vector-unmapped");
     }
+
+    [Fact]
+    public void Vector_patch_into_a_non_rom_region_is_flagged()
+    {
+        // The patch address IS mapped (RAM at 0x0000-0x0FFF) but is not a ROM image, so the
+        // validator must surface it as a clean pre-flight diagnostic rather than letting the
+        // factory throw "vector-not-rom" late at build time.
+        var spec = Valid(
+            memory: [new MemoryRegion(0x0000, 0x1000, RegionKind.Ram)],
+            reset: new ResetConfig([new VectorPatch(0x0010, 0x00)]));
+
+        IReadOnlyList<BoardDiagnostic> diagnostics = BoardSpecValidator.Validate(spec);
+        Assert.Contains(diagnostics, d => d.Code == "vector-not-in-rom");
+        Assert.DoesNotContain(diagnostics, d => d.Code == "vector-unmapped"); // it IS mapped
+    }
+
+    [Fact]
+    public void Vector_patch_into_a_rom_region_is_clean()
+    {
+        var spec = Valid(memory:
+        [
+            new MemoryRegion(0x0000, 0x1000, RegionKind.Ram),
+            new MemoryRegion(0xF000, 0x1000, RegionKind.Rom, new byte[0x1000]),
+        ],
+            reset: new ResetConfig([new VectorPatch(0xFFFC, 0x00)]));
+
+        IReadOnlyList<BoardDiagnostic> diagnostics = BoardSpecValidator.Validate(spec);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "vector-not-in-rom");
+        Assert.DoesNotContain(diagnostics, d => d.Code == "vector-unmapped");
+    }
 }

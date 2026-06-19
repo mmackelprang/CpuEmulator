@@ -17,7 +17,7 @@ public static class BoardMachineFactory
         if (diagnostics.Count > 0)
             throw new BoardValidationException(spec.Name, diagnostics);
 
-        ApplyVectorPatches(spec);
+        spec = ApplyVectorPatches(spec);
 
         MachineBuilder builder = Machine.Create(spec.Name)
             .WithAddressSpace(AddressSpaceKind.Program, spec.AddressBits);
@@ -47,12 +47,25 @@ public static class BoardMachineFactory
 
     /// <summary>Write each ResetConfig vector byte into the ROM image whose region contains the
     /// patch address. Validation has already confirmed the address is mapped; a patch that lands in
-    /// a non-Rom region is a board-author error surfaced here as an explicit exception.</summary>
-    private static void ApplyVectorPatches(BoardSpec spec)
+    /// a non-Rom region is a board-author error surfaced here as an explicit exception. Patches are
+    /// applied to a CLONE of each affected ROM image (and a rebuilt BoardSpec is returned), so the
+    /// caller-owned image array is never mutated — Build(spec) is safe to call twice on the same
+    /// spec instance. With no patches (the common case) the original spec is returned unchanged.</summary>
+    private static BoardSpec ApplyVectorPatches(BoardSpec spec)
     {
+        if (spec.Reset.VectorPatches.Count == 0)
+            return spec;
+
+        // Clone every ROM image up front so we patch our own copies, not the caller's arrays.
+        var patched = spec.Memory
+            .Select(r => r is { Kind: RegionKind.Rom, Image: not null }
+                ? r with { Image = (byte[])r.Image.Clone() }
+                : r)
+            .ToList();
+
         foreach (VectorPatch patch in spec.Reset.VectorPatches)
         {
-            MemoryRegion? target = spec.Memory.FirstOrDefault(r =>
+            MemoryRegion? target = patched.FirstOrDefault(r =>
                 r.Kind == RegionKind.Rom && r.Image is not null &&
                 patch.Address >= r.Start && patch.Address < (ulong)r.Start + r.Length);
             if (target is null)
@@ -61,5 +74,7 @@ public static class BoardMachineFactory
                         $"Reset vector patch at ${patch.Address:X} does not land in a ROM image.")]);
             target.Image![(int)(patch.Address - target.Start)] = patch.Value;
         }
+
+        return spec with { Memory = patched };
     }
 }
