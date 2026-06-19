@@ -1,7 +1,15 @@
 # ADR 0012 — JIT dirtied-page-list invalidation (the per-dispatch overhead floor)
 
-> **Status:** Proposed (Claude Planner, 2026-06-19). The representation record for issue #42 (per-dispatch
-> JIT-overhead reduction). Consumed by the plan `docs/superpowers/plans/2026-06-19-jit-per-dispatch-overhead.md`.
+> **Status:** **REJECTED — measurement-refuted + SHELVED (2026-06-19).** The dirtied-page-list change was
+> implemented byte-identically (all correctness gates green), but its directional-win gate **disproved this
+> ADR's own premise**: `InvalidateIfDirty` is **~1.3% of runtime, not the ~99% the §1.2 cost model claims** —
+> the 256-bool scan was already negligible (contiguous + vectorizable, single-digit ns; only 2,709 evictions
+> across 161,805 invalidate calls over the Klaus window), and the list variant measured a slight *net-negative*.
+> The real ~140× Klaus-through-JIT floor is elsewhere — the **dispatcher round-trip + chaining/`ResolveChain`
+> per-edge cost + `Evict`'s dictionary churn**. Owner disposition (2026-06-19): **shelved** — the two-tier
+> design already covers this (the JIT is for hot compute kernels, 1.2–3.1×; SMC-heavy / integration code runs
+> on the interpreter tier). **The §1.2 cost model below is WRONG**, preserved only as the historical record of
+> the refuted premise. The representation record for issue #42 (per-dispatch JIT-overhead reduction).
 > **Date:** 2026-06-19
 > **Deciders:** Mark (owner). Drafted by Claude Planner.
 > **Relates to:**
