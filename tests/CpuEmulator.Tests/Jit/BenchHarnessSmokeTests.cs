@@ -86,25 +86,40 @@ public class BenchHarnessSmokeTests
     public void The_two_68000_tiers_run_and_agree_on_the_W2_cycle_count()
     {
         // Milestone B — the 68000 W2 (ALU/branch) kernel on BOTH our tiers: a wiring smoke (Ran==true +
-        // the two tiers reach the cap and roughly agree on the cycle count), NOT a throughput assertion (D5).
+        // the two tiers reach the cap and agree within the coarse-cycle slack), NOT a throughput assertion (D5).
         // Both tiers are dependency-free hand-written kernels (Option A — no external exerciser), so this
         // ALWAYS runs. A TINY bounded window keeps the routine suite fast (the committed 50M-cycle window is
         // the runner's job).
-        // M6 PR-5: the 68000 JIT now EMITS real ALU IL (M68000Alu) charging the descriptor's COARSE BaseCycles
-        // (DECISION T2 — the 68000 emit cycle count is NOT cycle-exact, unlike the Z80 emit arms which match the
-        // interpreter exactly). So the two tiers no longer reach a BIT-IDENTICAL cycle count on an ALU-heavy
-        // kernel; they agree within a small instruction-boundary slack. The DATA axis stays byte-identical (the
-        // M68000JitAluFamilyTests parity gate proves that); only the cycle COUNT diverges, which is the
-        // documented coarse-cycle stance (backlog: the W2 bench-harness cycle off-by-2). Assert both tiers reach
-        // the cap and the JIT is within a small absolute window of the interpreter, NOT exact equality.
+        //
+        // ROOT CAUSE of the cycle slack (follow-up #21, the "W2 bench-harness cycle off-by-2", RESOLVED — this
+        // is expected coarse-cycle MODEL slack, NOT a boundary bug; see ADR 0011 §4 / DECISION T2):
+        //   The 68000 JIT EMITS real ALU/MOVE/Bcc IL charging each descriptor's COARSE BaseCycles plus a uniform
+        //   +1 opcode-fetch cycle per emitted instruction (BlockCompiler.cs EmitChargeOneCycle). The tier-0
+        //   interpreter instead charges its exact 4-clock-per-consumed-word prefetch model. These two per-
+        //   instruction cycle models legitimately DIFFER (e.g. for this kernel the interp inner loop sums 24
+        //   cycles/iteration vs the JIT's 31), so the two tiers cross the FixedCycleCap on different instructions
+        //   and round UP to different instruction boundaries: the TierRunner loop (Tiers.cs) is symmetric — both
+        //   tiers check `CycleCount < target` then advance ONE budget-1 instruction — so each stops at the first
+        //   instruction boundary >= the cap. Interp lands on exactly 2_000_000; the JIT overshoots to 2_000_002
+        //   (the off-by-2 — note the JIT is the HIGHER tier, not the interpreter). The DATA axis stays byte-
+        //   identical across the full corpus (M68000JitAluFamilyTests proves it; the 68000 parity gate never
+        //   compares CycleCount). Only the cycle COUNT diverges — the documented coarse-cycle stance.
+        //
+        // The principled tolerance is therefore "one instruction's worst-case cycle charge": each tier rounds up
+        // by AT MOST one instruction past the cap, so the gap is bounded by the largest single per-instruction
+        // charge across both tiers (11 for a JIT Bcc here). We assert <= 16 (a small, root-cause-justified margin
+        // over that bound) — tight enough to still catch a real divergence (a diverged subject blows far past it),
+        // loose enough to not be brittle to the exact kernel mix. NOT exact equality (which would contradict
+        // DECISION T2). The observed gap is exactly 2.
         var w2 = M68000Workloads.ArithmeticKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
 
         long interpCycles = Tier0.Run(w2);
         long jitCycles = Tier1.Run(w2);
         Assert.True(interpCycles >= w2.FixedCycleCap, $"68000 interpreter ran {interpCycles}, expected >= the cap");
         Assert.True(jitCycles >= w2.FixedCycleCap, $"68000 jit ran {jitCycles}, expected >= the cap");
-        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 64,
-            $"68000 W2 tier cycle counts diverge by more than the coarse-cycle slack: interp={interpCycles}, jit={jitCycles}");
+        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 16,
+            $"68000 W2 tier cycle counts diverge by more than the coarse-cycle instruction-boundary slack " +
+            $"(one instruction's worst-case charge): interp={interpCycles}, jit={jitCycles}");
 
         var t0 = BenchHarness.MeasureTier("m68000 interpreter", Tier0.Run, w2);
         var t1 = BenchHarness.MeasureTier("m68000 jit", Tier1.Run, w2);
@@ -176,20 +191,24 @@ public class BenchHarnessSmokeTests
     public void The_two_68000_tiers_run_and_agree_on_the_W3_sieve_cycle_count()
     {
         // m68k-W3 — the 68000 Sieve compute kernel (Dhrystone-class) on BOTH our tiers: a wiring smoke
-        // (Ran==true + the two tiers reach the cap and roughly agree on the cycle count), NOT a throughput
+        // (Ran==true + the two tiers reach the cap and agree within the coarse-cycle slack), NOT a throughput
         // assertion. A TINY bounded window (the committed 50M-cycle window is the runner's job).
-        // M6 PR-5: as in the W2 smoke above, the 68000 JIT now emits real ALU IL with COARSE BaseCycles
-        // (DECISION T2), so the two tiers agree only within a small instruction-boundary slack — the DATA axis
-        // stays byte-identical (M68000JitAluFamilyTests), only the cycle COUNT diverges. Assert the cap + a
-        // bounded window, not exact equality.
+        // Same RESOLVED root cause as the W2 smoke above (follow-up #21 / ADR 0011 §4 / DECISION T2): the 68000
+        // JIT emits real IL charging COARSE BaseCycles + a uniform per-instruction opcode-fetch cycle, whose
+        // per-instruction model legitimately differs from the interpreter's exact word-refill model, so the two
+        // tiers round UP to different instruction boundaries at the cap (an instruction-boundary slack, NOT a
+        // boundary bug). The DATA axis stays byte-identical (M68000JitAluFamilyTests); only the cycle COUNT
+        // diverges. Same principled tolerance — "one instruction's worst-case charge" — so assert <= 16, not
+        // exact equality. See the W2 smoke's root-cause comment for the full mechanism.
         var sieve = M68000Workloads.SieveKernel() with { FixedCycleCap = 2_000_000, ExpectedCycles = 2_000_000 };
 
         long interpCycles = Tier0.Run(sieve);
         long jitCycles = Tier1.Run(sieve);
         Assert.True(interpCycles >= sieve.FixedCycleCap, $"68000 Sieve interpreter ran {interpCycles}, expected >= the cap");
         Assert.True(jitCycles >= sieve.FixedCycleCap, $"68000 Sieve jit ran {jitCycles}, expected >= the cap");
-        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 64,
-            $"68000 W3 tier cycle counts diverge by more than the coarse-cycle slack: interp={interpCycles}, jit={jitCycles}");
+        Assert.True(System.Math.Abs(interpCycles - jitCycles) <= 16,
+            $"68000 W3 tier cycle counts diverge by more than the coarse-cycle instruction-boundary slack " +
+            $"(one instruction's worst-case charge): interp={interpCycles}, jit={jitCycles}");
 
         var t0 = BenchHarness.MeasureTier("m68000 interpreter", Tier0.Run, sieve);
         var t1 = BenchHarness.MeasureTier("m68000 jit", Tier1.Run, sieve);
