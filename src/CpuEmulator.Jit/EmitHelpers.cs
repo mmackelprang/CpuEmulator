@@ -140,6 +140,13 @@ internal sealed class EmitContext
     /// chain — M68000Cpu.Shift.cs:127-130). Held in a dedicated local across the loop.</summary>
     public LocalBuilder M68kShiftXLocal { get; }
 
+    // M6 PR-B: the 8086 word-EA survivors. The word access forms each byte's physical SEPARATELY from the
+    // resolved (segment value, 16-bit offset) pair (the segment-relative offset wrap quirk — the SECOND byte's
+    // offset wraps at 16 bits, NOT the physical). These survive the first byte's LoadByteFromBus/EmitStoreByte
+    // (which clobber EaLocal/DataLocal). Both int (0..0xFFFF).
+    public LocalBuilder M8086SegLocal { get; }
+    public LocalBuilder M8086OffsetLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -167,5 +174,7 @@ internal sealed class EmitContext
         M68kLastBitLocal = il.DeclareLocal(typeof(int));
         M68kMsbChangedLocal = il.DeclareLocal(typeof(int));
         M68kShiftXLocal = il.DeclareLocal(typeof(int));
+        M8086SegLocal = il.DeclareLocal(typeof(int));
+        M8086OffsetLocal = il.DeclareLocal(typeof(int));
     }
 }

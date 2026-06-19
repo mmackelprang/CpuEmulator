@@ -57,6 +57,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// across Compiles.</summary>
     internal int M68kFlowEmitSelections { get; private set; }
 
+    /// <summary>M6 PR-B: how many times an 8086 MOV row was DISPATCHED to <see cref="EmitM8086Mov"/> (the
+    /// dead-arm-now-live probe). A test asserts it is &gt; 0 after a MOV block compiles, so the MOV parity gate is
+    /// NON-vacuous (the emit IL actually ran, not interpreter-vs-interpreter). Accumulates across Compiles
+    /// (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M8086MovEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -122,6 +128,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // ((SR>>13)&1) to choose USP/SSP for A7, and the MOVE CCR helper writes N/Z into its low byte. Resolved
     // by name on the CPU type; null for non-68000 CPUs (harmless — only dereferenced under TargetIsM68000).
     private readonly FieldInfo? _m68kSR;
+
+    // M6 PR-B (DECISION B-0): the 8086's CODE-segment base (CS<<4) for the block under compile. A JIT block is
+    // keyed on the 16-bit IP and compiled against ONE CS (the CS live at Compile time); Discover + every emit-time
+    // const read fetch from (CS<<4)+IP physical, exactly as the runtime AddressSpaceFetchStream(_bus, IP, CS) does.
+    // Re-read per Compile from the live CS field (the CS-aliasing invariant: PR-B's MOV scope never changes CS, so
+    // the 16-bit IP key is exact for the block's life; far flow that changes CS is PR-D, which owns widening the key).
+    private readonly FieldInfo? _m8086CS;   // the ushort CS field; null for non-8086 CPUs
+    private uint _m8086CodePhysBase;        // (CS << 4) & 0xFFFFF — set at the head of each Discover/Compile
 
     // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
     // typeof(Mos6502Cpu)). Resolved from the injected target's reflection handles.
@@ -230,7 +244,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         _z80R = target.CpuType.GetField("R");
         _z80F = target.CpuType.GetField("F");   // M6 PR-2: the Z80 flag register (byte F)
         _m68kSR = target.CpuType.GetField("SR");   // M6 PR-4: the 68000 SR (A7 banking + the MOVE CCR)
+        _m8086CS = target.CpuType.GetField("CS");   // M6 PR-B: the 8086 code segment (CS<<4 = the fetch base)
     }
+
+    /// <summary>M6 PR-B: is the compiled CPU the 8086? Routes the MOV rows to EmitM8086Mov and selects the
+    /// SEGMENTED Discover fetch stream + the (CS&lt;&lt;4)+IP emit-time physical-PC origin. No other CPU produces
+    /// the 8086 mnemonics, so the (TargetIsM8086, mnemonic) pair is the unambiguous arm discriminator (mirrors
+    /// the Z80's (TargetIsZ80, op-kind) keying — the 8086 MOV rows ride JitOpClass.Register, NOT a dedicated class).</summary>
+    private bool TargetIsM8086 => _target.CpuType.Name == "M8086Cpu";
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
     /// (EmitZ80Ld). The 6502 never produces the Z80-shape modes/op-kinds, so this is the unambiguous
@@ -314,9 +335,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// returned length and SeekTo's the next instruction. The discovered run is a list of
     /// (pc, descriptor, computed-length) tuples — the length is the walk's output, the only length
     /// source the rest of Compile/PagesSpanned reads.</summary>
-    public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length)> Discover(ushort pc)
+    public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length, byte X86Seg)> Discover(ushort pc)
     {
-        var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor, int)>();
+        var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor, int, byte)>();
+        // M6 PR-B (DECISION B-0): the 8086 fetches code from (CS<<4)+IP 20-bit physical, NOT flat 16-bit IP.
+        // Bake the block's code-segment base once (the live CS at Compile time — the CS-aliasing invariant), so
+        // Discover AND the emit-time const reads (M8086CodePhys) walk the SAME physical bytes the runtime
+        // AddressSpaceFetchStream(_bus, IP, CS) executes. For non-8086 CPUs this stays 0 (unused).
+        _m8086CodePhysBase = TargetIsM8086 && _m8086CS is not null
+            ? ((uint)(ushort)_m8086CS.GetValue(_cpu)! << 4) & 0xFFFFFu
+            : 0u;
         // M6 PR-4a: the decode-walk fetch stream is per-target GRANULAR. The 6502/Z80/8086 generated Decode()
         // walks are BYTE-granular (BusFetchStream, UnitBytes==1, Read8) — authored against a byte stream. The
         // 68000's generated Decode() is WORD-granular (M68000FetchStream, UnitBytes==2, big-endian — it reads
@@ -327,8 +355,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // arm (EmitInstruction). The non-68000 branch is byte-for-byte the pre-PR-4a construction, so the
         // byte-granular CPUs see an IDENTICAL Discover (proven by their empty-diff descriptor tables + unchanged
         // FallbackEmitCount + green JIT sweeps — the PR-4a regression gate).
-        IFetchStream NewStream(ushort at) => TargetIsM68000
-            ? new M68000FetchStream(_bus, at)   // word-granular: Seeds the queue from the two physical words at `at`
+        // Per-target GRANULAR + ORIGIN fetch stream. The 68000 is word-granular (M68000FetchStream); the 8086 is
+        // byte-granular but SEGMENTED — its physical fetch origin is (CS<<4)+IP, so it uses the Core
+        // AddressSpaceFetchStream segmented ctor (the interpreter's own walk — maximal oracle fidelity). The
+        // 6502/Z80 stay flat byte-granular BusFetchStream (UNCHANGED — empty-diff regression-safe).
+        IFetchStream NewStream(ushort at) =>
+              TargetIsM68000 ? new M68000FetchStream(_bus, at)   // word-granular: Seeds the queue from the two physical words at `at`
+            : TargetIsM8086  ? new CpuEmulator.Core.Jit.AddressSpaceFetchStream(
+                                   _bus, at, (ushort)(_m8086CodePhysBase >> 4))   // segmented: (CS<<4)+at physical
             : new BusFetchStream(_bus, at);     // byte-granular: == the pre-PR-4a `new BusFetchStream(_bus, pc)`
         IFetchStream stream = NewStream(pc);                // positioned at pc (byte- or word-granular per target)
         for (int i = 0; i < _opts.BlockLengthCap; i++)
@@ -352,7 +386,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             // M68kEmitOperandBytes would DOUBLE-count. M68kEmitOperandBytes exists only as the standalone
             // footprint oracle the FallbackEmitCount discovery unit tests assert against (it must equal r.Length).
             int length = r.Length + Z80EmitOperandBytes(d);
-            run.Add((pc, d, length));
+            // M6 PR-B (Task 3b): thread the captured segment-override prefix byte (26/2E/36/3E, 0 if none) into
+            // the run tuple so the 8086 MOV emit arm can re-form the override-displaced segment (the principled
+            // fix that removes the override scope cut). Non-8086 CPUs carry 0 (their X86 slot is default).
+            byte x86Seg = TargetIsM8086 ? r.X86.SegOverride : (byte)0;
+            run.Add((pc, d, length, x86Seg));
             if (d.EndsBlock) break;
             pc = unchecked((ushort)(pc + length));           // advance by the FULL footprint
             // M6 PR-4a: reposition at the next instruction. The byte stream supports in-place SeekTo (its IL is
@@ -383,10 +421,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         ILGenerator il = dm.GetILGenerator();
         var ctx = new EmitContext(il, spannedPages);
 
-        var (lastPc, lastD, lastLen) = run[^1];
-        foreach (var (pc, d, length) in run)
+        var (lastPc, lastD, lastLen, _) = run[^1];
+        foreach (var (pc, d, length, x86Seg) in run)
         {
-            EmitInstruction(ctx, pc, d, length);
+            EmitInstruction(ctx, pc, d, length, x86Seg);   // M6 PR-B (Task 3b): thread the captured override byte
             if (!d.EndsBlock)
                 EmitBudgetCheck(ctx, (ushort)(pc + length));   // the cc_interrupt-style budget exit
         }
@@ -428,10 +466,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     }
 
     private static System.Collections.Generic.HashSet<int> PagesSpanned(
-        System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length)> run)
+        System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length, byte X86Seg)> run)
     {
         var pages = new System.Collections.Generic.HashSet<int>();
-        foreach (var (pc, d, length) in run)
+        foreach (var (pc, d, length, _) in run)
             for (int b = 0; b < length; b++)        // the walk's COMPUTED length, not a field
                 pages.Add(((pc + b) & 0xFFFF) >> 8);
         return pages;
@@ -440,8 +478,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// <summary>Emit one instruction. NeedsFallback rows emit a callout to inner.Step() (the
     /// safety valve). Each emit arm mirrors the proven CpuEmitter body. <paramref name="length"/> is
     /// the walk's COMPUTED instruction length — threaded to the branch arm (the only arm that needs
-    /// the post-operand fall-through PC) so no static descriptor Length field is read.</summary>
-    private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
+    /// the post-operand fall-through PC) so no static descriptor Length field is read.
+    /// <paramref name="x86Seg"/> (M6 PR-B / Task 3b) is the captured 8086 segment-override prefix byte
+    /// (26/2E/36/3E, 0 if none / non-8086) the MOV emit arm threads into its EA segment selection.</summary>
+    private void EmitInstruction(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg = 0)
     {
         if (d.NeedsFallback) { EmitFallbackStep(ctx); return; }
         // M6 PR-4a: a 68000 MOVE is BLOCK-CONTINUING (NeedsFallback=false), so Discover walks PAST it into the
@@ -533,9 +573,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // The register shift forms never write RAM, so the class-level gate is conservative-correct (a no-store
         // op leaves SmcPageLocal at -1). M68000Flow is NOT here: it ends the block; its BSR/JSR stack push is
         // backstopped by EmitChainOrExit's dirty.Any gate (the same reasoning as the Z80 CALL/RST flow ops).
+        // M6 PR-B: a memory-dest 8086 MOV (r/m,r 88/89 ; r/m,Sreg 8C ; moffs A2/A3 ; r/m,imm C6/C7) writes RAM,
+        // so the intra-block SMC guard must arm. The reg-dest forms (8A/8B/8E/A0/A1/B0-BF) never write RAM, so
+        // listing the memory-dest opcodes is precise and self-documenting (a non-store MOV leaves SmcPageLocal -1).
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
             || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
-            || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu or JitOpClass.M68000Shift);
+            || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu or JitOpClass.M68000Shift)
+            || (TargetIsM8086 && d.Mnemonic == "MOV" && d.Opcode is 0x88 or 0x89 or 0x8C or 0xA2 or 0xA3 or 0xC6 or 0xC7);
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -545,7 +589,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         {
             case JitOpClass.Load: EmitLoad(ctx, d); break;
             case JitOpClass.Store: EmitStore(ctx, d); break;
-            case JitOpClass.Register: EmitRegister(ctx, d); break;
+            case JitOpClass.Register:
+                if (TargetIsM8086 && d.Mnemonic == "MOV")
+                {
+                    M8086MovEmitSelections++;        // M6 PR-B: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
+                    EmitM8086Mov(ctx, pc, d, length, x86Seg);   // M6 PR-B (DECISION B-1/B-2/Task 3b)
+                    break;
+                }
+                EmitRegister(ctx, d);
+                break;
             case JitOpClass.Alu: EmitAlu(ctx, d); break;
             case JitOpClass.Rmw: EmitRmw(ctx, d); break;
             case JitOpClass.Branch: EmitBranch(ctx, pc, d, length); break;
@@ -688,6 +740,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Conv_U2);
         il.Emit(OpCodes.Stfld, _fpc);
     }
+
+    /// <summary>M6 PR-B (DECISION B-0): the 20-bit PHYSICAL address of the code byte at 16-bit IP
+    /// <paramref name="pc"/> for the block under compile: (CS&lt;&lt;4 + pc) &amp; 0xFFFFF. The emit arm reads its
+    /// operword / ModR/M / disp / imm as COMPILE-TIME constants from _bus.Read8/Read16 at THIS physical address
+    /// (the 68000 NextExtWord pattern, but segmented). _m8086CodePhysBase is the block's CS&lt;&lt;4 (baked in
+    /// Discover). The 16-bit IP wraps within the segment BEFORE the segment add (the 8086 wrap quirk), matching
+    /// AddressSpaceFetchStream.FetchAddress.</summary>
+    private uint M8086CodePhys(ushort pc) => (_m8086CodePhysBase + (ushort)pc) & 0xFFFFFu;
 
     /// <summary>Read the byte at the current PC (operand/code fetch), charging 1 cycle; pushes
     /// the byte (as int). Code/operand bytes live in RAM/ROM, so the fastmem-or-bus branch is
