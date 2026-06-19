@@ -69,6 +69,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// ran). Accumulates across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
     internal int M8086AluEmitSelections { get; private set; }
 
+    /// <summary>M6 PR-D: how many times an 8086 NEAR control-flow row was DISPATCHED to <see cref="EmitM8086Flow"/>
+    /// (the flow analogue of <see cref="M8086AluEmitSelections"/> — the dead-arm-now-live probe). A test asserts it
+    /// is &gt; 0 after a flow block compiles, so the branch (Jcc/JMP/CALL/RET/LOOP) parity gate is NON-vacuous (the
+    /// emit IL actually ran). Accumulates across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per
+    /// Compile).</summary>
+    internal int M8086FlowEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -267,6 +274,19 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// (TargetIsM8086, mnemonic) pair is the unambiguous arm discriminator — no opcode-level exclusion needed.</summary>
     private static bool IsM8086AluMnemonic(string m) =>
         m is "ADD" or "OR" or "ADC" or "SBB" or "AND" or "SUB" or "XOR" or "CMP" or "TEST" or "INC" or "DEC" or "NOT" or "NEG";
+
+    /// <summary>M6 PR-D: is this an in-scope NEAR 8086 control-flow row (the EmitM8086Flow family)? The plain
+    /// opcodes 70-7F/EB/E9/E8/C3/C2/E0-E3 (matched on the BYTE d.Opcode), PLUS the FF-group NEAR indirect CALL/JMP
+    /// (d.Opcode == 0xFF AND mnemonic "CALL"/"JMP"). The descriptor's d.Opcode is the BYTE for EVERY row (the
+    /// FF-group dictionary KEY 0x7FA/0x7FC is NOT carried on d — only the OperationKey the dictionary is keyed on
+    /// is, and it is not surfaced here), so the FF-group rows are keyed by (opcode, mnemonic). The ALU dispatch
+    /// runs FIRST and catches the FF /0 /1 INC/DEC rows (mnemonic "INC"/"DEC"); this catches the FF /2 /4 CALL/JMP
+    /// rows. The FAR forms (9A/EA/CB/CA + the far FF /3 /5, which ALSO carry "CALL"/"JMP" with opcode 0xFF) change
+    /// CS and are EXCLUDED BY THE GATE (IsEmittableX86Family admits only the near 0x7FA/0x7FC keys), so a far FF row
+    /// never reaches dispatch — this predicate need only separate near-flow from the (already gated-in) ALU rows.</summary>
+    private static bool IsM8086FlowOpcode(OpcodeDescriptor d) =>
+        d.Opcode is (>= 0x70 and <= 0x7F) or 0xEB or 0xE9 or 0xE8 or 0xC3 or 0xC2 or 0xE0 or 0xE1 or 0xE2 or 0xE3
+        || (d.Opcode == 0xFF && d.Mnemonic is "CALL" or "JMP");
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
     /// (EmitZ80Ld). The 6502 never produces the Z80-shape modes/op-kinds, so this is the unambiguous
@@ -620,6 +640,17 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 {
                     M8086AluEmitSelections++;        // M6 PR-C: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
                     EmitM8086Alu(ctx, pc, d, length, x86Seg);   // M6 PR-C (DECISION C-1..C-4)
+                    break;
+                }
+                // M6 PR-D: the NEAR control-flow family (Jcc/JMP/CALL/RET/LOOP + FF /2 /4 near indirect). The ALU
+                // check ran FIRST and caught the FF /0 /1 INC/DEC rows (mnemonic "INC"/"DEC"); the flow check below
+                // catches the FF "CALL"/"JMP" rows. The gate (IsEmittableX86Family) admits ONLY the near FF keys
+                // (0x7FA/0x7FC), so a 0xFF "CALL"/"JMP" row reaching here is guaranteed near (far 0x7FB/0x7FD stay
+                // fallback and never reach dispatch). The arm self-terminates (sets IP + EmitChainOrExit/Exit + ret).
+                if (TargetIsM8086 && IsM8086FlowOpcode(d))
+                {
+                    M8086FlowEmitSelections++;       // M6 PR-D: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
+                    EmitM8086Flow(ctx, pc, d, length, x86Seg);   // M6 PR-D (DECISION D-1/D-2)
                     break;
                 }
                 EmitRegister(ctx, d);

@@ -4462,6 +4462,14 @@ internal static class CpuEmitter
             endsBlock = true;
         }
 
+        // M6 PR-D: the admitted NEAR 8086 control-flow rows ride JitOpClass.Register (the ControlExecute family), which
+        // ClassifyForJit classes endsBlock=FALSE — but a flow op MUST end the block (the EmitM8086Flow arm self-
+        // terminates via EmitChainOrExit/EmitNormalExit). The gate-flip above un-forced their fallback (so they emit
+        // real IL); here we RE-FORCE endsBlock=true (WITHOUT re-forcing fallback) so the block correctly ends at the
+        // branch. Mirrors the Z80/68000 flow rows, which carry endsBlock=true from their dedicated flow classes.
+        if (isX86 && IsEmittableX86NearFlow(insn))
+            endsBlock = true;
+
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
 
         int fixedLength = insn.KeyShape switch
@@ -4650,6 +4658,12 @@ internal static class CpuEmitter
             or "TEST" or "INC" or "DEC" or "NOT" or "NEG")
             return true;
 
+        // M6 PR-D: the NEAR control-flow family (Jcc/JMP/CALL/RET/LOOP + FF /2 /4 near indirect). Admitted via the
+        // dedicated predicate below; KeyedDescriptorLiteral RE-FORCES endsBlock=true for these rows (the 8086 flow
+        // ops are JitOpClass.Register, which ClassifyForJit classes endsBlock=FALSE, so un-forcing fallback here would
+        // wrongly drop endsBlock too — the re-force keeps the block-ending property the self-terminating arm needs).
+        if (IsEmittableX86NearFlow(insn)) return true;
+
         // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is
         // MOVE/MOVEA/MOVEQ, the Z80 LD, the 6502 LDA/STA), so "MOV" is unambiguously the 8086.
         if (insn.Mnemonic != "MOV") return false;
@@ -4658,6 +4672,41 @@ internal static class CpuEmitter
             or 0xA0 or 0xA1 or 0xA2 or 0xA3
             or (>= 0xB0 and <= 0xBF)
             or 0xC6 or 0xC7;
+    }
+
+    /// <summary>M6 PR-D: is this a NEAR 8086 control-flow row the branch emit arm (EmitM8086Flow) handles? Jcc rel8
+    /// (70-7F), JMP rel8/rel16 (EB/E9), CALL rel16 (E8), RET/RET imm16 (C3/C2), the LOOP family (E0-E3), and the
+    /// FF-group NEAR indirect CALL/JMP r/m16 (FF /2 /4). The FAR forms (9A/EA direct, CB/CA RETF, FF /3 /5 indirect)
+    /// change CS and stay fallback (DECISION D-1).
+    ///
+    /// <para>KEY DISCRIMINATOR: <c>insn.Opcode</c> is the BYTE — so EVERY FF-group row (near AND far) reads 0xFF here
+    /// (the group key 0x7FA/0x7FC lives on <c>insn.OperationKey</c>, NOT <c>insn.Opcode</c>). The near/far split for
+    /// the FF rows is therefore by the reg-extension <c>insn.SubField</c> (the OpcodeGroup sub-field): /2 (CALL near)
+    /// and /4 (JMP near) admit; /3 (CALL far) and /5 (JMP far) — same byte 0xFF, same CALL/JMP mnemonic — DO NOT, so
+    /// the far indirect forms stay NeedsFallback=true. The plain near opcodes are matched on the byte directly; the
+    /// far 9A/EA/CB/CA carry the same CALL/JMP/RET-family mnemonics but other bytes, so the opcode switch excludes
+    /// them. The mnemonic pre-filter is the readable gate; the opcode/SubField switch is the load-bearing one.</para>
+    ///
+    /// <para>These rows are JitOpClass.Register (the 8086 ControlExecute family rides the generic Register class), so
+    /// ClassifyForJit classes them endsBlock=FALSE — KeyedDescriptorLiteral RE-FORCES endsBlock=true for them so the
+    /// self-terminating emit arm's block-ending property survives the gate-flip.</para></summary>
+    private static bool IsEmittableX86NearFlow(InstructionModel insn)
+    {
+        if (insn.Mnemonic is not ("JO" or "JNO" or "JB" or "JAE" or "JE" or "JNE" or "JBE" or "JA" or "JS" or "JNS"
+                or "JP" or "JNP" or "JL" or "JGE" or "JLE" or "JG"
+                or "JMP" or "CALL" or "RET" or "RETN"
+                or "LOOP" or "LOOPE" or "LOOPNE" or "LOOPZ" or "LOOPNZ" or "JCXZ"))
+            return false;
+
+        // The FF-group rows (opcode byte 0xFF): admit ONLY the near reg-extensions /2 (CALL) and /4 (JMP).
+        if (insn.Opcode == 0xFF)
+            return insn.SubField is 2 or 4;
+        // The plain near opcodes (far 9A/EA direct + CB/CA RETF carry CALL/JMP/RETF mnemonics but other bytes).
+        return insn.Opcode switch
+        {
+            (>= 0x70 and <= 0x7F) or 0xEB or 0xE9 or 0xE8 or 0xC3 or 0xC2 or 0xE0 or 0xE1 or 0xE2 or 0xE3 => true,
+            _ => false,   // 9A/EA (far direct), CB/CA (far return) stay fallback
+        };
     }
 
     /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
