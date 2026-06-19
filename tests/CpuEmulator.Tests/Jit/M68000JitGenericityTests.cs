@@ -157,6 +157,55 @@ public class M68000JitGenericityTests
         Assert.True(M68000Cpu.DescriptorFor(0x011C00u).NeedsFallback);   // NOP (opIndex 28) — still fallback
     }
 
+    /// <summary>M6 PR-4 (pre-merge review HIGH regression guard): a MOVE with an <c>(An)+</c> / <c>-(An)</c>
+    /// MEMORY DESTINATION must write the SOURCE operand to memory and advance An — NOT write the
+    /// post-incremented/pre-decremented An value (the bug where the dest write-back's register-store staging
+    /// clobbered the live MOVE operand local). This is a DETERMINISTIC unit gate (not corpus-sampled), so it
+    /// catches the clobber regardless of which TomHarte vectors a CI sample happens to draw. Drives Tier-1
+    /// directly and diffs against the interpreter Step (Tier-0) on BOTH the written RAM and A1.
+    ///   0x32C0 = MOVE.w D0,(A1)+   |   0x3300 = MOVE.w D0,-(A1)   (dest mode 3/4, reg 1; src mode 0, reg 0)</summary>
+    [Theory]
+    [InlineData(0x32C0, /*postInc*/ true)]    // MOVE.w D0,(A1)+
+    [InlineData(0x3300, /*postInc*/ false)]   // MOVE.w D0,-(A1)
+    public void MOVE_to_An_postinc_predec_writes_the_source_operand_not_the_advanced_address(int operword, bool postInc)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof
+
+        const uint srcValue = 0x1234u;   // the operand to MOVE — distinct from the A1 base/advanced address
+        const uint a1Base = 0x002000u;
+        // (A1)+ wrote at a1Base then A1=a1Base+2; -(A1) set A1=a1Base-2 then wrote there.
+        uint writtenAddr = postInc ? a1Base : a1Base - 2;
+
+        (uint a1, ushort memWord) RunOne(bool throughJit)
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+            bus.Write16(0x001000, (ushort)operword);   // MOVE.w D0,(A1)+ / -(A1)
+            bus.Write16(0x001002, 0x4E71);             // NOP — block-ending fallback
+            var inner = new M68000Cpu(bus);
+            inner.SetRegister("PC", 0x001000);
+            inner.SetRegister("SR", 0x2700);           // supervisor, ints masked
+            inner.SetRegister("D0", srcValue);
+            inner.SetRegister("A1", a1Base);
+            if (throughJit)
+            {
+                var jit = new JittedCpu<M68000Cpu>(inner, M68000Cpu.JitTarget, bus);
+                long budget = 1;                       // exactly one instruction (the MOVE)
+                jit.Run(ref budget);
+            }
+            else inner.Step();
+            return ((uint)inner.GetRegister("A1"), bus.Read16(writtenAddr));
+        }
+        var (ja1, jmem) = RunOne(throughJit: true);
+        var (ia1, imem) = RunOne(throughJit: false);
+
+        // The written word MUST be the source operand (0x1234), NOT the advanced A1 (0x2002 / 0x1FFE).
+        Assert.Equal((ushort)srcValue, imem);   // interpreter oracle: writes the operand
+        Assert.Equal(imem, jmem);               // JIT byte-identical on the written RAM
+        Assert.Equal(ia1, ja1);                 // ... and on the post-inc/pre-dec An
+    }
+
     [M68000TomHarteTheory]   // skips when the 680x0 vectors are absent (same attribute the data-axis sweeps use)
     [InlineData("NOP.json.gz")]
     public void One_family_file_is_tier_parity_green_through_the_JIT(string file)

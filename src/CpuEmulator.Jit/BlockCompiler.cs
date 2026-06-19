@@ -983,7 +983,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     }
 
     /// <summary>M6 PR-4: store the full 32-bit register. Stack: ..., value(uint) -> .... The value arrives
-    /// BELOW the receiver, so stage it through M68kValueLocal (uint), push cpu, reload, Stfld.</summary>
+    /// BELOW the receiver, so stage it through M68kStoreStageLocal (uint), push cpu, reload, Stfld.
+    /// The staging local is the DEDICATED register-store stage — NOT M68kValueLocal — so a register
+    /// write-back (e.g. EmitAdvanceAreg on a dest (An)+/-(An)) never clobbers a live MOVE operand parked in
+    /// M68kValueLocal. (Pre-merge review HIGH finding, M6 PR-4.)</summary>
     private void EmitStoreReg32(EmitContext ctx, string name)
     {
         if (!_regWide32Fields.TryGetValue(name, out var f))
@@ -991,9 +994,9 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 $"compiled descriptor names 32-bit register '{name}' which the CPU type does not declare as a "
               + "uint field (PR-4 32-bit register helper)");
         ILGenerator il = ctx.Il;
-        il.Emit(OpCodes.Stloc, ctx.M68kValueLocal);   // value
+        il.Emit(OpCodes.Stloc, ctx.M68kStoreStageLocal);   // value
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kStoreStageLocal);
         il.Emit(OpCodes.Stfld, f);
     }
 
@@ -1026,11 +1029,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
               + "uint field (PR-4 32-bit register helper)");
         ILGenerator il = ctx.Il;
         uint mask = size == 0 ? 0xFFu : 0xFFFFu;
-        il.Emit(OpCodes.Stloc, ctx.M68kValueLocal);                 // new value (stack now empty of it)
-        il.Emit(OpCodes.Ldarg_0);                                   // cpu (receiver for the final Stfld)
-        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, f);        // old reg
+        il.Emit(OpCodes.Stloc, ctx.M68kStoreStageLocal);            // new value (dedicated store stage — NOT
+        il.Emit(OpCodes.Ldarg_0);                                   //   M68kValueLocal, so a live MOVE operand
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, f);        //   parked there survives this write)
         il.Emit(OpCodes.Ldc_I4, unchecked((int)~mask)); il.Emit(OpCodes.And);   // old & ~mask  (keep upper bits)
-        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal);
+        il.Emit(OpCodes.Ldloc, ctx.M68kStoreStageLocal);
         il.Emit(OpCodes.Ldc_I4, unchecked((int)mask)); il.Emit(OpCodes.And);    // value & mask
         il.Emit(OpCodes.Or);                                        // (old & ~mask) | (value & mask)
         il.Emit(OpCodes.Stfld, f);                                  // reg = merged

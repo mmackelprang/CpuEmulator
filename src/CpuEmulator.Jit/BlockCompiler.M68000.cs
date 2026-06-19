@@ -66,20 +66,21 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
 
     /// <summary>M6 PR-4: store An. reg 0-6 = the plain uint A{reg} field; reg 7 = the BANKED A7 property
     /// (SSP when supervisor, USP otherwise). Stack: ..., value(uint) -> .... The value arrives on the stack, so
-    /// it is stashed (M68kValueLocal, the same staging EmitStoreReg32 uses) and re-pushed inside each branch.</summary>
+    /// it is stashed in M68kStoreStageLocal (the DEDICATED register-store stage — NOT M68kValueLocal, so an An
+    /// write-back never clobbers a live MOVE operand) and re-pushed inside each branch.</summary>
     private void EmitStoreAreg(EmitContext ctx, int reg)
     {
         if (reg < 7) { EmitStoreReg32(ctx, $"A{reg}"); return; }
         ILGenerator il = ctx.Il;
-        il.Emit(OpCodes.Stloc, ctx.M68kValueLocal);   // value (off the stack — the S-bit test below is stack-clean)
+        il.Emit(OpCodes.Stloc, ctx.M68kStoreStageLocal);   // value (off the stack — the S-bit test below is stack-clean)
         Label useUsp = il.DefineLabel();
         Label done = il.DefineLabel();
-        EmitLoadSupervisorBit(ctx);                   // (SR>>13)&1
+        EmitLoadSupervisorBit(ctx);                        // (SR>>13)&1
         il.Emit(OpCodes.Brfalse, useUsp);
-        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal); EmitStoreReg32(ctx, "SSP");
+        il.Emit(OpCodes.Ldloc, ctx.M68kStoreStageLocal); EmitStoreReg32(ctx, "SSP");
         il.Emit(OpCodes.Br, done);
         il.MarkLabel(useUsp);
-        il.Emit(OpCodes.Ldloc, ctx.M68kValueLocal); EmitStoreReg32(ctx, "USP");
+        il.Emit(OpCodes.Ldloc, ctx.M68kStoreStageLocal); EmitStoreReg32(ctx, "USP");
         il.MarkLabel(done);
     }
 

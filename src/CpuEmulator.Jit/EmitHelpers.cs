@@ -78,6 +78,15 @@ internal sealed class EmitContext
     /// resolved AFTER it, so the dest address needs a survivor local distinct from the source's AddrLocal.</summary>
     public LocalBuilder M68kAddr2Local { get; }
 
+    /// <summary>uint — M6 PR-4: a DEDICATED staging local for the 68000 register-store helpers
+    /// (EmitStoreReg32 / EmitStoreDataRegSized / EmitStoreAreg). These helpers receive the value BELOW the
+    /// receiver on the stack, so they must stash it, push the receiver, then reload. CRITICAL: this staging
+    /// local must be DISTINCT from M68kValueLocal — the dest (An)+/-(An) write path calls EmitAdvanceAreg
+    /// (a register store) WHILE the MOVE operand is live in M68kValueLocal; sharing one local let the An
+    /// write-back clobber the operand, writing the post-incremented/pre-decremented address to memory
+    /// instead of the MOVE source value. (Pre-merge review HIGH finding, M6 PR-4.)</summary>
+    public LocalBuilder M68kStoreStageLocal { get; }
+
     public EmitContext(ILGenerator il, IReadOnlyCollection<int> spannedPages)
     {
         Il = il;
@@ -94,5 +103,6 @@ internal sealed class EmitContext
         SumLocal = il.DeclareLocal(typeof(int));
         M68kValueLocal = il.DeclareLocal(typeof(uint));
         M68kAddr2Local = il.DeclareLocal(typeof(uint));
+        M68kStoreStageLocal = il.DeclareLocal(typeof(uint));
     }
 }
