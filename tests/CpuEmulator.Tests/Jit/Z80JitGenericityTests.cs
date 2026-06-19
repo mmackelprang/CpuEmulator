@@ -168,6 +168,99 @@ public class Z80JitGenericityTests
         Assert.Equal((ulong)value, z80.GetRegister(name));
     }
 
+    /// <summary>M6 PR-2: every emitted ALU form contributes 0 fallbacks — the "FallbackEmitCount drops by
+    /// exactly the emitted opcodes" half of the §8 parity gate AND the gate/arm lockstep check (each form must
+    /// have a real EmitZ80Alu branch, or its default throws and Compile fails). One ALU op per block, terminated
+    /// by the still-fallback HALT; the block's only fallback is the HALT. Covers the 8-bit ALU (register /
+    /// (HL) / immediate), the logic ops, CP, INC/DEC (register + (HL)), and the 16-bit ADD HL,rr.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0x80, 0x76 })]        // ADD A,B       (Register)
+    [InlineData(new byte[] { 0x86, 0x76 })]        // ADD A,(HL)    (RegisterIndirect)
+    [InlineData(new byte[] { 0xC6, 0x05, 0x76 })]  // ADD A,5       (Immediate)
+    [InlineData(new byte[] { 0x99, 0x76 })]        // SBC A,C       (carry-in subtract)
+    [InlineData(new byte[] { 0xA0, 0x76 })]        // AND B         (logic, H=1)
+    [InlineData(new byte[] { 0xAF, 0x76 })]        // XOR A         (logic, H=0, parity)
+    [InlineData(new byte[] { 0xBE, 0x76 })]        // CP (HL)       (operand-XY, no A write)
+    [InlineData(new byte[] { 0x04, 0x76 })]        // INC B         (preserved C, before-sourced H/V)
+    [InlineData(new byte[] { 0x35, 0x76 })]        // DEC (HL)      (memory INC/DEC)
+    [InlineData(new byte[] { 0x19, 0x76 })]        // ADD HL,DE     (16-bit, WZ=HL+1)
+    public void Z80_ALU_block_emits_no_fallback_for_the_ALU_op(byte[] program)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var bus = NewRamBus();
+        for (int i = 0; i < program.Length; i++) bus.Write8((ushort)(0x0100 + i), program[i]);
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        compiler.Compile(0x0100);
+        Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the HALT; the ALU op emitted 0
+    }
+
+    /// <summary>M6 PR-2 regression: an EMITTED ALU-Immediate op (ADD A,n etc.) must advance the block
+    /// discovery cursor past BOTH its opcode AND its immediate operand byte (footprint = 2), so the
+    /// NEXT instruction is decoded at opcode+2 — NOT at the operand byte (opcode+1). The decode walk's
+    /// FixedLength is the opcode-key length (1 for base-plane rows), so Discover relies on
+    /// Z80EmitOperandBytes to add the immediate's PC footprint; without the PR-2 extension it under-counts
+    /// by 1, the operand byte is mis-decoded as the next opcode, and the emitted block's nextPc lands one
+    /// byte short of the arm's actual PC advance (the TomHarte JIT sweep caught this as an off-by-1 PC).
+    /// Here: ADD A,n at 0x0100 (2 bytes) then HALT at 0x0102; if the footprint were 1, the walk would
+    /// decode the operand 0x05 as an op at 0x0101 and HALT would NOT be at run[1].</summary>
+    [Theory]
+    [InlineData(0xC6)]   // ADD A,n
+    [InlineData(0xCE)]   // ADC A,n
+    [InlineData(0xD6)]   // SUB A,n
+    [InlineData(0xDE)]   // SBC A,n
+    [InlineData(0xE6)]   // AND n
+    [InlineData(0xEE)]   // XOR n
+    [InlineData(0xF6)]   // OR n
+    [InlineData(0xFE)]   // CP n
+    public void Z80_ALU_immediate_discovery_footprint_skips_the_operand_byte(byte opcode)
+    {
+        var bus = NewRamBus();
+        bus.Write8(0x0100, opcode);
+        bus.Write8(0x0101, 0x05);   // the immediate operand — must NOT be decoded as an opcode
+        bus.Write8(0x0102, 0x76);   // HALT — the real next instruction, at opcode+2
+        var z80 = new Z80Cpu(bus);
+        var opts = new JitOptions();
+        var compiler = new BlockCompiler<Z80Cpu>(z80, Z80Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+        var run = compiler.Discover(0x0100);
+        // The block is exactly [ALU-imm @0x0100, HALT @0x0102] — the operand at 0x0101 was skipped.
+        Assert.Equal(2, run.Count);
+        Assert.Equal(0x0100, run[0].Pc);
+        Assert.Equal(2, run[0].Length);            // opcode + immediate operand byte
+        Assert.Equal(0x0102, run[1].Pc);           // HALT at opcode+2, NOT the operand at opcode+1
+        Assert.Equal("HALT", run[1].D.Mnemonic);
+    }
+
+    /// <summary>M6 PR-2 (DECISION C): the descriptor-state assertions. The whitelisted ALU rows flip to
+    /// NeedsFallback=false but keep their BaseCycles UNCHANGED (no JitBaseCycles edit — J-CYC); the
+    /// DECISION-E deferrals (ED ADC HL,rr, Inc16) and the PR-1 exclusion (LD SP,HL) STILL fall back.</summary>
+    [Fact]
+    public void Z80_ALU_descriptors_flip_to_emitted_with_unchanged_cycles()
+    {
+        // The emitted ALU rows: NeedsFallback flipped to false; BaseCycles UNCHANGED (4/7/11).
+        Assert.False(Z80Cpu.DescriptorFor(0x80).NeedsFallback);   // ADD A,B
+        Assert.Equal(4, Z80Cpu.DescriptorFor(0x80).BaseCycles);   // register form — unchanged
+        Assert.False(Z80Cpu.DescriptorFor(0x86).NeedsFallback);   // ADD A,(HL)
+        Assert.Equal(7, Z80Cpu.DescriptorFor(0x86).BaseCycles);   // (HL) form — unchanged
+        Assert.False(Z80Cpu.DescriptorFor(0xC6).NeedsFallback);   // ADD A,n
+        Assert.Equal(7, Z80Cpu.DescriptorFor(0xC6).BaseCycles);   // immediate form — unchanged
+        Assert.False(Z80Cpu.DescriptorFor(0x09).NeedsFallback);   // ADD HL,BC
+        Assert.Equal(11, Z80Cpu.DescriptorFor(0x09).BaseCycles);  // 16-bit ADD — unchanged
+        Assert.False(Z80Cpu.DescriptorFor(0x34).NeedsFallback);   // INC (HL)
+        Assert.Equal(11, Z80Cpu.DescriptorFor(0x34).BaseCycles);  // memory INC — unchanged
+
+        // The DECISION-E deferrals + the PR-1 exclusion STILL fall back (the whitelist did NOT admit them).
+        Assert.True(Z80Cpu.DescriptorFor(0xED4A).NeedsFallback);  // ED ADC HL,BC (EdAdcSbc16) — DECISION E
+        Assert.True(Z80Cpu.DescriptorFor(0x03).NeedsFallback);    // INC BC (Inc16) — DECISION E
+        Assert.True(Z80Cpu.DescriptorFor(0xF9).NeedsFallback);    // LD SP,HL — PR-1 exclusion
+
+        // PR-1's untouched controls still hold (the change is scoped to the Z80 ALU rows only).
+        Assert.Equal(7, Z80Cpu.DescriptorFor(0x06).BaseCycles);        // LD B,n — PR-1's corrected value
+        Assert.Equal(2, Mos6502Cpu.DescriptorFor(0xA9).BaseCycles);    // LDA #imm — the shared template, untouched
+    }
+
     [Fact]
     public void JittedCpu_of_Z80_runs_a_NOP_via_fallback()
     {
