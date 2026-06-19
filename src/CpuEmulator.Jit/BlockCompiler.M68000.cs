@@ -676,14 +676,22 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 // PC-relative/#imm modes (7/2/3/4) are NOT alterable dests -> fall back.
                 return srcMode == 0 || IsM68kMemDestHandled(srcMode, srcReg);
             }
-            case M68kAluShape.ImmEa:
             case M68kAluShape.QuickEa:
-                // The EA is the alterable dest: a Dn DIRECT (mode 0, register write — handled inline), An DIRECT
-                // (mode 1: QuickEa's whole-An special case / ImmEa is illegal-to-An, but the QuickEa arm handles it
-                // and a lookahead ImmEa-to-An never reaches a real run), or a MEMORY-alterable EA (modes 2-6 + 7/0/1
-                // — the resolver-addressable set). Anything else (mode 7 reg 2/3/4: PC-relative/#imm) is not an
-                // alterable dest -> fall back.
+                // ADDQ/SUBQ: the EA is the alterable dest: a Dn DIRECT (mode 0, register write — handled inline), An
+                // DIRECT (mode 1 — the whole-An / no-CCR special case EmitM68kAluQuickEa handles explicitly), or a
+                // MEMORY-alterable EA (modes 2-6 + 7/0/1 — the resolver-addressable set). Anything else (mode 7 reg
+                // 2/3/4: PC-relative/#imm) is not an alterable dest -> fall back.
                 return srcMode == 0 || srcMode == 1 || IsM68kMemDestHandled(srcMode, srcReg);
+            case M68kAluShape.ImmEa:
+                // ADDI/SUBI/ANDI/ORI/EORI/CMPI: the EA is the alterable dest: a Dn DIRECT (mode 0, register write —
+                // handled inline) or a MEMORY-alterable EA (modes 2-6 + 7/0/1 — the resolver-addressable RMW set).
+                // An DIRECT (mode 1) is ILLEGAL for an immediate-to-An on real hardware AND EmitM68kAluImmEa has no
+                // mode-1 path (unlike QuickEa's whole-An special case) — so it MUST fall back, NOT report emittable
+                // (else a lookahead garbage word decoding as ImmEa-to-An would throw mid-compile in
+                // EmitM68kResolveEaAddr and kill the whole block compile rather than gracefully fall back to Step).
+                // Pre-merge review (M6 PR-5): split out of the shared QuickEa case to close that valve/body mismatch.
+                // PC-relative/#imm dests (mode 7 reg 2/3/4) are likewise not alterable -> fall back.
+                return srcMode == 0 || IsM68kMemDestHandled(srcMode, srcReg);
             case M68kAluShape.AddrEa:
                 // ADDA/SUBA/CMPA: the EA is a SOURCE read (any readable EA, incl. An direct + #imm + PC-relative).
                 return IsM68kSrcEaHandled(srcMode, srcReg);
