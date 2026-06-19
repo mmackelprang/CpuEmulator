@@ -4066,6 +4066,9 @@ internal static class CpuEmitter
         var x86ModRm = model.X86Decode is { } xd
             ? new System.Collections.Generic.HashSet<byte>(xd.Opcodes.Values.Where(o => o.HasModRm).Select(o => o.Value))
             : null;
+        // M6 PR-C: the architecture self-gate IsEmittableX86Family threads through KeyedDescriptorLiteral — only an
+        // X86Decode CPU (the 8086) may admit the ALU mnemonics; the Z80 carries the SAME mnemonics but must not.
+        bool isX86 = model.X86Decode is not null;
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Key→descriptor table for a declared DecodeStructure (Ground truth C). Keyed on");
         sb.AppendLine("    /// the opaque OperationKey the walk computes; DescriptorFor consults this, never a raw");
@@ -4080,7 +4083,7 @@ internal static class CpuEmitter
             bool isModRm = x86ModRm is not null
                 ? x86ModRm.Contains(insn.Opcode)
                 : modRm.Contains(insn.Opcode) && insn.KeyShape == KeyShape.OpcodeByte;
-            sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm, flags)},");
+            sb.AppendLine($"        [0x{insn.OperationKey:X}u] = {KeyedDescriptorLiteral(insn, isModRm, isX86, flags)},");
         }
         // M6 PR-4 (DECISION P3, mechanism 1a): a FieldGrammar CPU (the 68000) carries NO InstructionDef rows
         // (model.Instructions is []), so the foreach above emits nothing — its JitDescriptorsByKey is empty
@@ -4428,7 +4431,7 @@ internal static class CpuEmitter
     /// byte); ModRm → 2 base (opcode + the length-determining byte) with LengthRule.ModRmDetermined,
     /// the walk reading the variable tail. (The synthetic ops are Implied with no operand bytes —
     /// the proof is the DECODE SHAPE, not operand carriage; Ground truth F scope honesty.)</summary>
-    private static string KeyedDescriptorLiteral(InstructionModel insn, bool isModRm, FlagBitMap flags)
+    private static string KeyedDescriptorLiteral(InstructionModel insn, bool isModRm, bool isX86, FlagBitMap flags)
     {
         InstructionClass cls = insn.Class;
         int baseCycles = JitBaseCycles(insn, cls);
@@ -4453,7 +4456,7 @@ internal static class CpuEmitter
         // to RE-force them. LD A,I / LD A,R ride the Implied/EdLdIaRa shape and are excluded by
         // IsEmittableZ80Family (their mode is not in the whitelist AND the EdLdIaRa op-kind is rejected),
         // so they stay fallback. As later families emit (PR-2/PR-3), they extend IsEmittableZ80Family.
-        if (!IsEmittableZ80Family(insn) && !IsEmittableX86Family(insn))
+        if (!IsEmittableZ80Family(insn) && !IsEmittableX86Family(insn, isX86))
         {
             fallback = true;
             endsBlock = true;
@@ -4627,8 +4630,26 @@ internal static class CpuEmitter
     /// carry the 8086's (opcode, mnemonic "MOV") shape — verified: only the m8086 architecture's X86Decode model
     /// produces these keys (grep '"MOV"' over the generated tables hits ONLY the M8086 g.cs) — so this is
     /// unreachable for them (their descriptor tables are empty-diff, R2).</summary>
-    private static bool IsEmittableX86Family(InstructionModel insn)
+    private static bool IsEmittableX86Family(InstructionModel insn, bool isX86)
     {
+        // M6 PR-C: ARCHITECTURE SELF-GATE. The ALU mnemonics below (ADD/OR/ADC/SBB/AND/SUB/XOR/INC/DEC/NEG) are
+        // NOT unique to the 8086 — the Z80 carries them too (ADD A,r / INC rr / NEG …), and the Z80 is the OTHER
+        // structured CPU that reaches this gate (KeyedDescriptorLiteral). The MOV branch self-gates implicitly
+        // (only the 8086 has "MOV"), but the ALU mnemonics need an EXPLICIT guard: without it a future Z80 ALU row
+        // not yet in IsEmittableZ80Family would be silently un-forced + routed to EmitM8086Alu (garbage IL). The
+        // caller passes isX86 = (model.X86Decode is not null), so this whitelist only ever admits 8086 rows.
+        if (!isX86) return false;
+
+        // M6 PR-C: the integer-ALU families — the 00-3D standard forms + the 80/81/83 group + 84/85/A8/A9 TEST +
+        // 40-4F INC/DEC r16 + FE/FF /0 /1 INC/DEC r/m + F6/F7 /0 /1 /2 /3 (TEST/NOT/NEG). Admitted by MNEMONIC.
+        // The MUL/IMUL/DIV/IDIV exclusion is AUTOMATIC: the F6/F7 /4../7 rows carry the MUL/IMUL/DIV/IDIV
+        // mnemonics (and the FF /2../6 rows CALL/JMP/PUSH), which are NOT in the ALU mnemonic set below, so they
+        // fail this whitelist and stay interpreter-fallback (ADR 0011 §2) — no opcode-level exclusion needed. The
+        // gate sees the BASE opcode for the reg-extension group rows; the arm normalizes (opcode<<3)|reg.
+        if (insn.Mnemonic is "ADD" or "OR" or "ADC" or "SBB" or "AND" or "SUB" or "XOR" or "CMP"
+            or "TEST" or "INC" or "DEC" or "NOT" or "NEG")
+            return true;
+
         // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is
         // MOVE/MOVEA/MOVEQ, the Z80 LD, the 6502 LDA/STA), so "MOV" is unambiguously the 8086.
         if (insn.Mnemonic != "MOV") return false;

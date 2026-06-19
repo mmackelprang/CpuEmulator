@@ -63,6 +63,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
     internal int M8086MovEmitSelections { get; private set; }
 
+    /// <summary>M6 PR-C: how many times an 8086 ALU row was DISPATCHED to <see cref="EmitM8086Alu"/> (the ALU
+    /// analogue of <see cref="M8086MovEmitSelections"/> — the dead-arm-now-live probe). A test asserts it is
+    /// &gt; 0 after an ALU block compiles, so the ALU + FLAGS parity gate is NON-vacuous (the emit IL actually
+    /// ran). Accumulates across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M8086AluEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -135,6 +141,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // Re-read per Compile from the live CS field (the CS-aliasing invariant: PR-B's MOV scope never changes CS, so
     // the 16-bit IP key is exact for the block's life; far flow that changes CS is PR-D, which owns widening the key).
     private readonly FieldInfo? _m8086CS;   // the ushort CS field; null for non-8086 CPUs
+    private readonly FieldInfo? _m8086FLAGS;   // M6 PR-C: the ushort FLAGS word (the 8086 ALU flag core); null for non-8086
     private uint _m8086CodePhysBase;        // (CS << 4) & 0xFFFFF — set at the head of each Discover/Compile
 
     // J1: the CPU-typed method handles are now per-CPU INSTANCE fields (was: static baked to
@@ -245,6 +252,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         _z80F = target.CpuType.GetField("F");   // M6 PR-2: the Z80 flag register (byte F)
         _m68kSR = target.CpuType.GetField("SR");   // M6 PR-4: the 68000 SR (A7 banking + the MOVE CCR)
         _m8086CS = target.CpuType.GetField("CS");   // M6 PR-B: the 8086 code segment (CS<<4 = the fetch base)
+        _m8086FLAGS = target.CpuType.GetField("FLAGS");   // M6 PR-C: the 8086 FLAGS word (the ALU flag core)
     }
 
     /// <summary>M6 PR-B: is the compiled CPU the 8086? Routes the MOV rows to EmitM8086Mov and selects the
@@ -252,6 +260,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// the 8086 mnemonics, so the (TargetIsM8086, mnemonic) pair is the unambiguous arm discriminator (mirrors
     /// the Z80's (TargetIsZ80, op-kind) keying — the 8086 MOV rows ride JitOpClass.Register, NOT a dedicated class).</summary>
     private bool TargetIsM8086 => _target.CpuType.Name == "M8086Cpu";
+
+    /// <summary>M6 PR-C: is this an in-scope 8086 integer-ALU mnemonic? The gate-flip whitelist (CpuEmitter
+    /// IsEmittableX86Family) admits exactly these by mnemonic; MUL/IMUL/DIV/IDIV (F6/F7 /4../7) + CALL/JMP/PUSH
+    /// (FF /2../6) carry NON-ALU mnemonics, so they are auto-excluded (stay interpreter-fallback). The
+    /// (TargetIsM8086, mnemonic) pair is the unambiguous arm discriminator — no opcode-level exclusion needed.</summary>
+    private static bool IsM8086AluMnemonic(string m) =>
+        m is "ADD" or "OR" or "ADC" or "SBB" or "AND" or "SUB" or "XOR" or "CMP" or "TEST" or "INC" or "DEC" or "NOT" or "NEG";
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
     /// (EmitZ80Ld). The 6502 never produces the Z80-shape modes/op-kinds, so this is the unambiguous
@@ -576,10 +591,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // M6 PR-B: a memory-dest 8086 MOV (r/m,r 88/89 ; r/m,Sreg 8C ; moffs A2/A3 ; r/m,imm C6/C7) writes RAM,
         // so the intra-block SMC guard must arm. The reg-dest forms (8A/8B/8E/A0/A1/B0-BF) never write RAM, so
         // listing the memory-dest opcodes is precise and self-documenting (a non-store MOV leaves SmcPageLocal -1).
+        // M6 PR-C: a memory-dest 8086 ALU (the r/m-dest forms 00/01/08/09/…, the 80/81/83 group, FE/FF INC/DEC,
+        // F6/F7 NOT/NEG) writes RAM, so the intra-block SMC guard must arm. The conservative class-level gate
+        // (TargetIsM8086 && ALU-mnemonic) is correct: a reg-dest ALU (and CMP/TEST, which never write back) leaves
+        // SmcPageLocal at -1, so arming on every ALU row is harmless (a no-store op never trips the guard).
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
             || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
             || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu or JitOpClass.M68000Shift)
-            || (TargetIsM8086 && d.Mnemonic == "MOV" && d.Opcode is 0x88 or 0x89 or 0x8C or 0xA2 or 0xA3 or 0xC6 or 0xC7);
+            || (TargetIsM8086 && d.Mnemonic == "MOV" && d.Opcode is 0x88 or 0x89 or 0x8C or 0xA2 or 0xA3 or 0xC6 or 0xC7)
+            || (TargetIsM8086 && IsM8086AluMnemonic(d.Mnemonic));
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -594,6 +614,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 {
                     M8086MovEmitSelections++;        // M6 PR-B: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
                     EmitM8086Mov(ctx, pc, d, length, x86Seg);   // M6 PR-B (DECISION B-1/B-2/Task 3b)
+                    break;
+                }
+                if (TargetIsM8086 && IsM8086AluMnemonic(d.Mnemonic))
+                {
+                    M8086AluEmitSelections++;        // M6 PR-C: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
+                    EmitM8086Alu(ctx, pc, d, length, x86Seg);   // M6 PR-C (DECISION C-1..C-4)
                     break;
                 }
                 EmitRegister(ctx, d);
