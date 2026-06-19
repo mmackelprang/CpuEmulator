@@ -12,7 +12,66 @@ public static class BoardSpecValidator
     {
         var diagnostics = new List<BoardDiagnostic>();
         ValidateRegions(spec, diagnostics);
+        ValidateRomImages(spec, diagnostics);
+        ValidatePeripheralSlots(spec, diagnostics);
+        ValidateIrqWiring(spec, diagnostics);
+        ValidateVectorPatches(spec, diagnostics);
         return diagnostics;
+    }
+
+    private static void ValidateRomImages(BoardSpec spec, List<BoardDiagnostic> diagnostics)
+    {
+        foreach (MemoryRegion r in spec.Memory)
+        {
+            if (r.Kind != RegionKind.Rom)
+                continue;
+            if (r.Image is null || r.Image.Length != r.Length)
+                diagnostics.Add(new BoardDiagnostic("rom-image-mismatch",
+                    $"Rom region at ${r.Start:X} (length ${r.Length:X}) needs an image of exactly "
+                  + $"${r.Length:X} bytes; got {(r.Image is null ? "none" : $"${r.Image.Length:X}")}."));
+        }
+    }
+
+    private static void ValidatePeripheralSlots(BoardSpec spec, List<BoardDiagnostic> diagnostics)
+    {
+        foreach (PeripheralSlot slot in spec.Peripherals)
+        {
+            if (slot.Base % PageSize != 0 || slot.Length == 0 || slot.Length % PageSize != 0)
+                diagnostics.Add(new BoardDiagnostic("slot-misaligned",
+                    $"Peripheral '{slot.Name}' slot at ${slot.Base:X} (length ${slot.Length:X}) "
+                  + $"must be page-aligned: start a multiple of {PageSize}, length a positive multiple."));
+
+            bool inMmio = spec.Memory.Any(r =>
+                r.Kind == RegionKind.Mmio &&
+                slot.Base >= r.Start &&
+                (ulong)slot.Base + slot.Length <= (ulong)r.Start + r.Length);
+            if (!inMmio)
+                diagnostics.Add(new BoardDiagnostic("slot-not-in-mmio",
+                    $"Peripheral '{slot.Name}' slot [${slot.Base:X}, ${(ulong)slot.Base + slot.Length:X}) "
+                  + "is not fully contained in any Mmio region."));
+        }
+    }
+
+    private static void ValidateIrqWiring(BoardSpec spec, List<BoardDiagnostic> diagnostics)
+    {
+        foreach (PeripheralIrq line in spec.Irq.Lines)
+        {
+            if (!spec.Peripherals.Any(p => p.Name == line.PeripheralName))
+                diagnostics.Add(new BoardDiagnostic("irq-unwired",
+                    $"IRQ wiring names peripheral '{line.PeripheralName}', which is not a declared slot."));
+        }
+    }
+
+    private static void ValidateVectorPatches(BoardSpec spec, List<BoardDiagnostic> diagnostics)
+    {
+        foreach (VectorPatch patch in spec.Reset.VectorPatches)
+        {
+            bool mapped = spec.Memory.Any(r =>
+                patch.Address >= r.Start && patch.Address < (ulong)r.Start + r.Length);
+            if (!mapped)
+                diagnostics.Add(new BoardDiagnostic("vector-unmapped",
+                    $"Reset vector patch at ${patch.Address:X} lands in no declared region."));
+        }
     }
 
     private static void ValidateRegions(BoardSpec spec, List<BoardDiagnostic> diagnostics)
