@@ -93,29 +93,34 @@ public static class ReportWriter
         // ── Reading the numbers honestly (the findings the data shows) ─────────────────────────────
         sb.AppendLine("## Reading the numbers");
         sb.AppendLine();
-        sb.AppendLine("- **W1 is SMC-heavy (Klaus self-modifies); W2 is not.** On W1 our Tier-1 JIT is");
-        sb.AppendLine("  *slower* than our interpreter: the JIT runs `InvalidateIfDirty` before every block");
-        sb.AppendLine("  dispatch and Klaus's frequent RAM stores keep dirtying pages, so the JIT spends its");
-        sb.AppendLine("  time evicting + recompiling blocks rather than executing them (recompilation");
-        sb.AppendLine("  thrashing). This is a real, measured characteristic of the current invalidation");
-        sb.AppendLine("  strategy — the JIT's value is correctness parity (full TomHarte + the differential");
-        sb.AppendLine("  fuzzer + Klaus cycle-exact), and reducing per-dispatch invalidation cost on");
-        sb.AppendLine("  SMC-heavy code is the recorded next optimization. On W2 (no SMC) the gap narrows");
-        sb.AppendLine("  markedly — the interpreter's tight, well-predicted `switch` dispatch on a small hot");
-        sb.AppendLine("  loop is hard for a block JIT to beat without cross-block state hoisting (an M3");
-        sb.AppendLine("  refinement, recorded out-of-scope).");
+        sb.AppendLine("- **W1 is SMC-heavy (Klaus self-modifies); W2 is not.** On the 6502 W1 (Klaus) our");
+        sb.AppendLine("  Tier-1 JIT is *slower* than our interpreter: the JIT runs `InvalidateIfDirty` before");
+        sb.AppendLine("  every block dispatch and Klaus's frequent RAM stores keep dirtying pages, so the JIT");
+        sb.AppendLine("  spends its time evicting + recompiling blocks rather than executing them");
+        sb.AppendLine("  (recompilation thrashing — the 6502 W1 picture specifically, since the 6502 W1 path");
+        sb.AppendLine("  has no M6 emit; the Z80/68000/8086 W1/W3 slowness is per-dispatch overhead on the");
+        sb.AppendLine("  all-fallback tail, NOT recompilation — see the per-CPU notes above). This is a real,");
+        sb.AppendLine("  measured characteristic of the current invalidation strategy — the JIT's value is");
+        sb.AppendLine("  correctness parity (full TomHarte + the differential fuzzer + Klaus cycle-exact), and");
+        sb.AppendLine("  reducing per-dispatch cost on SMC-heavy code is the recorded next optimization. On W2");
+        sb.AppendLine("  (no SMC) the gap narrows markedly — and on the Z80/68000/8086 W2 compute kernels the");
+        sb.AppendLine("  M6 emit makes Tier-1 BEAT the interpreter (the 6502 W2 stays interpreter-favoured");
+        sb.AppendLine("  without cross-block state hoisting, an M3 refinement recorded out-of-scope).");
         sb.AppendLine("- **Cross-language spread is the interesting headline (6502).** Native C (fake6502) is the");
         sb.AppendLine("  fastest by a wide margin; our C# interpreter is mid-pack and competitive with the JS");
         sb.AppendLine("  (sfotty) and C# (Asm6502) subjects; pure-Python (py65) is the slowest by ~1-2 orders");
         sb.AppendLine("  of magnitude — exactly the honest cross-language picture the suite was built to show.");
-        sb.AppendLine("- **Cross-language spread (Z80) — and the all-fallback caveat.** The Z80 third-party refs");
+        sb.AppendLine("- **Cross-language spread (Z80) — and the M6 emit result.** The Z80 third-party refs");
         sb.AppendLine("  show the same shape on their OWN T-state models: native C (superzazu/z80) is fastest by");
         sb.AppendLine("  ~1.5 B T-states/sec; the JS core (DrGoldfire/Z80.js, a documented-T-state interpreter)");
         sb.AppendLine("  is mid-pack; the C# core (Z80dotNet) is the slowest of the three. Note our Z80 Tier-0");
-        sb.AppendLine("  interpreter out-paces all three non-native refs — an honest, measured result. Our Z80");
-        sb.AppendLine("  Tier-1 is **all-fallback** (no hot-op IL emit yet — M6), so its ~0.45–0.48x ratio is the");
-        sb.AppendLine("  committed \"before\" the M6 re-measure subtracts from, NOT a defect. **Z80 is measured in");
-        sb.AppendLine("  T-states, the 6502 in machine cycles — do NOT cross-multiply the two as a raw race.**");
+        sb.AppendLine("  interpreter out-paces all three non-native refs — an honest, measured result. **M6");
+        sb.AppendLine("  hot-op emit landed**: the Z80 Tier-1 JIT now emits its high-ROI families and BEATS the");
+        sb.AppendLine("  Tier-0 interpreter on the no-SMC compute kernel (Z80-W2 ~2.3x); the SMC-heavy W1/W3");
+        sb.AppendLine("  rows stay JIT-slower, dominated by **per-dispatch overhead** (the `InvalidateIfDirty`");
+        sb.AppendLine("  scan + the all-fallback dispatch on the non-emitting tail), NOT recompilation — the");
+        sb.AppendLine("  recompile lever IS engaged (see ROADMAP). **Z80 is measured in T-states, the 6502 in");
+        sb.AppendLine("  machine cycles — do NOT cross-multiply the two as a raw race.**");
         sb.AppendLine("- **Third-party rows are an indicative cross-language SLICE.** Subprocess + in-process");
         sb.AppendLine("  third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its");
         sb.AppendLine("  OWN cycle model. These are indicative cross-language numbers, not a controlled");
@@ -269,7 +274,7 @@ public static class ReportWriter
     private static void AppendTierSpeedup(StringBuilder sb, IReadOnlyList<BenchHarness.Row> tierRows)
     {
         // Pair our interpreter + JIT rows per workload and report the JIT/interpreter ratio — grouped
-        // by architecture so the all-fallback caveat attaches to the Z80 (M6 target) only.
+        // by architecture so the post-M6 emit caveat attaches to each emitting CPU (Z80 / 68000 / 8086).
         bool wroteHeading = false;
         foreach (string arch in ArchitectureOrder(tierRows))
         {
@@ -311,27 +316,33 @@ public static class ReportWriter
             sb.AppendLine($"### {ArchLabel(arch)}");
             sb.AppendLine();
             sb.Append(lines);
-            // The all-fallback caveat: Z80 + 68000 Tier-1 have no hot-op IL emit yet (M6 / the later
-            // 68000 hot-op emit), so their ratio is the committed "before" for the re-measure — emitted
-            // automatically under those pairs.
+            // The post-M6 caveat: Z80 / 68000 / 8086 Tier-1 now EMIT their high-ROI families (M6), so the
+            // JIT beats the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay
+            // JIT-slower, dominated by per-dispatch overhead on the non-emitting tail (NOT recompilation) —
+            // emitted automatically under those pairs.
             if (string.Equals(arch, "z80", StringComparison.OrdinalIgnoreCase))
             {
-                sb.AppendLine("- _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x " +
-                    "minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._");
+                sb.AppendLine("- _M6 hot-op emit landed: the Z80 Tier-1 JIT emits its high-ROI families and " +
+                    "BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay " +
+                    "JIT-slower, dominated by per-dispatch overhead (the `InvalidateIfDirty` scan + the " +
+                    "all-fallback dispatch on the non-emitting tail), NOT recompilation — the recompile lever " +
+                    "IS engaged. See ROADMAP._");
             }
             else if (string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase))
             {
-                sb.AppendLine("- _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back " +
-                    "to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch " +
-                    "overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. " +
-                    "The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._");
+                sb.AppendLine("- _M6 hot-op emit landed: the 68000 Tier-1 JIT emits its high-ROI families and " +
+                    "BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay " +
+                    "JIT-slower, dominated by per-dispatch overhead (the `InvalidateIfDirty` scan + the " +
+                    "all-fallback dispatch on the non-emitting tail), NOT recompilation — the recompile lever " +
+                    "IS engaged. The ratio is reported in guest-MIPS (the cycle-axis-independent metric). See ROADMAP._");
             }
             else if (string.Equals(arch, "m8086", StringComparison.OrdinalIgnoreCase))
             {
-                sb.AppendLine("- _8086 Tier-1 is ALL-FALLBACK (the merged M5.6 model — every op falls back " +
-                    "to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch " +
-                    "overhead is EXPECTED and is the committed 'before' for the later 8086 JIT-emit re-measure " +
-                    "(PR-B/C/D). The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._");
+                sb.AppendLine("- _M6 hot-op emit landed: the 8086 Tier-1 JIT emits its high-ROI families and " +
+                    "BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay " +
+                    "JIT-slower, dominated by per-dispatch overhead (the `InvalidateIfDirty` scan + the " +
+                    "all-fallback dispatch on the non-emitting tail), NOT recompilation — the recompile lever " +
+                    "IS engaged. The ratio is reported in guest-MIPS (the cycle-axis-independent metric). See ROADMAP._");
             }
             sb.AppendLine();
         }

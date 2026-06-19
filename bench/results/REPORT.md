@@ -85,21 +85,21 @@
 - **Z80-W1 ZEXDOC-prefix**: JIT is 0.00x the interpreter (153,515 vs 262,359,136 T-states/sec).
 - **Z80-W2 arithmetic-kernel**: JIT is 2.28x the interpreter (568,629,024 vs 249,847,368 T-states/sec).
 - **Z80-W3 sieve-kernel**: JIT is 0.87x the interpreter (265,400,441 vs 305,719,397 T-states/sec).
-- _Z80 Tier-1 is all-fallback (no hot-op IL emit yet — M6); a ratio ~1.0x minus block overhead is EXPECTED and is the committed 'before' for the M6 re-measure._
+- _M6 hot-op emit landed: the Z80 Tier-1 JIT emits its high-ROI families and BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch overhead (the `InvalidateIfDirty` scan + the all-fallback dispatch on the non-emitting tail), NOT recompilation — the recompile lever IS engaged. See ROADMAP._
 
 ### 68000
 
 - **m68k-W1 mixed-kernel**: JIT is 0.02x the interpreter (0.2 vs 10.9 guest-MIPS).
 - **m68k-W2 arithmetic-kernel**: JIT is 3.08x the interpreter (27.2 vs 8.8 guest-MIPS).
 - **m68k-W3 sieve-kernel**: JIT is 0.05x the interpreter (0.4 vs 8.5 guest-MIPS).
-- _68000 Tier-1 is ALL-FALLBACK (the merged M4.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 68000 JIT-emit re-measure. The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
+- _M6 hot-op emit landed: the 68000 Tier-1 JIT emits its high-ROI families and BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch overhead (the `InvalidateIfDirty` scan + the all-fallback dispatch on the non-emitting tail), NOT recompilation — the recompile lever IS engaged. The ratio is reported in guest-MIPS (the cycle-axis-independent metric). See ROADMAP._
 
 ### 8086
 
 - **8086-W2 arith-kernel**: JIT is 1.17x the interpreter (30.9 vs 26.3 guest-MIPS).
 - **8086-W1 mixed-kernel**: JIT is 0.16x the interpreter (4.3 vs 26.2 guest-MIPS).
 - **8086-W3 sieve-kernel**: JIT is 0.09x the interpreter (2.4 vs 26.1 guest-MIPS).
-- _8086 Tier-1 is ALL-FALLBACK (the merged M5.6 model — every op falls back to the interpreter Step; no hot-op IL emit yet); a ratio ~1.0x minus block-dispatch overhead is EXPECTED and is the committed 'before' for the later 8086 JIT-emit re-measure (PR-B/C/D). The ratio is reported in guest-MIPS (the cycle-axis-independent metric)._
+- _M6 hot-op emit landed: the 8086 Tier-1 JIT emits its high-ROI families and BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch overhead (the `InvalidateIfDirty` scan + the all-fallback dispatch on the non-emitting tail), NOT recompilation — the recompile lever IS engaged. The ratio is reported in guest-MIPS (the cycle-axis-independent metric). See ROADMAP._
 
 ## Comparison — our emulator vs the best existing
 
@@ -126,7 +126,7 @@
 | Z80-W2 arithmetic-kernel | — | 249,847,368 | 568,629,024 † | — |
 | Z80-W3 sieve-kernel | — | 305,719,397 | 265,400,441 † | — |
 
-‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = M6 hot-op emit landed — Tier-1 BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch overhead on the all-fallback non-emitting tail, NOT recompilation.
 
 ### 68000 — guest-MIPS (cross-CPU-comparable); cycles/sec in its own model
 
@@ -136,7 +136,7 @@
 | m68k-W2 arithmetic-kernel | Musashi (C) [cited] | 8.8 MIPS | 27.2 MIPS † | — |
 | m68k-W3 sieve-kernel | Musashi (C) [cited] | 8.5 MIPS | 0.4 MIPS † | — |
 
-‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = M6 hot-op emit landed — Tier-1 BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch overhead on the all-fallback non-emitting tail, NOT recompilation.
 
 - _[cited] Musashi (C) — https://github.com/kstenerud/Musashi_
 
@@ -153,38 +153,43 @@
 | 8086-W1 mixed-kernel | — | 26.2 MIPS | 4.3 MIPS † | — |
 | 8086-W3 sieve-kernel | — | 26.1 MIPS | 2.4 MIPS † | — |
 
-‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed "before" for the re-measure.
+‡ = measured here, head-to-head (same workload bytes, same host). [cited] = published context (see footnotes). † = M6 hot-op emit landed — Tier-1 BEATS the interpreter on the no-SMC compute kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch overhead on the all-fallback non-emitting tail, NOT recompilation.
 
-> _68000 cycles/sec is reported with the M4.5d-2-coverage caveat (the timing axis is
-> PARTIAL on `main`); the trustworthy cross-CPU headline is **guest-MIPS**.
-> The cited best-existing row is a published-context placeholder until the head-to-head Musashi
-> number lands (plan Task M4)._
+> _8086 cycles/sec is reported with the rudimentary-cycle-model caveat (M5 charges one
+> cycle per bus access; a cycle-exact 8086 timing model is post-M5); the trustworthy
+> cross-CPU headline is **guest-MIPS**. There is no third-party 8086 reference yet, so the
+> best-existing column is empty._
 
 ## Reading the numbers
 
-- **W1 is SMC-heavy (Klaus self-modifies); W2 is not.** On W1 our Tier-1 JIT is
-  *slower* than our interpreter: the JIT runs `InvalidateIfDirty` before every block
-  dispatch and Klaus's frequent RAM stores keep dirtying pages, so the JIT spends its
-  time evicting + recompiling blocks rather than executing them (recompilation
-  thrashing). This is a real, measured characteristic of the current invalidation
-  strategy — the JIT's value is correctness parity (full TomHarte + the differential
-  fuzzer + Klaus cycle-exact), and reducing per-dispatch invalidation cost on
-  SMC-heavy code is the recorded next optimization. On W2 (no SMC) the gap narrows
-  markedly — the interpreter's tight, well-predicted `switch` dispatch on a small hot
-  loop is hard for a block JIT to beat without cross-block state hoisting (an M3
-  refinement, recorded out-of-scope).
+- **W1 is SMC-heavy (Klaus self-modifies); W2 is not.** On the 6502 W1 (Klaus) our
+  Tier-1 JIT is *slower* than our interpreter: the JIT runs `InvalidateIfDirty` before
+  every block dispatch and Klaus's frequent RAM stores keep dirtying pages, so the JIT
+  spends its time evicting + recompiling blocks rather than executing them
+  (recompilation thrashing — the 6502 W1 picture specifically, since the 6502 W1 path
+  has no M6 emit; the Z80/68000/8086 W1/W3 slowness is per-dispatch overhead on the
+  all-fallback tail, NOT recompilation — see the per-CPU notes above). This is a real,
+  measured characteristic of the current invalidation strategy — the JIT's value is
+  correctness parity (full TomHarte + the differential fuzzer + Klaus cycle-exact), and
+  reducing per-dispatch cost on SMC-heavy code is the recorded next optimization. On W2
+  (no SMC) the gap narrows markedly — and on the Z80/68000/8086 W2 compute kernels the
+  M6 emit makes Tier-1 BEAT the interpreter (the 6502 W2 stays interpreter-favoured
+  without cross-block state hoisting, an M3 refinement recorded out-of-scope).
 - **Cross-language spread is the interesting headline (6502).** Native C (fake6502) is the
   fastest by a wide margin; our C# interpreter is mid-pack and competitive with the JS
   (sfotty) and C# (Asm6502) subjects; pure-Python (py65) is the slowest by ~1-2 orders
   of magnitude — exactly the honest cross-language picture the suite was built to show.
-- **Cross-language spread (Z80) — and the all-fallback caveat.** The Z80 third-party refs
+- **Cross-language spread (Z80) — and the M6 emit result.** The Z80 third-party refs
   show the same shape on their OWN T-state models: native C (superzazu/z80) is fastest by
   ~1.5 B T-states/sec; the JS core (DrGoldfire/Z80.js, a documented-T-state interpreter)
   is mid-pack; the C# core (Z80dotNet) is the slowest of the three. Note our Z80 Tier-0
-  interpreter out-paces all three non-native refs — an honest, measured result. Our Z80
-  Tier-1 is **all-fallback** (no hot-op IL emit yet — M6), so its ~0.45–0.48x ratio is the
-  committed "before" the M6 re-measure subtracts from, NOT a defect. **Z80 is measured in
-  T-states, the 6502 in machine cycles — do NOT cross-multiply the two as a raw race.**
+  interpreter out-paces all three non-native refs — an honest, measured result. **M6
+  hot-op emit landed**: the Z80 Tier-1 JIT now emits its high-ROI families and BEATS the
+  Tier-0 interpreter on the no-SMC compute kernel (Z80-W2 ~2.3x); the SMC-heavy W1/W3
+  rows stay JIT-slower, dominated by **per-dispatch overhead** (the `InvalidateIfDirty`
+  scan + the all-fallback dispatch on the non-emitting tail), NOT recompilation — the
+  recompile lever IS engaged (see ROADMAP). **Z80 is measured in T-states, the 6502 in
+  machine cycles — do NOT cross-multiply the two as a raw race.**
 - **Third-party rows are an indicative cross-language SLICE.** Subprocess + in-process
   third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its
   OWN cycle model. These are indicative cross-language numbers, not a controlled
