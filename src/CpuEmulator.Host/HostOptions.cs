@@ -5,12 +5,16 @@ namespace CpuEmulator.Host;
 /// Program.Main is thin console glue over it. Addresses follow the monitor convention:
 /// hex with an optional <c>$</c> prefix.
 /// </summary>
-public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint? Pc, bool Terminal)
+public sealed record HostOptions(
+    bool Demo, string? LoadPath, uint LoadAt, uint? Pc, bool Terminal,
+    string Board, bool ListBoards)
 {
     public const string Usage =
-        "usage: CpuEmulator.Host [--demo | [--terminal] [--load <bin> [--at $addr] [--pc $addr]]]";
+        "usage: CpuEmulator.Host [--board <name|list>] [--demo | [--terminal] " +
+        "[--load <bin> [--at $addr] [--pc $addr]]]";
 
     private const uint DefaultLoadAt = 0x0200;
+    private const string DefaultBoard = "6502";
 
     /// <summary>
     /// Parse args. On success returns true with <paramref name="error"/> null; on failure
@@ -26,9 +30,11 @@ public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint?
         uint loadAt = DefaultLoadAt;
         uint? pc = null;
         bool sawAt = false, sawPc = false;
+        string board = DefaultBoard;
+        bool listBoards = false;
 
         options = new HostOptions(Demo: false, LoadPath: null, LoadAt: DefaultLoadAt, Pc: null,
-                                  Terminal: false);
+                                  Terminal: false, Board: DefaultBoard, ListBoards: false);
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -40,6 +46,15 @@ public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint?
 
                 case "--terminal":
                     terminal = true;
+                    break;
+
+                case "--board":
+                    if (++i >= args.Length)
+                        return Fail("--board requires a board name", out error);
+                    if (string.Equals(args[i], "list", System.StringComparison.OrdinalIgnoreCase))
+                        listBoards = true;
+                    else
+                        board = args[i];
                     break;
 
                 case "--load":
@@ -79,7 +94,7 @@ public sealed record HostOptions(bool Demo, string? LoadPath, uint LoadAt, uint?
         if (loadPath is null && sawPc)
             return Fail("--pc requires --load", out error);
 
-        options = new HostOptions(demo, loadPath, loadAt, pc, terminal);
+        options = new HostOptions(demo, loadPath, loadAt, pc, terminal, board, listBoards);
         error = null;
         return true;
     }

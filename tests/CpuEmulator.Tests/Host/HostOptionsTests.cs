@@ -152,3 +152,37 @@ public class HostOptionsTests
         Assert.Equal(0x0300u, options.Pc);
     }
 }
+
+public class HostOptionsBoardTests
+{
+    [Fact]
+    public void Board_defaults_to_6502_when_absent()
+    {
+        Assert.True(HostOptions.TryParse([], out HostOptions options, out string? error));
+        Assert.Null(error);
+        Assert.Equal("6502", options.Board);
+        Assert.False(options.ListBoards);
+    }
+
+    [Fact]
+    public void Board_flag_selects_a_named_board()
+    {
+        Assert.True(HostOptions.TryParse(["--board", "z80"], out HostOptions options, out _));
+        Assert.Equal("z80", options.Board);
+        Assert.False(options.ListBoards);
+    }
+
+    [Fact]
+    public void Board_list_sets_the_list_flag()
+    {
+        Assert.True(HostOptions.TryParse(["--board", "list"], out HostOptions options, out _));
+        Assert.True(options.ListBoards);
+    }
+
+    [Fact]
+    public void Board_requires_a_value()
+    {
+        Assert.False(HostOptions.TryParse(["--board"], out _, out string? error));
+        Assert.Contains("--board requires a board name", error);
+    }
+}
