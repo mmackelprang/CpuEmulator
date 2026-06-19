@@ -19,20 +19,66 @@ public sealed class DirtyMap(int pageCount)
 /// the M2-i carry-forward #1 invariant: a page's mark is cleared by the SAME step that evicts that
 /// page's blocks; a not-yet-cached page's later block reads post-write bytes (it compiles after the
 /// eviction).</summary>
-internal sealed class BlockCache<TCpu>(int pageCount) where TCpu : class
+internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCpu : class
 {
     private readonly int _pageCount = pageCount;
+    private readonly JitOptions _opts = opts;
     private readonly System.Collections.Generic.Dictionary<ushort, CompiledBlock<TCpu>> _blocks = new();
     private readonly System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<CompiledBlock<TCpu>>> _blocksByPage = new();
     public DirtyMap Dirty { get; } = new(pageCount);
+
+    // M6 PR-S: the SMC/recompile-cost lever state. _recompiles[pc] counts how many times the block at
+    // pc has been EVICTED-then-recompiled (a first compile is not a recompile). When it exceeds the
+    // cap, the PC is SMC-hot: _cooldown[pc] is set to the cooldown window and ShouldInterpret(pc)
+    // returns true until the window drains (the dispatcher runs inner.Step for it instead of compiling).
+    private readonly System.Collections.Generic.Dictionary<ushort, int> _recompiles = new();
+    private readonly System.Collections.Generic.Dictionary<ushort, int> _cooldown = new();
+    // M6 PR-S: committed instrumentation (the §3.4 "quantify first" asserted artifact). TotalRecompiles
+    // is every evict-then-recompile across the run; TotalEvictions is every block drop; SmcHotPcCount is
+    // how many distinct PCs ever tripped the cap. A test asserts the lever drops TotalRecompiles sharply
+    // on an SMC-thrash program (the recompile-count-drop gate).
+    public long TotalRecompiles { get; private set; }
+    public long TotalEvictions { get; private set; }
+    public int SmcHotPcCount => _everHotPcs.Count;
+    private readonly System.Collections.Generic.HashSet<ushort> _everHotPcs = new();
 
     /// <summary>The chain link/unlink table (M2-ii): successor PC -> the predecessors that chain
     /// into it, so invalidation can sever every inbound link (Ground truth A).</summary>
     public ChainTable<TCpu> Chains { get; } = new();
 
+    /// <summary>M6 PR-S: should the dispatcher run this PC through the interpreter (because it is
+    /// SMC-hot and in its cooldown window) instead of compiling it? False when the lever is disabled.</summary>
+    public bool ShouldInterpret(ushort pc) =>
+        !_opts.DisableSmcLever && _cooldown.TryGetValue(pc, out int n) && n > 0;
+
+    /// <summary>M6 PR-S: account one interpreter-dispatch of an SMC-hot PC — decrement its cooldown.
+    /// When the window drains the entry is removed, so the next dispatch retries the JIT (self-healing:
+    /// a PC that stopped being hot returns to full JIT speed; a still-hot PC re-trips the cap cheaply).</summary>
+    public void NoteInterpretedDispatch(ushort pc)
+    {
+        if (_cooldown.TryGetValue(pc, out int n))
+        {
+            if (n <= 1) { _cooldown.Remove(pc); _recompiles.Remove(pc); }   // window drained: re-arm the JIT
+            else _cooldown[pc] = n - 1;
+        }
+    }
+
     public CompiledBlock<TCpu> GetOrCompile(ushort pc, BlockCompiler<TCpu> compiler)
     {
         if (_blocks.TryGetValue(pc, out var hit)) return hit;
+        // A miss here is either a first compile or a recompile (the block was evicted). Count the
+        // recompile + arm the cooldown if this PC has now thrashed past the cap.
+        if (_recompiles.TryGetValue(pc, out int prior))
+        {
+            int now = prior + 1;
+            _recompiles[pc] = now;
+            TotalRecompiles++;
+            if (!_opts.DisableSmcLever && now > _opts.SmcRecompileCap)
+            {
+                _cooldown[pc] = _opts.SmcCooldownDispatches;   // SMC-hot: cool down via the interpreter
+                _everHotPcs.Add(pc);
+            }
+        }
         CompiledBlock<TCpu> block = compiler.Compile(pc);
         _blocks[pc] = block;
         foreach (int page in block.SpannedPages)
@@ -87,6 +133,10 @@ internal sealed class BlockCache<TCpu>(int pageCount) where TCpu : class
         _blocksByPage.Clear();
         Chains.Clear();
         Dirty.Clear();
+        _recompiles.Clear();    // M6 PR-S: reset the lever state on reuse
+        _cooldown.Clear();
+        // TotalRecompiles / TotalEvictions / _everHotPcs are run-lifetime instrumentation — NOT reset
+        // by FlushAll (a reuse boundary), so a per-worker reuse run still accumulates honest totals.
     }
 
     /// <summary>Remove a block from the PC map + the per-page index, and sever its chain links:
@@ -95,6 +145,12 @@ internal sealed class BlockCache<TCpu>(int pageCount) where TCpu : class
     /// Predecessors are NOT recursively evicted — they resolve-by-PC (Ground truth A/C).</summary>
     private void Evict(CompiledBlock<TCpu> block)
     {
+        TotalEvictions++;
+        // M6 PR-S: seed the recompile counter so the NEXT GetOrCompile of this PC is counted as a
+        // recompile (a first-ever compile of a never-evicted PC is not). Use a sentinel 0 entry; the
+        // recompile increment in GetOrCompile turns the first post-evict compile into count 1.
+        if (!_recompiles.ContainsKey(block.EntryPc))
+            _recompiles[block.EntryPc] = 0;
         _blocks.Remove(block.EntryPc);
         foreach (int page in block.SpannedPages)
             if (_blocksByPage.TryGetValue(page, out var list))

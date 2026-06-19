@@ -74,13 +74,19 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
         // references arg 7, so passing the memory bus is a harmless placeholder.
         _ioBus = ioBus ?? bus;
         _fastmem = new Fastmem(bus, opts);
-        _cache = new BlockCache<TCpu>(bus.PageCount);
+        _cache = new BlockCache<TCpu>(bus.PageCount, opts);
         _compiler = new BlockCompiler<TCpu>(_inner, target, _bus, _fastmem, opts);
         _pcName = ((IMonitorSupport)_inner).ProgramCounterName;
     }
 
     /// <summary>Test seam: how many blocks have been compiled (the cache-hit pin reads this).</summary>
     internal int CompileCount => _compiler.CompileCount;
+
+    /// <summary>M6 PR-S test seams: the committed recompile/eviction instrumentation + the SMC-hot-PC
+    /// count, read by the recompile-count-drop gate and the directional W1 check.</summary>
+    internal long TotalRecompiles => _cache.TotalRecompiles;
+    internal long TotalEvictions => _cache.TotalEvictions;
+    internal int SmcHotPcCount => _cache.SmcHotPcCount;
 
     /// <summary>Test seam: how many chain edges have been taken without a dispatcher round-trip
     /// (the chaining pins read this; 0 with <see cref="JitOptions.DisableChaining"/> or M2-i).</summary>
@@ -138,7 +144,22 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
                 continue;
             }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
-            CompiledBlock<TCpu> block = _cache.GetOrCompile((ushort)_inner.GetRegister(_pcName), _compiler);
+            var pc = (ushort)_inner.GetRegister(_pcName);
+            // M6 PR-S: the SMC/recompile-cost lever. A PC that thrashed past the recompile cap runs
+            // via the interpreter oracle (the same inner.Step the fallback valve uses) for its cooldown
+            // window — eliminating the per-dispatch Compile() that makes SMC-heavy W1 (Klaus) ~0.00×.
+            // This is a PERFORMANCE policy: inner.Step is byte-exact (the differential fuzzer proves it),
+            // so the lever never changes the result, only the tier. The interpreter's own WriteBus still
+            // dirty-marks any SMC store it makes, so SMC observation is unchanged (DECISION S-4).
+            if (_cache.ShouldInterpret(pc))
+            {
+                long before = _inner.CycleCount;
+                _inner.Step();                   // one instruction via the oracle
+                cycleBudget -= _inner.CycleCount - before;
+                _cache.NoteInterpretedDispatch(pc);
+                continue;                         // re-tops to InterruptPending/Halted/InvalidateIfDirty
+            }
+            CompiledBlock<TCpu> block = _cache.GetOrCompile(pc, _compiler);
             RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
             // Normal/Budget/Recompile all return here for a dispatcher round-trip: the loop tops
             // back to InvalidateIfDirty (flushing a self-modified block on a Recompile/dirty exit)

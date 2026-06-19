@@ -257,7 +257,7 @@ public class ChainingSmcSafetyTests
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
         var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
-        var cache = new BlockCache<Mos6502Cpu>(space.PageCount);
+        var cache = new BlockCache<Mos6502Cpu>(space.PageCount, opts);
 
         CompiledBlock<Mos6502Cpu> p = cache.GetOrCompile(0x0200, compiler);
         cache.ResolveChain(0x0300, p, compiler);              // P chains into S; S compiled + linked

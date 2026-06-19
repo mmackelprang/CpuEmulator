@@ -118,7 +118,7 @@ public class InvalidationTests
         var opts = new JitOptions();
         var fastmem = new Fastmem(space, opts);
         var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, fastmem, opts);
-        var cache = new BlockCache<Mos6502Cpu>(space.PageCount);
+        var cache = new BlockCache<Mos6502Cpu>(space.PageCount, new JitOptions());
 
         // 1) Cache a block on page $03.
         cache.GetOrCompile(0x0300, compiler);
@@ -149,7 +149,7 @@ public class InvalidationTests
         var inner = new Mos6502Cpu(space);
         var opts = new JitOptions();
         var compiler = new BlockCompiler<Mos6502Cpu>(inner, Mos6502Cpu.JitTarget, space, new Fastmem(space, opts), opts);
-        var cache = new BlockCache<Mos6502Cpu>(space.PageCount);
+        var cache = new BlockCache<Mos6502Cpu>(space.PageCount, new JitOptions());
 
         cache.Dirty.Mark(0x03);          // store to page $03 before any block is cached there
         cache.InvalidateIfDirty();        // no flush (page $03 owns no block); mark consumed harmlessly
