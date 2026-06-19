@@ -778,4 +778,357 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And); il.Emit(OpCodes.Or);
         EmitStoreF(ctx);                                  // Conv_U1 + Stfld _z80F (PR-2 helper)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────
+    // M6 PR-3: the Z80 branch / call / stack emit arms. The control-flow family (JP/JR/CALL/RET/DJNZ/RST)
+    // is the Z80 analogue of the 6502 EmitJump/EmitJsr/EmitRts/EmitBranch arms (BlockCompiler.Flow.cs):
+    // a STATIC successor chains (EmitChainOrExit, compile-time-constant target read from the bus); a DYNAMIC
+    // (popped) successor exits (EmitNormalExit). The stack family (PUSH/POP) rides JitOpClass.Register and
+    // emits inline (block-continuing). Each arm mirrors the generated oracle (CpuEmitter.cs:2438-2778)
+    // one-for-one: operand reads via the fastmem split, the WZ side-effect (DECISION K), stack push/pop via
+    // EmitStoreByte/LoadByteFromBus + SP, the Z80 T-state model with the taken/not-taken split (DECISION J),
+    // Q = 0 (no flow/stack op writes flags).
+    // ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>M6 PR-3: PUSH rr / POP rr (Z80Stack, JitOpClass.Register — block-continuing). PUSH: SP−=1, write
+    /// (byte)(pair>>8); SP−=1, write (byte)pair. POP: lo=ReadBus(SP), SP+=1; hi=ReadBus(SP), SP+=1; pair=lo|hi&lt;&lt;8
+    /// (POP AF writes A=hi, F=lo via the AF pair-view). NO flags, NO WZ; Q=0. PUSH 11 T = fetch1 + 2 writes + 8;
+    /// POP 10 T = fetch1 + 2 reads + 7. The pair is op.RegA.</summary>
+    private void EmitZ80Stack(EmitContext ctx, OpcodeDescriptor d)
+    {
+        ILGenerator il = ctx.Il;
+        JitOp op = d.Ops[0];
+        bool push = op.Kind == "Push16";
+
+        if (push)
+        {
+            // SP -= 1; WriteBus(SP, (byte)(pair >> 8))
+            EmitDecrementSp(ctx);
+            EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4);          // address
+            EmitLoadReg16(ctx, op.RegA); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shr_Un); il.Emit(OpCodes.Conv_U1);
+            EmitStoreByte(ctx);                                          // charges 1; marks dirty
+            // SP -= 1; WriteBus(SP, (byte)pair)
+            EmitDecrementSp(ctx);
+            EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4);
+            EmitLoadReg16(ctx, op.RegA); il.Emit(OpCodes.Conv_U1);
+            EmitStoreByte(ctx);                                          // charges 1
+            EmitZ80ClearQ(ctx);
+            EmitChargeCycles(ctx, 8);                                    // 11 T = fetch1 + 2 writes + 8
+        }
+        else // POP
+        {
+            // lo = ReadBus(SP) → LoLocal; SP += 1
+            EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal);
+            EmitIncrementSp(ctx);
+            // hi = ReadBus(SP); SP += 1
+            EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx);   // hi (int) on stack
+            il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+            il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or);                   // hi<<8 | lo
+            EmitStoreReg16(ctx, op.RegA);                                               // pair = value (AF → A=hi,F=lo)
+            EmitIncrementSp(ctx);
+            EmitZ80ClearQ(ctx);
+            EmitChargeCycles(ctx, 7);                                    // 10 T = fetch1 + 2 reads + 7
+        }
+    }
+
+    /// <summary>M6 PR-3: SP = (ushort)(SP − 1). SP is a real ushort field (the PR-0 _regWideFields path).</summary>
+    private void EmitDecrementSp(EmitContext ctx)
+    {
+        EmitLoadReg16(ctx, "SP"); ctx.Il.Emit(OpCodes.Ldc_I4_M1); ctx.Il.Emit(OpCodes.Add);
+        ctx.Il.Emit(OpCodes.Ldc_I4, 0xFFFF); ctx.Il.Emit(OpCodes.And);
+        EmitStoreReg16(ctx, "SP");
+    }
+
+    /// <summary>M6 PR-3: SP = (ushort)(SP + 1). SP is a real ushort field (the PR-0 _regWideFields path).</summary>
+    private void EmitIncrementSp(EmitContext ctx)
+    {
+        EmitLoadReg16(ctx, "SP"); ctx.Il.Emit(OpCodes.Ldc_I4_1); ctx.Il.Emit(OpCodes.Add);
+        ctx.Il.Emit(OpCodes.Ldc_I4, 0xFFFF); ctx.Il.Emit(OpCodes.And);
+        EmitStoreReg16(ctx, "SP");
+    }
+
+    /// <summary>M6 PR-3: the Z80 control-flow emit arm (JP/JR/CALL/RET/DJNZ/RST), the Z80 analogue of the 6502
+    /// EmitJump/EmitJsr/EmitRts/EmitBranch arms. Each mirrors the generated oracle (CpuEmitter.cs:2650-2778)
+    /// one-for-one: operand read via the fastmem split, the WZ side-effect (DECISION K), stack push/pop via
+    /// EmitStoreByte/LoadByteFromBus + SP, PC = target, the Z80 T-state model with the taken/not-taken split
+    /// (DECISION J), Q = 0. Block-ending: a STATIC target chains (EmitChainOrExit); a DYNAMIC (popped) target
+    /// exits (EmitNormalExit). `pc` is the instruction's PC (for the compile-time static-target read); `length`
+    /// is the walk's computed length (for the conditional not-taken fall-through).</summary>
+    private void EmitZ80Flow(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length)
+    {
+        JitOp op = d.Ops[0];
+        switch (op.Kind)
+        {
+            case "JumpAbs":   EmitZ80JpAbs(ctx, pc); return;
+            case "RelJump":   EmitZ80Jr(ctx, pc, length); return;
+            case "CallAbs":   EmitZ80Call(ctx, pc); return;
+            case "Rst":       EmitZ80Rst(ctx, d); return;
+            case "Ret":       EmitZ80Ret(ctx); return;
+            // conditional forms
+            case "JumpIf":    EmitZ80JpCc(ctx, pc, op); return;
+            case "RelJumpIf": EmitZ80JrCc(ctx, pc, length, op); return;
+            case "Djnz":      EmitZ80Djnz(ctx, pc, length, op); return;
+            case "CallIf":    EmitZ80CallCc(ctx, pc, length, op); return;
+            case "RetCc":     EmitZ80RetCc(ctx, pc, length, op); return;
+            default:
+                throw new EmulationException(
+                    $"EmitZ80Flow: unhandled flow kind '{op.Kind}' (opcode=0x{d.Opcode:X2}). The whitelist "
+                  + "(IsEmittableZ80Family) admitted a kind with no emit branch — keep it fallback until armed.");
+        }
+    }
+
+    // JP nn — read jl,jh; PC = nn; WZ = nn; chain to the static target. 10 T = fetch1 + 2 reads + residual 7.
+    private void EmitZ80JpAbs(EmitContext ctx, ushort pc)
+    {
+        ILGenerator il = ctx.Il;
+        ushort target = (ushort)(_bus.Read8((ushort)(pc + 1)) | (_bus.Read8((ushort)(pc + 2)) << 8));
+        // jl = ReadBus(PC); PC++; jh = ReadBus(PC); PC = jl | jh<<8
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal);  // jl; +1 cyc
+        EmitIncrementPC(ctx, 1);
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx);                                       // jh; +1 cyc
+        il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl); il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stloc, ctx.HiLocal);                          // stash the new PC (int) for PC + WZ
+        // PC = nn
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal); EmitZ80SetWZ(ctx);        // WZ = nn
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 7);                                      // 10 T = fetch1 + 2 reads + 7
+        EmitChainOrExit(ctx, target);                                 // STATIC target — chainable
+    }
+
+    // JR d — read d (signed); PC = (PC after operand) + d; WZ = dest; chain. 12 T = fetch1 + 1 read + residual 10.
+    private void EmitZ80Jr(EmitContext ctx, ushort pc, int length)
+    {
+        ILGenerator il = ctx.Il;
+        sbyte off = (sbyte)_bus.Read8((ushort)(pc + 1));
+        ushort target = (ushort)((pc + length) + off);                // length == 2 (opcode + displacement)
+        // d = (sbyte)ReadBus(PC); PC++   (then PC += d)
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); // d; +1 cyc
+        il.Emit(OpCodes.Conv_I1); il.Emit(OpCodes.Stloc, ctx.LoLocal);   // (sbyte)d → LoLocal
+        EmitIncrementPC(ctx, 1);
+        // PC = (ushort)(PC + d)
+        il.Emit(OpCodes.Ldarg_0); EmitLoadPC(ctx); il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+        EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                           // WZ = dest (the new PC)
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 10);                                    // 12 T = fetch1 + 1 read + 10
+        EmitChainOrExit(ctx, target);                                 // STATIC target — chainable
+    }
+
+    // CALL nn — read nn; push (PC after operand); PC = nn; WZ = nn; chain to the entry. 17 T.
+    private void EmitZ80Call(EmitContext ctx, ushort pc)
+    {
+        ILGenerator il = ctx.Il;
+        ushort target = (ushort)(_bus.Read8((ushort)(pc + 1)) | (_bus.Read8((ushort)(pc + 2)) << 8));
+        // cl = ReadBus(PC); PC++; ch = ReadBus(PC); PC++   (PC now = the RETURN address)
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal);  // cl; +1
+        EmitIncrementPC(ctx, 1);
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.HiLocal);  // ch; +1
+        EmitIncrementPC(ctx, 1);
+        EmitZ80PushPc(ctx);                                           // SP-=1,write PCH; SP-=1,write PCL (2 writes)
+        // PC = cl | ch<<8
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or); il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stfld, _fpc);
+        EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                           // WZ = nn (the new PC)
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 12);                                    // 17 T = fetch1 + 2 reads + 2 writes + 12
+        EmitChainOrExit(ctx, target);                                // STATIC call entry — chainable
+    }
+
+    // RST n — push PC (already past the 1-byte opcode); PC = vec; WZ = vec; chain. 11 T = fetch1 + 2 writes + 8.
+    private void EmitZ80Rst(EmitContext ctx, OpcodeDescriptor d)
+    {
+        ILGenerator il = ctx.Il;
+        int vec = d.Opcode & 0x38;                                    // 0x00/0x08/.../0x38 — compile-time constant
+        EmitZ80PushPc(ctx);                                           // SP-=1,write PCH; SP-=1,write PCL
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldc_I4, vec); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+        il.Emit(OpCodes.Ldc_I4, vec); EmitZ80SetWZ(ctx);             // WZ = vec
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 8);                                     // 11 T = fetch1 + 2 writes + 8
+        EmitChainOrExit(ctx, (ushort)vec);                           // STATIC vector — chainable
+    }
+
+    // RET — pop PC; WZ = popped; DYNAMIC target → exit. 10 T = fetch1 + 2 reads + residual 7.
+    private void EmitZ80Ret(EmitContext ctx)
+    {
+        EmitZ80PopPc(ctx);                                           // PC = pop (2 reads); leaves PC set
+        EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                          // WZ = popped PC
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 7);                                    // 10 T = fetch1 + 2 reads + 7
+        EmitNormalExit(ctx);                                         // DYNAMIC (popped) target — NOT chainable
+    }
+
+    /// <summary>M6 PR-3: SP-=1, WriteBus(SP,(byte)(PC>>8)); SP-=1, WriteBus(SP,(byte)PC). Two writes (each +1 cyc).
+    /// Mirrors the oracle's CALL/RST push order (PCH then PCL). PC must already be the return address.</summary>
+    private void EmitZ80PushPc(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        EmitDecrementSp(ctx);
+        EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4);
+        EmitLoadPC(ctx); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shr_Un); il.Emit(OpCodes.Conv_U1);
+        EmitStoreByte(ctx);                                          // write PCH; +1 cyc; marks dirty
+        EmitDecrementSp(ctx);
+        EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4);
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U1);
+        EmitStoreByte(ctx);                                          // write PCL; +1 cyc
+    }
+
+    /// <summary>M6 PR-3: lo=ReadBus(SP),SP+=1; hi=ReadBus(SP),SP+=1; PC = lo|hi&lt;&lt;8. Two reads (each +1 cyc).</summary>
+    private void EmitZ80PopPc(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal);
+        EmitIncrementSp(ctx);
+        EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx);
+        il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl); il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stloc, ctx.HiLocal);
+        EmitIncrementSp(ctx);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Stfld, _fpc);   // PC = popped
+    }
+
+    /// <summary>M6 PR-3: push 1 (int) if the Z80 condition code holds, else 0. cc = (((F >> bit) &amp; 1) == sense).
+    /// bit = op.FlagBit (the flag's bit position), sense = op.BoolArg (the expected bit value). Mirrors the
+    /// oracle's CondExpr() (CpuEmitter.cs:2643-2648).</summary>
+    private void EmitZ80Cond(EmitContext ctx, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _z80F!);
+        il.Emit(OpCodes.Ldc_I4, (int)op.FlagBit); il.Emit(OpCodes.Shr_Un);
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4, op.BoolArg ? 1 : 0);
+        il.Emit(OpCodes.Ceq);                                        // == sense → 1/0
+    }
+
+    // JP cc,nn — WZ = nn UNCONDITIONALLY (DECISION K); if taken PC = nn; always 10 T. Two static edges
+    // (taken target + fall-through), both chainable.
+    private void EmitZ80JpCc(EmitContext ctx, ushort pc, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        ushort target = (ushort)(_bus.Read8((ushort)(pc + 1)) | (_bus.Read8((ushort)(pc + 2)) << 8));
+        ushort fallThrough = (ushort)(pc + 3);                       // JP cc is 3 bytes
+        // jl,jh read; WZ = nn UNCONDITIONALLY; both stashed for the taken PC set.
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal); // jl;+1
+        EmitIncrementPC(ctx, 1);
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.HiLocal); // jh;+1
+        EmitIncrementPC(ctx, 1);
+        // WZ = jl | jh<<8  (unconditional)
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or); EmitZ80SetWZ(ctx);
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 7);                                    // 10 T = fetch1 + 2 reads + 7 (always 10)
+        // if (cc) { PC = nn; chain target } else { PC already at fall-through; chain fall-through }
+        Label notTaken = il.DefineLabel();
+        EmitZ80Cond(ctx, op); il.Emit(OpCodes.Brfalse, notTaken);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or); il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stfld, _fpc);                               // PC = nn
+        EmitChainOrExit(ctx, target);
+        il.MarkLabel(notTaken);
+        EmitChainOrExit(ctx, fallThrough);                          // PC already at pc+3 (both reads advanced it)
+    }
+
+    // JR cc,d — WZ = dest ONLY when taken (DECISION K); +5 taken penalty; both edges static.
+    private void EmitZ80JrCc(EmitContext ctx, ushort pc, int length, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        sbyte off = (sbyte)_bus.Read8((ushort)(pc + 1));
+        ushort target = (ushort)((pc + length) + off);              // length == 2
+        ushort fallThrough = (ushort)(pc + length);
+        // d read; PC++   (PC now at fall-through)
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Conv_I1); il.Emit(OpCodes.Stloc, ctx.LoLocal); // (sbyte)d; +1
+        EmitIncrementPC(ctx, 1);
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 5);                                   // 7 T not-taken = fetch1 + 1 read + 5
+        Label notTaken = il.DefineLabel();
+        EmitZ80Cond(ctx, op); il.Emit(OpCodes.Brfalse, notTaken);
+        // taken: PC += d; WZ = PC; +5; chain target
+        il.Emit(OpCodes.Ldarg_0); EmitLoadPC(ctx); il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+        EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                        // WZ = dest (taken only)
+        EmitChargeCycles(ctx, 5);                                   // taken penalty 7→12
+        EmitChainOrExit(ctx, target);
+        il.MarkLabel(notTaken);
+        EmitChainOrExit(ctx, fallThrough);                         // PC already at pc+2
+    }
+
+    // DJNZ d — B = (byte)(B-1); if (B != 0) taken. WZ = dest ONLY when taken; +5 taken penalty.
+    private void EmitZ80Djnz(EmitContext ctx, ushort pc, int length, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        sbyte off = (sbyte)_bus.Read8((ushort)(pc + 1));
+        ushort target = (ushort)((pc + length) + off);
+        ushort fallThrough = (ushort)(pc + length);
+        // B = (byte)(B - 1)   (op.RegA == "B")
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(op.RegA));
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Sub); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField(op.RegA));
+        // d read; PC++
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Conv_I1); il.Emit(OpCodes.Stloc, ctx.LoLocal); // +1
+        EmitIncrementPC(ctx, 1);
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 6);                                   // 8 T not-taken = fetch1 + 1 read + 6
+        Label notTaken = il.DefineLabel();
+        // if (B != 0) taken
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField(op.RegA)); il.Emit(OpCodes.Brfalse, notTaken);
+        il.Emit(OpCodes.Ldarg_0); EmitLoadPC(ctx); il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+        EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                        // WZ = dest (taken only)
+        EmitChargeCycles(ctx, 5);                                   // taken penalty 8→13
+        EmitChainOrExit(ctx, target);
+        il.MarkLabel(notTaken);
+        EmitChainOrExit(ctx, fallThrough);
+    }
+
+    // CALL cc,nn — WZ = nn UNCONDITIONALLY; the push is INSIDE the taken branch; the taken penalty is +5 PLUS
+    // the 2 inline push writes (DECISION J). 10 T not-taken; 17 T taken.
+    private void EmitZ80CallCc(EmitContext ctx, ushort pc, int length, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        ushort target = (ushort)(_bus.Read8((ushort)(pc + 1)) | (_bus.Read8((ushort)(pc + 2)) << 8));
+        ushort fallThrough = (ushort)(pc + 3);
+        // cl,ch read; PC past operand; WZ = nn UNCONDITIONALLY.
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.LoLocal); // cl;+1
+        EmitIncrementPC(ctx, 1);
+        EmitLoadPC(ctx); il.Emit(OpCodes.Conv_U4); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.HiLocal); // ch;+1
+        EmitIncrementPC(ctx, 1);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or); EmitZ80SetWZ(ctx);   // WZ = nn (unconditional)
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 7);                                   // 10 T not-taken = fetch1 + 2 reads + 7
+        Label notTaken = il.DefineLabel();
+        EmitZ80Cond(ctx, op); il.Emit(OpCodes.Brfalse, notTaken);
+        // taken: push PC (return addr, already past operand) — 2 writes +1 each; PC = nn; +5
+        EmitZ80PushPc(ctx);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, ctx.HiLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Or); il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Stfld, _fpc);
+        EmitChargeCycles(ctx, 5);                                   // taken penalty (10→17 minus the 2 writes charged inline)
+        EmitChainOrExit(ctx, target);                              // STATIC call entry
+        il.MarkLabel(notTaken);
+        EmitChainOrExit(ctx, fallThrough);                         // PC at pc+3
+    }
+
+    // RET cc — WZ = popped ONLY when taken; the pop is INSIDE the taken branch; the taken penalty is +4 PLUS
+    // the 2 inline pop reads (DECISION J). 5 T not-taken; 11 T taken. Not-taken chains (pc+1 static); taken exits.
+    private void EmitZ80RetCc(EmitContext ctx, ushort pc, int length, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        ushort fallThrough = (ushort)(pc + length);                // RET cc is 1 byte; fall-through = pc+1
+        EmitZ80ClearQ(ctx);
+        EmitChargeCycles(ctx, 4);                                   // 5 T not-taken = fetch1 + 0 bus + 4
+        Label notTaken = il.DefineLabel();
+        EmitZ80Cond(ctx, op); il.Emit(OpCodes.Brfalse, notTaken);
+        // taken: pop PC — 2 reads +1 each; WZ = popped; +4; DYNAMIC target → exit
+        EmitZ80PopPc(ctx);
+        EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                        // WZ = popped (taken only)
+        EmitChargeCycles(ctx, 4);                                   // taken penalty (5→11 minus the 2 reads charged inline)
+        EmitNormalExit(ctx);                                       // DYNAMIC popped target — NOT chainable
+        il.MarkLabel(notTaken);
+        EmitChainOrExit(ctx, fallThrough);                         // not-taken fall-through IS static — chainable
+    }
 }

@@ -220,8 +220,28 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         if (IsZ80AluKind(d))
             return d.Mode == JitMode.Immediate ? 1 : 0;
 
+        // M6 PR-3: the control-flow family's PC-operand footprint (beyond the 1-byte opcode). An EMITTED flow
+        // row ends the block, but its `length` is still threaded into the arm for the conditional not-taken
+        // fall-through PC (pc + length), so the footprint must be exact. JP/CALL (absolute, 16-bit target) read
+        // 2; JR/DJNZ (relative, 1-byte displacement) read 1; RET/RST read 0. (PUSH/POP ride the Register class
+        // and read 0 PC operands — they fall through to the default below.)
+        if (IsZ80FlowKind(d))
+            return d.Ops[0].Kind switch
+            {
+                "JumpAbs" or "JumpIf" or "CallAbs" or "CallIf" => 2,
+                "RelJump" or "RelJumpIf" or "Djnz" => 1,
+                _ => 0,   // Ret / RetCc / Rst
+            };
+
         return 0;
     }
+
+    /// <summary>M6 PR-3: is this descriptor an emittable Z80 control-flow row (the EmitZ80Flow family —
+    /// NOT the stack kinds)? PUSH/POP (Push16/Pop16) ride JitOpClass.Register and read 0 PC operands, so they
+    /// are deliberately excluded here (Z80EmitOperandBytes's default-0 covers them).</summary>
+    private static bool IsZ80FlowKind(OpcodeDescriptor d) =>
+        d.Ops.Length > 0 && d.Ops[0].Kind is "JumpAbs" or "JumpIf" or "CallAbs" or "CallIf"
+            or "Ret" or "RetCc" or "RelJump" or "RelJumpIf" or "Djnz" or "Rst";
 
     /// <summary>M6 PR-2b: is this an EMITTED Z80 PREFIXED row (a 2-byte opcode key: prefix + opcode)? The
     /// ONLY emitted prefixed family in PR-2b is the ED ADC/SBC HL,rr lane (op-kind EdAdcSbc16); keying on the
@@ -374,8 +394,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // M6 PR-1: the Z80 LD store-to-memory forms LD (HL),n (StoreImm8) and LD (nn),HL (Store16) ride
         // the Register JitOpClass (not Store), so the class check alone misses them — include them so the
         // intra-block SMC guard arms for their writes (LD (HL),r / LD (nn),A already ride Store).
+        // M6 PR-3: PUSH rr (Push16) rides the Register class but writes RAM (two stack pushes), so include it
+        // here to ARM the intra-block SMC guard for a PUSH onto a code page. CALL/RST also push, but they END
+        // the block and self-terminate via EmitChainOrExit, whose dirty.Any gate is the coarse SMC backstop for
+        // their stack writes — so NO mayWriteRam entry for the flow kinds (only Push16, the block-continuing one).
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
-            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16");
+            || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16");
         if (mayWriteRam)
         {
             ctx.Il.Emit(OpCodes.Ldc_I4_M1);
@@ -392,6 +416,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case JitOpClass.Jump: EmitJump(ctx, pc, d); break;
             case JitOpClass.Jsr: EmitJsr(ctx, pc, d); break;
             case JitOpClass.Rts: EmitRts(ctx, d); break;
+            case JitOpClass.Z80Flow: EmitZ80Flow(ctx, pc, d, length); break;   // M6 PR-3 (DECISION H2)
             case JitOpClass.Port: EmitPort(ctx, d); break;   // M3.2: the Io-bus callout (never fastmem)
             default:
                 throw new EmulationException(

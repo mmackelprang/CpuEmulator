@@ -4290,6 +4290,17 @@ internal static class CpuEmitter
                   or "Inc16" or "Dec16")                        // PR-2b: the flagless 16-bit pair INC/DEC
             return true;
 
+        // ── M6 PR-3: the control-flow + stack families (base-plane) ──
+        // Flow: JP/JR/CALL/RET/DJNZ/RST (NOT JumpIndirect = JP (HL), 0xE9 — dynamic target, stays fallback).
+        // Stack: PUSH/POP rr (base-plane BC/DE/HL/AF; the DD/FD IX/IY forms stay fallback via the base gate).
+        // The flow kinds dispatch to EmitZ80Flow (DECISION H2); the stack kinds ride JitOpClass.Register and
+        // route to EmitZ80Stack (block-continuing). Each has a matching emit branch — the gate + the arms stay
+        // in lockstep (the arms' defaults throw if the gate ever admits a kind with no branch).
+        if (kind is "JumpAbs" or "JumpIf" or "CallAbs" or "CallIf" or "Ret" or "RetCc"
+                  or "RelJump" or "RelJumpIf" or "Djnz" or "Rst"
+                  or "Push16" or "Pop16")
+            return true;
+
         return false;
     }
 
@@ -4354,7 +4365,11 @@ internal static class CpuEmitter
                 _ => "Flow",          // Brk/Rti
             },
             // M3.4a: Z80 classes ride the Flow/Undefined-style fallback — they never emit IL.
-            InstructionClass.Z80Flow => "Flow",
+            // M6 PR-3 (DECISION H2): a WHITELISTED Z80Flow row dispatches to the dedicated EmitZ80Flow arm
+            // (the emittable JitOpClass.Z80Flow); a non-whitelisted Z80Flow row (JP (HL), still-fallback
+            // forms) keeps "Flow" (the fallback class). EndsBlock stays true either way (a flow op ends the
+            // straight-line run — see the endsBlock derivation below).
+            InstructionClass.Z80Flow => IsEmittableZ80Family(insn) ? "Z80Flow" : "Flow",
             InstructionClass.Z80Alu or InstructionClass.Z80Ld or InstructionClass.Z80Stack
                 or InstructionClass.Z80Exchange or InstructionClass.Z80Misc
                 or InstructionClass.Z80Rot or InstructionClass.Z80Bit
@@ -4365,7 +4380,7 @@ internal static class CpuEmitter
                 $"ClassifyForJit has no mapping for class '{cls}' (opcode 0x{insn.Opcode:X2})"),
         };
 
-        bool endsBlock = jitClass is "Branch" or "Jump" or "Jsr" or "Rts" or "Flow" || fallback;
+        bool endsBlock = jitClass is "Branch" or "Jump" or "Jsr" or "Rts" or "Flow" or "Z80Flow" || fallback;
         return (jitClass, endsBlock, fallback);
     }
 
