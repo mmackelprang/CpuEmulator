@@ -436,14 +436,17 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         }
     }
 
-    // M6 PR-2: is this descriptor a Z80 8-bit ALU / INC-DEC / 16-bit-ADD row that EmitZ80Alu handles? Keyed on
-    // the op-kind (mnemonic alone is ambiguous — ADD is also ADD HL,rr and the no-flag Inc16; the kind pins it).
+    // M6 PR-2/PR-2b: is this descriptor a Z80 ALU-family row that EmitZ80Alu handles? Keyed on the op-kind
+    // (mnemonic alone is ambiguous — ADD is also ADD HL,rr and the no-flag Inc16; the kind pins it). PR-2b adds
+    // the no-flag 16-bit Inc16/Dec16 and the ED-prefixed EdAdcSbc16 (ADC/SBC HL,rr).
     private static bool IsZ80AluKind(OpcodeDescriptor d)
     {
         if (d.Ops.Length == 0) return false;
         return d.Ops[0].Kind is "Add8" or "Adc8" or "Sub8" or "Sbc8" or "And8" or "Or8" or "Xor8" or "Cp8"
                               or "IncReg" or "DecReg" or "IncMem8" or "DecMem8"
-                              or "Add16";
+                              or "Add16"
+                              or "Inc16" or "Dec16"          // M6 PR-2b: no-flag 16-bit INC/DEC
+                              or "EdAdcSbc16";               // M6 PR-2b: ED ADC/SBC HL,rr (prefixed)
     }
 
     // ── Register class (Implied) — includes transfers, inc/dec, set/clear flag, stack ops, NOP ─

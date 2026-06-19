@@ -477,11 +477,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         EmitStoreF(ctx);
     }
 
-    /// <summary>M6 PR-2: the Z80 8-bit ALU + INC/DEC + 16-bit-ADD emit arm. Mirrors EmitZ80Alu8 / EmitZ80IncDec8 /
-    /// EmitZ80Add16 (the generated oracle) one-for-one: result + the full SZ5H3PNC F word inline, Q = F (flag
-    /// writers), WZ = HL+1 (ADD HL,rr), the Z80 T-state residual to d.BaseCycles. Operands via the fastmem split
-    /// (LoadByteFromBus) or RegField. NO Inc16/Dec16 (no-flag, DECISION E) and NO ED ADC/SBC HL,rr (DECISION
-    /// E).</summary>
+    /// <summary>M6 PR-2/PR-2b: the Z80 ALU emit arm. Mirrors EmitZ80Alu8 / EmitZ80IncDec8 / EmitZ80Add16 /
+    /// EmitZ80IncDec16 / EmitZ80EdAdcSbc16 (the generated oracle) one-for-one: result + the full SZ5H3PNC F word
+    /// inline, Q = F (flag writers; Q = 0 for the flagless Inc16/Dec16), WZ = HL+1 (ADD HL,rr and ED ADC/SBC HL,rr),
+    /// the Z80 T-state residual to d.BaseCycles. Operands via the fastmem split (LoadByteFromBus) or RegField.
+    /// PR-2b adds the no-flag 16-bit Inc16/Dec16 and the ED-prefixed ADC/SBC HL,rr (the PR-2 DECISION E
+    /// deferrals).</summary>
     private void EmitZ80Alu(EmitContext ctx, OpcodeDescriptor d)
     {
         JitOp op = d.Ops[0];
@@ -497,6 +498,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 break;
             case "Add16":
                 EmitZ80Add16(ctx, d, op);
+                break;
+            case "Inc16": case "Dec16":
+                EmitZ80IncDec16(ctx, d, op);
+                break;
+            case "EdAdcSbc16":
+                EmitZ80EdAdcSbc16(ctx, d, op);
                 break;
             default:
                 throw new EmulationException(
@@ -670,5 +677,105 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         EmitStoreReg16(ctx, "HL");
         EmitZ80SetQFromF(ctx);
         EmitChargeCycles(ctx, 10);                                          // 11 T = fetch1 + 10
+    }
+
+    /// <summary>M6 PR-2b: INC rr / DEC rr (16-bit, base-plane Z80Alu). Flagless — NO F write, Q = 0 (the Z80
+    /// quirk: 16-bit INC/DEC touch no flags). Mirrors EmitZ80IncDec16 (the oracle): target = (ushort)(target ± 1).
+    /// op.RegA is the pair-view ("BC"/"DE"/"HL"/"SP"; "SP" is a real ushort field — both round-trip through the
+    /// PR-0 wide-register helper). 6 T = fetch 1 + residual 5. NO WZ change (the oracle does not touch WZ).</summary>
+    private void EmitZ80IncDec16(EmitContext ctx, OpcodeDescriptor d, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        bool increment = op.Kind == "Inc16";
+        // pair = (ushort)(pair ± 1)
+        EmitLoadReg16(ctx, op.RegA);                  // value (int) on stack
+        il.Emit(increment ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_M1);
+        il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Ldc_I4, 0xFFFF);
+        il.Emit(OpCodes.And);                         // (ushort) wrap
+        EmitStoreReg16(ctx, op.RegA);                 // pair = result (PR-0 helper)
+        EmitZ80ClearQ(ctx);                           // Q = 0 (no flag write — PR-1 helper)
+        EmitChargeCycles(ctx, 5);                     // 6 T = fetch 1 + 5
+    }
+
+    /// <summary>M6 PR-2b: ED ADC HL,rr / SBC HL,rr (prefixed, 15 T). Mirrors EmitZ80EdAdcSbc16 (the oracle)
+    /// one-for-one: WZ = HL+1 (pre-op), the 16-bit add/sub with carry-in, the full SZ5H3PNC F word RECOMPUTED on
+    /// the 16-bit result (S=bit15, Z=full16-zero, Y/X from the high byte, H from bit-11 carry, P/V 16-bit
+    /// overflow, N per op, C from bit 16), HL = res16, Q = F. The pair is op.RegB; the sense is op.BoolArg
+    /// (true = SBC). The 2-byte ED fetch is charged by EmitInstruction (DECISION G); this arm charges the
+    /// residual 13 (15 − 2 fetches). NO bus access.</summary>
+    private void EmitZ80EdAdcSbc16(EmitContext ctx, OpcodeDescriptor d, JitOp op)
+    {
+        ILGenerator il = ctx.Il;
+        bool subtract = op.BoolArg;                   // true = SBC
+
+        // WZ = (ushort)(HL + 1)  — MEMPTR, set BEFORE the add/sub (oracle pre-op HL).
+        EmitLoadReg16(ctx, "HL"); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Add);
+        EmitZ80SetWZ(ctx);                            // PR-1 helper
+
+        // hl → NibLocal (int), rr → DataLocal (int), cin (int) staged into the sum.
+        EmitLoadReg16(ctx, "HL");      il.Emit(OpCodes.Stloc, ctx.NibLocal);
+        EmitLoadReg16(ctx, op.RegB);   il.Emit(OpCodes.Stloc, ctx.DataLocal);
+
+        // full = hl ± rr ± cin → SumLocal (SIGNED int)
+        il.Emit(OpCodes.Ldloc, ctx.NibLocal); il.Emit(OpCodes.Ldloc, ctx.DataLocal);
+        il.Emit(subtract ? OpCodes.Sub : OpCodes.Add);
+        EmitZ80CarryIn(ctx, carryIn: true, subtract);     // ± (F & 0x01) — PR-2 helper
+        il.Emit(OpCodes.Stloc, ctx.SumLocal);
+        // half = (hl & 0x0FFF) ± (rr & 0x0FFF) ± cin → TmpInt (SIGNED int)
+        il.Emit(OpCodes.Ldloc, ctx.NibLocal); il.Emit(OpCodes.Ldc_I4, 0x0FFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Ldc_I4, 0x0FFF); il.Emit(OpCodes.And);
+        il.Emit(subtract ? OpCodes.Sub : OpCodes.Add);
+        EmitZ80CarryIn(ctx, carryIn: true, subtract);
+        il.Emit(OpCodes.Stloc, ctx.TmpInt);
+        // res16 = (ushort)full → LoLocal (int 0..0xFFFF)
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal); il.Emit(OpCodes.Ldc_I4, 0xFFFF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Stloc, ctx.LoLocal);
+
+        EmitZ80Ed16Flags(ctx, subtract);              // the 16-bit flag word → F
+
+        // HL = res16
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal);
+        EmitStoreReg16(ctx, "HL");
+        EmitZ80SetQFromF(ctx);                        // Q = F (PR-2 helper)
+        EmitChargeCycles(ctx, 13);                    // 15 T = 2 fetches (EmitInstruction) + residual 13
+    }
+
+    /// <summary>M6 PR-2b: the ED ADC/SBC HL,rr 16-bit F flag word. Mirrors EmitZ80Ed16FlagWord one-for-one.
+    /// Pre-staged: ctx.NibLocal=hl, ctx.DataLocal=rr (int); ctx.SumLocal=full (SIGNED int); ctx.TmpInt=half
+    /// (SIGNED int); ctx.LoLocal=res16 (int 0..0xFFFF). subtract: false=ADC (N=0, ov=~(hl^rr)&(hl^full),
+    /// C=full>0xFFFF), true=SBC (N=1, ov=(hl^rr)&(hl^full), C=full<0). All bits recomputed (no preservation).
+    /// S=bit15 of res16 does NOT line up with F's S bit, so it needs an explicit Cgt_Un select; Y/X come from
+    /// the high byte ((res16>>8)&0x20/0x08), which DOES line up. ctx.TmpInt holds half until the H term reads
+    /// it; EmitStoreF then reuses TmpInt as staging (same ordering as EmitZ80AddSubFlags — confirmed safe).</summary>
+    private void EmitZ80Ed16Flags(EmitContext ctx, bool subtract)
+    {
+        ILGenerator il = ctx.Il;
+        // S: ((res16 & 0x8000) != 0) ? 0x80 : 0
+        EmitSelectMask(ctx, () => { il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Ldc_I4, 0x8000); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un); }, 0x80);
+        // Z: (res16 == 0) ? 0x40 : 0
+        EmitSelectMask(ctx, () => { il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); }, 0x40); il.Emit(OpCodes.Or);
+        // Y: ((res16 >> 8) & 0x20)   — high byte bit5 lines up with the Y flag bit
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shr_Un); il.Emit(OpCodes.Ldc_I4, 0x20); il.Emit(OpCodes.And); il.Emit(OpCodes.Or);
+        // H: ((half & 0x1000) != 0) ? 0x10 : 0   — bit-11 carry/borrow
+        EmitSelectMask(ctx, () => { il.Emit(OpCodes.Ldloc, ctx.TmpInt); il.Emit(OpCodes.Ldc_I4, 0x1000); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un); }, 0x10); il.Emit(OpCodes.Or);
+        // X: ((res16 >> 8) & 0x08)   — high byte bit3 lines up with the X flag bit
+        il.Emit(OpCodes.Ldloc, ctx.LoLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shr_Un); il.Emit(OpCodes.Ldc_I4, 0x08); il.Emit(OpCodes.And); il.Emit(OpCodes.Or);
+        // P/V: 16-bit overflow → 0x04. ov = (subtract ? (hl^rr) : ~(hl^rr)) & (hl^full) & 0x8000.
+        il.Emit(OpCodes.Ldloc, ctx.NibLocal); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Xor);   // hl^rr
+        if (!subtract) { il.Emit(OpCodes.Ldc_I4_M1); il.Emit(OpCodes.Xor); }                                  // ~(hl^rr)
+        il.Emit(OpCodes.Ldloc, ctx.NibLocal); il.Emit(OpCodes.Ldloc, ctx.SumLocal); il.Emit(OpCodes.Xor);     // hl^full
+        il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4, 0x8000); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);                                                   // ov != 0 → 1/0
+        il.Emit(OpCodes.Ldc_I4, 0x04); il.Emit(OpCodes.Mul); il.Emit(OpCodes.Or);                             // * 0x04
+        // N: subtract ? 0x02 : 0
+        if (subtract) { il.Emit(OpCodes.Ldc_I4, 0x02); il.Emit(OpCodes.Or); }
+        // C: subtract ? (full < 0) : (full > 0xFFFF) → 0x01
+        il.Emit(OpCodes.Ldloc, ctx.SumLocal);
+        if (subtract) { il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Clt); }
+        else          { il.Emit(OpCodes.Ldc_I4, 0xFFFF); il.Emit(OpCodes.Cgt); }
+        il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.And); il.Emit(OpCodes.Or);
+        EmitStoreF(ctx);                                  // Conv_U1 + Stfld _z80F (PR-2 helper)
     }
 }
