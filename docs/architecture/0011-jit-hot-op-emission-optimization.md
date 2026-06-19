@@ -587,7 +587,9 @@ high-leverage — exactly because real code is dominated by a few op families.
    keys blocks on `(PC, bankState)`); (c) per-block checksum validity vs coarse dirty-evict. The choice
    needs measured recompile/eviction counts per workload (a profiling item adjacent to §6). Likely (a)
    for SMC + (b) for bank-switching are complementary; confirm against numbers in the implementation
-   phase.
+   phase. **Update (2026-06-19):** candidate (b) is designed in **ADR 0013**
+   (`0013-per-bank-block-specialization.md`, Status: Proposed) — complementary to PR-S (which shipped (a)
+   for SMC), pending owner approval.
 
 4. **68000 cycles/sec gating (inherited from ADR 0008 §6).** The 68000's emitted ops can charge cycles
    via `AdvanceCycles`, but the full cycle-exact axis (M4.5d-2 prefetch/timing) is partial on `main`. So
