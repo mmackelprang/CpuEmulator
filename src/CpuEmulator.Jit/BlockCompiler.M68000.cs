@@ -1437,12 +1437,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             il.Emit(OpCodes.Stloc, ctx.M68kShiftValLocal);
         }
 
-        // ── 3) The COUNT into M68kShiftCountLocal. ──
+        // ── 3) The COUNT into M68kShiftCountLocal (the loop's working counter) AND M68kShiftOrigCountLocal (the
+        //    survivor for the count>width / count==0 CCR tests). CRITICAL: capture the count ONCE here, BEFORE
+        //    the loop decrements it and BEFORE the result write-back — for the count-register == target-register
+        //    aliasing (LSL.b D0,D0) the write-back clobbers the count register, so re-reading it later is wrong.
         //    memory form: 1. register form: bit 5 set -> Dn%64 (runtime); else imm 1-8 (bits 11-9, 0->8).
         if (memoryForm)
         {
             il.Emit(OpCodes.Ldc_I4_1);
-            il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
         }
         else if ((operword & 0x20u) != 0)
         {
@@ -1452,14 +1454,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             il.Emit(OpCodes.Ldc_I4, 64);
             il.Emit(OpCodes.Rem_Un);                // (uint) % 64 — unsigned, matches DataReg(...) % 64u
             il.Emit(OpCodes.Conv_I4);
-            il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
         }
         else
         {
             int imm = (operword >> 9) & 7; if (imm == 0) imm = 8;   // imm 1-8 (0->8) — compile-time constant
             il.Emit(OpCodes.Ldc_I4, imm);
-            il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);
         }
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Stloc, ctx.M68kShiftOrigCountLocal);   // survivor: the ORIGINAL count
+        il.Emit(OpCodes.Stloc, ctx.M68kShiftCountLocal);       // the loop's working counter
 
         // ── 4) Init lastBitOut = 0, msbChanged = 0. ──
         il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M68kLastBitLocal);
@@ -1518,14 +1521,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         }
 
         // ── 7) The non-rotate count>width clear: for ASL/ASR/LSL/LSR, count > widthBits forces lastBitOut = 0
-        //    (C/X cleared — M68000Cpu.Shift.cs:140-142). count is in M68kShiftCountLocal? NO — the loop
-        //    decremented it to 0. The ORIGINAL count must be re-derived; but the test is "original count > width".
-        //    Re-read the original count source for the test (memory=1, imm=const, register=Dn%64).
+        //    (C/X cleared — M68000Cpu.Shift.cs:140-142). Reads the ORIGINAL count survivor (NOT the count
+        //    register, which the write-back may alias/clobber, NOR the loop counter, which is now 0).
         if (!isRotate)
         {
             int widthBits = size == 0 ? 8 : size == 1 ? 16 : 32;
-            // Push the ORIGINAL count for the test.
-            EmitM68kPushOriginalShiftCount(ctx, operword, memoryForm);
+            il.Emit(OpCodes.Ldloc, ctx.M68kShiftOrigCountLocal);
             il.Emit(OpCodes.Ldc_I4, widthBits);
             Label noClear = il.DefineLabel();
             il.Emit(OpCodes.Ble, noClear);          // original_count <= width -> skip
@@ -1548,8 +1549,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         }
 
         // ── 9) The per-kind CCR. countZero = (original count == 0) — only possible for the runtime register
-        //    count (imm is 1-8, memory is 1). Push it as a 0/1 int for the helpers.
-        EmitM68kPushShiftCountZero(ctx, operword, memoryForm);   // -> stack: countZero (0/1) consumed by helper
+        //    count (imm is 1-8, memory is 1). Derive from the ORIGINAL count survivor (NOT the count register —
+        //    the write-back may alias it). Park countZero (0/1) in TmpInt for the CCR helpers.
+        il.Emit(OpCodes.Ldloc, ctx.M68kShiftOrigCountLocal);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ceq);                                     // (origCount == 0) -> 1/0
         il.Emit(OpCodes.Stloc, ctx.TmpInt);                       // park countZero in TmpInt for the helper
         switch (kind)
         {
@@ -1580,45 +1584,6 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     {
         uint bits = (uint)((operword >> 6) & 3);
         return bits switch { 0u => 0, 1u => 1, 2u => 2, _ => 0 };
-    }
-
-    /// <summary>M6 PR-6: push the ORIGINAL shift count (int) onto the stack for the count&gt;width / count==0
-    /// tests. memory=1, register-count=Dn%64 (runtime), imm=1-8 (compile-time constant). Mirrors the count
-    /// derivation in EmitM68kShift step 3.</summary>
-    private void EmitM68kPushOriginalShiftCount(EmitContext ctx, ushort operword, bool memoryForm)
-    {
-        ILGenerator il = ctx.Il;
-        if (memoryForm) { il.Emit(OpCodes.Ldc_I4_1); return; }
-        if ((operword & 0x20u) != 0)
-        {
-            int cntReg = (operword >> 9) & 7;
-            EmitLoadReg32(ctx, $"D{cntReg}");
-            il.Emit(OpCodes.Ldc_I4, 64);
-            il.Emit(OpCodes.Rem_Un);
-            il.Emit(OpCodes.Conv_I4);
-            return;
-        }
-        int imm = (operword >> 9) & 7; if (imm == 0) imm = 8;
-        il.Emit(OpCodes.Ldc_I4, imm);
-    }
-
-    /// <summary>M6 PR-6: push countZero (0/1, int) — true only when the ORIGINAL count is 0, which is only
-    /// possible for the runtime register count (imm is 1-8, memory is 1, so those are compile-time false).</summary>
-    private void EmitM68kPushShiftCountZero(EmitContext ctx, ushort operword, bool memoryForm)
-    {
-        ILGenerator il = ctx.Il;
-        if (memoryForm || (operword & 0x20u) == 0)
-        {
-            il.Emit(OpCodes.Ldc_I4_0);   // imm/memory count is never 0
-            return;
-        }
-        // register count: countZero = (Dn % 64) == 0
-        int cntReg = (operword >> 9) & 7;
-        EmitLoadReg32(ctx, $"D{cntReg}");
-        il.Emit(OpCodes.Ldc_I4, 64);
-        il.Emit(OpCodes.Rem_Un);
-        il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Ceq);            // (Dn % 64) == 0 -> 1/0
     }
 
     /// <summary>M6 PR-6: ONE iteration of the shift/rotate loop body — transcribes M68000Cpu.Shift.cs:117-130

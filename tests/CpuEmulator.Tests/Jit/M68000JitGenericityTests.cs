@@ -458,4 +458,204 @@ public class M68000JitGenericityTests
         Assert.Equal(ia1, ja1);                        // ... and on the address-once-advanced A1
         Assert.Equal(isr, jsr);                        // ... and on SR (the X=C output bit)
     }
+
+    // ── M6 PR-6: the shift + control-flow emit gates ──────────────────────────────────────────────────────────
+
+    /// <summary>M6 PR-6: the shift analogue of <see cref="M68000_ALU_arm_actually_dispatches"/> — compiling a
+    /// block whose first op is a shift selects EmitM68kShift at least once, so M68kShiftEmitSelections is &gt; 0:
+    /// the shift JIT parity is REAL emitted-IL-vs-interpreter. 0xE048 = LSR.w #8,D0 (register-only — no ext words).</summary>
+    [Fact]
+    public void M68000_Shift_arm_actually_dispatches()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;   // emit-only proof
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0xE048);   // LSR.w #8,D0
+        bus.Write16(0x001002, 0x4E71);   // NOP — block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.True(compiler.M68kShiftEmitSelections > 0,
+            "EmitM68kShift was never selected — the shift descriptor row did not reach the emit switch.");
+    }
+
+    /// <summary>M6 PR-6: the negative control — a non-shift block (NOP) selects the shift arm zero times.</summary>
+    [Fact]
+    public void M68000_non_shift_block_selects_the_shift_arm_zero_times()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x4E71);   // NOP only
+        compiler.Compile(0x1000);
+        Assert.Equal(0, compiler.M68kShiftEmitSelections);
+    }
+
+    /// <summary>M6 PR-6: the shift FallbackEmitCount flip — each emitted shift op in a one-op block contributes 0
+    /// fallbacks (the block's ONLY fallback is the block-ending NOP). Covers all 8 register kinds (imm + register
+    /// count) + the memory-by-1 form. Operwords (register-only / single-EA — no leading ext words):</summary>
+    [Theory]
+    [InlineData(0xE100)]   // ASL.b #8,D0   (imm count, left)
+    [InlineData(0xE000)]   // ASR.b #8,D0   (imm count, right)
+    [InlineData(0xE108)]   // LSL.b #8,D0
+    [InlineData(0xE008)]   // LSR.b #8,D0
+    [InlineData(0xE118)]   // ROL.b #8,D0
+    [InlineData(0xE018)]   // ROR.b #8,D0
+    [InlineData(0xE110)]   // ROXL.b #8,D0  (through-X)
+    [InlineData(0xE010)]   // ROXR.b #8,D0
+    [InlineData(0xE160)]   // ASL.b D3,D0   (register count: bits 11-9 = D3, bit 5 set)
+    [InlineData(0xE368)]   // LSL.b D1,D0   (register count)
+    [InlineData(0xE1D0)]   // ASL.w (A0)    (SHIFT_MEM — memory-by-1 RMW; eaMode 2)
+    public void M68000_Shift_block_emits_no_fallback(int operword)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, (ushort)operword);   // the shift op (no leading ext words)
+        bus.Write16(0x001002, 0x4E71);             // NOP — the one block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the NOP; the shift op emitted 0
+    }
+
+    /// <summary>M6 PR-6: the flow analogue of <see cref="M68000_ALU_arm_actually_dispatches"/>. 0x6002 = BRA.b +2.</summary>
+    [Fact]
+    public void M68000_Flow_arm_actually_dispatches()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x6002);   // BRA.b +2 (cc 0 — always taken)
+        bus.Write16(0x001002, 0x4E71);
+        compiler.Compile(0x1000);
+        Assert.True(compiler.M68kFlowEmitSelections > 0,
+            "EmitM68kFlow was never selected — the flow descriptor row did not reach the emit switch.");
+    }
+
+    /// <summary>M6 PR-6: the negative control — a non-flow block (NOP) selects the flow arm zero times.</summary>
+    [Fact]
+    public void M68000_non_flow_block_selects_the_flow_arm_zero_times()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, 0x4E71);   // NOP only
+        compiler.Compile(0x1000);
+        Assert.Equal(0, compiler.M68kFlowEmitSelections);
+    }
+
+    /// <summary>M6 PR-6: the flow FallbackEmitCount flip. A flow op ENDS the block (it self-terminates via
+    /// EmitChainOrExit / EmitNormalExit), so a one-flow-op block has 0 fallbacks if it emits (vs 1 before PR-6
+    /// when it fell back). NO trailing NOP — the flow op is the whole block. Bcc.b/BRA/BSR carry no ext word;
+    /// DBcc has one ext word (its disp); JMP/JSR (An) and RTS carry no ext word. Both Bcc edges + the JMP/JSR
+    /// dynamic-ea / static-ea routing are exercised by the gate file (Task 5); here we only assert the flip.</summary>
+    [Theory]
+    [InlineData(0x6002, false)]   // BRA.b +2
+    [InlineData(0x6102, false)]   // BSR.b +2   (push + branch)
+    [InlineData(0x6602, false)]   // BNE.b +2   (conditional)
+    [InlineData(0x51C8, true)]    // DBF D0,disp (DBRA — always decrements; has one ext word)
+    [InlineData(0x4ED0, false)]   // JMP (A0)    (dynamic ea -> EmitNormalExit)
+    [InlineData(0x4E90, false)]   // JSR (A0)    (dynamic ea push + exit)
+    [InlineData(0x4EF8, false)]   // JMP abs.w   (static ea -> chain; has one ext word)
+    [InlineData(0x4E75, false)]   // RTS         (pop + exit)
+    public void M68000_Flow_block_emits_no_fallback(int operword, bool hasExtWord)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, (ushort)operword);
+        if (hasExtWord) bus.Write16(0x001002, 0x0004);   // a benign +4 displacement / abs.w address
+        compiler.Compile(0x1000);
+        Assert.Equal(0, compiler.FallbackEmitCount);   // the flow op emitted real IL AND ended the block
+    }
+
+    /// <summary>M6 PR-6: the descriptor-state gate — the net-new shift rows carry JitOpClass.M68000Shift
+    /// (EndsBlock=false) and the flow rows JitOpClass.M68000Flow (EndsBlock=TRUE), all NeedsFallback=false. Keys
+    /// are the decode walk's (1&lt;&lt;24)|(opIndex&lt;&lt;8)|size packing (ASLR_REG opIndex 0x4F, Bcc 0x39, DBcc
+    /// 0x35, JMP 0x2A, JSR 0x2B, RTS 0x19). A still-fallback tail op (TRAP) stays Undefined.</summary>
+    [Fact]
+    public void M68000_Shift_and_Flow_descriptors_are_emittable_and_classed()
+    {
+        var asl = M68000Cpu.DescriptorFor(0x1004F01u);   // ASLR_REG .w
+        Assert.Equal("ASLR_REG", asl.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Shift, asl.Class);
+        Assert.False(asl.NeedsFallback);
+        Assert.False(asl.EndsBlock);                     // shifts continue the block
+
+        var shiftMem = M68000Cpu.DescriptorFor(0x1004E01u);
+        Assert.Equal("SHIFT_MEM", shiftMem.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Shift, shiftMem.Class);
+
+        var bcc = M68000Cpu.DescriptorFor(0x1003901u);   // Bcc
+        Assert.Equal("Bcc", bcc.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Flow, bcc.Class);
+        Assert.False(bcc.NeedsFallback);
+        Assert.True(bcc.EndsBlock);                      // flow ops END the block
+
+        var dbcc = M68000Cpu.DescriptorFor(0x1003501u);  // DBcc
+        Assert.Equal("DBcc", dbcc.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Flow, dbcc.Class);
+        Assert.True(dbcc.EndsBlock);
+
+        var rts = M68000Cpu.DescriptorFor(0x1001901u);   // RTS
+        Assert.Equal("RTS", rts.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Flow, rts.Class);
+
+        var jmp = M68000Cpu.DescriptorFor(0x1002A01u);   // JMP
+        Assert.Equal("JMP", jmp.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Flow, jmp.Class);
+
+        // The exception/microcoded tail stays fallback (RTE/MOVEM/MUL/DIV/LINK/UNLK not classified).
+        // RTS emits but RTE does NOT — RTE has no row, so any RTE-key descriptor is Undefined/fallback.
+    }
+
+    /// <summary>M6 PR-6 (DECISION D): the DBcc three-outcome tripwire — the load-bearing PR-6 semantic. Runs a
+    /// single DBcc through the JIT (Tier-1) and asserts Dn.w + the landed PC for each outcome, pinned against the
+    /// interpreter (Tier-0). The off-by-one is the oracle's `counter--; if (counter != 0xFFFF) branch` — so DBF
+    /// (cc 1 = F, never true) ALWAYS decrements but TERMINATES (falls through) at -1 (0xFFFF):
+    ///   Dn.w == 0  -&gt; decrements to 0xFFFF -&gt; FALLS THROUGH (-1 terminates, NOT 0 — the classic off-by-one);
+    ///   Dn.w == 1  -&gt; decrements to 0      -&gt; BRANCHES (one more iteration);
+    ///   Dn.w == 2  -&gt; decrements to 1      -&gt; BRANCHES.
+    /// DBT (cc 0 = T, always true) exercises outcome (1): condition TRUE -&gt; fall through, NO decrement (Dn
+    /// untouched). The .w PARTIAL decrement is verified by seeding the upper word (0xAAAA0000) and asserting it
+    /// survives every decrement.</summary>
+    [Theory]
+    [InlineData(0x51C8, 0xAAAA0000u, /*branches*/ false, 0xAAAAFFFFu)]  // DBF, Dn.w=0 -> 0xFFFF, FALL THROUGH (terminate)
+    [InlineData(0x51C8, 0xAAAA0001u, true, 0xAAAA0000u)]               // DBF, Dn.w=1 -> 0,      branch
+    [InlineData(0x51C8, 0xAAAA0002u, true, 0xAAAA0001u)]              // DBF, Dn.w=2 -> 1,      branch
+    [InlineData(0x50C8, 0xAAAA0005u, /*falls through*/ false, 0xAAAA0005u)]  // DBT (cc T) -> no decrement, fall through
+    public void DBcc_three_outcome_tripwire(int operword, uint d0Seed, bool branches, uint expectedD0)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+
+        const short disp = 0x0010;   // a +16 displacement; branchBase = pc+2
+        // taken target = (pc+2) + disp = 0x1002 + 0x10 = 0x1012; fall-through = pc + length = 0x1004.
+        const uint takenPc = 0x1000u + 2u + 0x10u;
+        const uint fallThroughPc = 0x1000u + 4u;
+        uint expectedPc = branches ? takenPc : fallThroughPc;
+
+        (uint d0, uint pc) RunOne(bool throughJit)
+        {
+            var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+            bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+            bus.Write16(0x001000, (ushort)operword);
+            bus.Write16(0x001002, (ushort)disp);   // the DBcc displacement ext word
+            // landing pad words (so a chained/continued block at the target sees defined memory — fallback NOP)
+            bus.Write16((ushort)takenPc, 0x4E71);
+            bus.Write16((ushort)fallThroughPc, 0x4E71);
+            var inner = new M68000Cpu(bus);
+            inner.SetRegister("PC", 0x001000);
+            inner.SetRegister("SR", 0x2700);       // supervisor, ints masked; CCR clear (condition irrelevant for DBF/DBT)
+            inner.SetRegister("D0", d0Seed);
+            if (throughJit)
+            {
+                var jit = new JittedCpu<M68000Cpu>(inner, M68000Cpu.JitTarget, bus);
+                long budget = 1;                   // exactly one instruction (the DBcc)
+                jit.Run(ref budget);
+            }
+            else inner.Step();
+            return ((uint)inner.GetRegister("D0"), (uint)inner.GetRegister("PC"));
+        }
+
+        var (jd0, jpc) = RunOne(throughJit: true);
+        var (id0, ipc) = RunOne(throughJit: false);
+
+        // The interpreter oracle pins the expected semantics.
+        Assert.Equal(expectedD0, id0);     // Dn.w decremented (.w partial — upper word preserved) or untouched
+        Assert.Equal(expectedPc, ipc);     // the landed PC (branch target or fall-through)
+        // The JIT is byte-identical to the interpreter.
+        Assert.Equal(id0, jd0);
+        Assert.Equal(ipc, jpc);
+    }
 }

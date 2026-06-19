@@ -242,3 +242,116 @@ public sealed class M68000JitAluFamilyTests(ITestOutputHelper output)
             string.Join("\n---\n", failures));
     }
 }
+
+/// <summary>M6 PR-6: the focused shift/rotate data-axis parity sweep — the shift-CCR (incl. X) gate. These 24
+/// files are the 8 shift kinds × .b/.w/.l, each generating JitOpClass.M68000Shift rows + an emit arm
+/// (EmitM68kShift). Run through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/>, the JIT final state
+/// (D0-D7/A0-A6/USP/SSP/SR/RAM) is byte-identical to the interpreter for every executed case.
+///
+/// <para><b>The SR comparison is the entire shift X-bit / V / last-bit-out safety net.</b> It catches: ASL's V
+/// (msbChanged), the count==0 X-UNCHANGED edge (ASL/ASR/LSL/LSR), the C=X=last-bit-out (count&gt;0), the
+/// count&gt;width C/X clear (non-rotates), ROL/ROR's X-UNTOUCHED, and the ROXL/ROXR through-X chain (X is both an
+/// input fed into each iteration AND the last bit out). The corpus drives the per-bit loop with imm 1-8, register
+/// Dn%64, and the memory-by-1 form. The shift rows are M68000Shift-emitted IL (proven non-vacuous by
+/// M68kShiftEmitSelections), so this diffs emitted IL vs the interpreter oracle. NOT cycle/pc/prefetch (T2).</para>
+///
+/// <para>The corpus-artifact exclusions (the ASL.b inconsistent-register-shift vectors) are carried forward via
+/// M68000DataAxisCorpus.IsExcludedCase — IDENTICAL to the interpreter sweep, so the JIT corpus is identical in
+/// EXECUTED cases.</para></summary>
+public sealed class M68000JitShiftFamilyTests(ITestOutputHelper output)
+{
+    /// <summary>The 24 shift/rotate vector files PR-6 emits (8 kinds × .b/.w/.l).</summary>
+    public static TheoryData<string> ShiftFiles()
+    {
+        var data = new TheoryData<string>();
+        foreach (var kind in new[] { "ASL", "ASR", "LSL", "LSR", "ROL", "ROR", "ROXL", "ROXR" })
+            foreach (var sz in new[] { "b", "w", "l" })
+                data.Add($"{kind}.{sz}.json.gz");
+        return data;
+    }
+
+    [M68000TomHarteTheory]
+    [MemberData(nameof(ShiftFiles))]
+    public void Shift_family_emitted_IL_is_data_axis_parity_green(string file)
+    {
+        string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
+        Assert.NotNull(dir);
+        string path = System.IO.Path.Combine(dir, file);
+        Assert.True(System.IO.File.Exists(path), $"shift-family vector file missing: {path}");
+
+        int sample = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sample,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        int executed = 0, deferred = 0, excluded = 0;
+        var failures = new List<string>();
+        foreach (var c in cases)
+        {
+            if (M68000DataAxisCorpus.IsExcludedCase(c)) { excluded++; continue; }
+            var rr = M68000TomHarteRunner.RunCaseThroughJit(c, assertExceptions: true);
+            if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
+            executed++;
+            if (rr is not null) { failures.Add(rr); if (failures.Count >= 8) break; }
+        }
+        output.WriteLine($"{file}: executed {executed}, deferred {deferred}, excluded {excluded} (shift emitted-IL JIT)");
+        Assert.True(executed > 0, $"{file}: 0 executed cases — the emitted-IL shift-CCR gate would be vacuous");
+        Assert.True(failures.Count == 0,
+            $"{file}: {failures.Count} shift emitted-IL parity failure(s) of {executed} executed:\n" +
+            string.Join("\n---\n", failures));
+    }
+}
+
+/// <summary>M6 PR-6: the focused control-flow data-axis parity sweep — the branch/call/return + DBcc gate. These
+/// 6 files (Bcc/DBcc/BSR/JMP/JSR/RTS) generate JitOpClass.M68000Flow rows + an emit arm (EmitM68kFlow). Run
+/// through <see cref="M68000TomHarteRunner.RunCaseThroughJit"/>, the JIT final state (regs/SR/RAM AND the landed
+/// PC — which IS in the register set the runner diffs) is byte-identical to the interpreter for every executed case.
+///
+/// <para><b>The landed-PC comparison is the entire branch/return safety net.</b> It catches: the Bcc taken/
+/// not-taken edges (incl. Bcc.w via disp8==0 and the 0xFF=-1 normal .b disp), BRA/BSR (cc 0/1 via the Bcc
+/// mnemonic), the DBcc three-outcome decrement-and-branch (condition-TRUE-no-decrement, the .w partial decrement
+/// preserving the upper word, the terminate-at-(-1)), JMP/JSR static-vs-dynamic ea, the BSR/JSR return-PC push to
+/// -(A7), and the RTS pop from (A7)+. The flow rows are M68000Flow-emitted IL (proven non-vacuous by
+/// M68kFlowEmitSelections). NOT cycle/pc/prefetch order (T2) — only the FINAL landed PC, which the data axis
+/// includes.</para></summary>
+public sealed class M68000JitFlowFamilyTests(ITestOutputHelper output)
+{
+    /// <summary>The 6 control-flow vector files PR-6 emits (BSR rides the Bcc arm; RTE/RTR stay fallback).</summary>
+    public static TheoryData<string> FlowFiles()
+    {
+        var data = new TheoryData<string>();
+        foreach (var f in new[]
+        {
+            "Bcc.json.gz", "DBcc.json.gz", "BSR.json.gz", "JMP.json.gz", "JSR.json.gz", "RTS.json.gz",
+        })
+            data.Add(f);
+        return data;
+    }
+
+    [M68000TomHarteTheory]
+    [MemberData(nameof(FlowFiles))]
+    public void Flow_family_emitted_IL_is_data_axis_parity_green(string file)
+    {
+        string? dir = M68000TomHarteVectors.TryGetVectorDirectory();
+        Assert.NotNull(dir);
+        string path = System.IO.Path.Combine(dir, file);
+        Assert.True(System.IO.File.Exists(path), $"flow-family vector file missing: {path}");
+
+        int sample = M68000TomHarteVectors.ResolveSampleSize();
+        var cases = TomHarteCaches.M68000.Get(path, sample,
+            max => M68000TomHarteLoader.LoadFile(path, max));
+        int executed = 0, deferred = 0, excluded = 0;
+        var failures = new List<string>();
+        foreach (var c in cases)
+        {
+            if (M68000DataAxisCorpus.IsExcludedCase(c)) { excluded++; continue; }
+            var rr = M68000TomHarteRunner.RunCaseThroughJit(c, assertExceptions: true);
+            if (ReferenceEquals(rr, M68000TomHarteRunner.DeferredException)) { deferred++; continue; }
+            executed++;
+            if (rr is not null) { failures.Add(rr); if (failures.Count >= 8) break; }
+        }
+        output.WriteLine($"{file}: executed {executed}, deferred {deferred}, excluded {excluded} (flow emitted-IL JIT)");
+        Assert.True(executed > 0, $"{file}: 0 executed cases — the emitted-IL flow gate would be vacuous");
+        Assert.True(failures.Count == 0,
+            $"{file}: {failures.Count} flow emitted-IL parity failure(s) of {executed} executed:\n" +
+            string.Join("\n---\n", failures));
+    }
+}

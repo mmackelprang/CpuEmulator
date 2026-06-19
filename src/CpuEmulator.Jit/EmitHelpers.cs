@@ -115,6 +115,12 @@ internal sealed class EmitContext
     /// (memory) — all driven through the same loop for lowest-risk verbatim-oracle fidelity.</summary>
     public LocalBuilder M68kShiftCountLocal { get; }
 
+    /// <summary>int — M6 PR-6: the ORIGINAL shift count, captured at the top BEFORE the loop decrements
+    /// M68kShiftCountLocal AND before the result write-back. CRITICAL for the count register == target register
+    /// aliasing (e.g. LSL.b D0,D0): the result write overwrites the count register, so the count&gt;width and
+    /// count==0 CCR tests MUST read this survivor, not re-read the (now-clobbered) Dn count register.</summary>
+    public LocalBuilder M68kShiftOrigCountLocal { get; }
+
     /// <summary>uint — M6 PR-6: the live shift/rotate VALUE (v in the oracle's loop). Read once into this
     /// survivor local BEFORE the loop (so a SHIFT_MEM bus RMW read does not clobber it mid-loop), shifted in
     /// place each iteration, then written back (Dn partial / memory RMW) after the loop.</summary>
@@ -156,6 +162,7 @@ internal sealed class EmitContext
         M68kResultLocal = il.DeclareLocal(typeof(uint));
         M68kXInLocal = il.DeclareLocal(typeof(uint));
         M68kShiftCountLocal = il.DeclareLocal(typeof(int));
+        M68kShiftOrigCountLocal = il.DeclareLocal(typeof(int));
         M68kShiftValLocal = il.DeclareLocal(typeof(uint));
         M68kLastBitLocal = il.DeclareLocal(typeof(int));
         M68kMsbChangedLocal = il.DeclareLocal(typeof(int));
