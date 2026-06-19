@@ -47,6 +47,11 @@ quits like `q`.
 
 ## Status
 
+**Where it stands (M1–M6 complete):** four cycle-exact interpreters (6502, Z80, 68000, 8086), a
+dual-tier IL-JIT in which three of the four CPUs now emit IL for their hot op families, a CPU-agnostic
+monitor + device layer, and a comparative cross-language benchmark suite. The
+[Roadmap](docs/ROADMAP.md) covers what is deferred next. The milestone-by-milestone history follows.
+
 Milestone 1 is complete. `CpuEmulator.Core` (contracts) and the Roslyn source generator are
 implemented and tested: CPU specs are typed C# tables, parsed with build-time diagnostics,
 and the generator emits a working interpreter plus a disassembler. **The 6502 is complete:
@@ -92,29 +97,43 @@ at the interpreter's exact cycle count (96,241,367)**, the 8 UAT sessions JIT-wr
 trace-equivalence spot tests. A **comparative cross-language benchmark suite** (`bench/`) measures
 emulated cycles/host-second across both tiers and third-party 6502 emulators (C# Asm6502, C fake6502,
 Python py65, JS sfotty) — see [Benchmarks](docs/user-guide/benchmarks.md). The measured headline is
-honest: the JIT delivers correctness parity, and on a tight non-SMC kernel it is within ~0.65x of the
-interpreter, while on the SMC-heavy Klaus workload the interpreter is faster (the JIT's per-dispatch
-invalidation thrashes on self-modifying code — the recorded next optimization). See
-[The JIT Tier](docs/user-guide/jit.md) for the accuracy contract and chaining.
+honest: the JIT delivers correctness parity first. M2 stood up the dual-tier path; **M6 made it fast**
+— the high-ROI op families of the 6502, Z80, 68000, and 8086 now emit IL (rather than falling back to
+the interpreter per instruction), and the M6 SMC/recompile-cost lever closed the self-modifying-code
+thrash that made the JIT slower than the interpreter on the Klaus workload. See
+[The JIT Tier](docs/user-guide/jit.md) for the accuracy contract, the per-CPU emit arms, and chaining,
+and [Benchmarks](docs/user-guide/benchmarks.md) for the measured throughput.
 
-**M3 — the Z80, the framework's second architecture — is in progress.** The point of a second ISA
-is to *prove the abstractions generalize*: every seam built for the 6502 (the register file, the
-decoder, bus I/O, flags) is being re-validated against a genuinely different processor while the
-6502 stays byte-identical. Landed so far: a **per-spec flag-bit map** (the Z80's S Z Y H X P/V N C
-layout coexists with the 6502's, no renumber), **bidirectional register-pair aliasing** (8-bit
-halves are storage, 16-bit pairs are computed views), **composable flag micro-ops**
-(`SetSZ`/`SetParity`/`SetXY`/`SetAddSub` — general, proven non-6502-specific via a synthetic CPU),
-the **Z80 base-plane interpreter**, and (M3.4b) the **0xCB prefix plane + the four rotate-accumulators**:
-all **252 base-plane + 256 CB opcodes pass the Z80 TomHarte sweep (508,000 cases, zero failures)** —
-including F's undocumented X/Y bits (W-sourced for `BIT n,(HL)`), the WZ/MEMPTR and Q internal
-registers, the per-T-state bus trace, the ports array, and the SCF/CCF NMOS X/Y quirk. The 6502 is
-provably un-regressed (empty source diff, full both-tier sweep, Klaus cycle-exact). Still ahead on the
-ladder: the **ED prefix plane** (block ops, 16-bit ADC/SBC, interrupt modes — M3.4c), the **DD/FD
-planes** (IX/IY — M3.4d), the **Z80 through the JIT** (M3.5), then **68000** (M4) and **8086** (M5)
-before a cross-architecture JIT-optimization pass (M6). See
-[Testing](docs/user-guide/testing.md#z80-tomharte-single-step-vectors) for exactly what executes today.
+**M3–M5 — three more architectures — are complete.** The point of every ISA after the 6502 is to
+*prove the abstractions generalize*: every seam built for the 6502 (the register file, the decoder,
+bus I/O, flags) is re-validated against a genuinely different processor while the earlier CPUs stay
+byte-identical. The framework now ships **four interpreters**, each validated against the
+SingleStepTests/TomHarte corpus for its ISA:
 
-For full detail see the [User Guide](docs/user-guide/README.md).
+- **M3 — Zilog Z80:** the full ISA — base + `CB`/`ED`/`DD`/`FD`/`DDCB`/`FDCB` prefix planes, IX/IY
+  indexing, block ops, 16-bit `ADC`/`SBC`, the interrupt modes — with the **per-spec flag-bit map**
+  (S Z Y H X P/V N C), **bidirectional register-pair aliasing** (8-bit halves are storage, 16-bit
+  pairs are computed views), F's undocumented X/Y bits, the **WZ/MEMPTR and Q** internal registers,
+  the per-T-state bus trace, and the SCF/CCF NMOS X/Y quirk. Validated against the Z80 TomHarte sweep
+  and ZEXALL/ZEXDOC.
+- **M4 — Motorola 68000:** 32-bit registers over a 16-bit big-endian bus, the field-grammar decoder,
+  the full effective-address mode set, the MOVE/integer-ALU/shift-rotate/bit/BCD families, the CCR
+  (with the X-bit distinct from C), and control-flow/exception handling. Validated **data-axis-exact**
+  against the gzip 680x0 corpus (coarse-cycle timing by design — see ADR 0008/0011).
+- **M5 — Intel 8086/8088:** the framework's 4th ISA — variable-length ModR/M decode, `(CS<<4)+IP`
+  segmentation, the integer-ALU/MOV/shift/string/control families, and the FLAGS model (with AF/PF).
+  Validated against the 8088 TomHarte corpus.
+
+**M6 — the cross-architecture JIT-optimization pass — is complete.** Three of the four CPUs now emit
+IL through the Tier-1 JIT for their high-ROI op families (each gated on byte-identical
+TomHarte-through-JIT parity); the rare/exception/microcoded tail of each ISA stays interpreter-fallback
+**by design**, and the 6502's self-modifying-code thrash was closed with a recompile-cost lever. See
+the [Roadmap](docs/ROADMAP.md) for what shipped in M6 and what is deferred next. The 6502 stays the
+reference oracle: empty source diff per ISA addition, full both-tier sweep, Klaus cycle-exact. See
+[Testing](docs/user-guide/testing.md) for exactly what executes today and
+[The JIT Tier](docs/user-guide/jit.md) for the emit arms and the accuracy contract.
+
+For full detail see the [User Guide](docs/user-guide/README.md) and the [Roadmap](docs/ROADMAP.md).
 
 ## User Guide
 
@@ -128,7 +147,7 @@ For full detail see the [User Guide](docs/user-guide/README.md).
 
 ## Architecture
 
-The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler, and — as of M2-i — a per-opcode JIT descriptor table the IL-JIT consumes); `CpuEmulator.Cpus.Mos6502` holds the 6502 spec table (importer output) plus the hand-written partial; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point; `CpuEmulator.Jit` (M2) is the IL-JIT tier (block chaining + emitted decimal arms). All library projects are AOT-compatible except `CpuEmulator.Jit`, which is the only project that uses `Reflection.Emit` and is therefore the only non-AOT member of the build graph (the others never reference it — a packaging law pinned by a build-time reference-graph check; a NativeAOT publish of the Host succeeds with `PublishAot` scoped to its csproj). The comparative benchmark suite lives in `bench/` (a `CpuEmulator.Benchmarks` core library + a BenchmarkDotNet runner) — a dev tool, never in any shipped graph.
+The framework is a set of .NET 10 libraries. `CpuEmulator.Core` defines the contracts (`ICpuCore`, `IAddressSpace`, `IPeripheral`, `Machine`); `CpuEmulator.Generators` is a Roslyn source generator that reads a typed C# spec table and emits the per-CPU artifacts at build time (register state + introspection, cycle-exact interpreter, disassembler, single-instruction assembler, and a per-opcode JIT descriptor table the IL-JIT consumes); **four CPU spec assemblies hold each ISA's spec table (importer output) plus its hand-written partials** — `CpuEmulator.Cpus.Mos6502`, `CpuEmulator.Cpus.Z80`, `CpuEmulator.Cpus.M68000`, and `CpuEmulator.Cpus.M8086`; `CpuEmulator.Peripherals` ships `SimpleUart` and `IntervalTimer`; `CpuEmulator.Monitor` is the CPU-agnostic monitor engine + REPL; `CpuEmulator.Host` is the console entry point; `CpuEmulator.Jit` is the IL-JIT tier — block chaining, the SMC/recompile-cost lever, and the **per-CPU IL-emit arms** (`BlockCompiler.<Cpu>.cs`: the hand-written emit logic the generated descriptor table dispatches into; see [The JIT Tier](docs/user-guide/jit.md)). All library projects are AOT-compatible except `CpuEmulator.Jit`, which is the only project that uses `Reflection.Emit` and is therefore the only non-AOT member of the build graph (the others never reference it — a packaging law pinned by a build-time reference-graph check; a NativeAOT publish of the Host succeeds with `PublishAot` scoped to its csproj). The comparative benchmark suite lives in `bench/` (a `CpuEmulator.Benchmarks` core library + a BenchmarkDotNet runner) — a dev tool, never in any shipped graph.
 
 Full design: [`docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md`](docs/superpowers/specs/2026-06-11-cpu-emulator-framework-design.md)
 

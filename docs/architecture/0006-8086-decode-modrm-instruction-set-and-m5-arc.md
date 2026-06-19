@@ -1,6 +1,8 @@
 # ADR 0006 — 8086/8088 decode front-end, ModR/M + EA descriptor, instruction-set scope, the M5 PR arc, and the TomHarte 8088 recon (Milestone M5, foundation half 2)
 
-> **Status:** Accepted (architecture pass — design ahead of implementation; M5 still follows M4.5 → M4.6 in the queue)
+> **Status:** Accepted — **IMPLEMENTED (M5 complete).** The 8086 decode front-end + ModR/M EA descriptor +
+> instruction-set scope shipped as designed (the M5 PR arc landed; 8088-TomHarte-green). The body below is the
+> historical decision record. *(Originally: Accepted — design ahead of implementation; M5 followed M4.5 → M4.6.)*
 > **Date:** 2026-06-15
 > **Deciders:** Mark (owner); this ADR is the decision record the M5 Planner + Builder consume across the 8086 arc.
 > **Supersedes / relates to:**

@@ -83,21 +83,35 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
   68000 section ships its two-tier baseline regardless.
 
 The per-CPU JIT-vs-interpreter comparison and the cross-language comparison table are in the generated
-report. **The honest measured finding is that the Tier-1 JIT is currently slower than the Tier-0
+report. **The original M6 baseline finding was that the Tier-1 JIT was slower than the Tier-0
 interpreter** — on the 6502 (SMC-invalidation thrash on Klaus; per-instruction overhead on the tiny
-non-SMC kernel), on the Z80, on the 68000, and on the 8086 — the latter three's Tier-1 is **all-fallback**
-(every op falls back to the interpreter Step — no hot-op IL emit yet; a ratio ≈ 1.0× minus block-dispatch
-overhead is expected; the 8086 baseline lands at ≈ 0.59–0.61× in guest-MIPS, M6 PR-A).
-This all-fallback row is the deliberately-captured **"before"**: the
-[JIT speedup re-measure (M6)](#baseline--re-measure-m6) subtracts from it. The JIT's current value is
-correctness parity, not raw throughput. See also [the JIT tier guide](jit.md) for the accuracy contract,
-chaining, and the emitted decimal arms.
+non-SMC kernel) and on the Z80/68000/8086, whose Tier-1 was then **all-fallback** (every op fell back to
+the interpreter Step — no hot-op IL emit; a ratio ≈ 1.0× minus block-dispatch overhead). **M6 closed
+that gap:** the high-ROI op families of all four CPUs now emit IL, and the 6502 SMC/recompile-cost lever
+removed the Klaus thrash. So this section is the before/after speedup story with the "after" now landed.
+
+<!-- FIGURES: refresh from arc-end REPORT.md — the per-CPU Tier-1-vs-interpreter and Tier-1-vs-best
+     ratios for the emitted (post-M6) workloads. The pre-M6 all-fallback numbers (e.g. the 8086's
+     ≈0.59-0.61x guest-MIPS baseline, the Z80/68000 0.45-0.75x-of-interpreter, the 6502 W1 0.00x) are
+     the deliberately-captured "before"; the "after" figures land with the arc-end benchmark. -->
+
+The JIT's foundational value remains correctness parity (the full TomHarte sweep through the JIT, the
+committed differential fuzzer, Klaus cycle-exact); M6 adds the throughput. See
+[the JIT tier guide](jit.md) for the accuracy contract, chaining, the per-CPU emit arms, and the
+SMC/recompile-cost lever. The deferred emit follow-ons (8086 far-flow, MUL/DIV, string/REP, INT/IRET;
+cycle-exact emitted 68000 timing) are in the [Roadmap](../ROADMAP.md).
 
 ## Baseline → re-measure (M6)
 
-This report is the committed **"before"** half of a before/after speedup story. The **"after"** re-runs
-the IDENTICAL committed workloads once the JIT's hot-op IL emit lands (milestone M6), and the per-CPU
-ratio delta is the demonstrated speedup. The workload constants are **frozen** so the comparison is
-apples-to-apples; the per-CPU ratio is machine-independent (it cancels host speed). The full re-measure
-contract — same bytes, same metric, same command, same canonical host — lives in
-[`bench/README.md`](../../bench/README.md) under "Baseline → re-measure (M6)".
+This report is the before/after speedup story for the M6 hot-op emit work. The **"before"** is the
+all-fallback / SMC-thrash baseline; the **"after"** re-runs the IDENTICAL committed workloads with the
+hot-op IL emit landed, and the per-CPU ratio delta is the demonstrated speedup. The workload constants
+are **frozen** so the comparison is apples-to-apples; the per-CPU ratio is machine-independent (it
+cancels host speed). The full re-measure contract — same bytes, same metric, same command, same
+canonical host — lives in [`bench/README.md`](../../bench/README.md) under "Baseline → re-measure (M6)".
+
+<!-- FIGURES: refresh from arc-end REPORT.md — the demonstrated before→after per-CPU/per-workload deltas. -->
+
+> **Known benchmark-harness caveats (not core correctness):** a 68000 W2 bench-harness cycle off-by-2
+> and the 68000 W3 workload's absence from the hot-op profiler arm are tracked backlog items (see the
+> [Roadmap](../ROADMAP.md)); they affect the bench harness, not the interpreter/JIT parity.

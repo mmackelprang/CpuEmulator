@@ -15,15 +15,27 @@ Welcome to the CpuEmulator user guide. Use these pages to get the emulator runni
 | [Adding a CPU](adding-a-cpu.md) | The spec-table workflow, importer, generated artifacts |
 | [Extraction Runbook](extraction-runbook.md) | LLM-assisted opcode extraction from CPU datasheets, cross-source diff, review report |
 | [Testing](testing.md) | Running the suite, TomHarte vectors, Klaus, UAT sessions |
+| [Roadmap](../ROADMAP.md) | Shipped milestones (M1–M6) and the deferred/candidate follow-ons |
 
 ## Architecture support status
 
+The framework ships **four cycle-exact interpreters** (Tier 0). Three of the four also emit IL through
+the **Tier-1 JIT** for their high-ROI op families (M6); the rare/exception/microcoded tail of each ISA
+stays interpreter-fallback **by design** (the interpreter is always the correctness oracle and the
+fallback). JIT parity is gated on byte-identical TomHarte-through-JIT execution.
+
 | CPU | Interpreter (Tier 0) | JIT (Tier 1) | Monitor host | Validation |
 |---|---|---|---|---|
-| **MOS 6502** | ✅ full ISA | ✅ full ISA | ✅ Breadboard6502 | TomHarte 1,510,000 cases + Klaus (96,241,367 cycles), both tiers |
-| **Zilog Z80** | 🟡 base + CB planes (508 opcodes) | ⬜ planned (M3.5) | ⬜ not yet | TomHarte 508,000 cases (base + CB), interpreter |
+| **MOS 6502** | ✅ full ISA | ✅ full ISA emits (BRK/RTI/undefined fall back) + SMC/recompile lever | ✅ Breadboard6502 | TomHarte 1,510,000 cases + Klaus (96,241,367 cycles), both tiers |
+| **Zilog Z80** | ✅ full ISA (base + CB/ED/DD/FD/DDCB/FDCB planes) | ✅ emits LD · ALU+flags (Q/MEMPTR, X/Y) · ED 16-bit · branch/call/stack (prefix-plane tail falls back) | ⬜ not yet | TomHarte sweep + ZEXALL/ZEXDOC, both tiers |
+| **Motorola 68000** | ✅ full ISA (data-axis; coarse-cycle timing by design) | ✅ emits MOVE · ALU+CCR (X-bit) · shifts · branch/DBcc (TRAP/CHK/÷0/MOVEM/MUL/DIV/RTE/LINK/UNLK fall back) | ⬜ not yet | 680x0 corpus, data-axis-exact, both tiers |
+| **Intel 8086/8088** | ✅ full ISA | ✅ emits MOV (segmentation seam) · ALU+FLAGS · near branch (far flow/MUL/DIV/string-REP/INT-IRET/IN-OUT fall back) | ⬜ not yet | 8088 TomHarte corpus, both tiers |
 
-The Z80 base-plane interpreter is the framework's first non-6502 execution; the 0xCB prefix plane (rotates/shifts, BIT/RES/SET) and the four rotate-accumulators are now live too. The ED/DD/FD prefix planes (block ops, 16-bit ADC/SBC, IX/IY indexing, the interrupt modes) are in progress; see [Testing](testing.md#z80-tomharte-single-step-vectors) for exactly what is covered today.
+Legend: ✅ shipped · ⬜ not yet. The interpreter remains the oracle for every CPU; "falls back" means
+the JIT routes that op through the interpreter `Step` (byte-exact), not that it is unimplemented. The
+deferred emit follow-ons (8086 far-flow, MUL/DIV, string/REP, INT/IRET; cycle-exact emitted 68000
+timing) are tracked in the [Roadmap](../ROADMAP.md). See [The JIT Tier](jit.md) for the emit arms and
+[Testing](testing.md) for exactly what is covered today.
 
 ## Quick links
 

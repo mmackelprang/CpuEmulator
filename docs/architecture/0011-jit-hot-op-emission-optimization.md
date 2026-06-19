@@ -1,5 +1,20 @@
 # ADR 0011 — JIT hot-op emission optimization (the M6 "make tier-1 fast" phase)
 
+> **Implementation status (2026-06-19): SHIPPED — the M6 emit arc (§8) is complete.** All four decisions
+> were implemented as specified; the §8 PR arc landed end to end: PR-0 (shared wide-register helper),
+> PR-1/2/2b/3 (Z80: LD, ALU+flags with Q/MEMPTR, ED 16-bit, branch/call/stack — the Z80 JIT now exceeds
+> its own interpreter on W2), PR-A (8086 bench+profile enablement), PR-4/4a/4b/5/6 (68000: word-granular
+> `Discover` fix, descriptor-gen + MOVE, ALU+CCR with the X-bit, shifts + branch/DBcc — data-axis-exact,
+> coarse-cycle by design), PR-B/C/D (8086: MOV + the `(CS<<4)+IP` seam, ALU+FLAGS, near branch), and PR-S
+> (the 6502 SMC/recompile-cost lever — the W1 Klaus 0.00× hole; recompiles collapsed ~6.8×). Each emitted
+> family is gated on byte-identical TomHarte-through-JIT parity; the rare/exception/microcoded tail of
+> each ISA stays interpreter-fallback **by design** (resolving OQ5). **Named deferred follow-ons** (NOT
+> committed — owner-prioritized): 8086 far-flow emit (needs `(CS,IP)` cache-key widening), 8086 MUL/DIV +
+> string/REP + INT/IRET emit, cycle-exact emitted 68000 timing (the prefetch-queue model, OQ4), per-bank
+> `(PC,bankState)` block specialization (ADR 0009 OQ3), the 68000 W3 profiler arm, and the generic
+> `OpModel`-walked emitter (Decision 2 / OQ2). See `docs/ROADMAP.md`. The §0/§1–§8 body below is the
+> historical decision record at acceptance time and is preserved verbatim.
+>
 > **Status:** **Accepted-with-changes** (Claude Architect, 2026-06-18). Promoted from *Proposed* after a
 > validation pass against the now-shipped M5 (the 8086) on `main` @ `36769c6`. **The four decisions hold
 > unchanged** — all 19 file:line citations in §1.2/§4 re-verified, no rot; the all-fallback baseline is

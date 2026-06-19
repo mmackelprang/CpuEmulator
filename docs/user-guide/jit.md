@@ -2,17 +2,22 @@
 
 The emulator has two execution tiers that share one source of truth (the generated CPU spec):
 
-- **Tier 0 — the interpreter** (`Mos6502Cpu`): cycle-exact, always available, AOT-compatible.
-  It is the correctness oracle and the only tier validated per-cycle against the full TomHarte
-  sweep.
+- **Tier 0 — the interpreter** (e.g. `Mos6502Cpu`, `Z80Cpu`, `M68000Cpu`, `M8086Cpu`): cycle-exact,
+  always available, AOT-compatible. It is the correctness oracle and the only tier validated per-cycle
+  against the full TomHarte sweep.
 - **Tier 1 — the IL-JIT** (`JittedCpu`, in `CpuEmulator.Jit`): a speed path that translates guest
   machine code into .NET IL at runtime and lets RyuJIT compile it to native. It *wraps* the
   interpreter; the interpreter remains the oracle, the fallback, and the owner of all
   architectural state.
 
-This page covers what the JIT is, how to run a machine on it, **block chaining** (the M2-ii
-speedup), the accuracy contract that defines what "parity" means for Tier 1, the fallback caveat
-(now ADC/SBC are emitted; only BRK/RTI/undefined fall back), benchmarks, and troubleshooting.
+The JIT is **CPU-agnostic** — the same `JittedCpu` + `BlockCompiler` drives all four CPUs (6502, Z80,
+68000, 8086) over a generated per-opcode descriptor table; the per-CPU IL is in hand-written emit arms
+(`BlockCompiler.<Cpu>.cs`). This page uses the 6502 as the worked example, then summarizes the M6
+per-CPU emit arms; the 6502 was the first CPU to emit IL (M2) and remains the most complete.
+
+This page covers what the JIT is, how to run a machine on it, **block chaining** (the M2-ii speedup),
+the accuracy contract that defines what "parity" means for Tier 1, the fallback caveat (which ops emit
+vs interpret), the **M6 per-CPU emit arms** (Z80/68000/8086), benchmarks, and troubleshooting.
 
 Source: `src/CpuEmulator.Jit/`
 
@@ -187,6 +192,38 @@ Only three classes still emit an interpreter-`Step` fallback (and end the block 
 A fallback runs one authentic interpreter `Step` (advancing PC and cycles exactly), so correctness
 is identical whether an instruction is emitted or fallen-back. A fallback exit is a **dynamic** PC,
 so it is never a chainable target — it always returns to the dispatcher.
+
+---
+
+## The M6 per-CPU emit arms (Z80 / 68000 / 8086)
+
+M2 proved the dual-tier path on the 6502; **M6 generalized it.** Three more CPUs now emit IL for their
+high-ROI op families, each gated on byte-identical TomHarte-through-JIT parity. The shared machinery —
+the block scaffold (opcode-fetch cycle, PC increment, chain edge + its three gates, the SMC guard, the
+budget check), the fastmem operand split, the data-driven register-file access — is **CPU-agnostic** and
+reused unchanged; the per-CPU content is the **flag/cycle model**, hand-written in `BlockCompiler.<Cpu>.cs`
+to mirror that CPU's generated interpreter `Step` body one-for-one. Each CPU's rare/exception/microcoded
+tail stays interpreter-fallback **by design** — a fallback op is always exactly the oracle, so partial
+emit is a pure performance dial with no correctness risk.
+
+| CPU | Emit arm | Families emitted | Stays fallback (by design) | Notable seam |
+|---|---|---|---|---|
+| **Z80** | `BlockCompiler.Z80.cs` | LD; ALU + flags (the **Q/MEMPTR** lifecycle + undocumented **X/Y** bits); ED 16-bit (`ADC`/`SBC HL,rr`, `INC`/`DEC rr`); branch/call/stack | the `ED`/`DD`/`FD`/`CB` prefix-plane long tail (block ops `LDIR`/`CPIR`, the rarities) | the wide-register helper for AF/BC/DE/HL/IX/IY pair-views (PR-0); the Z80 T-state cycle model. The Z80 JIT now **exceeds its own interpreter** on the W2 kernel. |
+| **68000** | `BlockCompiler.M68000.cs` | MOVE (the only **net-new descriptor generation** in M6 — required a **word-granular `Discover`** fetch-stream fix); ALU + CCR (the **X-bit**, distinct from C); shifts; branch/`DBcc` | `TRAP`/`TRAPV`/`CHK`/÷0/`ILLEGAL`/`MOVEM`/`MUL`/`DIV`/`RTE`/`LINK`/`UNLK`, address-error, privilege | data-axis-exact (coarse-cycle by design, ADR 0011 DECISION T / ADR 0008 §6); `-(A7)`/`(A7)+` stack push/pop is the interpreter's `ReadLongBus`/`WriteLongBus`. |
+| **8086** | `BlockCompiler.M8086.cs` | MOV (over the **`(CS<<4)+IP` segmentation seam**); ALU + FLAGS (the **AF/PF** wrinkle); near branch (`Jcc`/`JMP`/`CALL`/`RET`/`LOOP`, near `FF`-indirect) | **far flow** (CS-invariant block-cache key); `MUL`/`DIV`, `REP MOVS/STOS/CMPS/SCAS` string loops, `INT`/`INTO`/`IRET`/`BOUND`, the divide-error INT0, `IN`/`OUT` | the segmented EA resolver (`ModR/M` over a segment + offset); the variable-length decode. Far flow stays fallback because the block-cache key is `(IP)` not `(CS,IP)`. |
+
+Two cross-CPU notes the arms rely on:
+
+- **The `Discover` granularity distinction.** The 6502/Z80/8086 fetch the instruction stream
+  **byte-granular**; the 68000's field-grammar decode is **word-granular** (16-bit operwords,
+  big-endian). The 68000 emit arm required teaching block discovery to walk the fetch stream a word at a
+  time (PR-4a) before its MOVE arm could even dispatch.
+- **The descriptor gate.** Enabling a Z80 or 8086 family is *un-forcing* a generator gate (their
+  descriptor tables are populated-but-forced-fallback); the 68000 needed its `JitDescriptorsByKey`
+  *populated* from the field-grammar (net-new generation) — the one bigger generator change in M6.
+
+For the design rationale (the emit-vs-fallback boundary, the per-CPU rollout order, the shared-vs-per-CPU
+split, and the profiling-ranked ROI), see **ADR 0011** (`docs/architecture/0011-jit-hot-op-emission-optimization.md`).
 
 ---
 
