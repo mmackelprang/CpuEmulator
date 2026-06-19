@@ -94,6 +94,69 @@ public class M68000JitGenericityTests
         Assert.Equal(icyc, jcyc);   // the fallback charged the same cycles (CycleCount delta)
     }
 
+    private static (M68000Cpu Cpu, AddressSpace Bus, BlockCompiler<M68000Cpu> Compiler) NewM68k()
+    {
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 24, endianness: Endianness.BigEndian);
+        bus.MapMemory(0x000000, new byte[0x1000000], writable: true);
+        var cpu = new M68000Cpu(bus);
+        var opts = new JitOptions();
+        return (cpu, bus, new BlockCompiler<M68000Cpu>(cpu, M68000Cpu.JitTarget, bus, new Fastmem(bus, opts), opts));
+    }
+
+    /// <summary>M6 PR-4: the 68000 MOVE-family FallbackEmitCount flip. Before PR-4 the 68000 was 100% fallback
+    /// (every op = 1 fallback); after PR-4 a MOVE/MOVEA/MOVEQ emits real IL (0 fallbacks). Each block is one
+    /// MOVE-family op (register-only EAs, so no extension words) terminated by the still-fallback NOP (0x4E71),
+    /// which ends the block — so the block's ONLY fallback is the NOP. This is the "FallbackEmitCount drops by
+    /// exactly the emitted opcodes" gate AND the gate/arm lockstep check (each form must have a real EmitM68kMove
+    /// path, or the arm's default throws and Compile fails). Operwords (big-endian words at PC):
+    ///   0x3200 MOVE.w  D0,D1   |  0x1200 MOVE.b  D0,D1   |  0x2200 MOVE.l  D0,D1
+    ///   0x3248 MOVEA.w A0,A1   |  0x2248 MOVEA.l A0,A1   |  0x7001 MOVEQ #1,D0  |  0x7E80 MOVEQ #-128,D7</summary>
+    [Theory]
+    [InlineData(0x3200)]   // MOVE.w  D0,D1
+    [InlineData(0x1200)]   // MOVE.b  D0,D1
+    [InlineData(0x2200)]   // MOVE.l  D0,D1
+    [InlineData(0x3248)]   // MOVEA.w A0,A1
+    [InlineData(0x2248)]   // MOVEA.l A0,A1
+    [InlineData(0x7001)]   // MOVEQ #1,D0
+    [InlineData(0x7E80)]   // MOVEQ #-128,D7
+    public void M68000_MOVE_block_emits_no_fallback_after_PR4(int operword)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+            return;   // emit-only proof; skip where dynamic code is disabled (AOT)
+        var (_, bus, compiler) = NewM68k();
+        bus.Write16(0x001000, (ushort)operword);   // the MOVE-family op (register-only EA — no ext words)
+        bus.Write16(0x001002, 0x4E71);             // NOP — the one block-ending fallback
+        compiler.Compile(0x1000);
+        Assert.Equal(1, compiler.FallbackEmitCount);   // exactly the NOP; the MOVE-family op emitted 0
+    }
+
+    /// <summary>M6 PR-4: the descriptor-state gate — the net-new MOVE/MOVEA/MOVEQ rows carry
+    /// JitOpClass.M68000Move, NeedsFallback=false, EndsBlock=false. The keys are the decode walk's
+    /// (1&lt;&lt;24)|(opIndex&lt;&lt;8)|size packing: MOVEA opIndex 21, MOVE opIndex 22, MOVEQ opIndex 58.
+    /// A still-fallback 68000 op (NOP key 0x011C00 — opIndex 28) proves the table is otherwise unchanged.</summary>
+    [Fact]
+    public void M68000_MOVE_family_descriptors_are_emittable_and_classed_M68000Move()
+    {
+        var move = M68000Cpu.DescriptorFor(0x1001601u);   // MOVE.w (opIndex 22, size 1)
+        Assert.Equal("MOVE", move.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Move, move.Class);
+        Assert.False(move.NeedsFallback);
+        Assert.False(move.EndsBlock);
+
+        var movea = M68000Cpu.DescriptorFor(0x1001501u);  // MOVEA.w (opIndex 21, size 1)
+        Assert.Equal("MOVEA", movea.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Move, movea.Class);
+        Assert.False(movea.NeedsFallback);
+
+        var moveq = M68000Cpu.DescriptorFor(0x1003A00u);  // MOVEQ (opIndex 58)
+        Assert.Equal("MOVEQ", moveq.Mnemonic);
+        Assert.Equal(JitOpClass.M68000Move, moveq.Class);
+        Assert.False(moveq.NeedsFallback);
+
+        // A non-MOVE 68000 op stays Undefined/fallback (the table is MOVE-family-only after PR-4).
+        Assert.True(M68000Cpu.DescriptorFor(0x011C00u).NeedsFallback);   // NOP (opIndex 28) — still fallback
+    }
+
     [M68000TomHarteTheory]   // skips when the 680x0 vectors are absent (same attribute the data-axis sweeps use)
     [InlineData("NOP.json.gz")]
     public void One_family_file_is_tier_parity_green_through_the_JIT(string file)
