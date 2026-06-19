@@ -32,6 +32,7 @@
     <ProjectReference Include="..\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
     <ProjectReference Include="..\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
     <ProjectReference Include="..\CpuEmulator.Monitor\CpuEmulator.Monitor.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Machines\CpuEmulator.Machines.csproj" />
   </ItemGroup>
 
 </Project>
