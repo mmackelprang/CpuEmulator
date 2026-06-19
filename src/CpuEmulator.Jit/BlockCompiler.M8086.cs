@@ -969,4 +969,50 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         if (mod == 3u) { il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitStoreReg16(ctx, M8086Reg16[rm]); }
         else EmitM8086StoreWordEa(ctx, mod, rm, disp, over, () => il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal));
     }
+
+    // ── M6 PR-D: the 8086 control-flow (NEAR) emit arm — Jcc / JMP / CALL / RET / LOOP + FF /2 /4 indirect.
+    //    Mirrors the Z80 PR-3 flow arm (EndsBlock / static-chain / dynamic-exit) and the 68000 PR-6 conditional
+    //    taken/not-taken edge shape. Sets NO flags. The far forms (9A/EA/CB/CA + FF /3 /5) + INT stay fallback
+    //    (the gate never admits them; DECISION D-1). The decode preamble (find the opcode past any prefix, read
+    //    the rel/imm/ModR/M at emit time via M8086CodePhys) mirrors EmitM8086Mov / EmitM8086Alu verbatim. ───────
+
+    /// <summary>M6 PR-D: push a word onto the 8086 SS:SP stack (PushWord, Stack.cs:39). SP -= 2 (16-bit wrap), then
+    /// write the word at physical (SS&lt;&lt;4)+SP with the segment-relative OFFSET wrap (the high byte at
+    /// (SS&lt;&lt;4)+((SP+1)&amp;0xFFFF)). <paramref name="pushValue"/> leaves the word (int) on the IL stack.</summary>
+    private void EmitM8086PushWord(EmitContext ctx, System.Action pushValue)
+    {
+        ILGenerator il = ctx.Il;
+        // SP = (ushort)(SP - 2)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("SP")); il.Emit(OpCodes.Ldc_I4_2); il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("SP"));
+        // seg = SS, offset = SP (the NEW, post-decrement SP) -> the survivor pair the offset-wrap store reads.
+        EmitLoadReg16(ctx, "SS"); il.Emit(OpCodes.Stloc, ctx.M8086SegLocal);
+        EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+        pushValue(); il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // the word to push -> AddrLocal (survives EmitStoreByte)
+        // write lo at (SS<<4)+SP, hi at (SS<<4)+((SP+1)&0xFFFF) — the PR-B EmitM8086StoreWordEa offset-wrap shape.
+        EmitM8086PushPhysical(ctx, offsetPlusOne: false);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx);
+        EmitM8086PushPhysical(ctx, offsetPlusOne: true);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shr_Un); il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx);
+    }
+
+    /// <summary>M6 PR-D: pop a word off the 8086 SS:SP stack (PopWord, Stack.cs:47). Read the word at (SS&lt;&lt;4)+SP
+    /// (offset-wrap, low byte then high byte); SP += 2 (16-bit wrap); leave the popped word (int) on the IL stack.</summary>
+    private void EmitM8086PopWord(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        EmitLoadReg16(ctx, "SS"); il.Emit(OpCodes.Stloc, ctx.M8086SegLocal);
+        EmitLoadReg16(ctx, "SP"); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+        // word = lo | hi<<8  (re-form each byte's physical from the surviving (seg, offset) pair).
+        EmitM8086PushPhysical(ctx, offsetPlusOne: false); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        EmitM8086PushPhysical(ctx, offsetPlusOne: true); LoadByteFromBus(ctx); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // stash the popped word in AddrLocal (the SP bump's field-write is fine; AddrLocal survives)
+        // SP = (ushort)(SP + 2)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("SP")); il.Emit(OpCodes.Ldc_I4_2); il.Emit(OpCodes.Add);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("SP"));
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);   // leave the popped word on the IL stack
+    }
 }
