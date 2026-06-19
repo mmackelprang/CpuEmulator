@@ -212,6 +212,7 @@ RunZ80("W3 sieve-kernel", Z80Workloads.Z80SieveKernel());
 // ── 68000 ──
 Run68000("W1 mixed-kernel", M68000Workloads.MixedKernel());
 Run68000("W2 arithmetic-kernel", M68000Workloads.ArithmeticKernel());
+Run68000("W3 sieve-kernel", M68000Workloads.SieveKernel());
 
 // ── 8086 (M6 PR-A) ──
 Run8086("W1 mixed-kernel", M8086Workloads.MixedKernel());
