@@ -54,8 +54,10 @@ public sealed class ComparisonRowKindConverter : JsonConverter<ComparisonRowKind
 /// <param name="Kind">Provenance — head-to-head / cited / ours.</param>
 /// <param name="GuestMips">Cross-CPU-comparable guest-MIPS, or null when not reported.</param>
 /// <param name="CyclesPerSecond">The CPU's own cycle unit (NOT cross-CPU comparable).</param>
-/// <param name="AllFallback">true for a Tier-1 row whose JIT is all-fallback (z80/m68000) — the
-/// committed "before" for the re-measure; false otherwise (incl. the 6502 JIT, which is real).</param>
+/// <param name="AllFallback">true for a Tier-1 row whose JIT has a non-emitting all-fallback tail
+/// (z80/m68000/m8086 — post-M6 the JIT emits its high-ROI families, but the SMC-heavy tail still falls
+/// back to the interpreter Step); false otherwise (incl. the 6502 JIT, which is full). Drives the †
+/// marker in the comparison table.</param>
 /// <param name="Source">The citation URL for a cited row; null for head-to-head + ours.</param>
 public readonly record struct ComparisonRow(
     string Subject,
@@ -148,10 +150,10 @@ public static class ComparisonTableWriter
                              r.Workload == wl && r.Result.Ran))
                 {
                     bool isTier1 = IsTier1(r.Subject);
-                    // AllFallback = (arch is z80, m68000, or m8086) AND the row is the Tier-1/JIT row. The
-                    // 6502 JIT is real, so its Tier-1 row is NOT all-fallback. The 8086 Tier-1 is all-fallback
-                    // in M5.6 (every op routes through inner.Step — the populated-but-forced-fallback
-                    // descriptor table; the committed "before" the M6 PR-B/C/D emit subtracts from).
+                    // AllFallback = (arch is z80, m68000, or m8086) AND the row is the Tier-1/JIT row — these
+                    // CPUs emit their high-ROI families post-M6 but keep a non-emitting all-fallback tail (the
+                    // SMC-heavy W1/W3 path still routes through inner.Step), so the † marks that mixed-emit
+                    // characteristic. The 6502 JIT is full, so its Tier-1 row is NOT flagged.
                     bool allFallback = isTier1 &&
                         (string.Equals(arch, "z80", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(arch, "m68000", StringComparison.OrdinalIgnoreCase) ||
@@ -272,14 +274,17 @@ public static class ComparisonTableWriter
             }
             sb.AppendLine();
 
-            // Legend (once per CPU sub-table). The † fragment is emitted ONLY when this CPU actually
-            // has an all-fallback Tier-1 row (z80 / m68000) — the 6502 JIT is real, so its section
-            // never shows a † and must not advertise one in the legend.
+            // Legend (once per CPU sub-table). The † fragment is emitted ONLY for a CPU with a
+            // partial-emit Tier-1 (z80 / m68000 / m8086) — post-M6 the JIT emits its high-ROI families
+            // but the SMC-heavy tail is still all-fallback dispatch. The 6502 JIT is full (no † cell), so
+            // its section never shows a † and must not advertise one in the legend.
             bool anyAllFallback = cpu.Workloads.SelectMany(w => w.Rows).Any(r => r.AllFallback);
             string legend = "‡ = measured here, head-to-head (same workload bytes, same host). " +
                             "[cited] = published context (see footnotes).";
             if (anyAllFallback)
-                legend += " † = Tier-1 is all-fallback (no hot-op IL emit yet); the committed \"before\" for the re-measure.";
+                legend += " † = M6 hot-op emit landed — Tier-1 BEATS the interpreter on the no-SMC compute " +
+                          "kernel (W2); the SMC-heavy W1/W3 rows stay JIT-slower, dominated by per-dispatch " +
+                          "overhead on the all-fallback non-emitting tail, NOT recompilation.";
             sb.AppendLine(legend);
             sb.AppendLine();
 
@@ -294,11 +299,21 @@ public static class ComparisonTableWriter
                 sb.AppendLine();
             }
 
-            // The 68000 cycle-axis caveat reminder. The "best-existing" clause is data-aware: once a
-            // head-to-head reference (Musashi) actually runs, the cited placeholder is gone (the gate in
-            // Build suppresses it), so the caveat states the head-to-head ref is present rather than
-            // promising a number that "has not landed yet".
-            if (cpu.TimingAxisPartial)
+            // The cycle-axis caveat reminder, per partial-timing CPU. The 68000 caveat is data-aware:
+            // once a head-to-head reference (Musashi) actually runs, the cited placeholder is gone (the
+            // gate in Build suppresses it), so the caveat states the head-to-head ref is present rather
+            // than promising a number that "has not landed yet". The 8086 carries its OWN
+            // rudimentary-cycle-model caveat (it must NOT borrow the 68000's M4.5d-2 / Musashi text —
+            // mirrors ReportWriter.AppendM8086TimingCaveat).
+            if (string.Equals(cpu.Cpu, "m8086", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine("> _8086 cycles/sec is reported with the rudimentary-cycle-model caveat (M5 charges one");
+                sb.AppendLine("> cycle per bus access; a cycle-exact 8086 timing model is post-M5); the trustworthy");
+                sb.AppendLine("> cross-CPU headline is **guest-MIPS**. There is no third-party 8086 reference yet, so the");
+                sb.AppendLine("> best-existing column is empty._");
+                sb.AppendLine();
+            }
+            else if (cpu.TimingAxisPartial)
             {
                 bool hasHeadToHead = cpu.Workloads
                     .SelectMany(w => w.Rows)
