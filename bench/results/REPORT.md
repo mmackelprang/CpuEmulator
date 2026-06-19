@@ -22,6 +22,16 @@
 > frozen-constant re-measure contract means the re-capture is byte-identical work. The wiring + smoke
 > + frozen workloads + the Musashi head-to-head adapter (the actual deliverable) are
 > machine-independent.
+>
+> **M6 PR-2 measured delta (2026-06-18, the Z80 ALU + flag emit).** The Z80-W2 arithmetic-kernel
+> Tier-1 (JIT) number below is the PR-1 (LD-only) baseline (`172,158,778` T-states/host-second,
+> committed at `4296740`). With PR-2 emitting the 8-bit ALU + INC/DEC + ADD HL,rr (ADD/SUB/INC/DEC are
+> ~80% of Z80-W2, §6), a focused clean-host re-measure of the SAME frozen 50M-cycle kernel
+> (`bench/CpuEmulator.Benchmarks` `Z80ArithmeticKernel`, identical constants — no `git diff`) gives
+> Tier-1 = **411,580,601 T-states/host-second** vs Tier-0 interpreter 329,688,767 — a **2.39× upward W2
+> move**, and the Tier-1 JIT now EXCEEDS the Tier-0 interpreter on W2 (was 0.45×). That upward W2 move is
+> the PR-2 success bar (DECISION C). A full-table re-capture (incl. the SMC-heavy W1, which PR-S owns and
+> which is NOT a PR-2 metric) is a Coordinator follow-up; the W1/W3 rows are unchanged by PR-2.
 
 ## Results — emulated cycles per host-second (higher is faster)
 
