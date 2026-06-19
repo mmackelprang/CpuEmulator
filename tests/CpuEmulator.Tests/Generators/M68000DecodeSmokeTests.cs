@@ -56,13 +56,16 @@ public class M68000DecodeSmokeTests
     }
 
     [Fact]
-    public void Decode_resolves_to_an_Undefined_descriptor_in_m4_4a()
+    public void Decode_resolves_to_an_Undefined_descriptor_for_the_exception_microcoded_tail()
     {
-        // M4.4a populates the FieldGrammar (decode) but NO descriptor rows (op bodies are M4.5):
-        // every resolved key maps to the Undefined sentinel. This pins the honest close-state.
-        // (OpcodeDescriptor has no IsUndefined member — the Undefined sentinel carries JitOpClass.Undefined,
-        // matching how M68kFieldDecodeWalkTests checks the illegal path.)
-        var stream = new BufferFetchStream(new byte[] { 0xD0, 0x50, 0, 0 }, unitBytes: 2, bigEndian: true);
+        // The FieldGrammar decodes EVERY 68000 op, but the emit-arc synthesizes descriptor rows ONLY for the
+        // emittable families (PR-4 MOVE, PR-5 ALU, PR-6 shift + control-flow). The exception/microcoded TAIL
+        // (TRAP/TRAPV/CHK/ILLEGAL/RTE/RTR/MOVEM/MUL/DIV/LINK/UNLK) is NOT classified → it maps to the Undefined
+        // sentinel (JitOpClass.Undefined → NeedsFallback → the interpreter Step). This pins that the tail STAYS
+        // fallback by design (ADR 0011 §2 — the "68000 done" check). TRAP (0x4E40) is the canonical tail op.
+        // (Originally an M4.4a all-fallback smoke that used 0xD050 = ADD.w (A0),D0; PR-5 made ADD emittable, so
+        // the probe op moved to the exception tail, which is the part that remains Undefined post-PR-6.)
+        var stream = new BufferFetchStream(new byte[] { 0x4E, 0x40, 0, 0 }, unitBytes: 2, bigEndian: true);
         DecodeResult r = M68000Cpu.Decode(stream);
         OpcodeDescriptor d = M68000Cpu.DescriptorFor(r.OperationKey);
         Assert.Equal(JitOpClass.Undefined, d.Class);
