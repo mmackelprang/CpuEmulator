@@ -70,11 +70,17 @@ foreach (var w in workloads)
 
     // MeasureTierCounted captures BOTH cycles AND the guest instruction count (Task B2): the 68000
     // rows carry instructions/sec (its cycle-axis-independent headline); the 6502/Z80 rows leave it 0.
-    var t0 = BenchHarness.MeasureTierCounted("our Tier-0 interpreter", Tier0.RunCounted, w);
+    // The cap-aware overload (Task 1) bounds each measurement to BenchHarness.PerMeasurementWallCap so a
+    // pathological run (the 6502 W1 Klaus JIT thrashes the recompiler) is time-bounded + flagged, never a
+    // stall; a fast workload never reaches the deadline (byte-for-byte unchanged). Explicit lambdas pick
+    // the cap-aware Tier{0,1}.RunCounted(w, cap) overload unambiguously.
+    var t0 = BenchHarness.MeasureTierCounted("our Tier-0 interpreter",
+        (BenchWorkload bw, TimeSpan? cap) => Tier0.RunCounted(bw, cap), w, BenchHarness.PerMeasurementWallCap);
     Console.WriteLine($"  Tier-0 interpreter : {Describe(t0)}");
     tierRows.Add(new BenchHarness.Row("our Tier-0 interpreter", w.Name, t0, w.Architecture));
 
-    var t1 = BenchHarness.MeasureTierCounted("our Tier-1 JIT (chaining on)", Tier1.RunCounted, w);
+    var t1 = BenchHarness.MeasureTierCounted("our Tier-1 JIT (chaining on)",
+        (BenchWorkload bw, TimeSpan? cap) => Tier1.RunCounted(bw, cap), w, BenchHarness.PerMeasurementWallCap);
     Console.WriteLine($"  Tier-1 JIT         : {Describe(t1)}");
     tierRows.Add(new BenchHarness.Row("our Tier-1 JIT (chaining on)", w.Name, t1, w.Architecture));
 
@@ -103,9 +109,13 @@ if (flags.Contains("--report") || flags.Count == 0 || all)
     Console.WriteLine($"Comparison JSON written: {cmpPath}");
 }
 
-static string Describe(AdapterResult r) =>
-    r.Ran
-        ? (r.InstructionsPerSecond > 0
-            ? $"{r.InstructionsPerSecond / 1_000_000.0:N1} guest-MIPS ({r.CyclesPerSecond:N0} cycles/sec, {r.WallSeconds:F3}s) — {r.Note}"
-            : $"{r.CyclesPerSecond:N0} cycles/sec ({r.WallSeconds:F3}s) — {r.Note}")
-        : $"not run — {r.Note}";
+static string Describe(AdapterResult r)
+{
+    if (!r.Ran) return $"not run — {r.Note}";
+    // A capped run (Task 1) stopped at the wall deadline: flag it distinctly so the console reader knows
+    // the rate is over a bounded window (same rate, bounded time — SMC-pathological), not the full budget.
+    string capped = r.Capped ? $" [CAPPED at {BenchHarness.PerMeasurementWallCap.TotalSeconds:0.#}s — SMC-pathological]" : "";
+    return r.InstructionsPerSecond > 0
+        ? $"{r.InstructionsPerSecond / 1_000_000.0:N1} guest-MIPS ({r.CyclesPerSecond:N0} cycles/sec, {r.WallSeconds:F3}s){capped} — {r.Note}"
+        : $"{r.CyclesPerSecond:N0} cycles/sec ({r.WallSeconds:F3}s){capped} — {r.Note}";
+}

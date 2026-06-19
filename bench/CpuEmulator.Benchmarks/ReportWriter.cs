@@ -120,6 +120,7 @@ public static class ReportWriter
         sb.AppendLine("  third-party subjects run a bounded cycle window (cycles/sec is a rate); each uses its");
         sb.AppendLine("  OWN cycle model. These are indicative cross-language numbers, not a controlled");
         sb.AppendLine("  microbenchmark — see the fairness rules in bench/README.md.");
+        AppendWallCapMethodology(sb);
         sb.AppendLine();
 
         // ── The two M2 revisit-gate decisions (Task 9) — run `--gates` for the live numbers ─────────
@@ -193,14 +194,48 @@ public static class ReportWriter
                 : $"| {row.Subject} | {row.Workload} | _not run_ | — | {Escape(r.Note)} |";
         string cps = r.CyclesPerSecond.ToString("N0", CultureInfo.InvariantCulture);
         string wall = r.WallSeconds.ToString("F3", CultureInfo.InvariantCulture);
+        string note = NoteCell(r);
         if (!withInstructions)
-            return $"| {row.Subject} | {row.Workload} | {cps} | {wall} | {Escape(r.Note)} |";
+            return $"| {row.Subject} | {row.Workload} | {cps} | {wall} | {note} |";
         // guest-MIPS = millions of guest instructions / host wall-second; "—" when the subject reports
         // no instruction count (cycle-only subjects rank by cycles/sec within their CPU — M1).
         string mips = r.InstructionsPerSecond > 0
             ? (r.InstructionsPerSecond / 1_000_000.0).ToString("N1", CultureInfo.InvariantCulture)
             : "—";
-        return $"| {row.Subject} | {row.Workload} | {mips} | {cps} | {wall} | {Escape(r.Note)} |";
+        return $"| {row.Subject} | {row.Workload} | {mips} | {cps} | {wall} | {note} |";
+    }
+
+    /// <summary>The note cell for a measured row — the version string, plus a distinct CAPPED flag
+    /// (Task 1) when the run STOPPED at the wall deadline. A capped row's cycles/sec is the cycles
+    /// actually executed over the bounded window (the SAME rate, bounded time — no data lost); the flag
+    /// tells the reader the run was time-bounded rather than run to its full cycle budget.</summary>
+    private static string NoteCell(AdapterResult r)
+    {
+        string note = Escape(r.Note);
+        if (!r.Capped) return note;
+        string secs = BenchHarness.PerMeasurementWallCap.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture);
+        string flag = $"**capped at {secs}s** (SMC-pathological — stopped at the wall deadline; rate = cycles ÷ wall over the bounded window)";
+        return note.Length == 0 ? flag : $"{note} — {flag}";
+    }
+
+    /// <summary>The per-measurement wall-clock-cap methodology note (Task 1), appended to the
+    /// "Reading the numbers" section. Explains that a row flagged "capped" was STOPPED at the wall
+    /// deadline (so the whole benchmark always completes, even when an SMC-pathological run thrashes the
+    /// recompiler), and that a capped row's cycles/sec is the cycles actually executed over the bounded
+    /// window — the SAME rate, just time-bounded; no data is lost.</summary>
+    private static void AppendWallCapMethodology(StringBuilder sb)
+    {
+        string secs = BenchHarness.PerMeasurementWallCap.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture);
+        sb.AppendLine($"- **A per-measurement {secs}s wall-clock cap bounds SMC-pathological runs.** A run that");
+        sb.AppendLine("  self-modifies heavily (the 6502 W1 Klaus JIT thrashes the recompiler — `InvalidateIfDirty`");
+        sb.AppendLine("  evicts + recompiles blocks faster than it executes them) would otherwise run tens of");
+        sb.AppendLine($"  seconds (or minutes) and stall the whole benchmark. The cap STOPS such a run at ~{secs}s and");
+        sb.AppendLine("  marks the row **capped** — but a capped row is STILL a valid measurement: cycles/sec is the");
+        sb.AppendLine("  cycles ACTUALLY executed ÷ the wall elapsed over the bounded window (the SAME rate, just");
+        sb.AppendLine("  time-bounded — e.g. the 6502 W1 JIT reports its ~2.6M cycles/sec rate in ~10s instead of");
+        sb.AppendLine("  ~37.5s, no data lost). The deadline is checked COARSELY (per ~100K cycles, never");
+        sb.AppendLine("  per-instruction), so a fast workload (a W2/W3 kernel, sub-second) never reaches it and is");
+        sb.AppendLine("  byte-for-byte unaffected.");
     }
 
     /// <summary>The 68000 timing-axis caveat (Task B4) — emitted automatically under the 68000 section.
