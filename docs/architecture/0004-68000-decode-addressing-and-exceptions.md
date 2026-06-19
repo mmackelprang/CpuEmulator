@@ -1,6 +1,8 @@
 # ADR 0004 — 68000 decode, addressing modes, exceptions/privilege, and the M4 PR breakdown (Milestone M4, foundation half 2)
 
-> **Status:** Accepted (architecture pass — not yet implemented)
+> **Status:** Accepted — **IMPLEMENTED (M4 complete).** The 68000 decode/addressing/exception model ships as
+> designed (data-axis-exact; cycle-exact timing is the named deferred follow-on — see ADR 0008/0011 and the
+> Roadmap). The body below is the historical decision record. *(Originally: Accepted — architecture pass, not yet implemented.)*
 > **Date:** 2026-06-15
 > **Deciders:** Mark (owner); this ADR is the decision record the M4 Planner + Builder consume across the 68000 arc.
 > **Supersedes / relates to:**

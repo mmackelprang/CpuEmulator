@@ -1,6 +1,8 @@
 # ADR 0005 — 8086/8088 state model, segmentation + addressing, the little-endian bus reuse, and the FLAGS model (Milestone M5, foundation half 1)
 
-> **Status:** Accepted (architecture pass — design ahead of implementation; M5 still follows M4.5 → M4.6 in the queue)
+> **Status:** Accepted — **IMPLEMENTED (M5 complete).** The 8086/8088 ships as the framework's 4th ISA
+> (interpreter full-ISA 8088-TomHarte-green; M6 JIT emit for MOV/ALU+FLAGS/near-branch). The body below is the
+> historical decision record. *(Originally: Accepted — design ahead of implementation; M5 followed M4.5 → M4.6.)*
 > **Date:** 2026-06-15
 > **Deciders:** Mark (owner); this ADR is the decision record the M5 Planner + Builder consume across the 8086 arc.
 > **Supersedes / relates to:**

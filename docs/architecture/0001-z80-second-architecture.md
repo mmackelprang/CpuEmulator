@@ -1,6 +1,8 @@
 # ADR 0001 — Z80 as CpuEmulator's Second Architecture (Milestone M3)
 
-> **Status:** Proposed (architecture pass — not yet implemented)
+> **Status:** **IMPLEMENTED (M3 complete).** The Z80 ships as the framework's second architecture — the full
+> ISA (base + CB/ED/DD/FD/DDCB/FDCB planes), TomHarte + ZEXALL/ZEXDOC-green, and (M6) JIT-emitting for its
+> high-ROI families. The body below is the historical decision record. *(Originally: Proposed — architecture pass.)*
 > **Date:** 2026-06-13
 > **Deciders:** Mark (owner); this ADR is the decision record M3's per-chunk plans consume.
 > **Supersedes / relates to:** the framework design spec

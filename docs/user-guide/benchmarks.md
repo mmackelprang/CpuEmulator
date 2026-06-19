@@ -83,21 +83,68 @@ dotnet run -c Release --project bench/CpuEmulator.Benchmarks.Runner -- --bdn
   68000 section ships its two-tier baseline regardless.
 
 The per-CPU JIT-vs-interpreter comparison and the cross-language comparison table are in the generated
-report. **The honest measured finding is that the Tier-1 JIT is currently slower than the Tier-0
+report. **The original M6 baseline finding was that the Tier-1 JIT was slower than the Tier-0
 interpreter** — on the 6502 (SMC-invalidation thrash on Klaus; per-instruction overhead on the tiny
-non-SMC kernel), on the Z80, on the 68000, and on the 8086 — the latter three's Tier-1 is **all-fallback**
-(every op falls back to the interpreter Step — no hot-op IL emit yet; a ratio ≈ 1.0× minus block-dispatch
-overhead is expected; the 8086 baseline lands at ≈ 0.59–0.61× in guest-MIPS, M6 PR-A).
-This all-fallback row is the deliberately-captured **"before"**: the
-[JIT speedup re-measure (M6)](#baseline--re-measure-m6) subtracts from it. The JIT's current value is
-correctness parity, not raw throughput. See also [the JIT tier guide](jit.md) for the accuracy contract,
-chaining, and the emitted decimal arms.
+non-SMC kernel) and on the Z80/68000/8086, whose Tier-1 was then **all-fallback** (every op fell back to
+the interpreter Step — no hot-op IL emit; a ratio ≈ 1.0× minus block-dispatch overhead). **M6 closed
+that gap** on the **compute kernels (W2/W3)**: the high-ROI op families of all four CPUs now emit IL.
+(On the SMC-heavy W1 rows the JIT is still *slower* than the interpreter — the recompile-cost lever IS
+engaged by default and cuts the 6502 Klaus recompiles ~6.8×, but the dominant remaining cost there is
+**per-dispatch overhead, not recompilation**: the `InvalidateIfDirty` page scan that Klaus's constant
+code-page dirtying triggers, plus all-fallback dispatch on the non-emitting W1/W3 paths. Reducing that
+per-dispatch cost is a recorded next optimization — see the [Roadmap](../ROADMAP.md).) So this section is
+the before/after speedup story with the "after" now landed.
+
+**The "after" (arc-end re-measure, post-M6).** On the no-SMC **compute kernels**, the Tier-1 JIT now
+*beats* the Tier-0 interpreter for the three CPUs M6 targeted (Tier-1 ÷ Tier-0):
+
+| CPU | W2 kernel | W3 sieve | what emits |
+|---|---:|---:|---|
+| **Z80** | **2.28×** (569M vs 250M T-st/s) | 0.87× | LD, ALU+flags, branch/call/stack |
+| **68000** | **3.08×** (27.2 vs 8.8 MIPS) | _W3 capped_ | MOVE, ALU+CCR, shifts, branch |
+| **8086** | **1.18×** (30.9 vs 26.3 MIPS) | _W3 capped_ | MOV, ALU+FLAGS, near branch |
+| 6502 | 0.51× | 0.60× | (M2 baseline — block-JIT vs a tight switch-interpreter on a hot loop; not a regression) |
+
+The **SMC-heavy W1** runs (6502 Klaus, Z80 ZEXDOC, 68000 W1, 8086 W1) — and the 68000/8086 **W3** —
+stay JIT-*slower* and are **capped at 10s** in the report: the recompiler thrashes on self-modifying
+code, and the JIT's per-dispatch overhead dominates. Two honest caveats: (1) the recompile-cost lever
+(PR-S) **IS engaged by default** — it cuts the 6502 Klaus recompiles ~6.8× — but the JIT still loses on
+these rows because **per-dispatch overhead dominates** (the `InvalidateIfDirty` page scan on
+constantly-dirtied code, plus all-fallback dispatch on the non-emitting paths), not recompilation;
+reducing that is a recorded follow-on; and (2) the cap is a valid
+measurement (cycles ÷ wall over a bounded window), not a truncation. The clean emit signal is the **W2**
+column. _(Numbers from the [arc-end `REPORT.md`](../../bench/results/REPORT.md); the per-CPU ratio is
+host-independent — it cancels machine speed.)_
+
+The JIT's foundational value remains correctness parity (the full TomHarte sweep through the JIT, the
+committed differential fuzzer, Klaus cycle-exact); M6 adds the throughput. See
+[the JIT tier guide](jit.md) for the accuracy contract, chaining, the per-CPU emit arms, and the
+SMC/recompile-cost lever. The deferred emit follow-ons (8086 far-flow, MUL/DIV, string/REP, INT/IRET;
+cycle-exact emitted 68000 timing) are in the [Roadmap](../ROADMAP.md).
 
 ## Baseline → re-measure (M6)
 
-This report is the committed **"before"** half of a before/after speedup story. The **"after"** re-runs
-the IDENTICAL committed workloads once the JIT's hot-op IL emit lands (milestone M6), and the per-CPU
-ratio delta is the demonstrated speedup. The workload constants are **frozen** so the comparison is
-apples-to-apples; the per-CPU ratio is machine-independent (it cancels host speed). The full re-measure
-contract — same bytes, same metric, same command, same canonical host — lives in
-[`bench/README.md`](../../bench/README.md) under "Baseline → re-measure (M6)".
+This report is the before/after speedup story for the M6 hot-op emit work. The **"before"** is the
+all-fallback / SMC-thrash baseline; the **"after"** re-runs the IDENTICAL committed workloads with the
+hot-op IL emit landed, and the per-CPU ratio delta is the demonstrated speedup. The workload constants
+are **frozen** so the comparison is apples-to-apples; the per-CPU ratio is machine-independent (it
+cancels host speed). The full re-measure contract — same bytes, same metric, same command, same
+canonical host — lives in [`bench/README.md`](../../bench/README.md) under "Baseline → re-measure (M6)".
+
+**Before → after on the W2 compute kernel** (the cleanest emit signal — no SMC, frozen workload):
+
+| CPU | before (pre-M6) | after (M6 emit) | swing |
+|---|---|---|---|
+| **Z80** W2 | ≈0.45× of interpreter (all-fallback) | **2.28×** | JIT now beats interp |
+| **68000** W2 | ≈1.0× minus block overhead (all-fallback) | **3.08×** (guest-MIPS) | emit lands |
+| **8086** W2 | ≈0.59–0.61× (all-fallback) | **1.18×** (guest-MIPS) | emit lands |
+
+The "before" is the committed all-fallback baseline; the "after" re-runs the **identical frozen
+workloads** with hot-op IL emit landed. The 6502 was already a partial-emit JIT before M6 (its W2/W3 sit
+at 0.51×/0.60× — the established block-JIT-vs-tight-switch case), so its W2 is not part of the M6 emit
+delta. SMC-heavy W1/W3 are excluded from the emit-signal comparison (they're dominated by per-dispatch
+JIT overhead — see the caveat above — not by emit quality).
+
+> **Known benchmark-harness caveats (not core correctness):** a 68000 W2 bench-harness cycle off-by-2
+> and the 68000 W3 workload's absence from the hot-op profiler arm are tracked backlog items (see the
+> [Roadmap](../ROADMAP.md)); they affect the bench harness, not the interpreter/JIT parity.

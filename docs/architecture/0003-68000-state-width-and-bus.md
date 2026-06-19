@@ -1,6 +1,7 @@
 # ADR 0003 — 68000 state width, the size axis, and the wide big-endian bus (Milestone M4, foundation half 1)
 
-> **Status:** Accepted (architecture pass — not yet implemented)
+> **Status:** Accepted — **IMPLEMENTED (M4 complete).** The 68000 ships full-ISA data-axis-exact, with M6
+> JIT emit for its high-ROI families. The body below is the historical decision record. *(Originally: Accepted — architecture pass, not yet implemented.)*
 > **Date:** 2026-06-15
 > **Deciders:** Mark (owner); this ADR is the decision record the M4 Planner + Builder consume across the 68000 arc.
 > **Supersedes / relates to:**
