@@ -111,6 +111,10 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
         }
     }
 
+    /// <summary>Set the border colour directly (the .SNA loader restores it; the guest normally sets it
+    /// via OUT ($FE)). 0..7 base colour.</summary>
+    public void SetBorder(int color) => _border = color & 0x07;
+
     private long CurrentTInFrame()
     {
         // Approximate the write's position in the frame. Without a scheduler handle on the write path,
