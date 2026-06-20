@@ -1,4 +1,5 @@
 using CpuEmulator.Core;
+using CpuEmulator.Surface.Web;
 
 namespace CpuEmulator.Tests.Surface;
 
@@ -44,5 +45,46 @@ public class AudioSinkContractTests
         src.AudioReady += () => fired = true;
         src.Pulse();
         Assert.True(fired);
+    }
+
+    [Fact]
+    public void MachineHost_pushes_an_audio_frame_when_the_sink_signals_ready()
+    {
+        // A bare machine with no real devices: drive the audio path directly by pulsing the source.
+        var program = new AddressSpace(AddressSpaceKind.Program, 16);
+        program.MapMemory(0x0000, new byte[0x10000], writable: true);
+        program.Write8(0x0000, 0x76); // HALT — the CPU makes no progress demands here
+
+        var fb = new TestDisplay();
+        var audio = new SquareWaveAudio();
+        byte[]? lastAudio = null;
+
+        Machine machine = Machine.Create("audio-host")
+            .WithAddressSpace(AddressSpaceKind.Program, 16)
+            .WithRam(AddressSpaceKind.Program, 0x0000, 0x10000)
+            .WithCpu(ctx => new CpuEmulator.Cpus.Z80.Z80Cpu((AddressSpace)ctx.Space(AddressSpaceKind.Program)))
+            .Build();
+
+        var host = new MachineHost(machine, fb, new NullKeyboard(),
+            frame => { }, audio, a => lastAudio = a);
+
+        audio.Pulse();      // mark an audio frame ready
+        host.Step(10);      // the host should drain it
+        Assert.NotNull(lastAudio);
+        Assert.Equal((byte)'A', lastAudio![0]);
+        Assert.Equal((byte)'U', lastAudio![1]);
+    }
+
+    private sealed class TestDisplay : IDisplayDevice
+    {
+        public int Width => 1;
+        public int Height => 1;
+        public event Action? FrameReady { add { } remove { } }
+        public void RenderInto(Span<uint> rgba) => rgba[0] = 0xFF000000u;
+    }
+
+    private sealed class NullKeyboard : IKeyboardSink
+    {
+        public void PostKey(in KeyEvent e) { }
     }
 }

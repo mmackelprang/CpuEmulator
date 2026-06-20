@@ -6,11 +6,10 @@ namespace CpuEmulator.Surface.Web;
 /// Drives a <see cref="Machine"/> for a surface (design spec §5). Subscribes the display's
 /// <see cref="IDisplayDevice.FrameReady"/>, pulls RGBA via <see cref="IDisplayDevice.RenderInto"/>,
 /// encodes a frame (<see cref="FrameCodec"/>), and hands it to a transport-agnostic frame sink.
-/// Inbound keys route to <see cref="IKeyboardSink.PostKey"/>. Transport-agnostic on purpose: the
-/// WebSocket server (Program.cs) supplies the frame sink and calls <see cref="Step"/> on a
-/// wall-clock-paced loop; tests drive <see cref="RunHeadless"/> with no throttle. One machine per
-/// host (multi-machine is YAGNI). Frame pushes are coalesced: at most one frame per Step, using the
-/// latest RenderInto — so a slow sink never backs up the pump.
+/// OPTIONALLY does the same for audio: subscribes <see cref="IAudioSink.AudioReady"/>, pulls S16 via
+/// <see cref="IAudioSink.RenderAudio"/>, encodes an AU frame, and hands it to an audio sink. Inbound
+/// keys route to <see cref="IKeyboardSink.PostKey"/>. Frame/audio pushes are coalesced: at most one of
+/// each per Step, using the latest render.
 /// </summary>
 public sealed class MachineHost
 {
@@ -21,8 +20,17 @@ public sealed class MachineHost
     private readonly uint[] _rgba;
     private volatile bool _frameDirty;
 
+    private readonly IAudioSink? _audio;
+    private readonly Action<byte[]>? _audioSink;
+    private readonly short[]? _pcm;
+    private volatile bool _audioDirty;
+
     public MachineHost(Machine machine, IDisplayDevice display, IKeyboardSink keyboard,
                        Action<byte[]> frameSink)
+        : this(machine, display, keyboard, frameSink, null, null) { }
+
+    public MachineHost(Machine machine, IDisplayDevice display, IKeyboardSink keyboard,
+                       Action<byte[]> frameSink, IAudioSink? audio, Action<byte[]>? audioSink)
     {
         ArgumentNullException.ThrowIfNull(machine);
         ArgumentNullException.ThrowIfNull(display);
@@ -34,21 +42,38 @@ public sealed class MachineHost
         _frameSink = frameSink;
         _rgba = new uint[display.Width * display.Height];
         _display.FrameReady += () => _frameDirty = true;
+
+        _audio = audio;
+        _audioSink = audioSink;
+        if (audio is not null && audioSink is not null)
+        {
+            _pcm = new short[audio.SamplesPerFrame * audio.ChannelCount];
+            audio.AudioReady += () => _audioDirty = true;
+        }
     }
 
     /// <summary>Push a key into the machine's keyboard.</summary>
     public void PostKey(in KeyEvent e) => _keyboard.PostKey(e);
 
-    /// <summary>Run one slice of <paramref name="cycles"/>, then — if a vblank fired during it —
-    /// render the latest frame and push it to the sink (coalesced: one frame per Step).</summary>
+    /// <summary>Run one slice of <paramref name="cycles"/>, then — if a vblank / audio tick fired during
+    /// it — render + push the latest frame and PCM buffer (coalesced: one of each per Step).</summary>
     public void Step(long cycles)
     {
         _machine.Run(cycles);
-        if (!_frameDirty)
-            return;
-        _frameDirty = false;
-        _display.RenderInto(_rgba);
-        _frameSink(FrameCodec.EncodeFrame(_display.Width, _display.Height, _rgba));
+
+        if (_frameDirty)
+        {
+            _frameDirty = false;
+            _display.RenderInto(_rgba);
+            _frameSink(FrameCodec.EncodeFrame(_display.Width, _display.Height, _rgba));
+        }
+
+        if (_audioDirty && _audio is not null && _audioSink is not null && _pcm is not null)
+        {
+            _audioDirty = false;
+            _audio.RenderAudio(_pcm);
+            _audioSink(FrameCodec.EncodeAudio(_audio.SampleRate, _audio.ChannelCount, _pcm));
+        }
     }
 
     /// <summary>Headless/fast run (no wall-clock throttle): step in <paramref name="sliceCycles"/>
