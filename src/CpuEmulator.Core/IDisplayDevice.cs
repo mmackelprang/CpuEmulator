@@ -21,6 +21,6 @@ public interface IDisplayDevice
     /// a too-small span throws <see cref="ArgumentException"/>.</summary>
     void RenderInto(Span<uint> rgba);
 
-    /// <summary>Raised at the chip's vblank (scheduler-driven), signalling a complete frame.</summary>
-    event Action FrameReady;
+    /// <summary>Raised at the chip's vblank (scheduler-driven); may have no subscribers.</summary>
+    event Action? FrameReady;
 }

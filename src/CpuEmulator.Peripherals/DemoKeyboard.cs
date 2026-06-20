@@ -15,6 +15,13 @@ namespace CpuEmulator.Peripherals;
 /// and char-less events are no-ops. <see cref="Realize"/> claims <c>context.IrqLine.Source()</c>
 /// and the source is asserted while the queue is non-empty (level-IRQ, matching the UART rx path).
 /// AccessWidth is ignored (8-bit device).
+/// <para>
+/// Threading: <see cref="PostKey"/> only enqueues (safe from any thread via the
+/// <see cref="ConcurrentQueue{T}"/>); the IRQ line is recomputed exclusively on the
+/// guest-execution (pump) thread during register reads (STATUS poll or DATA dequeue), so the
+/// non-thread-safe <see cref="IInterruptLine"/> is never touched off-thread. A guest that polls
+/// STATUS (the demo) or reads DATA always observes an up-to-date IRQ line.
+/// </para>
 /// </summary>
 public sealed class DemoKeyboard : IPeripheral, IKeyboardSink
 {
@@ -29,8 +36,8 @@ public sealed class DemoKeyboard : IPeripheral, IKeyboardSink
     {
         if (e.Action != KeyAction.Down || e.Char is not char c)
             return;                          // ignore key-ups and char-less events
-        _keys.Enqueue(unchecked((byte)c));
-        UpdateIrqLevel();
+        _keys.Enqueue(unchecked((byte)c));   // enqueue only: the IRQ line is recomputed on the
+                                             // pump thread during Read (STATUS poll / DATA dequeue)
     }
 
     public uint Read(uint offset, AccessWidth width)
@@ -44,6 +51,7 @@ public sealed class DemoKeyboard : IPeripheral, IKeyboardSink
                 return value;
             }
             default:
+                UpdateIrqLevel();                                      // STATUS poll re-asserts/releases
                 return _keys.IsEmpty ? 0x00u : 0x01u;                  // STATUS: key-ready
         }
     }
