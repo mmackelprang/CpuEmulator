@@ -23,6 +23,9 @@ public static class BoardMachineFactory
             .WithAddressSpace(AddressSpaceKind.Program, spec.AddressBits,
                 new AddressSpaceOptions { Endianness = spec.Endianness });
 
+        if (spec.IoAddressBits > 0)
+            builder.WithAddressSpace(AddressSpaceKind.Io, spec.IoAddressBits);
+
         foreach (MemoryRegion region in spec.Memory)
         {
             switch (region.Kind)
@@ -34,13 +37,19 @@ public static class BoardMachineFactory
                     builder.WithRom(AddressSpaceKind.Program, region.Start, region.Image!);
                     break;
                 case RegionKind.Mmio:
-                    // An Mmio region is a hole that peripheral slots fill; no backing to map.
+                case RegionKind.IoMmio:
+                    // An Mmio/IoMmio region is a hole that peripheral slots fill; no backing to map.
                     break;
             }
         }
 
         foreach (PeripheralSlot slot in spec.Peripherals)
-            builder.WithPeripheral(AddressSpaceKind.Program, slot.Base, slot.Length, slot.Device);
+        {
+            AddressSpaceKind kind = slot.Space == PeripheralSpace.Io
+                ? AddressSpaceKind.Io
+                : AddressSpaceKind.Program;
+            builder.WithPeripheral(kind, slot.Base, slot.Length, slot.Device);
+        }
 
         builder.WithCpu(CpuCoreFactory.ForKind(spec.Cpu, AddressSpaceKind.Program, tier));
         return builder.Build();
