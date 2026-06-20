@@ -45,4 +45,49 @@ public class SpectrumKeyboardTests
         Assert.False(SpectrumKeyMatrix.TryMap(KeyCode.None, out _, out _));
         Assert.False(SpectrumKeyMatrix.TryMap(KeyCode.Tab, out _, out _)); // no Spectrum key
     }
+
+    private static SpectrumUla BareUla()
+    {
+        var space = new AddressSpace(AddressSpaceKind.Program, 16);
+        space.MapMemory(0x4000, new byte[0xC000], writable: true);
+        return new SpectrumUla(space);
+    }
+
+    [Fact]
+    public void Pressing_A_pulls_its_bit_low_only_on_the_FDFE_half_row()
+    {
+        var ula = BareUla();
+        ula.PostKey(new KeyEvent(KeyAction.Down, KeyCode.A, 'a')); // row 1 (A9), bit 0
+
+        // IN A,(0xFE) with A=0xFD selects the FDFE half-row (A9 low) → bit 0 reads 0 (pressed).
+        uint fdfe = ula.Read(0xFDFEu, AccessWidth.Byte);
+        Assert.Equal(0u, fdfe & 0x01);          // 'A' pressed → bit 0 low
+        Assert.Equal(0x1Eu, fdfe & 0x1F);       // the other 4 keys of the row still high
+
+        // A different half-row (FEFE = CAPS..V) is unaffected: all 5 bits high.
+        uint fefe = ula.Read(0xFEFEu, AccessWidth.Byte);
+        Assert.Equal(0x1Fu, fefe & 0x1F);
+
+        // Releasing A restores the bit.
+        ula.PostKey(new KeyEvent(KeyAction.Up, KeyCode.A, null));
+        Assert.Equal(0x1Fu, ula.Read(0xFDFEu, AccessWidth.Byte) & 0x1F);
+    }
+
+    [Fact]
+    public void Selecting_all_rows_with_port_00FE_ANDs_every_pressed_key()
+    {
+        var ula = BareUla();
+        ula.PostKey(new KeyEvent(KeyAction.Down, KeyCode.Space, ' ')); // row 7, bit 0
+        // Port 0x00FE: high byte 0x00 → every address line low → all 8 rows selected, ANDed.
+        uint all = ula.Read(0x00FEu, AccessWidth.Byte);
+        Assert.Equal(0u, all & 0x01); // SPACE pressed shows through (bit 0 of row 7)
+    }
+
+    [Fact]
+    public void Odd_ports_are_not_decoded_by_the_ULA()
+    {
+        var ula = BareUla();
+        ula.PostKey(new KeyEvent(KeyAction.Down, KeyCode.Space, ' '));
+        Assert.Equal(0xFFu, ula.Read(0xFFFFu, AccessWidth.Byte)); // odd port → open bus
+    }
 }
