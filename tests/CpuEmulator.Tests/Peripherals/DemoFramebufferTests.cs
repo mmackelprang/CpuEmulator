@@ -55,19 +55,18 @@ public class DemoFramebufferTests
         Assert.Throws<ArgumentException>(() => fb.RenderInto(new uint[10]));
     }
 
-    // Re-enabled in Task 8 once DemoSurfaceFixture.BuildMachineWith exists.
-    // [Fact]
-    // public void FrameReady_fires_on_the_scheduled_vblank_tick()
-    // {
-    //     var fb = new DemoFramebuffer();
-    //     bool fired = false;
-    //     fb.FrameReady += () => fired = true;
-    //
-    //     // Drive a Machine so the scheduler advances past one 60 Hz vblank interval.
-    //     var machine = CpuEmulator.Tests.Surface.DemoSurfaceFixture.BuildMachineWith(fb);
-    //     machine.Reset();
-    //     machine.Run(machine.Cpu is null ? 0 : 100_000); // > one vblank interval at the demo clock
-    //
-    //     Assert.True(fired);
-    // }
+    [Fact]
+    public void FrameReady_fires_on_the_scheduled_vblank_tick()
+    {
+        var fb = new DemoFramebuffer();
+        bool fired = false;
+        fb.FrameReady += () => fired = true;
+
+        // Drive a Machine so the scheduler advances past one 60 Hz vblank interval.
+        var machine = CpuEmulator.Tests.Surface.DemoSurfaceFixture.BuildMachineWith(fb);
+        machine.Reset();
+        machine.Run(machine.Cpu is null ? 0 : 100_000); // > one vblank interval at the demo clock
+
+        Assert.True(fired);
+    }
 }
