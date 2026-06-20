@@ -34,6 +34,29 @@ public static class FrameCodec
         return frame;
     }
 
+    private const int AudioHeaderBytes = 8;
+
+    /// <summary>Encode one S16 audio frame for the WebSocket. Wire shape mirrors the FB header size:
+    /// [0]='A' [1]='U' [2]=version(1) [3]=channelCount, [4..7]=u32 sampleCount (per channel * channels,
+    /// i.e. the total short count) LE, then <paramref name="samples"/> as little-endian S16. The host
+    /// sample rate is a fixed contract constant (44100) shared with the browser client, so it is not
+    /// carried per frame.</summary>
+    public static byte[] EncodeAudio(int sampleRate, int channels, ReadOnlySpan<short> samples)
+    {
+        _ = sampleRate; // fixed-rate contract; kept in the signature for call-site clarity
+        var frame = new byte[AudioHeaderBytes + samples.Length * 2];
+        frame[0] = (byte)'A';
+        frame[1] = (byte)'U';
+        frame[2] = 0x01;                 // version
+        frame[3] = (byte)channels;       // channel count
+        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(4, 4), (uint)samples.Length);
+
+        Span<byte> body = frame.AsSpan(AudioHeaderBytes);
+        for (int i = 0; i < samples.Length; i++)
+            BinaryPrimitives.WriteInt16LittleEndian(body.Slice(i * 2, 2), samples[i]);
+        return frame;
+    }
+
     public static bool TryDecodeKey(string json, out KeyEvent e)
     {
         e = default;
