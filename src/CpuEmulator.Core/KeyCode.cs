@@ -31,4 +31,8 @@ public enum KeyCode
     ArrowRight,
     ArrowUp,
     ArrowDown,
+
+    // ZX Spectrum modifier keys (additive; real machines extend KeyCode as needed).
+    CapsShift,
+    SymbolShift,
 }

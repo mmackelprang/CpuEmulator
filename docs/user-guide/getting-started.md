@@ -217,6 +217,24 @@ The `AB` is the guest's echo (keystrokes are not locally echoed — what you see
 
 ---
 
+## Running the web surface (ZX Spectrum)
+
+The `CpuEmulator.Surface.Web` project serves a browser canvas (RGBA frames out, key events in) over WebSocket. It boots the **ZX Spectrum 48K** when its 16K ROM is in the asset cache, and otherwise falls back to the SP0 demo board. The ROM is Amstrad's copyright and is **never vendored** — fetch it on demand:
+
+```bash
+tools/get-spectrum-rom.ps1   # PowerShell; or: sh tools/get-spectrum-rom.sh
+```
+
+Then run the server and open the printed URL in a browser:
+
+```bash
+dotnet run --project src/CpuEmulator.Surface.Web
+```
+
+With the ROM cached you get the BASIC copyright screen with a working keyboard; without it the server runs the SP0 demo unchanged. Click **enable sound** in the page for the beeper (Web Audio).
+
+---
+
 ## Known behaviors
 
 These behaviors are deliberate, not bugs. The canonical reference (with examples) is [Monitor Reference — known behaviors](monitor-reference.md#known-behaviors); in brief:
