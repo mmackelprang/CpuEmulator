@@ -1,4 +1,5 @@
 using CpuEmulator.Core;
+using CpuEmulator.Machines;
 using CpuEmulator.Peripherals;
 
 namespace CpuEmulator.Tests.Spectrum;
@@ -96,5 +97,23 @@ public class SpectrumScreenTests
 
         uint ink = rgba[(InkOriginY + 64) * FullW + (InkOriginX + 0)];
         Assert.Equal(SpectrumPalette.Colors[2], ink);
+    }
+
+    [Fact]
+    public void Spectrum_board_builds_with_z80_rom_ram_and_the_ula_io_slot()
+    {
+        var blankRom = new byte[SpectrumRom.RomLength]; // a HALT-at-0 ROM is enough to build/run
+        blankRom[0] = 0x76; // HALT at $0000
+
+        // The ULA needs the program space to read screen RAM; build the spec, then the machine wires it.
+        var program = new AddressSpace(AddressSpaceKind.Program, 16);
+        var ula = new SpectrumUla(program); // standalone ULA over a throwaway space for the spec shape
+        BoardSpec spec = SpectrumBoard.Spec(blankRom, ula);
+
+        Assert.Empty(BoardSpecValidator.Validate(spec));
+        Assert.Equal(16, spec.IoAddressBits);
+        Assert.Contains(spec.Peripherals, p => p.Space == PeripheralSpace.Io && p.Name == "ula");
+        Assert.Contains(spec.Memory, m => m.Kind == RegionKind.Rom && m.Start == 0x0000 && m.Length == 0x4000);
+        Assert.Contains(spec.Memory, m => m.Kind == RegionKind.Ram && m.Start == 0x4000 && m.Length == 0xC000);
     }
 }
