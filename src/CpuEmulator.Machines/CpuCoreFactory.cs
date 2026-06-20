@@ -31,7 +31,7 @@ public static class CpuCoreFactory
         return kind switch
         {
             CpuKind.Mos6502 => new Mos6502Cpu(bus),
-            CpuKind.Z80 => new Z80Cpu(bus),
+            CpuKind.Z80 => new Z80Cpu(bus, TryGetIoSpace(ctx)),
             CpuKind.M68000 => new M68000Cpu(bus),
             CpuKind.I8086 => new M8086Cpu(bus),
             _ => throw new MachineConfigurationException(
@@ -47,7 +47,7 @@ public static class CpuCoreFactory
         return kind switch
         {
             CpuKind.Mos6502 => new JittedCpu<Mos6502Cpu>(new Mos6502Cpu(bus), Mos6502Cpu.JitTarget, bus),
-            CpuKind.Z80 => BuildZ80Jit(bus),
+            CpuKind.Z80 => BuildZ80Jit(ctx, bus),
             // The 68000 + 8086 are von Neumann with memory-mapped I/O (no separate I/O space, no IoBus),
             // so they use the 6502-shape JittedCpu ctor (no ioBus arg), not the Z80's 3-bus form.
             CpuKind.M68000 => new JittedCpu<M68000Cpu>(new M68000Cpu(bus), M68000Cpu.JitTarget, bus),
@@ -57,11 +57,19 @@ public static class CpuCoreFactory
         };
     }
 
-    private static ICpuCore BuildZ80Jit(AddressSpace bus)
+    private static ICpuCore BuildZ80Jit(IMachineContext ctx, AddressSpace bus)
     {
-        var inner = new Z80Cpu(bus);
-        // The Z80's JIT routes Port-op callouts to its own Io space (inner.IoBus). The board's
-        // peripherals are memory-mapped (spec section 6), so the Io space stays empty here.
+        // The Z80's JIT routes Port-op callouts to the board's Io space when one is declared (the
+        // Spectrum ULA on port $FE), else its own empty Io space (pre-Spectrum boards).
+        var inner = new Z80Cpu(bus, TryGetIoSpace(ctx));
         return new JittedCpu<Z80Cpu>(inner, Z80Cpu.JitTarget, bus, inner.IoBus);
+    }
+
+    /// <summary>The board's Io AddressSpace if it declared one, else null (the Z80 makes its own empty
+    /// Io space). The Machine only exposes a space kind it was asked to build, so probe defensively.</summary>
+    private static IAddressSpace? TryGetIoSpace(IMachineContext ctx)
+    {
+        try { return ctx.Space(AddressSpaceKind.Io); }
+        catch (MachineConfigurationException) { return null; }
     }
 }

@@ -80,4 +80,37 @@ public class CpuCoreFactoryTests
         Assert.IsType<JittedCpu<M8086Cpu>>(machine.Cpu);
         Assert.Equal("m8086", machine.Cpu.Architecture);
     }
+
+    [Fact]
+    public void Z80_factory_routes_ports_to_the_supplied_io_space()
+    {
+        var program = new AddressSpace(AddressSpaceKind.Program, 16);
+        var io = new AddressSpace(AddressSpaceKind.Io, 16);
+        // Place a one-byte "device" in the Io space at port 0x00FE by backing one page and seeding it.
+        io.MapMemory(0xFE00, new byte[0x0100], writable: true);
+        io.Write8(0xFEFE, 0xA5); // port 0xFEFE
+
+        var ctx = new StubContext(program, io);
+        ICpuCore core = CpuCoreFactory.ForKind(CpuKind.Z80, AddressSpaceKind.Program, ExecutionTier.Interpreter)(ctx);
+        var z80 = Assert.IsType<Z80Cpu>(core);
+
+        // IN A,(0xFE) with A=0xFE forms port 0xFEFE; the core must read the supplied io space.
+        Assert.Same(io, z80.IoBus);
+    }
+
+    private sealed class StubContext : IMachineContext
+    {
+        private readonly AddressSpace _program;
+        private readonly AddressSpace? _io;
+        public StubContext(AddressSpace program, AddressSpace? io = null) { _program = program; _io = io; }
+        public IScheduler Scheduler => throw new NotSupportedException();
+        public IAddressSpace Space(AddressSpaceKind kind) => kind switch
+        {
+            AddressSpaceKind.Program => _program,
+            AddressSpaceKind.Io => _io ?? throw new InvalidOperationException("no io space"),
+            _ => throw new NotSupportedException(),
+        };
+        public IInterruptLine IrqLine => throw new NotSupportedException();
+        public IInterruptLine NmiLine => throw new NotSupportedException();
+    }
 }
