@@ -26,7 +26,7 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
     private const int HostSampleRate = 44100;
     private const int SamplesFrame = HostSampleRate / 50; // 882
 
-    private readonly IAddressSpace _ram;
+    private IAddressSpace _ram = default!; // bound in Realize (the machine's program space)
     private readonly byte[] _matrix = CreateIdleMatrix(); // 8 half-rows; bit set = NOT pressed (idle high)
     private int _border;                                  // 0..7 base colour
     private int _beeperLevel;                             // last OUT bit-4 level (0/1)
@@ -48,15 +48,17 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
     public int ChannelCount => 1;
     public int SamplesPerFrame => SamplesFrame;
 
-    public SpectrumUla(IAddressSpace ram)
+    /// <summary>Construct a ULA whose screen RAM is bound at Realize time to the machine's program
+    /// space. A test may pass an explicit space to render without a full Machine.</summary>
+    public SpectrumUla(IAddressSpace? ram = null)
     {
-        ArgumentNullException.ThrowIfNull(ram);
-        _ram = ram;
+        if (ram is not null) _ram = ram;
     }
 
     // ── IPeripheral: the guest CPU's port $FE (offset IS the full 16-bit port; bit 0 == 0 decoded). ──
     public void Realize(IMachineContext context)
     {
+        _ram = context.Space(AddressSpaceKind.Program);
         _irq = context.IrqLine.Source();
         _frameStartCycle = context.Scheduler.CurrentCycle;
         context.Scheduler.ScheduleEvery(TStatesPerFrame, OnFrameTick);

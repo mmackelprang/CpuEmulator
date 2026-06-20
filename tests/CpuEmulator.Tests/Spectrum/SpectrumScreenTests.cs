@@ -116,4 +116,27 @@ public class SpectrumScreenTests
         Assert.Contains(spec.Memory, m => m.Kind == RegionKind.Rom && m.Start == 0x0000 && m.Length == 0x4000);
         Assert.Contains(spec.Memory, m => m.Kind == RegionKind.Ram && m.Start == 0x4000 && m.Length == 0xC000);
     }
+
+    [Fact]
+    public void A_built_spectrum_machine_renders_ram_the_guest_wrote()
+    {
+        var blankRom = new byte[SpectrumRom.RomLength];
+        blankRom[0] = 0x76; // HALT
+
+        // Two-phase: build the machine, THEN point a ULA at its program space, THEN build the real spec.
+        // The supported pattern (see SpectrumSurface): construct the ULA over the machine's program space.
+        Machine machine = SpectrumMachine.Build(blankRom, out SpectrumUla ula);
+        machine.Reset();
+
+        // The guest "wrote" screen byte + attribute via the program space (simulating ROM/game output).
+        var prog = machine.Space(AddressSpaceKind.Program);
+        prog.Write8(0x4000, 0x80);  // pixel (0,0) ink
+        prog.Write8(0x5800, (byte)(2 | (7 << 3))); // red ink on white paper
+
+        var rgba = new uint[SpectrumUla.FullWidth * SpectrumUla.FullHeight];
+        ula.RenderInto(rgba);
+
+        int px = SpectrumUla.BorderPx, py = SpectrumUla.BorderPx;
+        Assert.Equal(SpectrumPalette.Colors[2], rgba[py * SpectrumUla.FullWidth + px]); // red ink
+    }
 }
