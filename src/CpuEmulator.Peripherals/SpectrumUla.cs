@@ -33,7 +33,6 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
 
     // Beeper toggle log: (tStateWithinFrame, level) pairs accumulated across a frame.
     private readonly List<(long t, int level)> _beeperLog = new();
-    private long _frameStartCycle;
     private IInterruptLine? _irq;
     private bool _flashPhase;     // toggles every 16 frames (the FLASH attribute)
     private int _frameCounter;
@@ -60,7 +59,6 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
     {
         _ram = context.Space(AddressSpaceKind.Program);
         _irq = context.IrqLine.Source();
-        _frameStartCycle = context.Scheduler.CurrentCycle;
         context.Scheduler.ScheduleEvery(TStatesPerFrame, OnFrameTick);
     }
 
