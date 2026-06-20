@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The web surface for the "real machines" arc: a local HTTP + WebSocket server (ASP.NET Core
+    minimal, built into .NET 10 — no heavy GUI dependency) → a browser HTML/JS canvas client.
+    Intentionally NOT IsAotCompatible: it references CpuEmulator.Machines (→ CpuEmulator.Jit,
+    Reflection.Emit) and ASP.NET Core, exactly like the Host post-piece-#3. The emulator CORE
+    stays GUI-free; this is one frontend behind the IDisplayDevice / IKeyboardSink / IBlockDevice
+    contracts.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CpuEmulator.Core\CpuEmulator.Core.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
+    <ProjectReference Include="..\CpuEmulator.Machines\CpuEmulator.Machines.csproj" />
+  </ItemGroup>
+
+</Project>

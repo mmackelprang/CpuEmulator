@@ -21,6 +21,10 @@
     <ProjectReference Include="..\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
     <ProjectReference Include="..\CpuEmulator.Cpus.M68000\CpuEmulator.Cpus.M68000.csproj" />
     <ProjectReference Include="..\CpuEmulator.Cpus.M8086\CpuEmulator.Cpus.M8086.csproj" />
+    <!-- DemoBoardRom assembles its 6502 image at startup via the monitor's single-instruction
+         assembler (the same pattern as the host's DemoRom). Monitor references only Core, so this
+         adds no cycle. -->
+    <ProjectReference Include="..\CpuEmulator.Monitor\CpuEmulator.Monitor.csproj" />
   </ItemGroup>
 
 </Project>
