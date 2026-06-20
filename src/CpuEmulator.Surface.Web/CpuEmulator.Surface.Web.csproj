@@ -12,10 +12,6 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Temporary: the Web SDK defaults OutputType to Exe and needs a Main/top-level entry point.
-         Program.cs (Task 12) provides the real top-level-statement entry point; this Library
-         override is removed there so the host runs as an executable. -->
-    <OutputType>Library</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
