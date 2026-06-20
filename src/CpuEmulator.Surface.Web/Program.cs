@@ -39,14 +39,18 @@ public class Program
     }
 }
 
-/// <summary>One WebSocket session: a DemoBoardSurface whose frames stream to the socket, a
-/// wall-clock pump task, and an inbound key-event read loop. Closes when the socket closes or
-/// the request aborts.</summary>
+/// <summary>One WebSocket session: a machine surface whose frames stream to the socket, a
+/// wall-clock pump task, and an inbound key-event read loop. Boots the ZX Spectrum when its ROM is
+/// cached, else the SP0 demo board. Closes when the socket closes or the request aborts.</summary>
 internal static class DemoSession
 {
-    // ~60 Hz pacing: one ~16,667-cycle slice every ~16 ms of wall-clock.
+    // ~60 Hz pacing for the demo: one ~16,667-cycle slice every ~16 ms of wall-clock.
     private const long SliceCycles = 16_667;
     private static readonly TimeSpan SlicePeriod = TimeSpan.FromMilliseconds(16);
+
+    // The Spectrum runs at 3.5 MHz: one ~70k-T slice every ~20 ms wall-clock (50 Hz).
+    private const long SpectrumPumpCycles = 69_888;
+    private static readonly TimeSpan SpectrumPeriod = TimeSpan.FromMilliseconds(20);
 
     public static async Task RunAsync(WebSocket socket, CancellationToken ct)
     {
@@ -55,26 +59,32 @@ internal static class DemoSession
         Channel<byte[]> audio = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
 
-        DemoBoardSurface surface = DemoBoardSurface.Create(frame => frames.Writer.TryWrite(frame));
-        // The demo board has no audio device; the audio channel stays empty. A machine surface that
-        // wires an IAudioSink (the Spectrum, Phase 2) writes here via its MachineHost audio sink.
+        // Boot the Spectrum if its ROM is in the cache; otherwise fall back to the SP0 demo board.
+        string? romPath = CpuEmulator.Machines.SpectrumRom.TryGetPath();
+        ISurfacePump pump;
+        if (romPath is not null)
+        {
+            byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
+            SpectrumSurface spectrum = SpectrumSurface.Create(rom,
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+            pump = new SurfacePump(spectrum.Host, SpectrumPumpCycles, SpectrumPeriod);
+        }
+        else
+        {
+            // The demo board has no audio device; the audio channel stays empty.
+            DemoBoardSurface demo = DemoBoardSurface.Create(f => frames.Writer.TryWrite(f));
+            pump = new SurfacePump(demo.Host, SliceCycles, SlicePeriod);
+        }
 
-        Task pump = PumpAsync(surface, ct);
+        Task drive = pump.RunAsync(ct);
         Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);
         Task sendAudio = SendBinaryAsync(socket, audio.Reader, ct);
-        Task recv = ReceiveKeysAsync(socket, surface, ct);
+        Task recv = ReceiveKeysAsync(socket, pump, ct);
 
-        await Task.WhenAny(pump, sendFrames, sendAudio, recv);
+        await Task.WhenAny(drive, sendFrames, sendAudio, recv);
         frames.Writer.TryComplete();
         audio.Writer.TryComplete();
-        try { await Task.WhenAll(pump, sendFrames, sendAudio, recv); } catch { /* teardown races expected */ }
-    }
-
-    private static async Task PumpAsync(DemoBoardSurface surface, CancellationToken ct)
-    {
-        using var timer = new PeriodicTimer(SlicePeriod);
-        while (await timer.WaitForNextTickAsync(ct))
-            surface.Host.Step(SliceCycles);
+        try { await Task.WhenAll(drive, sendFrames, sendAudio, recv); } catch { /* teardown races expected */ }
     }
 
     private static async Task SendBinaryAsync(WebSocket socket, ChannelReader<byte[]> reader,
@@ -88,7 +98,7 @@ internal static class DemoSession
         }
     }
 
-    private static async Task ReceiveKeysAsync(WebSocket socket, DemoBoardSurface surface,
+    private static async Task ReceiveKeysAsync(WebSocket socket, ISurfacePump pump,
                                               CancellationToken ct)
     {
         var buffer = new byte[1024];
@@ -104,7 +114,37 @@ internal static class DemoSession
                 continue;
             string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
             if (FrameCodec.TryDecodeKey(json, out KeyEvent e))
-                surface.Host.PostKey(e);
+                pump.PostKey(e);
         }
+    }
+
+    /// <summary>A surface the session can step on a wall-clock timer and route keys to — both the
+    /// SP0 demo and the Spectrum expose a <see cref="MachineHost"/>, so this hides which is running.</summary>
+    private interface ISurfacePump
+    {
+        Task RunAsync(CancellationToken ct);
+        void PostKey(in KeyEvent e);
+    }
+
+    private sealed class SurfacePump : ISurfacePump
+    {
+        private readonly MachineHost _host;
+        private readonly long _slice;
+        private readonly TimeSpan _period;
+        public SurfacePump(MachineHost host, long slice, TimeSpan period)
+        {
+            _host = host;
+            _slice = slice;
+            _period = period;
+        }
+
+        public async Task RunAsync(CancellationToken ct)
+        {
+            using var timer = new PeriodicTimer(_period);
+            while (await timer.WaitForNextTickAsync(ct))
+                _host.Step(_slice);
+        }
+
+        public void PostKey(in KeyEvent e) => _host.PostKey(e);
     }
 }
