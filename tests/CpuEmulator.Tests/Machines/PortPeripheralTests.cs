@@ -52,4 +52,50 @@ public class PortPeripheralTests
         var region = new MemoryRegion(0x0000, 0x0100, RegionKind.IoMmio);
         Assert.Equal(PeripheralSpace.Program, region.Space);
     }
+
+    private static BoardSpec Z80IoSpec(IPeripheral ioDevice) =>
+        new("io-board", CpuKind.Z80, AddressBits: 16,
+            Memory:
+            [
+                new MemoryRegion(0x0000, 0x1000, RegionKind.Rom, new byte[0x1000]),
+                new MemoryRegion(0x1000, 0xF000, RegionKind.Ram),
+                new MemoryRegion(0x0000, 0x10000, RegionKind.IoMmio, Space: PeripheralSpace.Io),
+            ],
+            Peripherals:
+            [
+                new PeripheralSlot("io-dev", ioDevice, 0x0000, 0x10000, PeripheralSpace.Io),
+            ],
+            Irq: IrqWiring.None,
+            Reset: ResetConfig.None,
+            IoAddressBits: 16);
+
+    [Fact]
+    public void A_well_formed_io_board_has_no_diagnostics()
+    {
+        Assert.Empty(BoardSpecValidator.Validate(Z80IoSpec(new PortEchoDevice())));
+    }
+
+    [Fact]
+    public void An_io_slot_without_a_declared_io_space_is_flagged()
+    {
+        BoardSpec spec = Z80IoSpec(new PortEchoDevice()) with { IoAddressBits = 0 };
+        IReadOnlyList<BoardDiagnostic> diags = BoardSpecValidator.Validate(spec);
+        Assert.Contains(diags, d => d.Code == "io-space-undeclared");
+    }
+
+    [Fact]
+    public void An_io_slot_outside_any_iommio_region_is_flagged()
+    {
+        BoardSpec spec = Z80IoSpec(new PortEchoDevice()) with
+        {
+            Memory =
+            [
+                new MemoryRegion(0x0000, 0x1000, RegionKind.Rom, new byte[0x1000]),
+                new MemoryRegion(0x1000, 0xF000, RegionKind.Ram),
+                // no IoMmio region declared
+            ],
+        };
+        IReadOnlyList<BoardDiagnostic> diags = BoardSpecValidator.Validate(spec);
+        Assert.Contains(diags, d => d.Code == "io-slot-not-in-iommio");
+    }
 }
