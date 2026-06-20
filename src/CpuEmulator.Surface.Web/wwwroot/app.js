@@ -12,10 +12,54 @@
   ws.onclose = () => { status.textContent = "disconnected"; };
   ws.onerror = () => { status.textContent = "error"; };
 
+  // --- Web Audio (the beeper / AU frames) ---
+  const AUDIO_RATE = 44100;            // fixed contract rate (matches IAudioSink.SampleRate)
+  let audioCtx = null;
+  let nextStartTime = 0;               // running schedule cursor (seconds, in the AudioContext clock)
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: AUDIO_RATE });
+    nextStartTime = audioCtx.currentTime;
+  }
+
+  // A user gesture is required to start audio (browser autoplay policy).
+  document.getElementById("enable-sound").addEventListener("click", () => {
+    ensureAudio();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    document.getElementById("enable-sound").textContent = "sound on";
+  });
+
+  function handleAudioFrame(data) {
+    if (!audioCtx || audioCtx.state !== "running") return; // sound not enabled yet
+    const channels = data.getUint8(3);
+    const sampleCount = data.getUint32(4, true);           // total shorts
+    const perChannel = sampleCount / channels;
+    const pcm = new Int16Array(data.buffer, 8, sampleCount);
+
+    const buffer = audioCtx.createBuffer(channels, perChannel, AUDIO_RATE);
+    for (let ch = 0; ch < channels; ch++) {
+      const out = buffer.getChannelData(ch);
+      for (let i = 0; i < perChannel; i++)
+        out[i] = pcm[i * channels + ch] / 32768.0;         // S16 → float [-1,1]
+    }
+
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(audioCtx.destination);
+    // Schedule back-to-back; if we've fallen behind, snap to now to avoid a growing gap.
+    const now = audioCtx.currentTime;
+    if (nextStartTime < now) nextStartTime = now;
+    src.start(nextStartTime);
+    nextStartTime += buffer.duration;
+  }
+
   // Decode a binary FB frame: 'F','B', version, reserved, u16 width LE, u16 height LE, then RGBA u32 LE.
   ws.onmessage = (ev) => {
     const data = new DataView(ev.data);
-    if (data.getUint8(0) !== 0x46 || data.getUint8(1) !== 0x42) return; // not "FB"
+    const m0 = data.getUint8(0), m1 = data.getUint8(1);
+    if (m0 === 0x41 && m1 === 0x55) { handleAudioFrame(data); return; } // 'A','U'
+    if (m0 !== 0x46 || m1 !== 0x42) return;                             // not 'F','B'
     const width = data.getUint16(4, true);
     const height = data.getUint16(6, true);
     if (canvas.width !== width || canvas.height !== height) {

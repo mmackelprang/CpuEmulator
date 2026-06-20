@@ -8,7 +8,10 @@ namespace CpuEmulator.Machines;
 /// instantiates it into the existing runnable Machine. AddressBits is the CPU's bus width (16 for
 /// the 6502/Z80; 8-24 per AddressSpace). Endianness is the program-bus byte order — little-endian by
 /// default (the 6502/Z80/8086 convention); a big-endian CPU (the 68000) declares BigEndian so its wide
-/// bus reads — the reset vectors and the fetched instruction stream — are byte-ordered correctly.</summary>
+/// bus reads — the reset vectors and the fetched instruction stream — are byte-ordered correctly.
+/// IoAddressBits, when &gt; 0, declares a separate I/O PORT space of that width (the Z80 IN/OUT range
+/// = 16) into which IoMmio regions + Io peripheral slots are mapped; 0 (the default) means the board
+/// has no I/O space (every pre-Spectrum board).</summary>
 public sealed record BoardSpec(
     string Name,
     CpuKind Cpu,
@@ -17,4 +20,5 @@ public sealed record BoardSpec(
     IReadOnlyList<PeripheralSlot> Peripherals,
     IrqWiring Irq,
     ResetConfig Reset,
-    Endianness Endianness = Endianness.LittleEndian);
+    Endianness Endianness = Endianness.LittleEndian,
+    int IoAddressBits = 0);

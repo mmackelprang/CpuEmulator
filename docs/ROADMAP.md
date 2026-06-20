@@ -87,10 +87,12 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
    is a stub). A field-grammar-walking disassembler would give the 68000 monitor host the same
    mnemonic rendering the 6502/Z80/8086 already have. Surfaced by "CPUs → computers" piece #3.
 
-7. **[deferred] `IAudioSink` for the first real machine's beeper.** SP0 deliberately omits sound. The
-   first real machine (e.g. the ZX Spectrum 48K beeper) needs a host-facing audio-output contract,
-   shaped like the SP0 display/keyboard contracts (the chip produces samples; the surface plays them
-   over the WebSocket). Designed at that machine's spec time, not built in SP0.
+7. **[scheduled] `IAudioSink` + port-mapped I/O — the first-real-machine foundation.** Landed as Phase 1
+   of the ZX Spectrum arc (`docs/superpowers/plans/2026-06-19-spectrum-1-extensions.md`): `IAudioSink`
+   (the audio analogue of `IDisplayDevice`; the chip renders an S16 PCM frame, the surface plays it over
+   the WebSocket via Web Audio), and a port-mapped peripheral slot in the board model (`BoardSpec.IoAddressBits`
+   + an `Io` `PeripheralSpace` discriminator — a `BoardSpec` peripheral on the Z80 I/O port space, decoding
+   the full 16-bit port address). Both proven with synthetic test devices; the ULA consumes them in Phase 2.
 
 **Further candidates (unprioritized):**
 

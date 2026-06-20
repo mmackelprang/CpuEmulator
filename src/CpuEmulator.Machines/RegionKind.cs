@@ -11,4 +11,8 @@ public enum RegionKind
 
     /// <summary>A device window (peripheral slots must land in/over an Mmio region).</summary>
     Mmio,
+
+    /// <summary>The I/O-port-space analogue of Mmio: a hole an Io slot fills (a CPU with a separate
+    /// I/O port space — the Z80 IN/OUT range).</summary>
+    IoMmio,
 }

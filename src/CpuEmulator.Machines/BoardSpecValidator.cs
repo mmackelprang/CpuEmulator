@@ -14,6 +14,7 @@ public static class BoardSpecValidator
         ValidateRegions(spec, diagnostics);
         ValidateRomImages(spec, diagnostics);
         ValidatePeripheralSlots(spec, diagnostics);
+        ValidateIoSpace(spec, diagnostics);
         ValidateIrqWiring(spec, diagnostics);
         ValidateVectorPatches(spec, diagnostics);
         return diagnostics;
@@ -36,6 +37,9 @@ public static class BoardSpecValidator
     {
         foreach (PeripheralSlot slot in spec.Peripherals)
         {
+            if (slot.Space == PeripheralSpace.Io)
+                continue; // Io slots are validated by ValidateIoSpace
+
             if (slot.Base % PageSize != 0 || slot.Length == 0 || slot.Length % PageSize != 0)
                 diagnostics.Add(new BoardDiagnostic("slot-misaligned",
                     $"Peripheral '{slot.Name}' slot at ${slot.Base:X} (length ${slot.Length:X}) "
@@ -88,6 +92,49 @@ public static class BoardSpecValidator
         }
     }
 
+    private static void ValidateIoSpace(BoardSpec spec, List<BoardDiagnostic> diagnostics)
+    {
+        bool hasIoSlots = spec.Peripherals.Any(p => p.Space == PeripheralSpace.Io);
+        bool hasIoRegions = spec.Memory.Any(r => r.Space == PeripheralSpace.Io);
+
+        if ((hasIoSlots || hasIoRegions) && spec.IoAddressBits <= 0)
+        {
+            diagnostics.Add(new BoardDiagnostic("io-space-undeclared",
+                "The board has Io regions/slots but IoAddressBits is 0; set IoAddressBits (16 for the Z80)."));
+            return; // further Io checks need a declared space width
+        }
+
+        if (spec.IoAddressBits == 0)
+            return;
+
+        ulong ioCeiling = 1UL << spec.IoAddressBits;
+
+        foreach (PeripheralSlot slot in spec.Peripherals)
+        {
+            if (slot.Space != PeripheralSpace.Io)
+                continue;
+
+            if (slot.Base % PageSize != 0 || slot.Length == 0 || slot.Length % PageSize != 0)
+                diagnostics.Add(new BoardDiagnostic("io-slot-misaligned",
+                    $"Io peripheral '{slot.Name}' slot at ${slot.Base:X} (length ${slot.Length:X}) "
+                  + $"must be page-aligned: start a multiple of {PageSize}, length a positive multiple."));
+
+            if ((ulong)slot.Base + slot.Length > ioCeiling)
+                diagnostics.Add(new BoardDiagnostic("io-slot-out-of-range",
+                    $"Io peripheral '{slot.Name}' slot [${slot.Base:X}, ${(ulong)slot.Base + slot.Length:X}) "
+                  + $"exceeds the {spec.IoAddressBits}-bit I/O space (ceiling ${ioCeiling:X})."));
+
+            bool inIoMmio = spec.Memory.Any(r =>
+                r.Space == PeripheralSpace.Io && r.Kind == RegionKind.IoMmio &&
+                slot.Base >= r.Start &&
+                (ulong)slot.Base + slot.Length <= (ulong)r.Start + r.Length);
+            if (!inIoMmio)
+                diagnostics.Add(new BoardDiagnostic("io-slot-not-in-iommio",
+                    $"Io peripheral '{slot.Name}' slot [${slot.Base:X}, ${(ulong)slot.Base + slot.Length:X}) "
+                  + "is not fully contained in any IoMmio region."));
+        }
+    }
+
     private static void ValidateRegions(BoardSpec spec, List<BoardDiagnostic> diagnostics)
     {
         // Top of the bus for this address width (e.g. 0xFFFF for 16 bits).
@@ -96,6 +143,9 @@ public static class BoardSpecValidator
         for (int i = 0; i < spec.Memory.Count; i++)
         {
             MemoryRegion r = spec.Memory[i];
+
+            if (r.Space == PeripheralSpace.Io)
+                continue; // Io regions are validated against the I/O ceiling in ValidateIoSpace
 
             if (r.Length == 0 || r.Start % PageSize != 0 || r.Length % PageSize != 0)
                 diagnostics.Add(new BoardDiagnostic("region-misaligned",
@@ -110,6 +160,8 @@ public static class BoardSpecValidator
             for (int j = i + 1; j < spec.Memory.Count; j++)
             {
                 MemoryRegion other = spec.Memory[j];
+                if (other.Space == PeripheralSpace.Io)
+                    continue; // Io regions live in a different space; checked by ValidateIoSpace
                 if (r.Start < other.Start + other.Length && other.Start < r.Start + r.Length)
                     diagnostics.Add(new BoardDiagnostic("region-overlap",
                         $"Region [${r.Start:X}, ${r.Start + r.Length:X}) overlaps "
