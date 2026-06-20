@@ -1,9 +1,16 @@
 # SP0 — Emulated-computer foundation: web surface + device contracts + demo machine
 
 **Date:** 2026-06-17
-**Status:** DESIGN APPROVED (brainstorm 2026-06-17). **Implementation DEFERRED** — by owner's decision, SP0 is built
-only **after M5 (8086) and M6 (JIT optimizations) ship**. This spec is the stable design; the implementation plan
-(`writing-plans`) is authored when SP0 is scheduled.
+**Status:** IMPLEMENTED (2026-06-19). Built per the plan
+`docs/superpowers/plans/2026-06-19-sp0-web-surface.md`.
+**Reconciliation with the Machine-model arc (shipped 2026-06-19, after this spec was written):** the
+spec's hand-wired "DemoMachine" is realized as a declarative **`DemoBoard` `BoardSpec`** (RAM + a
+framebuffer/keyboard/disk MMIO slots) built through the existing **`BoardMachineFactory`**, NOT a
+hand-wired machine — `CpuEmulator.Machines` already existed. The web surface (`MachineHost` in the
+new `CpuEmulator.Surface.Web`) **coexists** with the monitor host (piece #3) as a parallel surface
+over the same `Machine` (canvas vs REPL). Sound stays out of SP0; an `IAudioSink`-shaped follow-on
+for the first real machine's beeper is noted in the ROADMAP, not built. The three `Core` contracts
+(`IDisplayDevice`/`IKeyboardSink`/`IBlockDevice`) shipped exactly as designed in §4.
 **Kind:** new subsystem (the first slice of the "emulated computer" arc) — extends the existing device model.
 
 ---
