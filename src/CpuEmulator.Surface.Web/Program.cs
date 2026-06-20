@@ -50,19 +50,24 @@ internal static class DemoSession
 
     public static async Task RunAsync(WebSocket socket, CancellationToken ct)
     {
-        // Bounded channel of encoded frames; drop-oldest if the client can't keep up.
         Channel<byte[]> frames = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.DropOldest });
+        Channel<byte[]> audio = Channel.CreateBounded<byte[]>(
+            new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
 
         DemoBoardSurface surface = DemoBoardSurface.Create(frame => frames.Writer.TryWrite(frame));
+        // The demo board has no audio device; the audio channel stays empty. A machine surface that
+        // wires an IAudioSink (the Spectrum, Phase 2) writes here via its MachineHost audio sink.
 
         Task pump = PumpAsync(surface, ct);
-        Task send = SendFramesAsync(socket, frames.Reader, ct);
+        Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);
+        Task sendAudio = SendBinaryAsync(socket, audio.Reader, ct);
         Task recv = ReceiveKeysAsync(socket, surface, ct);
 
-        await Task.WhenAny(pump, send, recv);
+        await Task.WhenAny(pump, sendFrames, sendAudio, recv);
         frames.Writer.TryComplete();
-        try { await Task.WhenAll(pump, send, recv); } catch { /* socket teardown races are expected */ }
+        audio.Writer.TryComplete();
+        try { await Task.WhenAll(pump, sendFrames, sendAudio, recv); } catch { /* teardown races expected */ }
     }
 
     private static async Task PumpAsync(DemoBoardSurface surface, CancellationToken ct)
@@ -72,7 +77,7 @@ internal static class DemoSession
             surface.Host.Step(SliceCycles);
     }
 
-    private static async Task SendFramesAsync(WebSocket socket, ChannelReader<byte[]> reader,
+    private static async Task SendBinaryAsync(WebSocket socket, ChannelReader<byte[]> reader,
                                               CancellationToken ct)
     {
         await foreach (byte[] frame in reader.ReadAllAsync(ct))
