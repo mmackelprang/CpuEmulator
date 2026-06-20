@@ -42,6 +42,7 @@
     <ProjectReference Include="..\..\src\CpuEmulator.Host\CpuEmulator.Host.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Jit\CpuEmulator.Jit.csproj" />
     <ProjectReference Include="..\..\src\CpuEmulator.Machines\CpuEmulator.Machines.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Surface.Web\CpuEmulator.Surface.Web.csproj" />
     <!-- The bench CORE library (Task 8 smoke test). NOT the runner — that owns BenchmarkDotNet, which
          is deliberately kept out of the test graph (wiring choice (b)). -->
     <ProjectReference Include="..\..\bench\CpuEmulator.Benchmarks\CpuEmulator.Benchmarks.csproj" />

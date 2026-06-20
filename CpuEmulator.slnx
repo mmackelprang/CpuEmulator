@@ -15,6 +15,7 @@
     <Project Path="src/CpuEmulator.Monitor/CpuEmulator.Monitor.csproj" />
     <Project Path="src/CpuEmulator.Peripherals/CpuEmulator.Peripherals.csproj" />
     <Project Path="src/CpuEmulator.Host/CpuEmulator.Host.csproj" />
+    <Project Path="src/CpuEmulator.Surface.Web/CpuEmulator.Surface.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CpuEmulator.Tests/CpuEmulator.Tests.csproj" />
