@@ -19,7 +19,7 @@ public class WebServerSmokeTests : IClassFixture<WebApplicationFactory<WebProgra
     private readonly WebApplicationFactory<WebProgram> _factory;
     public WebServerSmokeTests(WebApplicationFactory<WebProgram> factory) => _factory = factory;
 
-    [Fact(Skip = "client added in Task 13")]
+    [Fact]
     public async Task Root_serves_the_canvas_client()
     {
         using HttpClient client = _factory.CreateClient();
