@@ -29,15 +29,11 @@ public sealed class Apple2LanguageCard : IPeripheral
 
     private IAddressSpace _bus = default!;  // the live program bus, captured in Realize
 
-    // Decoded LC state (power-on = read-ROM, write-protected, bank 1). The decode that reads/writes
-    // these lands in Task 2's Access/ApplyMapping; pragma-suppressed here so the Task-1 skeleton is
-    // warning-clean (TreatWarningsAsErrors) until then.
-#pragma warning disable CS0169, CS0414 // unused/assigned-only until Task 2 wires the decode
+    // Decoded LC state (power-on = read-ROM, write-protected, bank 1).
     private bool _readRam;        // false => read ROM, true => read LC RAM
     private bool _writeEnabled;   // LC RAM writable (armed by two consecutive odd-$C08x reads)
     private int _bank = 1;        // 1 or 2 (the $D000 bank)
     private int _armCount;        // consecutive-qualifying-read counter (0,1 -> 2 arms write)
-#pragma warning restore CS0169, CS0414
 
     /// <summary>Test-only: total $C08x accesses seen (proves the IOU delegate seam).</summary>
     public long AccessCount { get; private set; }
@@ -66,11 +62,57 @@ public sealed class Apple2LanguageCard : IPeripheral
     public void Write(uint offset, AccessWidth width, uint value) { }
 
     /// <summary>Called by the IOU for every $C080-$C08F access (offset 0x80-0x8F, isRead = it was a
-    /// Read). The DECODE + Remap land in Task 2; for now just count + return a floating-bus 0.</summary>
+    /// Read). Decodes the bank / read-source / write-enable per the standard LC truth table (Sather),
+    /// then re-points $D000/$E000 via the shipped Remap.</summary>
     public byte Access(byte offset, bool isRead)
     {
         AccessCount++;
-        // (Task 2 fills in the decode + the Remap drive here.)
-        return 0x00;
+        int o = offset & 0x0F;   // $C080-$C08F low nibble
+
+        // Bank select: the $C088 line (bit 3) picks the $D000 bank. Polarity is pinned by the Task-2
+        // gate: $C083 (o=3, bit 3 clear) selects bank 1; $C08B (o=$B, bit 3 set) selects bank 2.
+        _bank = (o & 0x08) == 0 ? 1 : 2;   // bit 3 clear => bank 1, set => bank 2 (gated by Task 2)
+
+        // Read source: read RAM when (o & 0x03) is 0 or 3; read ROM when it is 1 or 2.
+        int sel = o & 0x03;
+        _readRam = sel is 0 or 3;
+
+        // Pre-write flip-flop: an ODD address (bit 0 set) READ arms; two consecutive arm-reads enable
+        // writes. Any non-qualifying access (a write, or an even address) resets the counter + disables.
+        bool qualifies = isRead && (o & 0x01) != 0;
+        if (qualifies)
+        {
+            if (_armCount < 2) _armCount++;
+            _writeEnabled = _armCount >= 2;
+        }
+        else
+        {
+            _armCount = 0;
+            _writeEnabled = false;
+        }
+
+        ApplyMapping();
+        return 0x00;   // floating bus on a soft-switch read (the side effect is the remap)
+    }
+
+    /// <summary>Re-point $D000 (the active bank) + $E000 (shared) at ROM or RAM per the decoded state,
+    /// via the shipped IAddressSpace.Remap (PR-A). Read-ROM -> map the ROM slices read-only. Read-RAM ->
+    /// map the RAM arrays with the decoded writability. (The ][+ "read ROM / write RAM" split collapses
+    /// to a single backing per page on the shipped single-backing page table — PR-E maps the READ source;
+    /// the write-enable rides the same backing's Writable flag, so read-RAM+write-enabled is the writable
+    /// case DOS/ProDOS/CP/M use. Read-ROM is read-only; a separate write-through-to-RAM-while-reading-ROM
+    /// page is out of scope and not needed for the target software — noted for the JIT-tier follow-on.)</summary>
+    private void ApplyMapping()
+    {
+        if (_readRam)
+        {
+            _bus.Remap(DBank, _bank == 1 ? _bankD1 : _bankD2, writable: _writeEnabled);
+            _bus.Remap(EShared, _sharedE, writable: _writeEnabled);
+        }
+        else
+        {
+            _bus.Remap(DBank, _romD, writable: false);     // read system ROM at $D000
+            _bus.Remap(EShared, _romE, writable: false);   // read system ROM at $E000
+        }
     }
 }
