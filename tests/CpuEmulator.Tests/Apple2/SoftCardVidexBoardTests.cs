@@ -98,4 +98,36 @@ public class SoftCardVidexBoardTests
         }
         finally { Directory.Delete(root, recursive: true); }
     }
+
+    [Fact]
+    public void SoftCardVidexSurface_constructs_renders_and_wires_the_auto_switch()
+    {
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;
+        var bootRom = DiskBootRom();
+        IBlockDevice cpm = new DiskImage(new byte[SoftCardCpm.DiskLength], 256, isReadOnly: true);
+
+        byte[]? lastFrame = null;
+        CpuEmulator.Surface.Web.SoftCardVidexSurface surface =
+            CpuEmulator.Surface.Web.SoftCardVidexSurface.Create(rom, bootRom, charRom: null,
+                videxCharRom: null, videxFirmware: null, cpmDisk: cpm, f => lastFrame = f, _ => { });
+
+        surface.Host.RunHeadless(totalCycles: 40_000, sliceCycles: 17_030);
+
+        // At boot the Apple 40-col video is the active display source (index 0): a 280x192 frame.
+        Assert.NotNull(lastFrame);
+        Assert.Equal((byte)'F', lastFrame![0]);
+        Assert.Equal((byte)'B', lastFrame[1]);
+        int width = lastFrame[4] | (lastFrame[5] << 8);
+        int height = lastFrame[6] | (lastFrame[7] << 8);
+        Assert.Equal(280, width);
+        Assert.Equal(192, height);
+        Assert.Equal(0, surface.Display.ActiveIndex);   // Apple-40 active at boot
+        Assert.NotNull(surface.Machine.Coprocessor);    // the Z80 is wired
+
+        // The auto-switch is wired: when the Videx signals active, the multiplexer follows (the same path
+        // CP/M's terminal driver drives). This proves the ActiveChanged -> SetActive wiring without a boot.
+        surface.Videx.SetActiveForTest(true);
+        Assert.Equal(1, surface.Display.ActiveIndex);   // now the Videx 80-col is active
+    }
 }

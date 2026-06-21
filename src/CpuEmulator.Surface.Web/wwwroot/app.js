@@ -62,7 +62,9 @@
     const stateName = s.slice(3);
     const banner = document.getElementById("asset-banner");
     banner.hidden = true;
-    if (stateName === "softcard-cpm") {
+    if (stateName === "softcard-cpm-videx") {
+      status.textContent = "connected · Apple ][+ SoftCard · CP/M · Videx 80-col";
+    } else if (stateName === "softcard-cpm") {
       status.textContent = "connected · Apple ][+ SoftCard · CP/M";
     } else if (stateName === "apple-fallback-font") {
       status.textContent = "connected · Apple ][+ · fallback font";
