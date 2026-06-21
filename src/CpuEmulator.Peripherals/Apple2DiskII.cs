@@ -12,16 +12,20 @@ namespace CpuEmulator.Peripherals;
 /// into a synthetic one. No new timing primitive — the polled-read cadence IS the byte timing.</summary>
 public sealed class Apple2DiskII : IPeripheral
 {
+    private const long MotorOffDelayCycles = 1_020_500; // ~1 s at ~1.0205 MHz (the 556 one-shot)
+
     private readonly IFluxImage _image;
 
-    // CS0649: _halfTrack is read-only until Task 3 wires the stepper that assigns it. Scoped pragma
-    // removed in Task 3 (the soft-switch commit), where SetPhase mutates _halfTrack.
-#pragma warning disable CS0649
     private int _halfTrack;         // 0..(2*TrackCount-2); track = _halfTrack / 2
-#pragma warning restore CS0649
     private int _bitPos;            // head position within the current track's bitstream
     private byte _latch;            // the data latch (bit 7 set => a complete nibble is ready)
     private bool _motorOn;
+
+    private IScheduler? _scheduler;
+    private ScheduledEvent? _pendingMotorOff;
+    private readonly bool[] _phase = new bool[4];   // the 4 stepper phase magnets
+    private int _lastPhaseOn;                        // the most recently energized phase (for the step model)
+    private int _drive = 1;                          // selected drive (1 or 2; PR-F models drive 1)
 
     public Apple2DiskII(IFluxImage image)
     {
@@ -31,14 +35,85 @@ public sealed class Apple2DiskII : IPeripheral
 
     public string Name => "apple2disk2";
 
-    public void Realize(IMachineContext context) { /* scheduler captured in Task 3 for the motor delay */ }
+    public void Realize(IMachineContext context) => _scheduler = context.Scheduler;
 
     // The controller maps no $C0xx page (the IOU owns it); these are unreachable.
     public uint Read(uint offset, AccessWidth width) => 0x00;
     public void Write(uint offset, AccessWidth width, uint value) { }
 
-    /// <summary>Test-only: force the motor on without a soft-switch (Task 3 adds the real $C0E9 path).</summary>
+    /// <summary>Test inspectors.</summary>
+    public int HalfTrackForTest => _halfTrack;
+    public int BitPosForTest => _bitPos;
+    public byte LatchForTest => _latch;
+    public bool MotorOnForTestProperty => _motorOn;
+    public int SelectedDriveForTest => _drive;
+
+    /// <summary>Test-only: force the motor on without a soft-switch (the real $C0E9 path is Access).</summary>
     internal void MotorOnForTest() => _motorOn = true;
+
+    /// <summary>Called by the IOU for every $C0E0-$C0EF access (offset 0xE0-0xEF). Returns the bus value
+    /// for a read ($C0EC returns the data latch); other switches return a floating-bus 0. The side effect
+    /// (stepper/motor/select) happens on ANY access. Exactly one Access call per bus access (a read's
+    /// $C0Ex side effect rides BusValue; a write's rides ApplyAnyAccessSideEffect — the PR-E discipline).
+    /// </summary>
+    public byte Access(byte offset, bool isRead)
+    {
+        switch (offset & 0x0F)
+        {
+            case 0x0: SetPhase(0, false); break;
+            case 0x1: SetPhase(0, true);  break;
+            case 0x2: SetPhase(1, false); break;
+            case 0x3: SetPhase(1, true);  break;
+            case 0x4: SetPhase(2, false); break;
+            case 0x5: SetPhase(2, true);  break;
+            case 0x6: SetPhase(3, false); break;
+            case 0x7: SetPhase(3, true);  break;
+            case 0x8: RequestMotorOff();  break;   // $C0E8: ~1 s 556 delay
+            case 0x9: MotorOn();          break;   // $C0E9: motor on now
+            case 0xA: _drive = 1;         break;   // $C0EA: select drive 1
+            case 0xB: _drive = 2;         break;   // $C0EB: select drive 2
+            case 0xC: return ReadDataLatch();      // $C0EC: read the data latch (shift a nibble)
+            case 0xD: _latch = 0;         break;   // $C0ED ($C08D,X): reset sequencer + clear latch
+            case 0xE: case 0xF: break;             // Q7L/Q7H read/write-mode latch (read mode = PR-F)
+        }
+        return 0x00;   // floating bus for the non-data switches
+    }
+
+    private void SetPhase(int phase, bool on)
+    {
+        bool was = _phase[phase];
+        _phase[phase] = on;
+        if (on && !was)
+        {
+            // The 4-phase stepper: energizing a phase adjacent (mod 4) to the last-on phase moves the
+            // head a half-track toward it. +1 (mod 4) steps inward (higher tracks), -1 outward.
+            int delta = ((phase - _lastPhaseOn) & 3) switch
+            {
+                1 => +1,   // adjacent ascending -> inward (toward higher tracks)
+                3 => -1,   // adjacent descending -> outward
+                _ => 0,    // same or opposite phase -> no net half-track step
+            };
+            int max = 2 * (_image.TrackCount - 1);
+            _halfTrack = Math.Clamp(_halfTrack + delta, 0, max);
+            _bitPos = 0;            // a track change re-seeks the head to the track start
+            _lastPhaseOn = phase;
+        }
+    }
+
+    private void MotorOn()
+    {
+        _pendingMotorOff?.Cancel();
+        _pendingMotorOff = null;
+        _motorOn = true;
+    }
+
+    private void RequestMotorOff()
+    {
+        if (_scheduler is null) { _motorOn = false; return; } // no scheduler (bare unit) -> stop now
+        _pendingMotorOff?.Cancel();
+        _pendingMotorOff = _scheduler.ScheduleAt(
+            _scheduler.CurrentCycle + MotorOffDelayCycles, () => { _motorOn = false; _pendingMotorOff = null; });
+    }
 
     /// <summary>A $C0EC read: with the motor on, shift bits from the track bitstream MSB-first until a
     /// byte with bit 7 set has assembled, latch it, and return it. With the motor off, the latch does not
