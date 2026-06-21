@@ -5,8 +5,9 @@ for future work. It is the single forward-looking index; the per-milestone detai
 [architecture decision records](architecture/) (ADRs) and the [user guide](user-guide/README.md).
 
 > **A note on prioritization.** The ordering of the deferred items below is the **owner-set priority**
-> (2026-06-19; Apple ][+ PR-A shipped the `Remap` seam 2026-06-20) — the intended next-up sequence, not a
-> delivery commitment. Each item is tagged
+> (2026-06-19; Apple ][+ arc PRs A–K shipped 2026-06-20/21 — the base ][+ boot through the **dual-CPU Z-80
+> SoftCard CP/M boot capstone** (PR-K); per-PR detail in `docs/BUILDER_QUEUE.md`) — the intended next-up
+> sequence, not a delivery commitment. Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
 
