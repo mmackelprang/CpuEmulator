@@ -23,6 +23,9 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
 
     // 3.5 MHz / 50.08 Hz ≈ 69888 T-states per frame.
     public const long TStatesPerFrame = 69888;
+    // The real Spectrum ULA holds /INT low for ~32 T-states each frame; the Z80's maskable INT is
+    // level-sampled at instruction boundaries, so the line MUST stay asserted across a few of them.
+    private const long IrqHoldTStates = 32;
     private const int HostSampleRate = 44100;
     private const int SamplesFrame = HostSampleRate / 50; // 882
 
@@ -34,6 +37,7 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
     // Beeper toggle log: (tStateWithinFrame, level) pairs accumulated across a frame.
     private readonly List<(long t, int level)> _beeperLog = new();
     private IInterruptLine? _irq;
+    private IScheduler? _scheduler; // captured in Realize so OnFrameTick can schedule the /INT release
     private bool _flashPhase;     // toggles every 16 frames (the FLASH attribute)
     private int _frameCounter;
 
@@ -59,21 +63,27 @@ public sealed class SpectrumUla : IPeripheral, IDisplayDevice, IKeyboardSink, IA
     {
         _ram = context.Space(AddressSpaceKind.Program);
         _irq = context.IrqLine.Source();
+        _scheduler = context.Scheduler;
         context.Scheduler.ScheduleEvery(TStatesPerFrame, OnFrameTick);
     }
 
     private void OnFrameTick()
     {
-        // Latch the frame's beeper log end, raise the maskable interrupt (IM1), and signal the host.
+        // The real interrupt model: at the 50 Hz frame tick ASSERT /INT and HOLD it asserted for
+        // ~32 T-states, then RELEASE it on a SCHEDULED tick. The Z80 maskable INT is level-sampled at
+        // instruction boundaries (no edge latch), so the line must stay low across a few of them or the
+        // IM1 is never serviced. Pulsing assert+release inside this one callback would drop /INT before
+        // the CPU reaches its next instruction boundary — the bug this replaces.
         _frameCounter++;
         if ((_frameCounter & 0x0F) == 0)
             _flashPhase = !_flashPhase; // FLASH toggles every 16 frames
-        _irq?.Assert();                 // the ROM's ISR runs and (via DI/EI + RET) the line is sampled
+        _irq?.Assert();
         FrameReady?.Invoke();
         AudioReady?.Invoke();
-        // The interrupt line is a brief pulse; release on the next instruction boundary is approximated
-        // by releasing here after the host has been signalled (the ROM ACKs by servicing).
-        _irq?.Release();
+        if (_scheduler is { } scheduler)
+            scheduler.ScheduleAt(scheduler.CurrentCycle + IrqHoldTStates, () => _irq?.Release());
+        else
+            _irq?.Release(); // no scheduler (bare-ULA path that never ticks): release synchronously
     }
 
     public uint Read(uint offset, AccessWidth width)
