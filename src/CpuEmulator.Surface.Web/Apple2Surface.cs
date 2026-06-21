@@ -60,4 +60,15 @@ public sealed record Apple2Surface(
         Asset: "apple",
         Mode: Video.ModeLabel,
         Drives: [new DriveStatus(Disk.MotorOn, Drive1Label)]);
+
+    /// <summary>Insert a disk image (raw bytes + format) into <paramref name="drive"/> at runtime — the
+    /// in-session swap the library (R) and upload (S) paths call (design T-D / D11–D12). Builds the
+    /// IFluxImage via DiskImageFactory and hands it to the live Disk II controller; the running machine
+    /// reads the new image on the next poll.</summary>
+    public void InsertDisk(int drive, byte[] bytes, DiskFormat format) =>
+        Disk.Insert(drive, DiskImageFactory.FromBytes(bytes, format));
+
+    /// <summary>Eject <paramref name="drive"/>'s image at runtime (design D13 — allowed mid-access, no
+    /// confirm). The drive reads nothing until a re-insert.</summary>
+    public void EjectDisk(int drive) => Disk.Eject(drive);
 }

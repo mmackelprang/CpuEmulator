@@ -1,6 +1,37 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **P SHIPPED (PR #119)**: the `ST` status-frame seam. The host
+> **Last updated:** 2026-06-21 (Builder — **Q SHIPPED (PR #120)**: in-session Disk II insert/eject (the
+> runtime image swap, design T-D — the shared dep of R/S). The controller's single `_image` becomes a
+> 1-based `IFluxImage?[3] _drives`; the read routes through the **selected** drive (`_drives[_drive]`), so
+> `$C0EB`-select / **drive 2 is real for the first time** (tracked-but-ignored before Q). Runtime
+> `Insert(int,IFluxImage)` / `Eject(int)` / `HasImage(int)` re-seek the active head on a swap, range-guard
+> drives 1–2, and an empty drive reads **nothing** (bit 7 never sets). A shared `DiskImageFactory.FromBytes`
+> + `DiskFormat{Woz,Dsk,Po}` build the `IFluxImage` R/S both call (`.dsk`→Dos33, `.po`→ProDos; raw **`.woz`
+> bytes throw an explicit `NotSupportedException`** — no `.woz`-file parser shipped, a separable
+> `WozFluxImage` follow-on; `.woz` **at the seam** inserts identically, proven with `SyntheticFluxImage`).
+> Surface `InsertDisk(drive,bytes,format)` / `EjectDisk(drive)` on all three Apple surfaces (the `Disk` field
+> from PR-P) — the R/S **call point**; Q adds **no** WS message handler (R = library text, S = binary `DK`
+> upload). The single-image constructor is **unchanged** — every shipped surface/test builds drive 1 as
+> before (`_image` fully removed; the byte-for-byte regression gate). **Pre-merge review: NO HIGH bugs** —
+> the one implementer deviation (`if (_bitPos >= bitLen) _bitPos %= bitLen;` in `ReadDataLatch`) was confirmed
+> **correct + necessary + correctly placed** (a `$C0EB` drive-select, which doesn't reset `_bitPos`, can
+> leave the head past a shorter selected track's bitstream — a real OOB the plan's literal omitted; a no-op
+> on the single-drive path, after the `bitLen<=0` guard). The stepper clamp `?? 1` fallback, range guards,
+> empty-drive read, and regression identity all clean — **no fixer needed.** **Un-fakeable gates**
+> (interpreter, synthetic images, headless): a running machine `InsertDisk(1,dskBytes,Dsk)` reads a real GCR
+> nibble off the runtime-inserted image via the live `$C0E9`/`$C0EC` bus; after `EjectDisk(1)` 50k polls
+> latch nothing; the read follows the selected drive (distinct drive-2 image); a runtime `.dsk` decodes to a
+> known 256-byte track-0 sector. Full suite **7239 passed / 0 failed / 6 skipped** (+7 new), warning-clean.
+> **UAT** (no browser MCP; HTTP+WS frame level — Q touches the shared disk hot path): `GET /`+`/app.js` 200,
+> the `ST demo` text frame leads, 115 binary `FB` frames stream at 196616 bytes, zero server errors. **One
+> recorded deferral (Planner):** `Status()` (the PR-P `ST` frame) still reports a **single** drive entry
+> though drive 2 is now real — a drive-2 indicator needs a `Drive2Label` threaded through `InsertDisk(2,…)`,
+> genuine **R/S/T** territory (the two-drive panel + per-drive label tracking live there, consuming this
+> frame); the codec already carries an N-element `Drives` array, so R/S/T grow the 2nd `DriveStatus` with no
+> Q change. **STOP per protocol:** with Q ✅, **R** (`GET /disks` + library dropdown) + **S** (upload binary
+> path) become eligible (deps Q ✅) but are **`JIT`-unplanned**; **T** depends on P/R/S; **L** is deferred →
+> Builder stops; the **Planner plans R + S next** (grounded against shipped P/Q). Builder — **P SHIPPED (PR
+> #119)**: the `ST` status-frame seam. The host
 > pushes the REAL machine state — board name + asset state + the live video-mode label (`Apple2Video.ModeLabel`,
 > derived from the same `Apple2VideoState` flags the renderer reads) + per-drive **real** motor
 > (`Apple2DiskII.MotorOn` — the `$C0E8/$C0E9` switch + the shipped ~1 s 556 off-delay, **false at boot**, NOT
@@ -92,7 +123,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **N** | `VidexVideoterm` (`IPeripheral`+`IDisplayDevice`) + `$C800` expansion-bank mapper | ✅ (PR #116) | A, M | [plan](superpowers/plans/2026-06-20-apple2-pr-n-videx-videoterm.md) | The 6845 CRTC programmed via `$C0B0`/`$C0B1` + the init table (R1=`$50`/R6=`$18`) yields 80×24; VRAM+synthetic-charROM → RGBA; the `$C800` mapper (2nd `Remap` consumer) banks the firmware window + the `$CC00–$CDFF` VRAM bank; the Videx's `ActiveChanged` makes a `DisplayMultiplexer` `SetActive`. Synthetic char ROM, no asset. *(`IFastMemoryProvider` dropped — ADR-0009-designed, never shipped; the fast-RAM intent via `Remap`-to-RAM. See plan drift note.)* |
 | **O** | Videx + CP/M asset scripts (`get-videx-roms`, `get-softcard-cpm`) + CP/M-on-Videx end-to-end gate | ✅ (PR #117) | K, N | [plan](superpowers/plans/2026-06-20-apple2-pr-o-cpm-on-videx.md) | With all assets fetched, booting the CP/M disk widens the display to the **80-col Videx terminal** (the `DisplayMultiplexer` auto-switches Apple-40 → Videx-80, guest-driven) and reaches the `A>` prompt — **interpreter-tier** (the row's "both tiers" is imprecise; the CP/M/Z80 side is interpreter-only per PR-K/ADR 0015 D4). **Asset-gated + owner-sign-off-given** (skip-with-note absent). |
 | **P** | The `ST` status-frame seam (host→client read-only indicators) | ✅ (PR #119) | — | [plan](superpowers/plans/2026-06-20-apple2-pr-p-status-frame.md) | A new lightweight `ST` wire frame carries board name, asset state, per-drive motor + image label, video-mode label; the client renders them read-only; the host pushes real machine state (not faked). *(Designer T-A — suggested early; most surface indicators consume it.)* |
-| **Q** | In-session disk insert / eject mechanism (Disk II runtime image swap) | 📋 | F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-q-disk-runtime-swap.md) | The Disk II controller accepts "load these bytes as drive N's image" + "eject drive N" at runtime, for both `.woz` and `.dsk`/`.po`, via the `IFluxImage` seam; a running machine swaps images without rebuild. *(Designer T-D — shared dep of the two disk-UX paths.)* |
+| **Q** | In-session disk insert / eject mechanism (Disk II runtime image swap) | ✅ (PR #120) | F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-q-disk-runtime-swap.md) | The Disk II controller accepts "load these bytes as drive N's image" + "eject drive N" at runtime, for both `.woz` and `.dsk`/`.po`, via the `IFluxImage` seam; a running machine swaps images without rebuild. *(Designer T-D — shared dep of the two disk-UX paths.)* |
 | **R** | `GET /disks` catalog endpoint + per-drive library dropdown | 📋 | Q | JIT | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. *(Designer T-C.)* |
 | **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | 📋 | Q | JIT | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.woz` magic / `.dsk`/`.po` exact length) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. *(Designer T-B — the surface's first inbound binary path; explicitly its own task.)* |
 | **T** | Control-strip UI (drive panels, lights, mode label, asset banner) | 📋 | P, R, S | JIT | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; one new `--drive-active` token. *(Designer T-E/T-G/T-H + keyboard extensions T-F.)* |
@@ -166,6 +197,63 @@ PR-H landed, so they call the real shipped machine-model signatures).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-Q — in-session Disk II insert/eject (the runtime image swap)** (2026-06-21, PR #120). The second
+  surface-UI sub-arc row (design T-D / D11–D13): the `Apple2DiskII` controller accepts, **at runtime**, "load
+  these bytes as drive N's image" + "eject drive N" — the **shared dependency** of R (library dropdown) and S
+  (upload), both of which land bytes here. **Two drive slots:** the controller's single `_image` becomes a
+  1-based `IFluxImage?[3] _drives` ([1]=drive 1, [2]=drive 2, [0] unused); `ReadDataLatch` routes through the
+  **selected** `_drives[_drive]`, so `$C0EB`-select / **drive 2 becomes real for the first time** (PR-F/G
+  tracked `_drive` via `$C0EA/$C0EB` but ignored it on read — single `_image`). The single-image constructor
+  signature `Apple2DiskII(IFluxImage)` is **unchanged** (sets `_drives[1]`); `_image` is **fully removed**.
+  **Runtime `Insert(int,IFluxImage)` / `Eject(int)` / `HasImage(int)`:** re-seek the active drive's head
+  (`_bitPos = 0`) on a swap of the active drive, range-guard drives 1–2 (`ArgumentOutOfRangeException` on
+  0/3), allow re-insert; an **empty drive reads nothing** (the `image is null` guard returns the not-ready
+  latch, bit 7 clear — the un-fakeable eject proof). The stepper clamp now reads the selected drive's
+  `TrackCount` (`_drives[_drive]?.TrackCount ?? 1`, so an empty selected drive clamps the head to track 0
+  safely). The motor light still follows the real `$C0E9/$C0E8` switch + the ~1 s 556 delay — **never faked
+  on insert** (D10). **`DiskImageFactory.FromBytes(bytes, format)`** (new) + **`DiskFormat{Woz,Dsk,Po}`**
+  (new): the one place "these bytes → an `IFluxImage`" lives, shared by R + S — `.dsk` → `SectorOrderKind.Dos33`,
+  `.po` → `ProDos` (both via `DskFluxImage` over a 256-byte-sector `DiskImage`); raw **`.woz` bytes throw an
+  explicit `NotSupportedException`** (`DskBytes` const = 143360). **Surface `InsertDisk(drive,bytes,format)` /
+  `EjectDisk(drive)`** on `Apple2Surface` / `SoftCardSurface` / `SoftCardVidexSurface` (the `Disk` record field
+  shipped in PR-P — Q reuses it, the P/Q coordination field) — the **R/S call point**; Q adds **no** WebSocket
+  message handler (R = the library text message, S = the binary `DK` upload frame — both blocked on Q
+  precisely for this method). **Pre-merge review (focused on the single-image regression identity, the
+  selected-drive + empty-drive read, the `_bitPos` wrap deviation, the stepper clamp `?? 1` fallback, the
+  range guards + re-seek semantics, the factory + `.woz` exception, and the surface helper additive-ness)
+  found NO HIGH bugs.** The one implementer deviation — `if (_bitPos >= bitLen) _bitPos %= bitLen;` in
+  `ReadDataLatch` — was confirmed **correct, necessary, and correctly placed**: a `$C0EB` drive-select does
+  NOT reset `_bitPos` (only a half-track step or an active-drive insert/eject does), so switching from a long
+  track to a shorter selected track leaves the head past the new bitstream — a real `IndexOutOfRangeException`
+  the plan's literal omitted; the wrap is a true no-op on the single-drive path (the read loop already keeps
+  `_bitPos` in `[0,bitLen)`) and sits AFTER the `bitLen <= 0` guard so the `%` is safe. **No fixer needed.**
+  **One MEDIUM surfaced + deferred (recorded for the Planner / R/S/T):** `Status()` (the PR-P `ST` frame)
+  still reports a **single** drive entry though drive 2 is now real — a drive-2 indicator needs a `Drive2Label`
+  threaded through `InsertDisk(2,…)` / `EjectDisk(2,…)`, genuine **row R/S/T** territory (the two-drive panel +
+  per-drive label-tracking-on-insert live there, and consume this frame); the `ST` codec already carries an
+  N-element `Drives` array, so R/S/T grow the 2nd `DriveStatus` with no Q change — deferred deliberately to
+  keep Q scoped to "the mechanism + the call point" per the plan. **The un-fakeable gates** (interpreter tier,
+  synthetic images, no asset, headless — the oracle): `Apple2SurfaceDiskSwapTests` — a real machine,
+  `InsertDisk(1,dskBytes,Dsk)` at runtime, then driving the **live program bus** (`$C0E9` motor + `$C0EC`
+  polls) reads a GCR nibble off the runtime-inserted `.dsk`, and after `EjectDisk(1)` 50k `$C0EC` polls latch
+  **nothing** (no bit-7-set byte — an empty drive, impossible to fake); `DskFluxImageTests.A_runtime_inserted_
+  dsk_image_is_read_back_through_the_head` — a runtime `.dsk` decodes back to a **known 256-byte track-0
+  sector**; `Apple2DiskIITests` — the read follows the **selected** drive after a runtime insert into drive 2
+  (distinct images, so a wrong-slot read fails), eject-then-reinsert restores reads, out-of-range drive
+  throws. **The `.woz`-bytes drift (recorded):** the shipped tree has no `.woz`-file parser; Q satisfies the
+  design's "both `.woz` and `.dsk`/`.po`" at the **seam** (`Insert` accepts a `.woz`-shape `IFluxImage`
+  identically — the controller can't tell `SyntheticFluxImage` from a real `.woz` flux image, the OQ1-✅
+  format-agnostic invariant) + wires `.dsk`/`.po` **end-to-end**, throwing an explicit, honest
+  `NotSupportedException` for `.woz` **bytes** until a thin **`WozFluxImage`** parser follow-on lands
+  (separable; R's `.dsk`/`.po` library path is unblocked, `.woz` library items wait on `WozFluxImage`).
+  **UAT** (no browser MCP; HTTP+WS frame level — Q touches the shared disk-read hot path the IOU/Apple boards
+  share): the live server boots clean, `GET /`+`/app.js` 200, the `ST demo` text frame leads (PR-P's status
+  path intact), **115 binary `FB` frames stream at 196616 bytes** (256×192), **zero server errors** — the
+  two-slot controller change did not regress the demo fall-through or the shared surface. Gate: full suite
+  **7239 passed / 0 failed / 6 skipped** (the 7232 post-PR-P baseline + 7 new PR-Q tests, purely additive),
+  warning-clean. **The surface-UI disk-swap mechanism is ready for R + S** (both deps Q ✅) — R lists +
+  inserts `.dsk`/`.po` library items, S validates + uploads bytes; both call `surface.InsertDisk`. **Next: R
+  + S become eligible but are `JIT`-unplanned → the Planner plans them.**
 - **PR-P — the `ST` status-frame seam (host→client read-only indicators)** (2026-06-21, PR #119). The first
   surface-UI sub-arc row (design D14 / task T-A): the host pushes the **REAL** machine state to the browser
   client as a structured `ST` text frame whenever it changes. **`MachineStatus`/`DriveStatus` records +
