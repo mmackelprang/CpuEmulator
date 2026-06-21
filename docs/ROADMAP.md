@@ -10,7 +10,9 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > Videoterm 80-column card** (PR-N), and the **CP/M-on-Videx capstone** (PR-O — the "usable 80-column CP/M"
 > deliverable: CP/M auto-widens to the 80-col Videx at `A>`, structurally complete, pending owner assets for
 > the live render); the surface-UI sub-arc (the `ST` status frame + the runtime disk-swap mechanism + the
-> disk-library/upload UI) is next; per-PR detail in `docs/BUILDER_QUEUE.md`) — the intended next-up
+> disk-library/upload UI) is next — **rows P (the `ST` status seam) + Q (the Disk II runtime image swap)
+> are now planned** (`docs/superpowers/plans/2026-06-20-apple2-pr-{p,q}-*.md`); R/S/T follow once Q ships;
+> per-PR detail in `docs/BUILDER_QUEUE.md`) — the intended next-up
 > sequence, not a delivery commitment. Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
