@@ -16,8 +16,8 @@ public sealed class DskFluxImage : IFluxImage
     private const byte Volume = 254;            // the conventional DOS 3.3 volume number ($FE)
 
     private readonly IBlockDevice _block;
-    private readonly int[] _physToLog;          // physical-sector -> logical-sector for this image order
-    private readonly byte[]?[] _trackCache;     // lazily synthesized per-track nibble bitstreams
+    private readonly SectorOrderKind _order;     // resolved per track at synthesis (ADR 0017 Decision 1)
+    private readonly byte[]?[] _trackCache;      // lazily synthesized per-track nibble bitstreams
 
     public DskFluxImage(IBlockDevice block, SectorOrderKind order)
     {
@@ -30,7 +30,7 @@ public sealed class DskFluxImage : IFluxImage
                 $"sector count {block.SectorCount} must be a multiple of {SectorsPerTrack} (whole tracks).",
                 nameof(block));
         _block = block;
-        _physToLog = Apple2SectorOrder.PhysicalToLogical(order);
+        _order = order;
         _trackCache = new byte[]?[block.SectorCount / SectorsPerTrack];
     }
 
@@ -54,10 +54,13 @@ public sealed class DskFluxImage : IFluxImage
     /// any MSB-set byte and the prologues on D5 AA 96 / D5 AA AD, exactly as a real RWTS does.</summary>
     private byte[] Synthesize(int track)
     {
+        // Resolve the physical->logical skew for THIS track (CP/M is per-track: boot table for tracks 0-2,
+        // data table for 3+; DOS/ProDOS ignore the track -> the single-skew table). ADR 0017 Decision 1.
+        int[] physToLog = Apple2SectorOrder.PhysicalToLogical(_order, track);
         var nibbles = new List<byte>(SectorsPerTrack * 400);
         for (int phys = 0; phys < SectorsPerTrack; phys++)
         {
-            int logical = _physToLog[phys];
+            int logical = physToLog[phys];
             long lba = (long)track * SectorsPerTrack + logical;
             var sector = new byte[256];
             _block.ReadSector(lba, sector);

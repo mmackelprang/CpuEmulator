@@ -64,6 +64,36 @@ public class SoftCardBoardTests
         }
     }
 
+    [Fact]
+    public void DskFluxImage_cpm_uses_the_boot_skew_on_track_0_and_the_data_skew_on_track_3()
+    {
+        // A 35-track .dsk where each 256-byte sector is filled with a byte == its absolute LBA (mod 256).
+        // The synthesized track's 6-and-2 data fields therefore encode WHICH logical sector landed at each
+        // physical slot; decoding the first data byte of each physical sector recovers physToLog[phys].
+        const int tracks = 35, spt = 16;
+        var bytes = new byte[tracks * spt * 256];
+        for (int lba = 0; lba < tracks * spt; lba++)
+            Array.Fill(bytes, (byte)(lba % 256), lba * 256, 256);
+        IBlockDevice block = new DiskImage(bytes, 256, isReadOnly: true);
+
+        var flux = new DskFluxImage(block, SectorOrderKind.Cpm);
+
+        // The boot table for track 0 maps physical 1 -> logical 11; the data table maps physical 1 -> logical 6.
+        // Decode physical sector 1's first payload byte on track 0 (boot) and track 3 (data) and assert the
+        // logical sector each carries.
+        Assert.Equal(11, FirstPayloadLogical(flux, track: 0, phys: 1));   // boot table: (1*11)%16 = 11
+        Assert.Equal(6,  FirstPayloadLogical(flux, track: 3, phys: 1));   // data table: 6
+    }
+
+    // Decode the LBA byte the synthesized data field carries for (track, phys); the test image fills each
+    // sector with (track*16 + logical) % 256, so payload % 16 (for track < 16) recovers `logical`.
+    private static int FirstPayloadLogical(DskFluxImage flux, int track, int phys)
+    {
+        byte[] nibbles = flux.TrackBits(track).ToArray();
+        int payload = Apple2SectorDecoder.FirstDataByteOfPhysicalSector(nibbles, phys);  // see Task 2c
+        return payload % 16;   // track < 16 in this test, so the low nibble is the logical sector
+    }
+
     private static byte[] DiskBootRom()
     {
         var rom = new byte[Apple2Rom.DiskRomLength];   // 256 B
