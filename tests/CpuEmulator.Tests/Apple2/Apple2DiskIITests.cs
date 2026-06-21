@@ -150,4 +150,53 @@ public class Apple2DiskIITests
         _ = bus.Read8(0xC0EC);
         Assert.NotEqual(posBefore, disk.BitPosForTest);
     }
+
+    [Fact]
+    public void A_real_6502_poll_loop_reads_the_track_nibbles_into_RAM()
+    {
+        // A track of distinctive valid GCR bytes after some sync.
+        var image = new SyntheticFluxImage(trackCount: 35);
+        image.SetTrackNibbles(0, new byte[] { 0xFF, 0xFF, 0xD5, 0xAA, 0x96, 0xAD, 0xDA, 0x96 });
+        var disk = new Apple2DiskII(image);
+        var state = new Apple2VideoState();
+        var iou = new Apple2Iou(state, disk);
+        var spec = CpuEmulator.Machines.Apple2Board.SpecWithDiskII(SystemRom(), iou, disk);
+        var machine = CpuEmulator.Machines.BoardMachineFactory.Build(spec);   // interpreter (the oracle)
+        var bus = machine.Space(AddressSpaceKind.Program);
+
+        // Motor on, then the canonical read loop, storing 8 recovered nibbles to $0300..$0307:
+        //   LDA $C0E9            ; motor on            AD E9 C0
+        //   LDX #$00             ; index               A2 00
+        // poll:
+        //   LDA $C0EC            ; read data latch      AD EC C0
+        //   BPL poll             ; bit7 clear? keep polling   10 FB
+        //   STA $0300,X          ; store the nibble     9D 00 03
+        //   INX                  ;                      E8
+        //   CPX #$08             ;                      E0 08
+        //   BNE poll             ;                      D0 F3   (-> $0205, the poll label, NOT $0203)
+        //   JMP *                ; spin                 4C <here>
+        var prog = new byte[]
+        {
+            0xAD, 0xE9, 0xC0,          // $0200 LDA $C0E9  (motor on)
+            0xA2, 0x00,                // $0203 LDX #$00
+            0xAD, 0xEC, 0xC0,          // $0205 LDA $C0EC  (poll)
+            0x10, 0xFB,                // $0208 BPL $0205
+            0x9D, 0x00, 0x03,          // $020A STA $0300,X
+            0xE8,                      // $020D INX
+            0xE0, 0x08,                // $020E CPX #$08
+            0xD0, 0xF3,                // $0210 BNE $0205  (poll); $0212 + (-13) = $0205
+            0x4C, 0x12, 0x02,          // $0212 JMP $0212  (spin)
+        };
+        for (int i = 0; i < prog.Length; i++) bus.Write8((uint)(0x0200 + i), prog[i]);
+        machine.Cpu.SetRegister("PC", 0x0200);
+
+        machine.Run(200_000);   // plenty to recover 8 nibbles via the poll loop
+
+        // Every stored byte is a valid GCR nibble (bit 7 set), and the distinctive track bytes appear.
+        var got = new List<byte>();
+        for (uint a = 0x0300; a < 0x0308; a++) got.Add(bus.Read8(a));
+        Assert.All(got, b => Assert.True((b & 0x80) != 0, $"stored ${b:X2} must be a GCR nibble"));
+        // The distinctive sequence D5 AA 96 AD DA 96 is recovered in order (sync $FF may lead).
+        AssertSubsequence(new byte[] { 0xD5, 0xAA, 0x96, 0xAD, 0xDA, 0x96 }, got);
+    }
 }
