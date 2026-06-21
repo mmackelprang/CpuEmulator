@@ -81,15 +81,17 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
     public uint Read(uint offset, AccessWidth width) => ReadReg((byte)offset);
     public void Write(uint offset, AccessWidth width, uint value) => WriteReg((byte)offset, (byte)value);
 
-    /// <summary>The IOU delegate entry for $C0B0-$C0BF (mirrors the LC's $C08x Access): a read's side
-    /// effect rides the returned value; a write's rides the same path. offset is the low byte ($B0-$BF).</summary>
-    public byte Access(byte offset, bool isRead)
+    /// <summary>The IOU delegate entry for $C0B0-$C0BF (mirrors the LC's $C08x Access, but the Videx CRTC
+    /// needs the WRITTEN value — unlike a value-agnostic soft switch — so writeValue is threaded from the
+    /// IOU's Write). A read's side effect rides the returned value; a write programs the selected register
+    /// or selects a VRAM bank. offset is the low byte ($B0-$BF).</summary>
+    public byte Access(byte offset, bool isRead, byte writeValue = 0x00)
     {
         byte o = (byte)(offset & 0x0F);   // $C0B0-$C0BF low nibble
-        return isRead ? ReadReg(o) : WriteRegReturn0(o, lastWritten: 0x00);
+        if (isRead) return ReadReg(o);
+        WriteReg(o, writeValue);
+        return 0x00;
     }
-
-    private byte WriteRegReturn0(byte o, byte lastWritten) { WriteReg(o, lastWritten); return 0x00; }
 
     private byte ReadReg(byte o)
     {

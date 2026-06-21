@@ -57,8 +57,9 @@ public sealed class Apple2Iou : IPeripheral
 
     public void Write(uint offset, AccessWidth width, uint value)
     {
-        ApplyAnyAccessSideEffect(offset, isRead: false);
-        // Soft switches ignore the written value; the side effect is the access itself.
+        ApplyAnyAccessSideEffect(offset, isRead: false, (byte)value);
+        // Soft switches ignore the written value; the side effect is the access itself — but the Videx
+        // CRTC at $C0Bx needs it, so the written byte is threaded through to that delegate.
     }
 
     public bool TryPeek(uint offset, out byte value)
@@ -98,7 +99,7 @@ public sealed class Apple2Iou : IPeripheral
     /// Language Card can distinguish reads (which arm its pre-write flip-flop) from writes (which reset
     /// it). To call the LC's Access EXACTLY ONCE per bus access, this handles $C08x for WRITES only (a
     /// read's $C08x side effect rides BusValue — Read calls both, so $C08x routes through one path).</summary>
-    private void ApplyAnyAccessSideEffect(uint offset, bool isRead)
+    private void ApplyAnyAccessSideEffect(uint offset, bool isRead, byte writeValue = 0)
     {
         byte o = (byte)offset;
         switch (o)
@@ -129,7 +130,7 @@ public sealed class Apple2Iou : IPeripheral
             // --- Videx CRTC $C0B0-$C0BF (delegated; WRITES only here — a read's Access is owned by
             // BusValue so the Videx's Access fires exactly once per bus access). ---
             case >= 0xB0 and <= 0xBF:
-                if (!isRead) _videx?.Access(o, isRead: false);
+                if (!isRead) _videx?.Access(o, isRead: false, writeValue);
                 break;
 
             // --- Disk II $C0E0-$C0EF (delegated to the controller; WRITES only here — a $C0Ex read's

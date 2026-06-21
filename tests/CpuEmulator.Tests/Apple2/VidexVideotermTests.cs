@@ -181,6 +181,25 @@ public class VidexVideotermTests
         Assert.Equal(2, frames);                                // the switch-back also fired FrameReady
     }
 
+    [Fact]
+    public void Programming_the_CRTC_through_the_bus_C0B0_C0B1_sets_the_geometry()
+    {
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;   // reset -> $D000
+        (Machine machine, VidexVideoterm videx) = BuildAppleWithVidex(rom);
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+
+        // Program a NON-default geometry through the bus so the test fails if the write value is dropped
+        // (dropping the value leaves every CRTC reg 0 -> the 80x24 DEFAULT, which would hide the bug).
+        void SetReg(byte reg, byte val) { bus.Write8(0xC0B0, reg); bus.Write8(0xC0B1, val); }
+        SetReg(1, 40);    // R1 = 40 chars/row (NOT the 80 default)
+        SetReg(6, 20);    // R6 = 20 displayed rows (NOT the 24 default)
+        SetReg(9, 0x08);  // R9 = 9 lines/char
+
+        Assert.Equal(40 * VidexFont.CellWidth, videx.Width);   // 40*7 = 280 (proves R1 took the written value)
+        Assert.Equal(20 * 9, videx.Height);                    // 20*9 = 180 (proves R6 took the written value)
+    }
+
     private static IAddressSpace ApplePlaceholderBus()
     {
         var space = new AddressSpace(AddressSpaceKind.Program, 16);
