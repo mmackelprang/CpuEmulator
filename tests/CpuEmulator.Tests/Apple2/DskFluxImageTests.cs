@@ -87,6 +87,34 @@ public class DskFluxImageTests
         Assert.True(MatchesAnyTrack0Sector(decoded), "the decoded sector must match a real track-0 sector");
     }
 
+    [Fact]
+    public void A_runtime_inserted_dsk_image_is_read_back_through_the_head()
+    {
+        // Start with an empty-ish controller (drive 1 = a blank synthetic image), motor on.
+        var disk = new Apple2DiskII(new SyntheticFluxImage(trackCount: 35));
+        disk.MotorOnForTest();
+
+        // Build a .dsk image FROM BYTES at runtime (the upload/library path: bytes -> DiskImage ->
+        // DskFluxImage), then INSERT it into drive 1 while the "machine" is running.
+        var block = new DiskImage(BuildDos33Image(), sectorSize: 256, isReadOnly: true);
+        var dskFlux = new DskFluxImage(block, SectorOrderKind.Dos33);
+        disk.Insert(drive: 1, image: dskFlux);
+
+        // The very next poll loop reads a real sector off the runtime-inserted image (PR-G's proof, but
+        // post-insert): recover the first data field and confirm it matches a known track-0 sector.
+        var stream = new List<byte>();
+        for (int i = 0; i < 20_000; i++)
+        {
+            byte b = disk.ReadDataLatch();
+            if ((b & 0x80) != 0) stream.Add(b);
+        }
+        Assert.True(TryReadFirstDataField(stream, out byte[] decoded),
+            "a runtime-inserted .dsk must be readable through the head");
+        Assert.Equal(256, decoded.Length);
+        Assert.True(MatchesAnyTrack0Sector(decoded),
+            "the decoded sector must match a known track-0 sector of the inserted image");
+    }
+
     private static bool TryReadFirstDataField(List<byte> stream, out byte[] decoded)
     {
         decoded = [];
