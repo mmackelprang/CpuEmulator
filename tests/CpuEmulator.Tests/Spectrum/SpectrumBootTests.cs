@@ -65,7 +65,7 @@ public class SpectrumBootTests
         // frame for a given variant, so the hash is keyed by variant name only (not tier). On the FIRST green
         // run, capture each variant's hash (uncomment the WriteLine), paste it into ExpectedHashes, re-run.
         string hash = Convert.ToHexString(SHA256.HashData(AsBytes(rgba)));
-        // System.Console.WriteLine($"[boot frame hash] {variant} = {hash}");  // <-- uncomment once to capture
+        // System.Console.WriteLine($"[boot frame hash] {variant}/{tier} = {hash}");  // <-- uncomment once to capture
         if (ExpectedHashes.TryGetValue(variant, out string? expected) &&
             expected != "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN")
         {
@@ -80,12 +80,16 @@ public class SpectrumBootTests
     private static readonly IReadOnlyDictionary<string, string> ExpectedHashes =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["spec48"]            = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN",
-            ["spec48-arabic-v1"]  = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN",
-            ["spec48-arabic-v2"]  = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN",
-            ["spec48-arabic-v31"] = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN",
-            ["spec48-beckman"]    = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN",
-            ["spec48-prototype"]  = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN",
+            // Captured 2026-06-21 on the first fully-green run, both tiers byte-identical per variant.
+            // (spec48 + spec48-prototype render a pixel-identical copyright screen at boot — their ROM bytes
+            // differ but the booted © frame is the same — so they share a hash; the Arabic/Beckman variants
+            // each carry a distinct character set / reset and hash distinctly.)
+            ["spec48"]            = "0A3E4E8C963C24309BE197861450A01D495194A59E61F17F8AF8D5B99313E98A",
+            ["spec48-arabic-v1"]  = "C8A07848F6C2A98CAB25BEB39741D8999F7DA132B5E2F115554D43D36841885B",
+            ["spec48-arabic-v2"]  = "5265D2CE6C325B439AD6D3BFD1E841F800AFABF5041D9116AD61F78EFA41AF37",
+            ["spec48-arabic-v31"] = "33B5D2EF988338C04B05EEF16E30AE6C5B7CF8A928639DFB0054A32F3B871B9E",
+            ["spec48-beckman"]    = "FC269B0C89C2771C5D981C8897DE3AC27C67E8ACD6D7A168B28B783AFEDA209F",
+            ["spec48-prototype"]  = "0A3E4E8C963C24309BE197861450A01D495194A59E61F17F8AF8D5B99313E98A",
         };
 
     private static byte[] AsBytes(uint[] rgba)

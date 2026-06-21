@@ -46,9 +46,13 @@ public class SpectrumInteractiveTests
 
         // Un-fakeable: typing actually drove the interpreter to PRINT a result on the top line. A machine that
         // ignored the keystrokes (or never evaluated) leaves the top print rows blank → inkTopAfter ≈ inkTopBefore.
+        // Verified on real silicon-accurate boot: the result `4` is a single glyph of ≈14 ink px at row 0 (the
+        // freshly-booted top line is 0 px; a typed-but-unsubmitted line is also 0 px — the edit line is at the
+        // BOTTOM until ENTER), so a `> before + 10` floor cleanly separates "printed the result" (14) from
+        // "nothing reached BASIC" (0). The committed hash below is the tight gate that pins the exact `4` frame.
         Assert.True(inkTopBefore < 10,
             $"[{tier}] precondition: the top print row should start blank; got {inkTopBefore} ink px");
-        Assert.True(inkTopAfter > inkTopBefore + 20,
+        Assert.True(inkTopAfter > inkTopBefore + 10,
             $"[{tier}] expected the printed result on the top line; before={inkTopBefore} after={inkTopAfter}");
 
         // Tight gate: a committed RGBA hash of the full post-RUN frame (both tiers identical). Captured on first
@@ -56,10 +60,11 @@ public class SpectrumInteractiveTests
         var rgba = new uint[SpectrumUla.FullWidth * SpectrumUla.FullHeight];
         ula.RenderInto(rgba);
         string hash = Convert.ToHexString(SHA256.HashData(AsBytes(rgba)));
-        // System.Console.WriteLine($"[interactive frame hash] {hash}");  // <-- uncomment once to capture
-        // Non-const so the inert hash branch stays reachable under TreatWarningsAsErrors (CS0162) — same as the
-        // shipped boot gate's ExpectedBootHash.
-        string ExpectedHash = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN";
+        // System.Console.WriteLine($"[interactive frame hash] {tier} = {hash}");  // <-- uncomment once to capture
+        // Captured 2026-06-21 on the first green run, both tiers byte-identical: the `PRINT 2+2`→`4` frame
+        // (the `4` at row 0, `0 OK, 0:1` at row 23). Non-const so the branch stays reachable under
+        // TreatWarningsAsErrors (CS0162) — same as the shipped boot gate's hash gate.
+        string ExpectedHash = "E36813D72229C236D4AFAB38DDCE3D7017D25C7828666F2DE8721F13300EB6E0";
         if (ExpectedHash != "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN")
             Assert.Equal(ExpectedHash, hash);
     }
