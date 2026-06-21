@@ -73,4 +73,31 @@ public class SoftCardBoardTests
             spec.Peripherals.Single(p => p.Name == "softcard").Name);
         Assert.Equal(CpuKind.Z80, spec.Coprocessor.Cpu);
     }
+
+    [Fact]
+    public void SoftCardCpm_load_rejects_a_wrong_length_image()
+    {
+        string tmp = Path.Combine(Path.GetTempPath(), $"cpm-bad-{Guid.NewGuid():N}.dsk");
+        File.WriteAllBytes(tmp, new byte[1024]);   // not 143,360
+        try { Assert.Throws<InvalidDataException>(() => SoftCardCpm.LoadBlockDevice(tmp)); }
+        finally { File.Delete(tmp); }
+    }
+
+    [Fact]
+    public void SoftCardCpm_load_accepts_an_exact_140KiB_image_as_a_256_byte_sector_block_device()
+    {
+        string tmp = Path.Combine(Path.GetTempPath(), $"cpm-ok-{Guid.NewGuid():N}.dsk");
+        File.WriteAllBytes(tmp, new byte[SoftCardCpm.DiskLength]);   // 143,360 = 35*16*256
+        try
+        {
+            IBlockDevice block = SoftCardCpm.LoadBlockDevice(tmp);
+            Assert.Equal(256, block.SectorSize);
+            Assert.Equal(560, block.SectorCount);   // 35 tracks * 16 sectors
+            Assert.True(block.IsReadOnly);
+            // And it re-nibblizes onto the shipped DskFluxImage with the CP/M order (the adapter is unchanged).
+            var flux = new DskFluxImage(block, SectorOrderKind.Cpm);
+            Assert.Equal(35, flux.TrackCount);
+        }
+        finally { File.Delete(tmp); }
+    }
 }
