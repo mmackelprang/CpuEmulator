@@ -98,13 +98,29 @@ offset. Translation active **only when the Z80 is enabled**.
 Directory = 32-byte extent records, each extent spanning 16 KB; with ≤256 blocks each block number
 is a single byte. Two CP/M 128-byte logical sectors pack into one 256-byte physical sector.
 
-## 5. Sector skew  *(vote 3-0)*
+## 5. Sector skew  *(vote 3-0; **boot-track table CORRECTED by live trace — ADR 0017**)*
 
-**Double skew:** system (boot) tracks use the CP/M-physical skew; data tracks use the CP/M-logical
-skew. Canonical data-track skew table (DOS-3.3-ordered `.do`/`.dsk`, "apple-do"):
+**Double skew:** system (boot) tracks 0–2 use the **boot interleave**; data tracks 3–34 use the
+CP/M-logical skew.
+
+> 🔴 **CORRECTION (ADR 0017, live-verified against the real disk):** an earlier version of this section
+> gave the wrong boot-track table. The correct **boot-track (system tracks 0–2)** physical→logical table,
+> pinned by an instruction-step trace of the real disk (boot2's `$0F7D` routine + the `COPYRIGHT (C) 1979,
+> DIGITAL RESEARCH` / `Apple ][ CP/M 44K Ver. 2.20B` ASCII landing correctly), is:
+>
+> ```
+> 0, 11, 6, 1, 12, 7, 2, 13, 8, 3, 14, 9, 4, 15, 10, 5      ← boot tracks 0–2 (physToLog[p] = (p×11) mod 16)
+> ```
+>
+> Using the **data-track** table below for the boot tracks loads boot2's bytes at the wrong addresses
+> (`$0F7D` → `$00`/BRK) → a silent monitor crash before the SoftCard handshake. The skew is therefore
+> **per-track**: `Apple2SectorOrder.PhysicalToLogical(Cpm, track)` returns the boot table for `track < 3`
+> and the data table for `track ≥ 3`.
+
+Canonical **data-track (tracks 3–34)** skew table (DOS-3.3-ordered `.do`/`.dsk`, "apple-do") — **live-verified correct**:
 
 ```
-0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1
+0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1      ← data tracks 3–34
 ```
 
 Distinct from the ProDOS ("apple-po") table `0,9,3,12,6,15,1,10,4,13,7,8,2,11,5,14`. Same low-level

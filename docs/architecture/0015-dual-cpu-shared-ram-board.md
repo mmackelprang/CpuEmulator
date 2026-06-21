@@ -78,6 +78,12 @@ binds to its page table + backing arrays (`CpuCoreFactory.cs:46`). A *translatin
 
 ### Decision 1 — Bus arbitration model: run-one-then-the-other (NOT cycle-interleave); a `SoftCardScheduler` runs the **active** CPU and never schedules the dormant one
 
+> **⚠ AMENDED by ADR 0017 Decision 3 (2026-06-21, live-verified):** the run loop must yield **at the toggling
+> instruction** — it drives the active core **one instruction at a time** (`Step()`) and checks the slice-end flag
+> after each, because `ICpuCore.Run(ref budget)` is un-interruptible mid-budget. The shipped PR-K behavior (check the
+> flag only *after* `Run` returns) lets the just-disabled CPU run the rest of its slice past the `$CnXX` toggle,
+> corrupting every Z80↔6502 BIOS round-trip. See ADR 0017.
+
 The board models the two CPUs exactly as the research recommends (§7, MAME-grounded): **run-one-then-the-other bus
 arbitration** — only one CPU drives shared RAM at a time, switched by the `$CnXX` write. **Do NOT cycle-interleave.**
 Cleaner than MAME (whose dormant Z80 spins in WAIT): **simply do not schedule the disabled CPU at all.**
@@ -226,6 +232,12 @@ Two important consequences of the table:
   interact: the **6502 boot loader sets up the LC banking before starting the Z80**; the translation then routes the
   Z80's `$B000`/`$D000` onto whatever the LC has mapped. This is a **build-time sequencing item** (the exact LC state
   CP/M expects), defaulted in Decision 7.
+
+> **⚠ AMENDED by ADR 0017 Decision 2 (2026-06-21, live-verified):** "fire on any access" was read too literally as
+> "`Read` mirrors `Write`." The live boot proves a **read-toggle livelocks** the SoftCard-detect poll (→ on-screen
+> `CAN'T FIND Z80 SOFTCARD`). The control register toggles on **write only**; **`Read()` is open-bus (`0x00`) with NO
+> toggle** (the no-ROM card has no readable status at `$CN00`; CP/M's detect uses the `$003E` RAM flag the Z80 stub
+> clears). See ADR 0017.
 
 **The control port** is a small `SoftCardControlPort : IPeripheral` mapped at the slot's `$CN00` page (it is the slot-N
 ROM/register window; for the standard slot it is one page in the `$C100–$C7FF` band, ADR 0014 Decision 5). Its `Write`
