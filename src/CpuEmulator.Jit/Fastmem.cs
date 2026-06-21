@@ -42,7 +42,11 @@ public sealed class Fastmem
                     PageBacking[p] = backing;
             }
             // An MMIO/unmapped page leaves PageBacking[p] null AND PageWritable[p] false, so its
-            // accesses take the bus arm and never mark dirty (MMIO cannot hold code).
+            // accesses take the bus arm and never mark dirty (MMIO cannot hold code). At construction
+            // a page is never RAM-first, so leaving PageOffset[p]/PageWritable[p] at their array-default
+            // 0/false is sufficient here. Reclassify() (the post-Remap path) must instead EXPLICITLY zero
+            // those slots — a RAM page that is later RemapPeripheral'd to MMIO would otherwise keep a
+            // stale offset/writable. Do not copy this implicit-default pattern into a reclassification.
         }
     }
 

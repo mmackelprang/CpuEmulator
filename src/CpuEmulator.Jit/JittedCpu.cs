@@ -105,8 +105,10 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     /// case's bytes — the block-cache-isolation invariant), clears the per-run chain-walk state, and resets the
     /// inner CPU. Fastmem is NOT rebuilt: the pooled bus (PR-T2) re-zeroes the SAME backing array in place, so
     /// Fastmem's PageBacking[] snapshot still points at the live backing — only its CONTENTS changed, which the
-    /// emitted code reads at run time. (If a future pooled bus REMAPS to a different backing array, also rebuild
-    /// Fastmem here; today it does not.)</summary>
+    /// emitted code reads at run time. (If a future pooled bus calls IAddressSpace.Remap to point a page at a
+    /// DIFFERENT backing array, this seam leaves Fastmem stale — OnRemap reclassifies live during a run, but
+    /// ResetForReuse does not re-run it. A reused CPU that has had Remap applied must rebuild Fastmem here, or
+    /// not be combined with reuse. No current pooled-reuse path remaps; today it does not.)</summary>
     public void ResetForReuse()
     {
         _cache.FlushAll();
