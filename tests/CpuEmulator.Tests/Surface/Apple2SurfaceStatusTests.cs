@@ -23,9 +23,11 @@ public class Apple2SurfaceStatusTests
 
         Assert.Equal("Apple ][+", s.Board);
         // No disk inserted -> the synthetic image -> the "—" label; motor off at boot (not faked).
-        Assert.Single(s.Drives);
+        // Two modeled drives (PR-Q made drive 2 real; PR-R reports both); both empty at boot.
+        Assert.Equal(2, s.Drives.Count);
         Assert.False(s.Drives[0].MotorOn);
         Assert.Equal("—", s.Drives[0].Label);
+        Assert.Equal("—", s.Drives[1].Label);
         // Power-on video mode.
         Assert.Equal("TEXT · 40×24 · page 1", s.Mode);
     }
