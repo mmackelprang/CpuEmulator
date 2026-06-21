@@ -48,4 +48,14 @@ public static class Apple2Board
             Reset: ResetConfig.None);   // the system ROM carries its own $FFFC/$FFFD vector
         // IoAddressBits defaults to 0: memory-mapped I/O only (no port space).
     }
+
+    /// <summary>The ][+ board with the Language Card wired (ADR 0014 Decision 4). The LC owns no bus
+    /// page of its own (the IOU owns $C000-$C0FF, which includes $C08x) — so the board spec is byte-for-
+    /// byte the base Spec; the IOU (already holding the LC) Realizes it (IOU-forwards-Realize), which is
+    /// how the LC captures the program bus it remaps. No extra slot is added.</summary>
+    public static BoardSpec SpecWithLanguageCard(byte[] systemRom, Apple2Iou iou, Apple2LanguageCard lc)
+    {
+        ArgumentNullException.ThrowIfNull(lc);
+        return Spec(systemRom, iou);   // the IOU (holding the LC) Realizes it; no extra slot needed
+    }
 }

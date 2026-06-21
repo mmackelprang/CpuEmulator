@@ -14,26 +14,33 @@ namespace CpuEmulator.Peripherals;
 public sealed class Apple2Iou : IPeripheral
 {
     private readonly Apple2VideoState _state;
+    private readonly Apple2LanguageCard? _lc;   // PR-E: $C080-$C08F delegate (null on the bare board)
 
-    public Apple2Iou(Apple2VideoState state)
+    public Apple2Iou(Apple2VideoState state) : this(state, null) { }
+
+    public Apple2Iou(Apple2VideoState state, Apple2LanguageCard? lc)
     {
         ArgumentNullException.ThrowIfNull(state);
         _state = state;
+        _lc = lc;
     }
 
     public string Name => "iou";
 
-    public void Realize(IMachineContext context) { /* no IRQ/schedule on the bare IOU */ }
+    public void Realize(IMachineContext context)
+    {
+        _lc?.Realize(context);   // PR-E: the LC owns no page, so the IOU (a mapped peripheral) Realizes it
+    }
 
     public uint Read(uint offset, AccessWidth width)
     {
-        ApplyAnyAccessSideEffect(offset);
+        ApplyAnyAccessSideEffect(offset, isRead: true);
         return BusValue(offset);
     }
 
     public void Write(uint offset, AccessWidth width, uint value)
     {
-        ApplyAnyAccessSideEffect(offset);
+        ApplyAnyAccessSideEffect(offset, isRead: false);
         // Soft switches ignore the written value; the side effect is the access itself.
     }
 
@@ -44,8 +51,11 @@ public sealed class Apple2Iou : IPeripheral
     }
 
     /// <summary>The any-access (read OR write) side effects. The single source of truth both Read and
-    /// Write call — and TryPeek deliberately does NOT.</summary>
-    private void ApplyAnyAccessSideEffect(uint offset)
+    /// Write call — and TryPeek deliberately does NOT. <paramref name="isRead"/> is threaded so the
+    /// Language Card can distinguish reads (which arm its pre-write flip-flop) from writes (which reset
+    /// it). To call the LC's Access EXACTLY ONCE per bus access, this handles $C08x for WRITES only (a
+    /// read's $C08x side effect rides BusValue — Read calls both, so $C08x routes through one path).</summary>
+    private void ApplyAnyAccessSideEffect(uint offset, bool isRead)
     {
         byte o = (byte)offset;
         switch (o)
@@ -67,15 +77,27 @@ public sealed class Apple2Iou : IPeripheral
             case 0x30: _state.ToggleSpeaker(); break;
 
             // $C000 (keyboard read) has no side effect on access; the value is in BusValue.
-            // $C080-$C08F (Language Card) and $C0E0-$C0EF (Disk II) are delegated in PR-E / PR-F.
+            // --- Language Card $C080-$C08F (delegated to the LC mapper; WRITES only here — a $C08x
+            // read's Access is owned by BusValue so the LC's Access fires exactly once per bus access). ---
+            case >= 0x80 and <= 0x8F:
+                if (!isRead) _lc?.Access(o, isRead: false);
+                break;
+
+            // $C0E0-$C0EF (Disk II) is delegated in PR-F.
             default: break;
         }
     }
 
-    /// <summary>The bus value a READ (or a peek) returns for an offset, WITHOUT side effects.</summary>
+    /// <summary>The bus value a READ (or a peek) returns for an offset, WITHOUT side effects — except
+    /// for $C08x, whose READ side effect (the LC bank remap + arm) is owned here so the LC's Access
+    /// fires exactly once per bus access (Read calls ApplyAnyAccessSideEffect AND BusValue). Note that
+    /// TryPeek also routes through BusValue and so would drive the LC; the Apple2 board maps $C08x
+    /// inside the IOU's MMIO page, and the LC's remap is the intended any-read side effect.</summary>
     private byte BusValue(uint offset)
     {
         byte o = (byte)offset;
+        if (o is >= 0x80 and <= 0x8F)
+            return _lc?.Access(o, isRead: true) ?? 0x00;
         return o switch
         {
             0x00 => _state.KeyboardByte,   // $C000: bit7 strobe + 7-bit code
