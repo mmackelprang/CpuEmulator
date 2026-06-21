@@ -52,6 +52,10 @@ internal static class DemoSession
     private const long SpectrumPumpCycles = 69_888;
     private static readonly TimeSpan SpectrumPeriod = TimeSpan.FromMilliseconds(20);
 
+    // The Apple ][+ runs at ~1.0205 MHz: a ~17,030-cycle slice every ~16 ms (60 Hz, matches Apple2Video).
+    private const long AppleSliceCycles = 17_030;
+    private static readonly TimeSpan ApplePeriod = TimeSpan.FromMilliseconds(16);
+
     public static async Task RunAsync(WebSocket socket, CancellationToken ct)
     {
         Channel<byte[]> frames = Channel.CreateBounded<byte[]>(
@@ -59,22 +63,44 @@ internal static class DemoSession
         Channel<byte[]> audio = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
 
-        // Boot the Spectrum if its ROM is in the cache; otherwise fall back to the SP0 demo board.
-        string? romPath = CpuEmulator.Machines.SpectrumRom.TryGetPath();
+        // Boot the Apple ][+ when its system ROM is cached; else fall back to the Spectrum, else the demo.
+        // (The Spectrum ROM is only probed when the Apple branch isn't taken — no file-stat in the common
+        // Apple-boot path.)
+        string? appleRom = CpuEmulator.Machines.Apple2Rom.TryGetPath();
         ISurfacePump pump;
-        if (romPath is not null)
+        string assetState;   // surfaced to the client banner / status line
+        if (appleRom is not null)
+        {
+            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom);
+            byte[]? bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom();
+            byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
+            Apple2Surface apple = Apple2Surface.Create(sys, bootRom, charRom,
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+            pump = new SurfacePump(apple.Host, AppleSliceCycles, ApplePeriod);
+            assetState = charRom is null ? "apple-fallback-font" : "apple";
+        }
+        else if (CpuEmulator.Machines.SpectrumRom.TryGetPath() is { } romPath)
         {
             byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
             SpectrumSurface spectrum = SpectrumSurface.Create(rom,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
             pump = new SurfacePump(spectrum.Host, SpectrumPumpCycles, SpectrumPeriod);
+            assetState = "spectrum";
         }
         else
         {
             // The demo board has no audio device; the audio channel stays empty.
             DemoBoardSurface demo = DemoBoardSurface.Create(f => frames.Writer.TryWrite(f));
             pump = new SurfacePump(demo.Host, SliceCycles, SlicePeriod);
+            assetState = "demo";
         }
+
+        // One-shot board/asset string the client renders into the banner + status line (the design
+        // copy.md strings). Text frame — the binary FB/AU path below is untouched (PR-H seam; the richer
+        // ST status frame is PR-P).
+        if (socket.State == WebSocketState.Open)
+            await socket.SendAsync(Encoding.UTF8.GetBytes($"ST {assetState}"),
+                WebSocketMessageType.Text, endOfMessage: true, ct);
 
         Task drive = pump.RunAsync(ct);
         Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);

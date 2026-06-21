@@ -54,8 +54,31 @@
     nextStartTime += buffer.duration;
   }
 
+  // Inbound text from the host: a one-shot "ST <assetState>" board/asset string drives the banner +
+  // status line (the design copy.md strings). Text frames arrive as strings; binary FB/AU frames arrive
+  // as ArrayBuffer — so a string is NEVER fed to DataView below.
+  function handleStatusText(s) {
+    if (!s.startsWith("ST ")) return;
+    const stateName = s.slice(3);
+    const banner = document.getElementById("asset-banner");
+    banner.hidden = true;
+    if (stateName === "apple-fallback-font") {
+      status.textContent = "connected · Apple ][+ · fallback font";
+    } else if (stateName.startsWith("apple")) {
+      status.textContent = "connected · Apple ][+ · documented 6502";
+    } else if (stateName === "spectrum") {
+      status.textContent = "connected · ZX Spectrum";
+    } else if (stateName === "demo") {
+      status.textContent = "connected · demo fallback · no Apple ROM";
+      banner.hidden = false;
+      banner.textContent = "Apple ][+ ROMs not found — showing the demo pattern. " +
+                           "Fetch them once: tools/get-apple2-roms.sh (or .ps1) — then reload this page.";
+    }
+  }
+
   // Decode a binary FB frame: 'F','B', version, reserved, u16 width LE, u16 height LE, then RGBA u32 LE.
   ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") { handleStatusText(ev.data); return; }
     const data = new DataView(ev.data);
     const m0 = data.getUint8(0), m1 = data.getUint8(1);
     if (m0 === 0x41 && m1 === 0x55) { handleAudioFrame(data); return; } // 'A','U'
@@ -92,4 +115,10 @@
 
   window.addEventListener("keydown", (ev) => sendKey("down", ev));
   window.addEventListener("keyup", (ev) => sendKey("up", ev));
+
+  // RESET is Ctrl+Backspace (the browser cannot send the hardware Ctrl+Reset); keep the browser from
+  // navigating back on Ctrl+Backspace while the surface is focused.
+  window.addEventListener("keydown", (ev) => {
+    if (ev.ctrlKey && ev.code === "Backspace") ev.preventDefault();
+  });
 })();

@@ -23,6 +23,8 @@ public static class Apple2Board
     public const uint RomLength = 0x3000;   // 12 KiB $D000-$FFFF
     public const uint IouBase = 0xC000;
     public const uint IouLength = 0x0100;   // the $C000 page
+    public const uint DiskBootRomBase = 0xC600;
+    public const uint DiskBootRomLength = 0x0100;   // slot 6: $C600-$C6FF (the P5/P6 boot ROM)
 
     public static BoardSpec Spec(byte[] systemRom, Apple2Iou iou)
     {
@@ -77,5 +79,47 @@ public static class Apple2Board
     {
         ArgumentNullException.ThrowIfNull(disk2);
         return Spec(systemRom, iou);   // the IOU (holding disk2) Realizes it; no extra slot needed
+    }
+
+    /// <summary>The fully-wired ][+ board for the surface (PR-H): the system ROM, the IOU (holding the LC
+    /// + Disk II), AND the slot-6 Disk II boot ROM at $C600. The $C000-$CFFF I/O band is carved into three
+    /// regions so $C600-$C6FF is a real ROM window (the boot ROM the Autostart slot-scan JMP ($C600)s into)
+    /// while the IOU still owns the $C000 page (the soft switches). The LC + Disk II ride the IOU (the
+    /// SpecWithLanguageCard / SpecWithDiskII contract: the IOU holds + Realizes them; no extra slot).
+    /// <para>CALLER CONTRACT: <paramref name="iou"/> MUST have been constructed with this same
+    /// <paramref name="disk2"/> (and the LC, if any) — <c>new Apple2Iou(state, lc, disk2)</c> — exactly as
+    /// SpecWithDiskII requires.</para></summary>
+    public static BoardSpec SpecWithSystem(byte[] systemRom, Apple2Iou iou, Apple2DiskII disk2,
+                                           byte[] diskBootRom)
+    {
+        ArgumentNullException.ThrowIfNull(systemRom);
+        ArgumentNullException.ThrowIfNull(iou);
+        ArgumentNullException.ThrowIfNull(disk2);
+        ArgumentNullException.ThrowIfNull(diskBootRom);
+        if (systemRom.Length != RomLength)
+            throw new ArgumentException(
+                $"Apple ][+ system ROM must be exactly ${RomLength:X} bytes; got ${systemRom.Length:X}.",
+                nameof(systemRom));
+        if (diskBootRom.Length != DiskBootRomLength)
+            throw new ArgumentException(
+                $"Disk II boot ROM must be exactly ${DiskBootRomLength:X} bytes; got ${diskBootRom.Length:X}.",
+                nameof(diskBootRom));
+
+        return new BoardSpec("apple2plus", CpuKind.Mos6502, AddressBits: 16,
+            Memory:
+            [
+                new MemoryRegion(RamBase, RamLength, RegionKind.Ram),                      // $0000-$BFFF RAM
+                new MemoryRegion(IoBase, DiskBootRomBase - IoBase, RegionKind.Mmio),       // $C000-$C5FF I/O
+                new MemoryRegion(DiskBootRomBase, DiskBootRomLength, RegionKind.Rom, diskBootRom), // $C600-$C6FF
+                new MemoryRegion(DiskBootRomBase + DiskBootRomLength,                      // $C700-$CFFF I/O
+                    IoBase + IoLength - (DiskBootRomBase + DiskBootRomLength), RegionKind.Mmio),
+                new MemoryRegion(RomBase, RomLength, RegionKind.Rom, systemRom),           // $D000-$FFFF ROM
+            ],
+            Peripherals:
+            [
+                new PeripheralSlot("iou", iou, IouBase, IouLength),   // the $C000 page decoder (unchanged)
+            ],
+            Irq: IrqWiring.None,
+            Reset: ResetConfig.None);
     }
 }

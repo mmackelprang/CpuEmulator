@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **PR-G merged**: the `.dsk`/`.po` re-nibblizing adapter (`DskFluxImage : IFluxImage`) folds onto the PR-F track-bitstream seam with **no controller/IOU/board change** — the format-agnostic-above-the-seam invariant, OQ1-✅. **H is now Builder-eligible** (deps C, D, E, F, G ✅) — the first UI-touching surface PR + the ROM-boot gate.). **Owner:** Mark.
+> **Last updated:** 2026-06-21 (Builder — **PR-H merged — the base-machine boot milestone is COMPLETE**: `Apple2Surface` wires the video/keyboard/speaker triad through `MachineHost` (the `SpectrumSurface` twin), `Apple2Board.SpecWithSystem` maps the slot-6 `$C600` Disk II boot ROM, `get-apple2-roms.{sh,ps1}` fetch the three ROMs on-demand (never vendored), and the ROM-boot gate asserts the Applesoft `]` prompt on **both** tiers (skip-with-note absent — Apple ROM is owner-supplied). The base ][+ now boots to `]` when the ROM is cached, else the calm SP0-demo fallback. **Next eligible rows (I dual-CPU, M DisplayMultiplexer, P ST-status) are all `JIT`-unplanned** → Builder STOPS; the Planner plans the dual-CPU arc next.). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -59,7 +59,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | ✅ | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | ✅ | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
-| **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
+| **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | ✅ | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
 | **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | JIT | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
 | **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | 📋 | I | JIT | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branch 2–6; the control-port write flips `_z80Active` and ends the slice. |
 | **K** | Interpreter-tier CP/M boot wiring (`$C600`→tracks→`$CnXX`-start) | 📋 | E, F, H, J | JIT | The real SoftCard boot sequence (6502 `$C600` reads tracks `$00–$02`, sets LC banking, writes `$CN00`) hands off to the Z80; CP/M reaches its load state on the **interpreter** tier. **Asset-gated** on the SoftCard CP/M `.dsk` (skip-with-note absent). |
@@ -130,6 +130,47 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-H — `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + the ROM-boot gate (the base-machine boot
+  milestone)** (2026-06-21). The arc's **first UI-touching surface PR** — the base ][+ now boots to the
+  Applesoft `]` prompt (ROM present) or the calm SP0-demo fallback (ROM absent). **`Apple2Rom`** (the
+  `SpectrumRom` twin) loads the three cached ROMs from `<cache>/apple2/` with exact-length validation: the
+  12 KiB system ROM (required — its absence is the fallback trigger), the 256 B slot-6 Disk II boot ROM,
+  and the **optional** 2 KiB char-gen ROM (missing is non-fatal — `Apple2Font.Fallback` drives render).
+  **`Apple2Board.SpecWithSystem`** maps the slot-6 **`$C600`** boot ROM by carving the `$C000–$CFFF` I/O
+  band into three validator-clean tiles (`$C000–$C5FF` Mmio / `$C600–$C6FF` Rom / `$C700–$CFFF` Mmio) so
+  the Autostart slot-scan finds a disk while the IOU still owns the `$C000` soft-switch page; the existing
+  `Spec`/`SpecWithLanguageCard`/`SpecWithDiskII` overloads are untouched (additive only).
+  **`Apple2Surface`** (the `SpectrumSurface` twin) constructs the shared `Apple2VideoState`, the
+  `Apple2Video`/`Apple2Keyboard`/`Apple2Speaker` triad over it (three objects, one state — unlike the
+  Spectrum's single ULA), the LC + Disk II + IOU, builds the board, `Realize`s the non-board video/speaker
+  chips against the live `Machine` (`Machine : IMachineContext`), resets, and wires the 6-arg
+  `MachineHost`. **`Program.cs`** boots the Apple when its system ROM is cached (else the existing
+  Spectrum-then-SP0-demo fallback) and pushes a one-shot **`ST <assetState>`** WebSocket **text** status
+  frame on connect (the minimal precursor to PR-P's richer `ST` frame; the binary FB/AU path is untouched);
+  `app.js` guards the inbound text frame before the binary `DataView` decode, renders the calm
+  named-script asset banner, and adds the `Ctrl+Backspace` RESET bind; `index.html` gets the Apple title +
+  the 280×192 aspect-preserving canvas. **`get-apple2-roms.{sh,ps1}`** fetch all three ROMs on-demand with
+  byte-length sanity checks, **never vendoring** (Apple copyright; ADR 0014 Decision 7) — the fetch URLs
+  are owner-supplied placeholders, the length check is the real correctness guarantee. Pre-merge review
+  (focused on the board carve, the WS text/binary coexistence, the surface lifecycle, and the loader) found
+  **no HIGH/blocking issues**; the board carve passes every `BoardSpecValidator` rule, the `ST` text frame
+  can never reach `DataView` (string-guarded first), and `Realize`-then-`Reset` ordering is correct. Three
+  review fixes applied: dropped a process-wide `CPUEMULATOR_TESTVECTORS` env-var mutation in the char-ROM
+  test (a parallel-runner flakiness risk — now an explicit-root test seam), deferred the Spectrum-ROM probe
+  to the non-Apple branch, and named both fetch scripts in the fallback banner. The implementer also caught
+  + fixed a `WebServerSmokeTests` regression the new `ST` frame caused (it now reads the text frame first,
+  then asserts the binary FB frame still streams — a strengthened test). The **ROM-boot gate**
+  (`[Apple2RomTheory]`, both tiers) asserts the `]` prompt as structural ink on a mostly-blank text screen
+  + a committed-hash placeholder, and **skips-with-note when the system ROM is absent** (the
+  `SpectrumBootTests` discipline) — a skipped gate is GREEN; the live "boots to `]`" confirmation is
+  **pending an owner-supplied ROM**. **UAT (ROM-absent path, real frame-level WebSocket drive):** the
+  server serves `index.html`/`app.js` (200), the WS connects (101), the `ST demo` text frame is the first
+  inbound message, binary `FB` frames stream (256×192 SP0-demo fallback), inbound keys are accepted without
+  dropping the connection, and zero server errors. Gate: the Apple2 suite green (the ROM-boot gate skips
+  as expected) + the full 7153-test suite green (7153 passed, 0 failed, 4 skipped — the ROM-boot gate +
+  3 pre-existing asset-gated skips), warning-clean, the web project builds. **The base-machine boot
+  milestone is complete.** Unblocks the dual-CPU arc (I→J→K) + the CP/M-display arc (M→N→O) + the surface
+  arc (P, Q, R, S, T) — all next-eligible rows are `JIT`-unplanned, so the Planner plans the dual-CPU arc.
 - **PR-G — Disk II `.dsk`/`.po` re-nibblizing adapter (`DskFluxImage : IFluxImage`)** (2026-06-21). The
   `.dsk`/`.po` logical-sector → synthetic-GCR-track adapter that folds into the **same `IFluxImage`
   track-bitstream seam PR-F shipped** (ADR 0014 Decision 6 + OQ1-✅ — full `.woz`/LSS fidelity upfront,
