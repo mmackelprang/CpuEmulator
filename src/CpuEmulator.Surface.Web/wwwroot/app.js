@@ -8,9 +8,36 @@
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
 
-  ws.onopen = () => { status.textContent = "connected"; };
-  ws.onclose = () => { status.textContent = "disconnected"; };
-  ws.onerror = () => { status.textContent = "error"; };
+  ws.onopen = () => {
+    status.textContent = "connected";
+    // M4: arm the "no frame yet" diagnostic. A real FB frame (near-instant on localhost) clears it; if
+    // nothing paints within ~3 s the surface reads as alive-but-waiting rather than silently blank.
+    firstFrameTimer = setTimeout(() => {
+      if (!firstFrameSeen) status.textContent = "connected · waiting for first frame…";
+    }, 3000);
+  };
+  ws.onclose = () => { clearFirstFrameTimer(); status.textContent = "disconnected — reload to reconnect"; };
+  ws.onerror = () => { clearFirstFrameTimer(); status.textContent = "connection error — is the server running?"; };
+
+  // M4: the first-frame diagnostic timer (started on open, cleared by the first FB frame or a disconnect).
+  let firstFrameTimer = null;
+  let firstFrameSeen = false;
+  function clearFirstFrameTimer() {
+    if (firstFrameTimer) { clearTimeout(firstFrameTimer); firstFrameTimer = null; }
+  }
+
+  // H3: the keyboard-hint copy (copy.md §4) lives in two states the asset drives. The booted form is the
+  // server-rendered #hint markup; the demo form omits the RESET/BASIC chords (there is no Apple to reset).
+  const HINT_BOOTED = "Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET.";
+  const HINT_DEMO = "Fetch the ROMs to boot a real Apple ][+: <kbd>tools/get-apple2-roms.sh</kbd>";
+  function setHint(booted) {
+    const hint = document.getElementById("hint");
+    if (hint) hint.innerHTML = booted ? HINT_BOOTED : HINT_DEMO;
+  }
+
+  // H4: while the demo fallback is showing there is no Apple disk drive, so the panels stay disabled (no
+  // reachable-then-rejected picker). renderControlStrip honours this flag instead of the upload-state path.
+  let demoMode = false;
 
   // --- Web Audio (the beeper / AU frames) ---
   const AUDIO_RATE = 44100;            // fixed contract rate (matches IAudioSink.SampleRate)
@@ -80,11 +107,9 @@
       const modeLabel = document.getElementById("mode-label");
       if (modeLabel) modeLabel.textContent = st.mode || "";
       renderControlStrip();                       // repaint lights/labels/eject from the real snapshot
+      // M3: applyAssetBanner owns the canonical copy.md §3 status line (board · machine-descriptor). The
+      // per-drive light already carries motor state accessibly, so the status line drops the old drive tail.
       applyAssetBanner(st.asset, banner);
-      // The status line: board · mode · the active drive summary (read-only reflection).
-      const active = (st.drives || []).find(d => d.motor);
-      const driveText = active ? " · drive ●" : "";
-      status.textContent = "connected · " + st.board + " · " + st.mode + driveText;
       return;
     }
 
@@ -92,24 +117,61 @@
     applyAssetBanner(body, banner);
   }
 
-  // The asset → banner/status mapping (shared by both ST shapes). Preserves the shipped demo banner copy.
+  // The asset → banner/status mapping (shared by both ST shapes). Owns the canonical copy.md §3 status
+  // line, the §4 hint state, and (demo only) the §5 banner + §6.5 disabled-drive note.
   function applyAssetBanner(stateName, banner) {
     if (stateName === "softcard-cpm-videx") {
       status.textContent = "connected · Apple ][+ SoftCard · CP/M · Videx 80-col";
+      leaveDemoMode();
     } else if (stateName === "softcard-cpm") {
       status.textContent = "connected · Apple ][+ SoftCard · CP/M";
+      leaveDemoMode();
     } else if (stateName === "apple-fallback-font") {
       status.textContent = "connected · Apple ][+ · fallback font";
+      leaveDemoMode();
     } else if (stateName && stateName.startsWith("apple")) {
       status.textContent = "connected · Apple ][+ · documented 6502";
+      leaveDemoMode();
     } else if (stateName === "spectrum") {
       status.textContent = "connected · ZX Spectrum";
+      leaveDemoMode();
     } else if (stateName === "demo") {
       status.textContent = "connected · demo fallback · no Apple ROM";
+      // H2: the three-line §5 banner, built via innerHTML so the <kbd> element survives (textContent can't
+      // carry markup). Two spaces of separation after "Fetch them once:" per the mockup.
       banner.hidden = false;
-      banner.textContent = "Apple ][+ ROMs not found — showing the demo pattern. " +
-                           "Fetch them once: tools/get-apple2-roms.sh (or .ps1) — then reload this page.";
+      banner.innerHTML =
+        "Apple ][+ ROMs not found — showing the demo pattern.<br>" +
+        "Fetch them once:&nbsp;&nbsp;<kbd>tools/get-apple2-roms.sh</kbd><br>" +
+        "then reload this page.";
+      enterDemoMode();
     }
+  }
+
+  // H3/H4: enter the demo-fallback presentation — the chord-less hint, the disabled drive panels, and the
+  // §6.5 note split across the two panels (layout.md §3). renderDrivePanel keys off demoMode to keep the
+  // panels disabled through later repaints (no reachable-then-rejected picker).
+  function enterDemoMode() {
+    demoMode = true;
+    setHint(false);
+    setDemoDriveNote();
+    renderControlStrip();
+  }
+
+  // Leaving demo mode (a reconnect or asset change): restore the booted hint, clear the override, and let
+  // the normal renderDrivePanel path re-enable the panels per the real upload/catalog state.
+  function leaveDemoMode() {
+    if (demoMode) { demoMode = false; populateLibrary(1); populateLibrary(2); }
+    setHint(true);
+    renderControlStrip();
+  }
+
+  // H4 / copy.md §6.5: the disabled-drive note, split across the panels per layout.md §3.
+  function setDemoDriveNote() {
+    const l1 = document.getElementById("drive-1-label");
+    const l2 = document.getElementById("drive-2-label");
+    if (l1) l1.textContent = "Insert a disk after";
+    if (l2) l2.textContent = "fetching the Apple ROMs.";
   }
 
   // Decode a binary FB frame: 'F','B', version, reserved, u16 width LE, u16 height LE, then RGBA u32 LE.
@@ -119,6 +181,8 @@
     const m0 = data.getUint8(0), m1 = data.getUint8(1);
     if (m0 === 0x41 && m1 === 0x55) { handleAudioFrame(data); return; } // 'A','U'
     if (m0 !== 0x46 || m1 !== 0x42) return;                             // not 'F','B'
+    // M4: the first real frame cancels the "waiting" diagnostic; from here the ST-driven status owns the line.
+    if (!firstFrameSeen) { firstFrameSeen = true; clearFirstFrameTimer(); }
     const width = data.getUint16(4, true);
     const height = data.getUint16(6, true);
     if (canvas.width !== width || canvas.height !== height) {
@@ -185,16 +249,24 @@
   window.ejectDrive = function (drive) {
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ action: "disk-eject", drive: drive }));
+    window.uploadedLabel[drive] = "";   // M5: drop the optimistic name so the snapshot repaints to empty
   };
 
   // --- Disk upload (PR-S, design D12 — the surface's first inbound binary path) ---
   // Per-drive UPLOADING state for row T's panel: "idle" | "uploading" | "error", + the last error message.
   window.uploadState = { 1: "idle", 2: "idle" };
   window.uploadLastError = { 1: "", 2: "" };
+  // M5: the filename captured at upload time (for the UPLOADING label and the optimistic INSERTED label),
+  // and the optimistic label override that wins over the synthetic "upload (dsk)" host label until eject.
+  window.uploadFilename = { 1: "", 2: "" };
+  window.uploadedLabel = { 1: "", 2: "" };
 
   // The S ack hook: handleStatusText calls this when an upload result arrives. Repaint the panel; on a
   // server-side error, show the calm inline message (it auto-clears on the next ST snapshot or after ~6 s).
   window.onUploadResult = function (drive, ok, message) {
+    // M5 (lower-effort interim, copy.md §6.2): on success, promote the captured filename to the optimistic
+    // label override so the panel shows the real name rather than the synthetic "upload (dsk)" host label.
+    if (ok) window.uploadedLabel[drive] = window.uploadFilename[drive] || "";
     renderControlStrip();
     if (!ok) showDriveError(drive, message || "That image looks corrupt");
   };
@@ -242,6 +314,8 @@
 
     window.uploadState[drive] = "uploading";
     window.uploadLastError[drive] = "";
+    window.uploadFilename[drive] = name;   // M5/M6: the real name for the UPLOADING + optimistic INSERTED label
+    window.uploadedLabel[drive] = "";      // a fresh upload supersedes any prior optimistic override
     const reader = new FileReader();
     reader.onload = function () {
       const body = new Uint8Array(reader.result);
@@ -267,16 +341,37 @@
     for (let drive = 1; drive <= 2; drive++) renderDrivePanel(drive);
   }
 
+  // M5: the synthetic host label DispatchUpload writes for an uploaded image — "upload (dsk|po|woz)".
+  const SYNTHETIC_UPLOAD_LABEL = /^upload \((woz|dsk|po)\)$/i;
+
   function renderDrivePanel(drive) {
+    const selEl = document.getElementById("drive-" + drive + "-library");
+    const insEl = document.getElementById("drive-" + drive + "-insert");
+    const labelEl = document.getElementById("drive-" + drive + "-label");
+    const ejectEl = document.getElementById("drive-" + drive + "-eject");
+
+    // H4: in demo fallback there is NO Apple disk drive — force the panels disabled and keep the §6.5 note
+    // (set by setDemoDriveNote) instead of repainting the label. This removes the reachable-then-rejected path.
+    if (demoMode) {
+      if (selEl) selEl.disabled = true;
+      if (insEl) insEl.disabled = true;
+      if (ejectEl) ejectEl.hidden = true;
+      return;
+    }
+
     const st = window.machineStatus;
     const d = st && st.drives && st.drives[drive - 1];   // {motor, label} or undefined
     const uploading = window.uploadState[drive] === "uploading";
-    const label = d ? d.label : "—";
+    let label = d ? d.label : "—";
     const hasDisk = !!d && label && label !== "—" && label !== "empty";
 
+    // M5 (lower-effort interim, copy.md §6.2): the host snapshot only knows the synthetic "upload (dsk)"
+    // form — prefer the real filename captured at upload time. Purely cosmetic; motor/inserted state still
+    // comes from the snapshot. The proper fix (carry the filename in the DK/ST frame) is a follow-on.
+    if (hasDisk && SYNTHETIC_UPLOAD_LABEL.test(label) && window.uploadedLabel[drive])
+      label = window.uploadedLabel[drive];
+
     const lightEl = document.getElementById("drive-" + drive + "-light");
-    const labelEl = document.getElementById("drive-" + drive + "-label");
-    const ejectEl = document.getElementById("drive-" + drive + "-eject");
 
     // The light: amber only when the REAL motor is on; the spinner during upload; else the idle outline.
     let glyph, cls, aria;
@@ -286,10 +381,12 @@
     else { glyph = GLYPH.idle; cls = "drive-light"; aria = "drive " + drive + " empty"; }
     if (lightEl) { lightEl.textContent = glyph; lightEl.className = cls; lightEl.setAttribute("aria-label", aria); }
 
-    // The label: the uploading text, the image name, or "empty".
+    // The label: the uploading text (M6: with the filename when known), the image name, or "empty".
     if (labelEl) {
-      if (uploading) labelEl.textContent = "Uploading…";
-      else if (hasDisk) labelEl.textContent = label;
+      if (uploading) {
+        const name = window.uploadFilename[drive];
+        labelEl.textContent = name ? "Uploading " + name + "…" : "Uploading…";
+      } else if (hasDisk) labelEl.textContent = label;
       else labelEl.textContent = "empty";
     }
 
@@ -297,8 +394,6 @@
     if (ejectEl) ejectEl.hidden = !(hasDisk && !uploading);
 
     // The library select + the Insert… button are disabled during an upload (controls locked, interactions §4.1).
-    const selEl = document.getElementById("drive-" + drive + "-library");
-    const insEl = document.getElementById("drive-" + drive + "-insert");
     if (selEl) selEl.disabled = uploading || selEl.dataset.empty === "1";
     if (insEl) insEl.disabled = uploading;
   }

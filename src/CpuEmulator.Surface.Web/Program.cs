@@ -342,6 +342,9 @@ internal static class DemoSession
         }
 
         // .woz never reaches here (the validator rejects it as not-yet-supported); .dsk/.po load via Q.
+        // M5 note: this synthetic "upload (dsk|po|woz)" label is the only name the host knows for an uploaded
+        // image — the surface shows the real filename optimistically (client-captured). The proper fix
+        // (carry the original filename through the DK/ST frame) is a follow-on per copy.md §6.2.
         try
         {
             insertDisk(upload.Drive, upload.Bytes, upload.Format, $"upload ({upload.Format})".ToLowerInvariant());
