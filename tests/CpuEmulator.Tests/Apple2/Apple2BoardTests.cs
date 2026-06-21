@@ -70,4 +70,24 @@ public class Apple2BoardTests
         _ = bus.Read8(0xC030);          // $C030 toggles the speaker
         Assert.Equal(before + 1, state.SpeakerToggles);
     }
+
+    [Fact]
+    public void A_real_STA_C030_double_toggles_the_speaker_via_the_bus()
+    {
+        // Build a board whose RAM at $0300 holds: STA $C030 ; JMP $0300, and reset there.
+        var state = new Apple2VideoState();
+        var spec = Apple2Board.Spec(SystemRom(), new Apple2Iou(state));
+        Machine m = BoardMachineFactory.Build(spec);
+        var bus = m.Space(AddressSpaceKind.Program);
+        // STA $C030 = 8D 30 C0 ; JMP $0300 = 4C 00 03
+        bus.Write8(0x0300, 0x8D); bus.Write8(0x0301, 0x30); bus.Write8(0x0302, 0xC0);
+        bus.Write8(0x0303, 0x4C); bus.Write8(0x0304, 0x00); bus.Write8(0x0305, 0x03);
+        m.Cpu.SetRegister("PC", 0x0300);
+
+        long before = state.SpeakerToggles;
+        m.Run(8);                                   // run ~one STA (4 cyc) + part of the JMP
+        // One STA $C030 must have toggled the speaker TWICE (the RMW dummy read + the store).
+        Assert.True(state.SpeakerToggles >= before + 2,
+            $"expected >= {before + 2} toggles after one STA $C030; got {state.SpeakerToggles}");
+    }
 }
