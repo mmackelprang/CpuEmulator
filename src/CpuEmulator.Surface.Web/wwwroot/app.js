@@ -72,7 +72,7 @@
       status.textContent = "connected · demo fallback · no Apple ROM";
       banner.hidden = false;
       banner.textContent = "Apple ][+ ROMs not found — showing the demo pattern. " +
-                           "Fetch them once: tools/get-apple2-roms.sh — then reload this page.";
+                           "Fetch them once: tools/get-apple2-roms.sh (or .ps1) — then reload this page.";
     }
   }
 

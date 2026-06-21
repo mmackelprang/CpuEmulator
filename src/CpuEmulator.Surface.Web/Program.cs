@@ -64,8 +64,9 @@ internal static class DemoSession
             new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
 
         // Boot the Apple ][+ when its system ROM is cached; else fall back to the Spectrum, else the demo.
+        // (The Spectrum ROM is only probed when the Apple branch isn't taken — no file-stat in the common
+        // Apple-boot path.)
         string? appleRom = CpuEmulator.Machines.Apple2Rom.TryGetPath();
-        string? romPath = CpuEmulator.Machines.SpectrumRom.TryGetPath();
         ISurfacePump pump;
         string assetState;   // surfaced to the client banner / status line
         if (appleRom is not null)
@@ -78,7 +79,7 @@ internal static class DemoSession
             pump = new SurfacePump(apple.Host, AppleSliceCycles, ApplePeriod);
             assetState = charRom is null ? "apple-fallback-font" : "apple";
         }
-        else if (romPath is not null)
+        else if (CpuEmulator.Machines.SpectrumRom.TryGetPath() is { } romPath)
         {
             byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
             SpectrumSurface spectrum = SpectrumSurface.Create(rom,

@@ -18,9 +18,9 @@ public static class Apple2Rom
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                         ".cache", "cpuemulator", "vectors");
 
-    private static string? PathIfExists(string fileName)
+    private static string? PathIfExists(string fileName, string? root = null)
     {
-        string path = Path.Combine(CacheRoot, "apple2", fileName);
+        string path = Path.Combine(root ?? CacheRoot, "apple2", fileName);
         return File.Exists(path) ? path : null;
     }
 
@@ -30,8 +30,10 @@ public static class Apple2Rom
     /// <summary>The 256 B slot-6 Disk II boot ROM path, or null if absent.</summary>
     public static string? TryGetDiskRomPath() => PathIfExists("disk2.rom");
 
-    /// <summary>The optional 2 KiB char-gen ROM path, or null (non-fatal — Apple2Font.Fallback is used).</summary>
-    public static string? TryGetCharRomPath() => PathIfExists("char.rom");
+    /// <summary>The optional 2 KiB char-gen ROM path, or null (non-fatal — Apple2Font.Fallback is used).
+    /// The optional <paramref name="root"/> is a test seam (override the cache root) so a test never has
+    /// to mutate the process-wide CPUEMULATOR_TESTVECTORS env var; production callers pass nothing.</summary>
+    public static string? TryGetCharRomPath(string? root = null) => PathIfExists("char.rom", root);
 
     /// <summary>Load + validate the 12 KiB system ROM (from <paramref name="path"/>, or the cache).</summary>
     public static byte[] Load(string? path = null) =>

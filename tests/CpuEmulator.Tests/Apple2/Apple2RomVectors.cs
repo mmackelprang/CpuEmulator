@@ -67,15 +67,11 @@ public class Apple2RomLoaderTests
     [Fact]
     public void A_missing_char_rom_is_non_fatal_TryGetCharRomPath_is_null_when_absent()
     {
-        // With no char.rom in a throwaway empty cache root, the optional char-ROM path is simply null
-        // (the surface uses Apple2Font.Fallback) — NOT an exception.
+        // With no char.rom under a throwaway empty cache root, the optional char-ROM path is simply null
+        // (the surface uses Apple2Font.Fallback) — NOT an exception. Uses the explicit-root test seam so
+        // this never mutates the process-wide CPUEMULATOR_TESTVECTORS (which would race the parallel
+        // vector-gated theories — see M68000TomHarteVectors for the same guidance).
         string emptyRoot = Path.Combine(Path.GetTempPath(), $"empty-cache-{Guid.NewGuid():N}");
-        string? prev = Environment.GetEnvironmentVariable("CPUEMULATOR_TESTVECTORS");
-        Environment.SetEnvironmentVariable("CPUEMULATOR_TESTVECTORS", emptyRoot);
-        try
-        {
-            Assert.Null(Apple2Rom.TryGetCharRomPath());
-        }
-        finally { Environment.SetEnvironmentVariable("CPUEMULATOR_TESTVECTORS", prev); }
+        Assert.Null(Apple2Rom.TryGetCharRomPath(emptyRoot));
     }
 }
