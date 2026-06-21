@@ -37,6 +37,44 @@ public class SoftCardControlPortTests
     }
 
     [Fact]
+    public void A_read_is_open_bus_and_does_NOT_toggle_the_active_cpu()
+    {
+        // ADR 0017 Decision 2: the control register toggles on WRITE ONLY. A read is a bus read of a
+        // register-less slot -> open-bus, no side effect. (A read-toggle livelocks the SoftCard-detect poll
+        // -> CAN'T FIND Z80 SOFTCARD. This is the second defect of the cascade.)
+        var spy = new ControlSpy();
+        var port = new SoftCardControlPort();
+        port.Realize(spy);
+
+        uint v = port.Read(0x00, AccessWidth.Byte);
+        Assert.Equal(0x00u, v);          // open-bus
+        Assert.Equal(0, spy.Calls);      // the read did NOT toggle the active CPU
+        Assert.Null(spy.LastActive);     // SetCoprocessorActive was never called by a read
+
+        // Many reads (the detect poll + the $1010 bridge read the region repeatedly) still never toggle.
+        for (int i = 0; i < 1000; i++) port.Read(0x00, AccessWidth.Byte);
+        Assert.Equal(0, spy.Calls);
+    }
+
+    [Fact]
+    public void Reads_interleaved_with_writes_only_count_the_writes()
+    {
+        // The handshake reads the region between writes; only the writes flip the bus master.
+        var spy = new ControlSpy();
+        var port = new SoftCardControlPort();
+        port.Realize(spy);
+
+        port.Read(0x00, AccessWidth.Byte);                 // no toggle
+        port.Write(0x00, AccessWidth.Byte, 0x00);          // toggle -> active true (call 1)
+        port.Read(0x00, AccessWidth.Byte);                 // no toggle
+        port.Read(0x00, AccessWidth.Byte);                 // no toggle
+        port.Write(0x00, AccessWidth.Byte, 0x00);          // toggle -> active false (call 2)
+
+        Assert.Equal(2, spy.Calls);                        // exactly the two writes
+        Assert.Equal(false, spy.LastActive);
+    }
+
+    [Fact]
     public void TryPeek_is_side_effect_free_and_does_not_switch_cpus()
     {
         var spy = new ControlSpy();
