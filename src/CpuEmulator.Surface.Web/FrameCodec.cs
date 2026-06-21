@@ -5,6 +5,11 @@ using CpuEmulator.Core;
 
 namespace CpuEmulator.Surface.Web;
 
+/// <summary>A decoded disk-library command from the client's text WS path (design D11/D13): a
+/// <c>disk-insert</c> (drive + catalog id) or a <c>disk-eject</c> (drive). The library bytes live
+/// server-side, so the wire carries only the id; the server resolves + loads them.</summary>
+public readonly record struct DiskCommand(bool Eject, int Drive, string Id);
+
 /// <summary>
 /// The SP0 WebSocket wire format. Frames OUT: a small binary header ('F','B', version, reserved,
 /// uint16 width LE, uint16 height LE) followed by width*height little-endian RGBA8888 pixels (raw —
@@ -97,6 +102,39 @@ public static class FrameCodec
             KeyCode key = MapDomCode(code);
             char? typed = charStr.Length == 1 ? charStr[0] : null;
             e = new KeyEvent(keyAction, key, typed);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Decode a disk-library command: <c>{"action":"disk-insert","drive":N,"id":"..."}</c> or
+    /// <c>{"action":"disk-eject","drive":N}</c>. Returns false for any other JSON (so the inbound key
+    /// path, which the session tries first, is never shadowed) or an out-of-range drive (1..2).</summary>
+    public static bool TryDecodeDisk(string json, out DiskCommand cmd)
+    {
+        cmd = default;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return false;
+            string action = root.TryGetProperty("action", out JsonElement a) ? a.GetString() ?? "" : "";
+            bool eject = action == "disk-eject";
+            if (action != "disk-insert" && !eject)
+                return false;
+            if (!root.TryGetProperty("drive", out JsonElement d) || d.ValueKind != JsonValueKind.Number)
+                return false;
+            int drive = d.GetInt32();
+            if (drive is < 1 or > 2)
+                return false;
+            string id = !eject && root.TryGetProperty("id", out JsonElement i) ? i.GetString() ?? "" : "";
+            if (!eject && id.Length == 0)
+                return false;
+            cmd = new DiskCommand(eject, drive, id);
             return true;
         }
         catch (JsonException)

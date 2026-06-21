@@ -35,6 +35,16 @@ public class Program
             await DemoSession.RunAsync(socket, context.RequestAborted);
         });
 
+        // The disk-library catalog (design D11 / T-C): the per-drive [ Library ▾] select fetches this.
+        // A pure file-system read of the cache (no machine state) — served as compact JSON.
+        app.MapGet("/disks", () =>
+        {
+            var entries = CpuEmulator.Machines.DiskCatalog.List()
+                .Select(e => new { id = e.Id, name = e.Name, format = e.Format, cpm = e.Cpm, supported = e.Supported })
+                .ToArray();
+            return Results.Json(entries);
+        });
+
         app.Run();
     }
 }
@@ -78,6 +88,8 @@ internal static class DemoSession
         long slice;
         TimeSpan period;
         Func<MachineStatus>? statusProvider = null;
+        Action<int, byte[], DiskFormat, string>? insertDisk = null;   // library/upload insert (R/S)
+        Action<int>? ejectDisk = null;                                // library eject (R)
         string assetState;   // surfaced to the client banner / status line
         if (appleRom is not null && cpmDisk is not null)
         {
@@ -96,6 +108,8 @@ internal static class DemoSession
             assetState = "softcard-cpm-videx";
             string asset = assetState;                                     // capture for the provider
             statusProvider = () => softcard.Status() with { Asset = asset };
+            insertDisk = (drive, bytes, format, label) => softcard.InsertDisk(drive, bytes, format, label);
+            ejectDisk = drive => softcard.EjectDisk(drive);
         }
         else if (appleRom is not null)
         {
@@ -108,6 +122,8 @@ internal static class DemoSession
             assetState = charRom is null ? "apple-fallback-font" : "apple";
             string asset = assetState;                                     // capture for the provider
             statusProvider = () => apple.Status() with { Asset = asset };   // real state, real asset string
+            insertDisk = (drive, bytes, format, label) => apple.InsertDisk(drive, bytes, format, label);
+            ejectDisk = drive => apple.EjectDisk(drive);
         }
         else if (CpuEmulator.Machines.SpectrumRom.TryGetPath() is { } romPath)
         {
@@ -149,7 +165,7 @@ internal static class DemoSession
         Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);
         Task sendAudio = SendBinaryAsync(socket, audio.Reader, ct);
         Task sendStatus = SendTextAsync(socket, statusFrames.Reader, ct);
-        Task recv = ReceiveKeysAsync(socket, pump, ct);
+        Task recv = ReceiveKeysAsync(socket, pump, insertDisk, ejectDisk, ct);
 
         await Task.WhenAny(drive, sendFrames, sendAudio, sendStatus, recv);
         frames.Writer.TryComplete();
@@ -183,6 +199,8 @@ internal static class DemoSession
     }
 
     private static async Task ReceiveKeysAsync(WebSocket socket, ISurfacePump pump,
+                                              Action<int, byte[], DiskFormat, string>? insertDisk,
+                                              Action<int>? ejectDisk,
                                               CancellationToken ct)
     {
         var buffer = new byte[1024];
@@ -197,8 +215,49 @@ internal static class DemoSession
             if (result.MessageType != WebSocketMessageType.Text)
                 continue;
             string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            if (FrameCodec.TryDecodeKey(json, out KeyEvent e))
+            // Disk-library commands first (their JSON shape is disjoint from a key event); then keys.
+            // (TryDecodeKey returns true even for disk JSON — it maps to KeyCode.None — so the disk
+            // path must be tried first or a disk-insert/eject would be swallowed as a no-op key.)
+            if (FrameCodec.TryDecodeDisk(json, out DiskCommand cmd))
+            {
+                if (cmd.Eject)
+                    ejectDisk?.Invoke(cmd.Drive);
+                else if (insertDisk is not null
+                         && CpuEmulator.Machines.DiskCatalog.TryResolve(cmd.Id, out string path, out string fmt))
+                {
+                    DiskFormat format = fmt switch
+                    {
+                        "po" => DiskFormat.Po,
+                        "woz" => DiskFormat.Woz,
+                        _ => DiskFormat.Dsk,
+                    };
+                    // .woz library items are listed-disabled in the UI; never reach here. Guard anyway —
+                    // DiskImageFactory.FromBytes throws NotSupportedException for .woz, so skip it.
+                    if (format != DiskFormat.Woz)
+                    {
+                        // A vanished/truncated/unreadable library file is a normal user condition (the cache
+                        // is owner-managed), NOT a server fault: ReadAllBytes (TOCTOU after TryResolve) and
+                        // the DiskImage ctor (a non-256-multiple length) can throw. Swallow so a bad disk
+                        // never tears down the live WS session — the insert simply doesn't happen.
+                        try
+                        {
+                            byte[] bytes = File.ReadAllBytes(path);
+                            insertDisk(cmd.Drive, bytes, format, Path.GetFileNameWithoutExtension(path));
+                        }
+                        catch (Exception ex) when (ex is IOException
+                                                   or UnauthorizedAccessException
+                                                   or ArgumentException
+                                                   or NotSupportedException)
+                        {
+                            // Intentionally ignored — the live session keeps streaming; the drive is unchanged.
+                        }
+                    }
+                }
+            }
+            else if (FrameCodec.TryDecodeKey(json, out KeyEvent e))
+            {
                 pump.PostKey(e);
+            }
         }
     }
 

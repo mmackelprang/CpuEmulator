@@ -1,6 +1,27 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Planner — **surface-UI batch R + S PLANNED** (the disk-library catalog +
+> **Last updated:** 2026-06-21 (Builder — **R SHIPPED (PR #122)**: `GET /disks` disk-library catalog
+> (`DiskCatalog` over `<cache>/disks/` + the CP/M `.dsk`, deterministic, `.woz` listed-disabled) + the
+> `disk-insert`/`disk-eject` text-WS dispatch (a library selection resolves the id server-side, reads the
+> cached bytes, inserts via the shipped Q `surface.InsertDisk`) + the **drive-2 status fold-in** (the `ST`
+> frame now reports BOTH drives via a mutable `DriveLabels` holder + the four-arg `InsertDisk(…,label)`; the
+> two-arg overload kept). Client gains read-only `loadCatalog`/`window.diskCatalog` + `insertFromLibrary`/
+> `ejectDrive` text senders (no panel DOM — row T). **Pre-merge review: 1 HIGH (fixed)** — the insert branch
+> called `File.ReadAllBytes`+`FromBytes` unguarded, so a vanished/truncated library file (TOCTOU /
+> non-256-multiple length) would throw out of `ReceiveKeysAsync` and tear down the live WS session; wrapped
+> in a try/catch (a bad disk is now a clean no-op). **1 MEDIUM (fixed)** — `DriveLabels` cross-thread fields
+> made `volatile`. **Deferred (justified):** M1 (multi-fragment WS text reassembly — pre-existing on the key
+> path; lands in **S**'s receive-loop rewrite); L1 (`TryDecodeKey` accepts non-key JSON — correct given the
+> documented disk-before-key ordering). **Test-isolation fix:** the plan's literal gate test mutated the
+> process-global `CPUEMULATOR_TESTVECTORS` (the parallel TomHarte/Klaus vector suites read it live → flaky
+> cross-suite failures); rewrote it onto the `DiskCatalog.List(root)`/`TryResolve(root)` seam the plan
+> documents — no process-global mutation. Full suite **7251 passed / 0 failed / 6 skipped** (+12 net new),
+> warning-clean, stable across consecutive runs. **UAT** (live out-of-process server, ROM-absent): `GET /`
+> 200, `GET /app.js` 200 (carries all four R transport helpers), `GET /disks` 200 → `[]` (empty-catalog
+> path); a real WS session leads with `ST demo`, then a `disk-insert` (non-existent id — the H1 path) +
+> `disk-eject` + key-A burst, after which 5 binary `FB` frames stream at 256×192/196616 B — session healthy,
+> zero server errors. **Next: S** (the upload binary path, deps Q ✅ — best after R, reuses R's `insertDisk`
+> hoist + four-arg insert + the drive-2 fold-in).) (Planner — **surface-UI batch R + S PLANNED** (the disk-library catalog +
 > the upload binary path, the two now-eligible surface-arc rows), grounded against `main` @ `204cf3d`
 > (PRs #99–#120). **R** ([plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md), deps Q ✅): a new
 > `DiskCatalog` (in `CpuEmulator.Machines`, beside `Apple2Rom`/`SoftCardCpm`) enumerates `<cache>/disks/*.dsk|
@@ -162,7 +183,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **O** | Videx + CP/M asset scripts (`get-videx-roms`, `get-softcard-cpm`) + CP/M-on-Videx end-to-end gate | ✅ (PR #117) | K, N | [plan](superpowers/plans/2026-06-20-apple2-pr-o-cpm-on-videx.md) | With all assets fetched, booting the CP/M disk widens the display to the **80-col Videx terminal** (the `DisplayMultiplexer` auto-switches Apple-40 → Videx-80, guest-driven) and reaches the `A>` prompt — **interpreter-tier** (the row's "both tiers" is imprecise; the CP/M/Z80 side is interpreter-only per PR-K/ADR 0015 D4). **Asset-gated + owner-sign-off-given** (skip-with-note absent). |
 | **P** | The `ST` status-frame seam (host→client read-only indicators) | ✅ (PR #119) | — | [plan](superpowers/plans/2026-06-20-apple2-pr-p-status-frame.md) | A new lightweight `ST` wire frame carries board name, asset state, per-drive motor + image label, video-mode label; the client renders them read-only; the host pushes real machine state (not faked). *(Designer T-A — suggested early; most surface indicators consume it.)* |
 | **Q** | In-session disk insert / eject mechanism (Disk II runtime image swap) | ✅ (PR #120) | F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-q-disk-runtime-swap.md) | The Disk II controller accepts "load these bytes as drive N's image" + "eject drive N" at runtime, for both `.woz` and `.dsk`/`.po`, via the `IFluxImage` seam; a running machine swaps images without rebuild. *(Designer T-D — shared dep of the two disk-UX paths.)* |
-| **R** | `GET /disks` catalog endpoint + per-drive library dropdown | 📋 | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md) | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. **Folds in the drive-2 status deferral (PR-Q): the `ST` frame now reports BOTH drives.** Gate: the endpoint lists a seeded cache dir + selecting an entry inserts it into drive N (reuse Q's runtime insert). *(Designer T-C.)* |
+| **R** | `GET /disks` catalog endpoint + per-drive library dropdown | ✅ (PR #122) | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md) | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. **Folds in the drive-2 status deferral (PR-Q): the `ST` frame now reports BOTH drives.** Gate: the endpoint lists a seeded cache dir + selecting an entry inserts it into drive N (reuse Q's runtime insert). *(Designer T-C.)* |
 | **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | 📋 | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-s-disk-upload.md) | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.dsk`/`.po` exact length / `.woz` magic) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. Gate: a binary `DK` frame with a valid `.dsk` inserts into drive N (server rejects a bad length/magic); the single-text-frame protocol is unaffected. *(Designer T-B — the surface's first inbound binary path; explicitly its own task. **Best taken after R** — reuses PR-R's `insertDisk` hoist + four-arg `InsertDisk` + the drive-2 fold-in; the plan notes the port-forward if S lands first.)* |
 | **T** | Control-strip UI (drive panels, lights, mode label, asset banner) | 📋 | P, R, S | JIT | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; one new `--drive-active` token. Binds to PR-R's `window.diskCatalog`/`insertFromLibrary`/`ejectDrive` + PR-S's `window.uploadDisk`/`uploadState`. *(Designer T-E/T-G/T-H + keyboard extensions T-F.)* |
 | **W** | `WozFluxImage` — a thin `.woz`-file byte parser → `IFluxImage` | 📋 | F | JIT | The missing half of "full `.woz` fidelity upfront" (the locked decision): PR-F shipped the `.woz`/LSS **read path** + the `IFluxImage` track-bitstream **seam**, but no `.woz`-**file** byte parser. `WozFluxImage` parses the WOZ1/WOZ2 container (INFO/TMAP/TRKS chunks → per-track bitstreams) into an `IFluxImage` the controller reads identically to the shipped `SyntheticFluxImage`/`DskFluxImage`. Unblocks raw `.woz` in `DiskImageFactory.FromBytes` (today an explicit `NotSupportedException`), in the R library list (today listed-disabled), and in S upload (today validates magic then the honest not-yet-supported reject). *(Separable IFluxImage follow-on — backlog; plan JIT when it reaches the front.)* |
@@ -246,6 +267,48 @@ PR-H landed, so they call the real shipped machine-model signatures).
 ---
 
 ## Recently shipped (Apple ][+ arc)
+
+- **PR-R — `GET /disks` disk-library catalog + per-drive library dropdown transport** (2026-06-21, PR #122).
+  The third surface-UI sub-arc row (design T-C / D11/D13). A new **`DiskCatalog`** (`CpuEmulator.Machines`,
+  beside `Apple2Rom`/`SoftCardCpm`) enumerates `<cache>/disks/*.dsk|*.po|*.woz` + the already-cached SoftCard
+  CP/M `.dsk` into deterministic `DiskCatalogEntry`s (sorted, CP/M grouped last + flagged; `.woz` listed
+  `supported:false` — no `WozFluxImage` parser yet, backlog row W); `TryResolve` maps a catalog id back to a
+  path with a path-traversal guard (`fileName != Path.GetFileName(fileName)`). **`GET /disks`** serves the
+  compact JSON the per-drive `[ Library ▾]` select fetches. The **`disk-insert`/`disk-eject` text-WS path**
+  (`FrameCodec.TryDecodeDisk` → `DiskCommand`, drive 1–2 range-guarded, key JSON rejected) is dispatched in
+  `ReceiveKeysAsync` **before** the key path (a disk JSON would otherwise decode as a `KeyCode.None` no-op
+  key); a library insert resolves the id server-side, reads the cached bytes, and calls the shipped Q
+  `surface.InsertDisk(drive,bytes,format,label)` — `.woz` is guarded out (it throws `NotSupportedException`).
+  **Drive-2 status fold-in** (the PR-Q deferral): a tiny mutable `DriveLabels` holder per surface grows
+  `Status()` from one to **two** `DriveStatus` entries (both report the shared one-motor `Disk.MotorOn` —
+  correct for the real Disk II; only labels are per-drive); adds the four-arg `InsertDisk(…,label)`, keeps the
+  two-arg Q overload; the one shipped single-drive assertion in `Apple2SurfaceStatusTests` updated to expect
+  two. Client (`app.js`) gains read-only `loadCatalog()`/`window.diskCatalog` + `window.insertFromLibrary`/
+  `window.ejectDrive` text senders (no panel DOM — row T binds to these). **Pre-merge review: 1 HIGH +
+  1 MEDIUM, both fixed.** HIGH: the insert branch's `File.ReadAllBytes`+`DiskImageFactory.FromBytes` were
+  unguarded — a vanished/truncated library file (TOCTOU after `TryResolve`, or a non-256-multiple length)
+  would throw out of `ReceiveKeysAsync`, end the `recv` Task, and tear down the live WS session; now wrapped
+  in a try/catch over the expected I/O + image-construction exceptions (a bad disk is a clean no-op). MEDIUM:
+  `DriveLabels` fields (written on the receive thread, read on the pump thread via `Status()`) made
+  `volatile`. **Deferred (justified):** M1 (multi-fragment WS text reassembly) is pre-existing on the key path
+  and lands in **PR-S**'s receive-loop rewrite (8 KiB buffer + `EndOfMessage` accumulation for the
+  143,360-byte upload); L1 (`TryDecodeKey` returns true for non-key JSON) is correct given the documented
+  disk-before-key ordering. **Test-isolation fix (Builder):** the plan's literal `DiskLibraryEndpointTests`
+  set the process-global `CPUEMULATOR_TESTVECTORS` to point the in-memory host at a seeded cache; under the
+  assembly's parallel test collections the TomHarte/Klaus vector suites read that var live, so a concurrent
+  vector theory resolved to the empty seeded dir and failed (flaky, count varied run-to-run). Rewrote the gate
+  onto the `DiskCatalog.List(root)`/`TryResolve(root)` seam the plan itself documents ("so a test never
+  mutates the process-wide env var") — the listing + un-fakeable nibble read-back drive the seam; the WS leg
+  asserts the receive loop stays healthy on a `disk-insert` (board-agnostic). No production change for the
+  isolation fix. Full suite **7251 passed / 0 failed / 6 skipped** (+12 net new), warning-clean, **stable
+  across two consecutive full-suite runs** (the contamination is gone). **UAT** (no browser MCP; live
+  out-of-process server, ROM-absent → demo board): `GET /` 200 (1397 B), `GET /app.js` 200 (8239 B, carries
+  `loadCatalog`/`window.diskCatalog`/`insertFromLibrary`/`ejectDrive`), `GET /disks` 200 → `[]` (the
+  empty-catalog path the client tolerates); a real `ClientWebSocket` session leads with the `ST demo` text
+  frame, then a `disk-insert` (non-existent id — exercising the H1 resolve/TOCTOU path) + `disk-eject` +
+  key-A burst, after which 5 consecutive binary `FB` frames stream at 256×192/196616 B — session healthy, the
+  `/ws` request returned 101, zero server-side errors/warnings/exceptions logged. **The visible `[ Library ▾]`
+  panel DOM is row T** (R ships the data + senders T binds to). **Next: S** (the upload binary path).
 
 - **PR-Q — in-session Disk II insert/eject (the runtime image swap)** (2026-06-21, PR #120). The second
   surface-UI sub-arc row (design T-D / D11–D13): the `Apple2DiskII` controller accepts, **at runtime**, "load

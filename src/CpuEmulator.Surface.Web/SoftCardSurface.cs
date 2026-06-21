@@ -46,26 +46,48 @@ public sealed record SoftCardSurface(
         machine.Reset();
 
         var host = new MachineHost(machine, video, keyboard, frameSink, speaker, audioSink);
-        return new SoftCardSurface(machine, video, keyboard, speaker, host, disk, drive1Label);
+        var surface = new SoftCardSurface(machine, video, keyboard, speaker, host, disk, drive1Label);
+        surface._labels.Set(1, drive1Label);   // drive 1 starts at the ctor label ("CP/M")
+        return surface;
     }
 
+    // Mutable per-drive labels for the ST frame (design D9/D14): the immutable record can't hold runtime
+    // label state, so a tiny holder tracks each drive's current image label, updated on insert/eject.
+    private readonly DriveLabels _labels = new();
+
     /// <summary>Snapshot the REAL machine state for the <c>ST</c> status frame (design D14): the SoftCard
-    /// board name, the live Apple 40-col video-mode label, and the live drive-1 motor + CP/M image label.
-    /// On the bare SoftCard board the display is the Apple video (the Videx 80-col is the Videx surface).</summary>
+    /// board name, the live Apple 40-col video-mode label, and the live per-drive motor + image label.
+    /// Both modeled drives (PR-Q made drive 2 real) report the shared motor line + their tracked label.</summary>
     public MachineStatus Status() => new(
         Board: "Apple ][+ SoftCard",
         Asset: "softcard-cpm",
         Mode: Video.ModeLabel,
-        Drives: [new DriveStatus(Disk.MotorOn, Drive1Label)]);
+        Drives:
+        [
+            new DriveStatus(Disk.MotorOn, _labels.Label1),
+            new DriveStatus(Disk.MotorOn, _labels.Label2),
+        ]);
 
     /// <summary>Insert a disk image (raw bytes + format) into <paramref name="drive"/> at runtime — the
     /// in-session swap the library (R) and upload (S) paths call (design T-D / D11–D12). Builds the
-    /// IFluxImage via DiskImageFactory and hands it to the live Disk II controller; the running machine
-    /// reads the new image on the next poll.</summary>
-    public void InsertDisk(int drive, byte[] bytes, DiskFormat format) =>
+    /// IFluxImage via DiskImageFactory, hands it to the live Disk II controller, and tracks the per-drive
+    /// label for the ST frame.</summary>
+    public void InsertDisk(int drive, byte[] bytes, DiskFormat format, string label)
+    {
         Disk.Insert(drive, DiskImageFactory.FromBytes(bytes, format));
+        _labels.Set(drive, label);
+    }
+
+    /// <summary>PR-Q's two-arg overload (label defaults to "—") — kept so existing call sites/tests are
+    /// unchanged.</summary>
+    public void InsertDisk(int drive, byte[] bytes, DiskFormat format) =>
+        InsertDisk(drive, bytes, format, "—");
 
     /// <summary>Eject <paramref name="drive"/>'s image at runtime (design D13 — allowed mid-access, no
-    /// confirm). The drive reads nothing until a re-insert.</summary>
-    public void EjectDisk(int drive) => Disk.Eject(drive);
+    /// confirm). The drive reads nothing until a re-insert; its label returns to "—".</summary>
+    public void EjectDisk(int drive)
+    {
+        Disk.Eject(drive);
+        _labels.Set(drive, "—");
+    }
 }
