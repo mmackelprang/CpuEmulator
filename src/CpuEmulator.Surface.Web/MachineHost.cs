@@ -17,7 +17,7 @@ public sealed class MachineHost
     private readonly IDisplayDevice _display;
     private readonly IKeyboardSink _keyboard;
     private readonly Action<byte[]> _frameSink;
-    private readonly uint[] _rgba;
+    private uint[] _rgba;   // re-sized when the active display source's dimensions change (ADR 0016 Decision 1)
     private volatile bool _frameDirty;
 
     private readonly IAudioSink? _audio;
@@ -64,6 +64,7 @@ public sealed class MachineHost
         if (_frameDirty)
         {
             _frameDirty = false;
+            EnsureFrameBuffer();                       // follow the active source's geometry (re-size on change)
             _display.RenderInto(_rgba);
             _frameSink(FrameCodec.EncodeFrame(_display.Width, _display.Height, _rgba));
         }
@@ -84,5 +85,18 @@ public sealed class MachineHost
             throw new ArgumentOutOfRangeException(nameof(sliceCycles), "Slice must be positive.");
         for (long run = 0; run < totalCycles; run += sliceCycles)
             Step(Math.Min(sliceCycles, totalCycles - run));
+    }
+
+    /// <summary>Re-size the RGBA frame buffer to the active display's current geometry if it changed
+    /// (ADR 0016 Decision 1). A no-op for every single-display board (the dimensions never change), so
+    /// the single-source path is byte-for-byte unchanged; a one-time reallocation on the rare active-
+    /// source switch (e.g. 40-col Apple -> 80-col Videx behind a DisplayMultiplexer). The wire frame's
+    /// width/height come from _display.Width/_display.Height per frame (FrameCodec.EncodeFrame), so the
+    /// client re-sizes its canvas automatically — only this host-side buffer needs to follow.</summary>
+    private void EnsureFrameBuffer()
+    {
+        int needed = _display.Width * _display.Height;
+        if (_rgba.Length != needed)
+            _rgba = new uint[needed];
     }
 }
