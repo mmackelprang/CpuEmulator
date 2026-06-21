@@ -20,6 +20,7 @@ public sealed class Apple2Iou : IPeripheral
     private readonly Apple2VideoState _state;
     private readonly Apple2LanguageCard? _lc;   // PR-E: $C080-$C08F delegate (null on the bare board)
     private readonly Apple2DiskII? _disk2;      // PR-F: $C0E0-$C0EF delegate (null on the bare board)
+    private readonly VidexVideoterm? _videx;    // PR-N: $C0B0-$C0BF delegate (null on the bare board)
 
     public Apple2Iou(Apple2VideoState state) : this(state, null, null) { }
 
@@ -28,11 +29,16 @@ public sealed class Apple2Iou : IPeripheral
     public Apple2Iou(Apple2VideoState state, Apple2DiskII? disk2) : this(state, null, disk2) { }
 
     public Apple2Iou(Apple2VideoState state, Apple2LanguageCard? lc, Apple2DiskII? disk2)
+        : this(state, lc, disk2, null) { }
+
+    public Apple2Iou(Apple2VideoState state, Apple2LanguageCard? lc, Apple2DiskII? disk2,
+                     VidexVideoterm? videx)
     {
         ArgumentNullException.ThrowIfNull(state);
         _state = state;
         _lc = lc;
         _disk2 = disk2;
+        _videx = videx;
     }
 
     public string Name => "iou";
@@ -65,6 +71,13 @@ public sealed class Apple2Iou : IPeripheral
         if (o is >= 0x80 and <= 0x8F)
         {
             value = 0x00;   // open-bus; no LC.Access, no remap, no arm-count change
+            return true;
+        }
+        // PEEK-FREE for $C0Bx: a Videx CRTC/bank access has side effects (register-select, bank Remap,
+        // ActiveChanged). Short-circuit a peek to open-bus 0 BEFORE BusValue, like $C08x/$C0Ex.
+        if (o is >= 0xB0 and <= 0xBF)
+        {
+            value = 0x00;
             return true;
         }
         // PEEK-FREE for $C0Ex: $C0EC is the Disk II data latch — a real read SHIFTS A NIBBLE (advances the
@@ -113,6 +126,12 @@ public sealed class Apple2Iou : IPeripheral
                 if (!isRead) _lc?.Access(o, isRead: false);
                 break;
 
+            // --- Videx CRTC $C0B0-$C0BF (delegated; WRITES only here — a read's Access is owned by
+            // BusValue so the Videx's Access fires exactly once per bus access). ---
+            case >= 0xB0 and <= 0xBF:
+                if (!isRead) _videx?.Access(o, isRead: false);
+                break;
+
             // --- Disk II $C0E0-$C0EF (delegated to the controller; WRITES only here — a $C0Ex read's
             // Access is owned by BusValue so the controller's Access fires exactly once per bus access,
             // and $C0EC advances the head exactly once per read). ---
@@ -134,6 +153,11 @@ public sealed class Apple2Iou : IPeripheral
         byte o = (byte)offset;
         if (o is >= 0x80 and <= 0x8F)
             return _lc?.Access(o, isRead: true) ?? 0x00;
+        // $C0B0-$C0BF (Videx CRTC): a READ's side effect rides here ($C0B1 returns the selected CRTC
+        // register). TryPeek short-circuits $C0Bx before reaching this, so a debugger peek never programs
+        // the CRTC or switches banks — the peek-free invariant holds.
+        if (o is >= 0xB0 and <= 0xBF)
+            return _videx?.Access(o, isRead: true) ?? 0x00;
         // $C0E0-$C0EF (Disk II): a READ's side effect rides here ($C0EC returns the latched nibble AND
         // advances the head exactly once per read). TryPeek short-circuits $C0Ex before reaching this, so
         // a debugger peek never advances the head — the peek-free invariant holds.
