@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using CpuEmulator.Core;
 using CpuEmulator.Machines;
 using CpuEmulator.Peripherals;
@@ -87,21 +86,35 @@ public class Apple2BootTests
     // Two ~17,030-cycle frames is ample for the ROM cold-start to clear the screen + paint the prompt.
     private const long BootCycles = 500_000;
 
+    // The structural ink floor for a live BASIC prompt. The real cold boot paints a header line + the
+    // prompt + cursor, which lights ~186 MonoOn pixels (deterministic, both tiers, with the cached ROM).
+    // A floor of 100 sits comfortably ABOVE the failure cases — a dead/garbage board (0), and the
+    // Autostart-into-a-bootable-slot Monitor `*` prompt (40 — the bug this gate previously walked into) —
+    // and comfortably BELOW the real boot (186), so it holds for either BASIC ROM (Integer `>` or
+    // Applesoft `]`), whose prompts light a similar-magnitude pixel count.
+    private const int LiveBasicPromptInkFloor = 100;
+
     [Apple2RomTheory]
     [InlineData(ExecutionTier.Interpreter)]
     [InlineData(ExecutionTier.Jit)]
-    public void Rom_boots_to_the_applesoft_prompt_on_both_tiers(ExecutionTier tier)
+    public void Rom_boots_to_a_basic_prompt_on_both_tiers(ExecutionTier tier)
     {
         byte[] systemRom = Apple2Rom.Load(Apple2RomVectors.TryGetRomPath());
         byte[]? charRom = Apple2Rom.TryLoadCharRom();   // may be null -> Apple2Font.Fallback (still renders)
 
-        // Build the fully-wired board (LC + Disk II + the $C600 boot ROM signature) and the video chip.
+        // Build the board the WAY THE LIVE WEB SURFACE DOES: SpecWithDiskII — NO $C600 boot-ROM window.
+        // This matches Apple2Surface.Create's diskBootRom==null branch (the cold-boot path the owner UATs).
+        // Without a bootable slot the Autostart scan falls through to the system ROM's BASIC prompt — a
+        // real `>` (Integer) or `]` (Applesoft) — instead of JMP ($C600)ing into a non-functional boot ROM
+        // and landing in the Monitor `*` prompt (the SpecWithSystem + fake-boot-ROM mistake this test made
+        // before: the slot-6 signature matched, the scan jumped, the bytes BRK'd → 40 ink px in the
+        // Monitor, not a BASIC prompt — contradicting both this test's name and its own ink assertion).
         var state = new Apple2VideoState();
         var lc = new Apple2LanguageCard(systemRom);
         var image = new SyntheticFluxImage(trackCount: 35);
         var disk = new Apple2DiskII(image);
         var iou = new Apple2Iou(state, lc, disk);
-        BoardSpec spec = Apple2Board.SpecWithSystem(systemRom, iou, disk, DiskBootRom());
+        BoardSpec spec = Apple2Board.SpecWithDiskII(systemRom, iou, disk);
         Machine machine = BoardMachineFactory.Build(spec, tier);
         var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
         machine.Reset();
@@ -110,9 +123,13 @@ public class Apple2BootTests
         var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
         video.RenderInto(rgba);
 
-        // Un-fakeable structural assertion: the Autostart Monitor clears the text screen (mostly MonoOff)
-        // and paints the heading + the `]` prompt (MonoOn ink pixels). A dead/garbage boot lacks both
-        // properties: it is either all-off (no prompt) or noisy (no clear mostly-off background).
+        // Un-fakeable, ROM-AGNOSTIC structural assertion: a live BASIC cold boot clears the text screen
+        // (mostly MonoOff background) AND paints a prompt + cursor (a floor of MonoOn ink that BOTH a `>`
+        // and a `]` boot clear). A dead/garbage boot lacks both properties — it is either all-off (no
+        // prompt) or noisy (no clear mostly-off background) — and the Monitor `*` (40 ink) falls below the
+        // floor. We deliberately do NOT pin a committed RGBA hash here: the cached ROM is user-supplied and
+        // may be an Integer-BASIC or an Applesoft dump, so a hash tied to one specific ROM would falsely
+        // fail the other. The structural floor is the robust, ROM-agnostic gate.
         int offPixels = 0, onPixels = 0;
         foreach (uint p in rgba)
         {
@@ -122,22 +139,8 @@ public class Apple2BootTests
         int total = Apple2Video.Width280 * Apple2Video.Height192;
         Assert.True(offPixels > total / 2,
             $"expected a mostly-blank text screen; got {offPixels}/{total} off pixels");
-        Assert.True(onPixels > 50,
-            $"expected the `]` prompt + heading ink; got {onPixels} on pixels");
-
-        // Tighter gate: a committed RGBA hash. On the FIRST green run, capture the hash (uncomment the
-        // print), paste it below, then re-run. Both tiers MUST produce the identical frame.
-        string hash = Convert.ToHexString(SHA256.HashData(AsBytes(rgba)));
-        // System.Console.WriteLine($"[apple boot frame hash] {hash}");  // <-- uncomment once to capture
-        string ExpectedBootHash = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN";
-        if (ExpectedBootHash != "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN")
-            Assert.Equal(ExpectedBootHash, hash);
-    }
-
-    private static byte[] AsBytes(uint[] rgba)
-    {
-        var bytes = new byte[rgba.Length * 4];
-        Buffer.BlockCopy(rgba, 0, bytes, 0, bytes.Length);
-        return bytes;
+        Assert.True(onPixels > LiveBasicPromptInkFloor,
+            $"expected a live BASIC prompt (> or ]) + cursor ink above the Monitor-`*`/dead-board floor; " +
+            $"got {onPixels} on pixels (floor {LiveBasicPromptInkFloor})");
     }
 }

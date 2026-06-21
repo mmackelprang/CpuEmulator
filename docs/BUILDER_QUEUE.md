@@ -1,6 +1,36 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **T SHIPPED (PR #125) — the Apple ][+ planned arc (A–T) is
+> **Last updated:** 2026-06-21 (Builder — **APPLE ][+ BOOT NOW LIVE-VERIFIED — test-only boot-gate
+> recalibration (post-arc fix cycle)**. An owner live-UAT of the Apple ][+ web surface against a real
+> owner-supplied 12 KiB Apple system ROM found that the H-row boot gate
+> (`Apple2BootTests.Rom_boots_to_the_applesoft_prompt_on_both_tiers`) built the **WRONG board** — the
+> emulator itself is correct (the live surface cold-boots cleanly, interactively: `PRINT 2+2`→`4`). The
+> gate used `SpecWithSystem` + a **fake 256-byte slot-6 boot ROM**, so the Autostart scan `JMP ($C600)`s
+> into non-functional bytes → `BRK` → it landed in the **Monitor `*` prompt** (40 ink px), failing its own
+> `onPixels > 50` assertion AND contradicting its name. The live surface uses `SpecWithDiskII` (no `$C600`
+> window) and correctly falls through to a real BASIC prompt (186 ink px). **Fix 1 (HIGH, test-only):**
+> rebuilt the gate's board to `Apple2Board.SpecWithDiskII` (the exact live-surface path), made the
+> assertion **ROM-agnostic + structural** (mostly-blank text screen + an ink floor `onPixels > 100` — safely
+> between the Monitor-`*`/dead-board failure cases [≤40] and the real boot [186], so it holds for either
+> BASIC ROM: Integer `>` OR Applesoft `]`), **dropped the committed-RGBA-hash gate** (it would falsely fail
+> the other ROM — the structural floor is the robust gate), dropped the "heading" wording, and **renamed**
+> it `Rom_boots_to_a_basic_prompt_on_both_tiers`. The owner's cached ROM is an **Integer-BASIC Autostart
+> dump**, so the live boot lands at the Integer `>` prompt — CORRECT and faithful (a ][+ Applesoft ROM
+> would show `]`). The gate **runs live on both tiers** with the ROM cached (interpreter + JIT, GREEN) —
+> the skip count dropped 6→5. **Fix 2 (LOW, operator):** the published web-surface DLL defaulted its content
+> root to the CWD, so launching from the repo root 404'd at `/` (`WebRootPath not found`); `Program.cs` now
+> sets `ContentRootPath = AppContext.BaseDirectory` (an explicit `--contentRoot` still wins; the
+> `WebApplicationFactory<Program>` smoke tests are unaffected — the factory overrides the content root after
+> `Main`). **UAT-verified:** published DLL launched from the repo root → `GET /`+`/app.js`+`/index.html`
+> 200, `GET /disks` 200 `[]`, content root resolved to the DLL dir. **Fix 3 (cleanup):** removed the
+> Tester's scratch browser drivers (`tools/uat-apple2-{boot,interact}.mjs`); **kept** `tools/BootProbe/` (a
+> clean, warning-free headless boot-triage dev tool — boots both board configs, dumps text page + ink count
+> + frame hash; it derived the 100 floor) and added it to the `.slnx` under `/tools/`. **Pre-merge review:
+> 0 HIGH, 0 MEDIUM, 1 LOW (fixed** — a stale `> 50` threshold string in BootProbe's console dump). Full
+> suite **7281 passed / 0 failed / 5 skipped**, warning-clean (Release, whole solution). **STOP per protocol
+> — this was a directed post-arc fix cycle, not a queue row.** What remains in the Apple ][+ space is
+> unchanged: backlog row **W** (`WozFluxImage`) + deferred row **L** (JIT-under-translation) + the owner-
+> browser-UAT confirmations (80-col CP/M render; panels/amber-light/`Ctrl+B` in a browser).) (Builder — **T SHIPPED (PR #125) — the Apple ][+ planned arc (A–T) is
 > STRUCTURALLY COMPLETE**: the control-strip UI (two bordered drive panels — library select + upload picker
 > + eject + a **real-motor amber light** [`st.drives[i].motor` = the REAL `$C0E8/$C0E9` line + the ~1 s 556
 > off-delay, never faked on insert] + the current-image label), the calm named-script asset banner (the
@@ -254,7 +284,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | ✅ | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | ✅ | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
-| **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | ✅ | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
+| **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | ✅ | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to a **live BASIC prompt** (`>` Integer or `]` Applesoft — ROM-agnostic structural assertion: mostly-blank text screen + an ink floor either BASIC clears; rebuilt on the no-boot-ROM `SpecWithDiskII` board the live surface uses) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). **Live-verified 2026-06-21** with an owner-supplied Integer-BASIC Autostart ROM. |
 | **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | ✅ | A | [plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md) | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
 | **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | ✅ | I | [plan](superpowers/plans/2026-06-20-apple2-pr-j-softcard-translation.md) | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branches **2–5** (branches 1 & 6 coincide); the control-port write flips `_z80Active` and ends the slice. |
 | **K** | Interpreter-tier CP/M boot wiring (`$C600`→tracks→`$CnXX`-start) | ✅ | E, F, H, J | [plan](superpowers/plans/2026-06-20-apple2-pr-k-cpm-boot.md) | The real SoftCard boot sequence (6502 `$C600` reads tracks `$00–$02`, sets LC banking, writes `$CN00`) hands off to the Z80; CP/M reaches its load state on the **interpreter** tier. **Asset-gated** on the SoftCard CP/M `.dsk` (skip-with-note absent). |

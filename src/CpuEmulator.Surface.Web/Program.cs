@@ -15,7 +15,15 @@ public class Program
 {
     public static void Main(string[] args)
     {
-        WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+        // Default the content root to the app's OWN directory (where wwwroot is published), not the
+        // process CWD. Without this, launching the published DLL from anywhere but the project dir leaves
+        // ASP.NET hunting for wwwroot under the CWD → "WebRootPath not found" → a 404 at "/". An explicit
+        // --contentRoot on the command line still wins (CreateBuilder applies args AFTER these options).
+        WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = args,
+            ContentRootPath = AppContext.BaseDirectory,
+        });
         WebApplication app = builder.Build();
 
         app.UseDefaultFiles();   // serve wwwroot/index.html at "/"
