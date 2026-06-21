@@ -58,4 +58,24 @@ public class SoftCardTranslationTests
         var t = new SoftCardTranslation(translationEnabled: false);
         Assert.Equal(logical, t.ToPhysical(logical)); // identity: the Z80 sees the raw 6502 space
     }
+
+    [Fact]
+    public void A_translated_view_routes_writes_to_the_shared_6502_physical_address()
+    {
+        var ram = new AddressSpace(AddressSpaceKind.Program, addressBits: 16);
+        ram.MapMemory(0x0000, new byte[0x10000], writable: true);   // 64 KiB shared 6502 RAM
+        var z80View = new TranslatingAddressSpace(ram, new SoftCardTranslation());
+
+        // Branch 6: Z80 $F000 -> 6502 $0000 (CP/M's zero page lands on the Apple's low RAM).
+        z80View.Write8(0xF000, 0xCA);
+        Assert.Equal(0xCA, ram.Read8(0x0000));
+
+        // Branch 2: Z80 $B000 -> 6502 $D000 (CP/M high RAM lands on the Language Card region).
+        z80View.Write8(0xB000, 0x5A);
+        Assert.Equal(0x5A, ram.Read8(0xD000));
+
+        // And a Z80 read sees what the 6502 wrote at the translated address.
+        ram.Write8(0x1000, 0x99);            // 6502 $1000 == Z80 $0000 (branch 1, +$1000)
+        Assert.Equal(0x99, z80View.Read8(0x0000));
+    }
 }
