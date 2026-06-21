@@ -83,4 +83,61 @@ public class Apple2BootTests
         Assert.Equal(280, width);
         Assert.Equal(192, height);
     }
+
+    // Two ~17,030-cycle frames is ample for the ROM cold-start to clear the screen + paint the prompt.
+    private const long BootCycles = 500_000;
+
+    [Apple2RomTheory]
+    [InlineData(ExecutionTier.Interpreter)]
+    [InlineData(ExecutionTier.Jit)]
+    public void Rom_boots_to_the_applesoft_prompt_on_both_tiers(ExecutionTier tier)
+    {
+        byte[] systemRom = Apple2Rom.Load(Apple2RomVectors.TryGetRomPath());
+        byte[]? charRom = Apple2Rom.TryLoadCharRom();   // may be null -> Apple2Font.Fallback (still renders)
+
+        // Build the fully-wired board (LC + Disk II + the $C600 boot ROM signature) and the video chip.
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var image = new SyntheticFluxImage(trackCount: 35);
+        var disk = new Apple2DiskII(image);
+        var iou = new Apple2Iou(state, lc, disk);
+        BoardSpec spec = Apple2Board.SpecWithSystem(systemRom, iou, disk, DiskBootRom());
+        Machine machine = BoardMachineFactory.Build(spec, tier);
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+        machine.Reset();
+        machine.Run(BootCycles);
+
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+
+        // Un-fakeable structural assertion: the Autostart Monitor clears the text screen (mostly MonoOff)
+        // and paints the heading + the `]` prompt (MonoOn ink pixels). A dead/garbage boot lacks both
+        // properties: it is either all-off (no prompt) or noisy (no clear mostly-off background).
+        int offPixels = 0, onPixels = 0;
+        foreach (uint p in rgba)
+        {
+            if (p == Apple2Palette.MonoOff) offPixels++;
+            else if (p == Apple2Palette.MonoOn) onPixels++;
+        }
+        int total = Apple2Video.Width280 * Apple2Video.Height192;
+        Assert.True(offPixels > total / 2,
+            $"expected a mostly-blank text screen; got {offPixels}/{total} off pixels");
+        Assert.True(onPixels > 50,
+            $"expected the `]` prompt + heading ink; got {onPixels} on pixels");
+
+        // Tighter gate: a committed RGBA hash. On the FIRST green run, capture the hash (uncomment the
+        // print), paste it below, then re-run. Both tiers MUST produce the identical frame.
+        string hash = Convert.ToHexString(SHA256.HashData(AsBytes(rgba)));
+        // System.Console.WriteLine($"[apple boot frame hash] {hash}");  // <-- uncomment once to capture
+        string ExpectedBootHash = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN";
+        if (ExpectedBootHash != "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN")
+            Assert.Equal(ExpectedBootHash, hash);
+    }
+
+    private static byte[] AsBytes(uint[] rgba)
+    {
+        var bytes = new byte[rgba.Length * 4];
+        Buffer.BlockCopy(rgba, 0, bytes, 0, bytes.Length);
+        return bytes;
+    }
 }

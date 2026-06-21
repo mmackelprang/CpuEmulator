@@ -34,7 +34,14 @@ public class WebServerSmokeTests : IClassFixture<WebApplicationFactory<WebProgra
         var wsUri = new UriBuilder(_factory.Server.BaseAddress) { Scheme = "ws", Path = "/ws" }.Uri;
         using WebSocket ws = await wsClient.ConnectAsync(wsUri, CancellationToken.None);
 
-        byte[] buffer = new byte[8 + 256 * 192 * 4];
+        // The session opens with a one-shot "ST <assetState>" TEXT status frame (PR-H: drives the
+        // client banner/status line) BEFORE the binary FB/AU stream begins. Read past it, then assert
+        // the binary FB frame still streams.
+        byte[] buffer = new byte[8 + 280 * 192 * 4];
+        WebSocketReceiveResult status = await ws.ReceiveAsync(buffer, CancellationToken.None);
+        Assert.Equal(WebSocketMessageType.Text, status.MessageType);
+        Assert.StartsWith("ST ", Encoding.UTF8.GetString(buffer, 0, status.Count));
+
         WebSocketReceiveResult result = await ws.ReceiveAsync(buffer, CancellationToken.None);
 
         Assert.Equal(WebSocketMessageType.Binary, result.MessageType);
