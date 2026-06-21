@@ -21,4 +21,5 @@ public sealed record BoardSpec(
     IrqWiring Irq,
     ResetConfig Reset,
     Endianness Endianness = Endianness.LittleEndian,
-    int IoAddressBits = 0);
+    int IoAddressBits = 0,
+    CoprocessorSpec? Coprocessor = null);

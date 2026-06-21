@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Planner — **dual-CPU arc batch 1 (rows I + J) PLANNED**: ADR 0015's biggest abstraction is now bite-sized. **I** ([plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md)) extends the shipped single-CPU machine model to two CPUs over one shared program space — `CoprocessorSpec?` on `BoardSpec`, `WithCoprocessor`, `IAddressTranslation`/`TranslatingAddressSpace`/`ICoprocessorControl`, the run-one-then-the-other dual-CPU `Run` (6502-domain virtual clock, all-IRQ-to-primary, dormant core never scheduled), with the **single-CPU path byte-for-byte unchanged** as the load-bearing regression gate. **J** ([plan](superpowers/plans/2026-06-20-apple2-pr-j-softcard-translation.md)) adds the concrete `SoftCardTranslation` (the 6-branch MAME-verified table — the refuted `+$1000` shortcut fails branches 2–5; 1 & 6 coincide), `SoftCardControlPort` ($CnXX-write active-CPU toggle, peek-free), with a real Z80 routine running translated against shared 6502 RAM as the end-to-end gate. Plans grounded against `main` @ `d685b0c`. **I is immediately Builder-eligible** (dep A ✅); **J follows I**. K (CP/M boot) stays `JIT` — planned against shipped I/J next. **Next: Builder picks up I.**). **Owner:** Mark.
+> **Last updated:** 2026-06-21 (Builder — **shipped row I** (dual-CPU `Machine`/`MachineBuilder` scaffolding, PR #110); the single-CPU path is **provably byte-for-byte unchanged** — every one of the 7153 pre-existing tests still passes, +18 new PR-I tests, full suite 7171 passed / 0 failed / 4 skipped. **J** is now the topmost 📋 (dep I ✅) — Builder picks it up next. Planner — **dual-CPU arc batch 1 (rows I + J) PLANNED**: ADR 0015's biggest abstraction is now bite-sized. **I** ([plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md)) extends the shipped single-CPU machine model to two CPUs over one shared program space — `CoprocessorSpec?` on `BoardSpec`, `WithCoprocessor`, `IAddressTranslation`/`TranslatingAddressSpace`/`ICoprocessorControl`, the run-one-then-the-other dual-CPU `Run` (6502-domain virtual clock, all-IRQ-to-primary, dormant core never scheduled), with the **single-CPU path byte-for-byte unchanged** as the load-bearing regression gate. **J** ([plan](superpowers/plans/2026-06-20-apple2-pr-j-softcard-translation.md)) adds the concrete `SoftCardTranslation` (the 6-branch MAME-verified table — the refuted `+$1000` shortcut fails branches 2–5; 1 & 6 coincide), `SoftCardControlPort` ($CnXX-write active-CPU toggle, peek-free), with a real Z80 routine running translated against shared 6502 RAM as the end-to-end gate. Plans grounded against `main` @ `d685b0c`. **I is immediately Builder-eligible** (dep A ✅); **J follows I**. K (CP/M boot) stays `JIT` — planned against shipped I/J next. **Next: Builder picks up I.**). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -60,7 +60,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | ✅ | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
 | **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | ✅ | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
-| **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | [plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md) | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
+| **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | ✅ | A | [plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md) | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
 | **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | 📋 | I | [plan](superpowers/plans/2026-06-20-apple2-pr-j-softcard-translation.md) | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branches **2–5** (branches 1 & 6 coincide); the control-port write flips `_z80Active` and ends the slice. |
 | **K** | Interpreter-tier CP/M boot wiring (`$C600`→tracks→`$CnXX`-start) | 📋 | E, F, H, J | JIT | The real SoftCard boot sequence (6502 `$C600` reads tracks `$00–$02`, sets LC banking, writes `$CN00`) hands off to the Z80; CP/M reaches its load state on the **interpreter** tier. **Asset-gated** on the SoftCard CP/M `.dsk` (skip-with-note absent). |
 | **L** | JIT-under-translation (pre-translated physical fastmem) | ⏸️ | K | JIT | *(deferred/optional, ADR 0015 Decision 4 — measure interpreter CP/M throughput first.)* The Z80-under-translation gets fastmem over the physical backing arrays; parity-gated against the running interpreter SoftCard (the oracle). |
@@ -142,6 +142,45 @@ PR-H landed, so they call the real shipped machine-model signatures).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-I — dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) — the dual-CPU arc's
+  load-bearing abstraction** (2026-06-21). Extends the shipped single-CPU machine model to express **two
+  CPUs sharing one program space** (ADR 0015 Decisions 1, 2, 5, 6, 7) — **additively**, with the
+  **single-CPU path provably byte-for-byte unchanged** (the load-bearing regression gate). Three new Core
+  seams: **`IAddressTranslation`** (`uint ToPhysical(uint logical)` — the coprocessor's logical→primary
+  physical map), **`TranslatingAddressSpace`** (an `IAddressSpace` wrapper the coprocessor core is
+  constructed over — Read8/Write8/TryPeek8 route through `ToPhysical`, the default-interface wide accessors
+  compose over them for correct page-wrap, and `MapMemory`/`MapPeripheral`/`Remap`/`RemapPeripheral` throw
+  `NotSupportedException` so a mis-wire is loud), and **`ICoprocessorControl`** (`SetCoprocessorActive(bool)`
+  — the active-CPU toggle seam the `Machine` implements and a control port consumes via its `Realize`
+  context, since `Machine : IMachineContext`; a clean seam, **not** a cast). **`Machine`** gains the
+  dual-CPU construction path (a second `ICpuCore` built over the `TranslatingAddressSpace` via a private
+  `CoprocessorContext` adapter that returns the wrapper for `Space(Program)` and forwards everything else;
+  interrupts bind to the **primary only** — Decision 5) and the dual-CPU **`RunDualCpu`** (run-one-then-the-
+  other: drives **only** the active core, never schedules the dormant one — Decision 1; the scheduler runs
+  in the **primary 6502 cycle domain** with the coprocessor's run time converted by `ClockRatioToPrimary`
+  via a virtual clock; a control-port write ends the slice; a pending interrupt forces a switch back to the
+  primary). When `Coprocessor is null` the ctor + the renamed-but-identical **`RunSingleCpu`** take the
+  **exact** pre-PR-I path. **`MachineBuilder.WithCoprocessor`** carries the declaration; **`CoprocessorSpec`**
+  (the optional `BoardSpec.Coprocessor` field, default `null`) declares it; **`BoardMachineFactory`** wires
+  it, building the coprocessor on the **interpreter tier regardless of board tier** (ADR 0015 Decision 4 —
+  the JIT's `(AddressSpace)ctx.Space(...)` cast throws on the wrapper; JIT-under-translation is deferred to
+  PR-L); **`BoardSpecValidator`** adds three coprocessor checks (`copro-control-port-unwired`,
+  `copro-bad-clock-ratio`, `copro-no-translation`). Pre-merge review (focused on the single-CPU-unchanged
+  invariant, the virtual-clock math, the run-loop termination + interrupt-forces-primary logic, and AOT
+  cleanliness) found **no HIGH/blocking issues** and confirmed by code-reading that the single-CPU branch is
+  genuinely the old code (not just trusting the green suite). Three review fixes applied (one comment-clarity
+  + two coverage tests — the wrapper `MapPeripheral`-throws path and the `copro-no-translation` diagnostic).
+  **The un-fakeable gate** (interpreter tier): a **two-core toy board** built through `BoardMachineFactory`
+  (6502 primary + Z80 coprocessor + identity translation + a control-port stub) — a real 6502 `STA $C000`
+  hands off, the active CPU flips, the Z80 then runs while the suspended 6502 does **not** advance, and the
+  dormant core is never scheduled — plus the **load-bearing byte-for-byte regression**: a representative
+  shipped board carries `Coprocessor is null` + the single-CPU `Run` is deterministic across two identical
+  builds. **The byte-for-byte single-CPU gate is GREEN: every one of the 7153 pre-existing tests still
+  passes** (full suite **7171 passed / 0 failed / 4 skipped** — the 7153 prior + 18 new PR-I tests; the 4
+  skips are the same pre-existing asset/JIT-gated skips), warning-clean. **No browser UAT** — this is a
+  backend/library change with no UI surface; the full-suite regression gate is the un-fakeable substitute
+  per the auto-merge policy. Unblocks **PR-J** (`SoftCardTranslation` + `SoftCardControlPort` ride these
+  seams) → **PR-K** (the CP/M boot).
 - **PR-H — `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + the ROM-boot gate (the base-machine boot
   milestone)** (2026-06-21). The arc's **first UI-touching surface PR** — the base ][+ now boots to the
   Applesoft `]` prompt (ROM present) or the calm SP0-demo fallback (ROM absent). **`Apple2Rom`** (the

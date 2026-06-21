@@ -5,18 +5,30 @@ namespace CpuEmulator.Core;
 /// peripherals. Construction is two-phase — all bus mappings exist before any
 /// peripheral's Realize runs — and deterministic (registration order).
 /// </summary>
-public sealed class Machine : IMachineContext
+public sealed class Machine : IMachineContext, ICoprocessorControl
 {
     private readonly Dictionary<AddressSpaceKind, AddressSpace> _spaces = [];
     private readonly CycleScheduler _scheduler;
     private readonly LateBoundLine _irqTarget = new();
     private readonly LateBoundLine _nmiTarget = new();
+    private readonly ICpuCore? _coprocessor;
+    private readonly double _coprocessorRatio;
+    private bool _z80Active;                       // false at reset: the primary runs (ADR 0015 Decision 1)
+    private long _coprocessorCyclesContributed;    // coprocessor cycles run so far (for the virtual clock)
+    private bool _sliceEndRequested;               // set by SetCoprocessorActive to end the running slice
 
     public string Name { get; }
     public ICpuCore Cpu { get; }
     public IScheduler Scheduler => _scheduler;
     public IInterruptLine IrqLine { get; }
     public IInterruptLine NmiLine { get; }
+
+    /// <summary>True while the coprocessor is the bus master (the primary is DMA-suspended). False on a
+    /// single-CPU machine and at reset. Test/host introspection.</summary>
+    public bool CoprocessorActive => _z80Active;
+
+    /// <summary>The optional coprocessor core (null on every single-CPU machine). Test/host introspection.</summary>
+    public ICpuCore? Coprocessor => _coprocessor;
 
     public static MachineBuilder Create(string name) => new(name);
 
@@ -25,7 +37,8 @@ public sealed class Machine : IMachineContext
         List<(AddressSpaceKind Kind, int AddressBits, AddressSpaceOptions? Options)> spaceDefs,
         List<(AddressSpaceKind Kind, uint Start, byte[] Backing, bool Writable)> memoryDefs,
         List<(AddressSpaceKind Kind, uint Start, uint Length, IPeripheral Peripheral)> peripheralDefs,
-        Func<IMachineContext, ICpuCore> cpuFactory)
+        Func<IMachineContext, ICpuCore> cpuFactory,
+        CoprocessorBuild? coprocessor = null)
     {
         Name = name;
         _scheduler = new CycleScheduler();
@@ -38,12 +51,33 @@ public sealed class Machine : IMachineContext
         foreach (var (kind, start, backing, writable) in memoryDefs)
             GetSpace(kind).MapMemory(start, backing, writable);
 
-        // Phase 2: create the CPU (it may capture spaces), then bind interrupt lines to it.
+        // Phase 2: create the primary CPU, then bind interrupt lines + the scheduler clock to it.
         Cpu = cpuFactory(this) ?? throw new MachineConfigurationException(
             $"Machine '{name}': CPU factory returned null.");
         _irqTarget.Bind(Cpu.SetIrqLine);
         _nmiTarget.Bind(Cpu.SetNmiLine);
-        _scheduler.BindTimeSource(() => Cpu.CycleCount);
+
+        if (coprocessor is null)
+        {
+            // Single-CPU path: byte-for-byte the pre-PR-I behavior.
+            _scheduler.BindTimeSource(() => Cpu.CycleCount);
+        }
+        else
+        {
+            // Dual-CPU path (ADR 0015). The coprocessor is built over a TranslatingAddressSpace wrapping
+            // the primary program space, so the coprocessor core is unchanged. Interrupts stay on the
+            // PRIMARY only (Decision 5). The scheduler runs in the primary cycle domain plus the
+            // coprocessor's run time converted by the clock ratio (the virtual 6502-domain clock).
+            _coprocessorRatio = coprocessor.ClockRatioToPrimary;
+            var programSpace = GetSpace(AddressSpaceKind.Program);
+            var translatingBus = new TranslatingAddressSpace(programSpace, coprocessor.Translation);
+            _coprocessor = coprocessor.Factory(new CoprocessorContext(this, translatingBus))
+                ?? throw new MachineConfigurationException(
+                    $"Machine '{name}': coprocessor factory returned null.");
+            // The coprocessor's interrupt inputs are intentionally left unbound (Decision 5).
+            _scheduler.BindTimeSource(() =>
+                Cpu.CycleCount + (long)Math.Round(_coprocessorCyclesContributed / _coprocessorRatio));
+        }
 
         // Phase 3: map peripherals, then Realize them in registration order.
         foreach (var (kind, start, length, peripheral) in peripheralDefs)
@@ -56,6 +90,16 @@ public sealed class Machine : IMachineContext
 
     public void Reset() => Cpu.Reset();
 
+    /// <summary>ICoprocessorControl (ADR 0015 Decisions 1 + 3): a control-port peripheral flips which CPU
+    /// runs. Sets _z80Active and requests the current run slice end so the switch takes effect on the next
+    /// dispatch (the writing instruction completes first). Inert on a single-CPU machine — but a control
+    /// port is only Realized with this Machine when a coprocessor exists, so this is never reached there.</summary>
+    public void SetCoprocessorActive(bool active)
+    {
+        _z80Active = active;
+        _sliceEndRequested = true;
+    }
+
     /// <summary>
     /// Run for a cycle budget; returns cycles actually executed (may overshoot by up to
     /// one instruction). Slices chunk to the next live event, so callbacks fire at their
@@ -67,9 +111,18 @@ public sealed class Machine : IMachineContext
     /// </summary>
     public long Run(long cycles)
     {
-        long start = Cpu.CycleCount;
         if (cycles <= 0)
             return 0;
+        if (_coprocessor is null)
+            return RunSingleCpu(cycles);
+        return RunDualCpu(cycles);
+    }
+
+    /// <summary>The pre-PR-I single-CPU run loop, unchanged (ADR 0015: single-CPU path byte-for-byte
+    /// identical). Drives the one Cpu, slicing to the next scheduled event.</summary>
+    private long RunSingleCpu(long cycles)
+    {
+        long start = Cpu.CycleCount;
         long target = start + cycles;
         while (Cpu.CycleCount < target)
         {
@@ -86,6 +139,71 @@ public sealed class Machine : IMachineContext
             _scheduler.AdvanceTo(Cpu.CycleCount);
         }
         return Cpu.CycleCount - start;
+    }
+
+    /// <summary>The dual-CPU run loop (ADR 0015 Decision 1): drive ONLY the active core (run-one-then-the-
+    /// other; the dormant core is never scheduled). The budget is in the PRIMARY (virtual 6502) cycle
+    /// domain (Decision 5). When the primary runs, the virtual clock = Cpu.CycleCount advances 1:1; when
+    /// the coprocessor runs, its cycles convert into the virtual clock via the ratio (the bound time
+    /// source reads _coprocessorCyclesContributed). A control-port write (SetCoprocessorActive) ends the
+    /// running slice; a pending interrupt forces a switch back to the primary.</summary>
+    private long RunDualCpu(long cycles)
+    {
+        long virtualStart = _scheduler.CurrentCycle;
+        long target = virtualStart + cycles;
+        while (_scheduler.CurrentCycle < target)
+        {
+            _sliceEndRequested = false;
+            long virtualBefore = _scheduler.CurrentCycle;
+            long sliceEnd = _scheduler.TryPeekNextEventCycle(out long eventCycle)
+                            && eventCycle < target
+                ? Math.Max(eventCycle, virtualBefore + 1)
+                : target;
+
+            if (!_z80Active)
+            {
+                // The primary runs in its own (virtual = real) domain.
+                long before = Cpu.CycleCount;
+                long budget = sliceEnd - _scheduler.CurrentCycle;
+                if (budget <= 0) budget = 1;
+                Cpu.Run(ref budget);
+                if (Cpu.CycleCount <= before)
+                    throw new EmulationException(
+                        $"CPU '{Cpu.Architecture}' made no progress during Run; aborting to avoid a hang.");
+            }
+            else
+            {
+                // The coprocessor runs; its cycles convert into the virtual domain via the ratio. Size the
+                // coprocessor budget so its converted contribution does not overshoot the slice end.
+                ICpuCore copro = _coprocessor!;
+                long virtualBudget = sliceEnd - _scheduler.CurrentCycle;
+                if (virtualBudget <= 0) virtualBudget = 1;
+                long coproBudget = Math.Max(1, (long)Math.Round(virtualBudget * _coprocessorRatio));
+                long coproBefore = copro.CycleCount;
+                long budget = coproBudget;
+                copro.Run(ref budget);
+                long coproRan = copro.CycleCount - coproBefore;
+                if (coproRan <= 0)
+                    throw new EmulationException(
+                        $"Coprocessor '{copro.Architecture}' made no progress during Run; aborting to avoid a hang.");
+                _coprocessorCyclesContributed += coproRan;
+            }
+
+            _scheduler.AdvanceTo(_scheduler.CurrentCycle);
+
+            // A pending interrupt forces a switch to the primary (ADR 0015 Decision 5: all interrupts to
+            // the 6502; while the coprocessor runs the primary is DMA-suspended, so an IRQ means resume it).
+            if (_z80Active && (IrqLine.IsAsserted || NmiLine.IsAsserted))
+                _z80Active = false;
+
+            // SetCoprocessorActive set _sliceEndRequested + flipped _z80Active this slice; _z80Active alone
+            // selects the core on the next pass, so the switch is already in effect. The continue is a no-op
+            // (no code follows in the loop body) — it exists only to read _sliceEndRequested and satisfy the
+            // compiler's CS0414 "assigned but never used" check under TreatWarningsAsErrors.
+            if (_sliceEndRequested)
+                continue;
+        }
+        return _scheduler.CurrentCycle - virtualStart;
     }
 
     private AddressSpace GetSpace(AddressSpaceKind kind) =>
@@ -115,5 +233,20 @@ public sealed class Machine : IMachineContext
             if (_lastValue)
                 target(true);
         }
+    }
+
+    /// <summary>The IMachineContext the coprocessor core is constructed with: identical to the Machine
+    /// except Space(Program) returns the TranslatingAddressSpace wrapper (so CpuCoreFactory builds the
+    /// coprocessor core over the translated bus). All other members forward to the Machine — the
+    /// coprocessor shares the one scheduler + interrupt domain. The Io space (if any) is shared
+    /// untranslated; the SoftCard Z80 reaches I/O through the translation's $E000->$C000 branch on the
+    /// Program bus, so a separate Io space is not declared for the SoftCard board.</summary>
+    private sealed class CoprocessorContext(Machine machine, IAddressSpace translatedProgram) : IMachineContext
+    {
+        public IScheduler Scheduler => machine.Scheduler;
+        public IInterruptLine IrqLine => machine.IrqLine;
+        public IInterruptLine NmiLine => machine.NmiLine;
+        public IAddressSpace Space(AddressSpaceKind kind) =>
+            kind == AddressSpaceKind.Program ? translatedProgram : machine.Space(kind);
     }
 }

@@ -8,6 +8,9 @@ public sealed class MachineBuilder
     private readonly List<(AddressSpaceKind Kind, uint Start, byte[] Backing, bool Writable)> _memoryDefs = [];
     private readonly List<(AddressSpaceKind Kind, uint Start, uint Length, IPeripheral Peripheral)> _peripheralDefs = [];
     private Func<IMachineContext, ICpuCore>? _cpuFactory;
+    private Func<IMachineContext, ICpuCore>? _coprocessorFactory;
+    private IAddressTranslation? _coprocessorTranslation;
+    private double _coprocessorClockRatio;
     private bool _built;
 
     internal MachineBuilder(string name) => _name = name;
@@ -24,6 +27,28 @@ public sealed class MachineBuilder
     {
         ArgumentNullException.ThrowIfNull(factory);
         _cpuFactory = factory;
+        return this;
+    }
+
+    /// <summary>Declare an optional bus-arbitrated coprocessor that shares the primary's program space
+    /// through <paramref name="translation"/> (ADR 0015 Decision 2). The coprocessor is dormant at reset
+    /// and activated via ICoprocessorControl (a control-port peripheral flips it). Calling this puts the
+    /// Machine on the dual-CPU construction + run path; NOT calling it leaves the single-CPU path
+    /// byte-for-byte unchanged. <paramref name="clockRatioToPrimary"/> (e.g. ~2.0 for the SoftCard Z80)
+    /// converts coprocessor run time into primary-domain scheduler cycles (ADR 0015 Decision 5).</summary>
+    public MachineBuilder WithCoprocessor(
+        Func<IMachineContext, ICpuCore> coprocessorFactory,
+        IAddressTranslation translation,
+        double clockRatioToPrimary)
+    {
+        ArgumentNullException.ThrowIfNull(coprocessorFactory);
+        ArgumentNullException.ThrowIfNull(translation);
+        if (clockRatioToPrimary <= 0)
+            throw new MachineConfigurationException(
+                $"Coprocessor clock ratio must be positive; got {clockRatioToPrimary}.");
+        _coprocessorFactory = coprocessorFactory;
+        _coprocessorTranslation = translation;
+        _coprocessorClockRatio = clockRatioToPrimary;
         return this;
     }
 
@@ -59,6 +84,17 @@ public sealed class MachineBuilder
         if (_spaceDefs.All(d => d.Kind != AddressSpaceKind.Program))
             throw new MachineConfigurationException($"Machine '{_name}' has no Program address space.");
 
-        return new Machine(_name, _spaceDefs, _memoryDefs, _peripheralDefs, _cpuFactory);
+        CoprocessorBuild? coprocessor = _coprocessorFactory is null
+            ? null
+            : new CoprocessorBuild(_coprocessorFactory, _coprocessorTranslation!, _coprocessorClockRatio);
+
+        return new Machine(_name, _spaceDefs, _memoryDefs, _peripheralDefs, _cpuFactory, coprocessor);
     }
 }
+
+/// <summary>The resolved coprocessor declaration the MachineBuilder hands to the Machine ctor: the core
+/// factory, the logical->physical translation, and the clock ratio. Null on every single-CPU board.</summary>
+internal sealed record CoprocessorBuild(
+    Func<IMachineContext, ICpuCore> Factory,
+    IAddressTranslation Translation,
+    double ClockRatioToPrimary);
