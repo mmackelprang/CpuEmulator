@@ -17,6 +17,7 @@ public static class BoardSpecValidator
         ValidateIoSpace(spec, diagnostics);
         ValidateIrqWiring(spec, diagnostics);
         ValidateVectorPatches(spec, diagnostics);
+        ValidateCoprocessor(spec, diagnostics);
         return diagnostics;
     }
 
@@ -64,6 +65,25 @@ public static class BoardSpecValidator
                 diagnostics.Add(new BoardDiagnostic("irq-unwired",
                     $"IRQ wiring names peripheral '{line.PeripheralName}', which is not a declared slot."));
         }
+    }
+
+    private static void ValidateCoprocessor(BoardSpec spec, List<BoardDiagnostic> diagnostics)
+    {
+        if (spec.Coprocessor is not { } copro)
+            return; // single-CPU board: no coprocessor checks (the common case, unchanged)
+
+        if (copro.Translation is null)
+            diagnostics.Add(new BoardDiagnostic("copro-no-translation",
+                "The coprocessor spec has no address translation; a coprocessor needs an IAddressTranslation."));
+
+        if (copro.ClockRatioToPrimary <= 0)
+            diagnostics.Add(new BoardDiagnostic("copro-bad-clock-ratio",
+                $"The coprocessor clock ratio must be positive; got {copro.ClockRatioToPrimary}."));
+
+        if (!spec.Peripherals.Any(p => p.Name == copro.ControlPortPeripheral))
+            diagnostics.Add(new BoardDiagnostic("copro-control-port-unwired",
+                $"The coprocessor control port names peripheral '{copro.ControlPortPeripheral}', "
+              + "which is not a declared slot."));
     }
 
     private static void ValidateVectorPatches(BoardSpec spec, List<BoardDiagnostic> diagnostics)
