@@ -121,4 +121,32 @@ public class Apple2LanguageCardTests
         bus.Write8(0xD000, 0x3C);
         Assert.Equal(0x3C, bus.Read8(0xD000));          // write-then-read-back succeeds => 64K present
     }
+
+    [Theory]
+    [InlineData(ExecutionTier.Interpreter)]   // the oracle: correct with no listener
+    [InlineData(ExecutionTier.Jit)]           // exercises PR-A's OnRemap -> reclassify + evict
+    public void A_real_program_runs_code_out_of_LC_RAM(ExecutionTier tier)
+    {
+        var (machine, bus, _) = BuildWithLc(tier);
+
+        // 1) Arm + write-enable read-RAM bank 1 via two $C083 reads (done from RAM-resident setup code).
+        //    For the test we drive the banking through the bus directly, then load a routine into LC RAM,
+        //    then jump to it.
+        _ = bus.Read8(0xC083); _ = bus.Read8(0xC083);     // read-RAM, bank 1, write-enabled
+
+        // 2) Write a tiny routine into LC RAM at $D000:  LDA #$42 ; STA $0400 ; JMP $D005 (spin)
+        //    $D000: A9 42      LDA #$42
+        //    $D002: 8D 00 04   STA $0400
+        //    $D005: 4C 05 D0   JMP $D005   (spin in LC RAM)
+        bus.Write8(0xD000, 0xA9); bus.Write8(0xD001, 0x42);
+        bus.Write8(0xD002, 0x8D); bus.Write8(0xD003, 0x00); bus.Write8(0xD004, 0x04);
+        bus.Write8(0xD005, 0x4C); bus.Write8(0xD006, 0x05); bus.Write8(0xD007, 0xD0);
+
+        // 3) Execute from LC RAM.
+        machine.Cpu.SetRegister("PC", 0xD000);
+        machine.Run(50);
+
+        // The routine, fetched + run FROM the remapped LC RAM page, wrote $42 to $0400.
+        Assert.Equal(0x42, bus.Read8(0x0400));
+    }
 }
