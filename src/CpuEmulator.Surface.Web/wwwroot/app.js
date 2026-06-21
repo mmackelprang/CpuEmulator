@@ -68,6 +68,14 @@
     if (body.startsWith("{")) {
       let st;
       try { st = JSON.parse(body); } catch { return; }
+      // An upload-result ack (PR-S, design D12): resolve the panel's UPLOADING state to INSERTED or error.
+      if (st.upload) {
+        const u = st.upload;
+        window.uploadState[u.drive] = u.ok ? "idle" : "error";
+        window.uploadLastError[u.drive] = u.ok ? "" : (u.message || "That image looks corrupt");
+        if (window.onUploadResult) window.onUploadResult(u.drive, u.ok, u.message || "");
+        return;
+      }
       window.machineStatus = st;                 // row T binds drive panels to this
       applyAssetBanner(st.asset, banner);
       // The status line: board · mode · the active drive summary (read-only reflection).
@@ -170,5 +178,58 @@
   window.ejectDrive = function (drive) {
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ action: "disk-eject", drive: drive }));
+  };
+
+  // --- Disk upload (PR-S, design D12 — the surface's first inbound binary path) ---
+  // Per-drive UPLOADING state for row T's panel: "idle" | "uploading" | "error", + the last error message.
+  window.uploadState = { 1: "idle", 2: "idle" };
+  window.uploadLastError = { 1: "", 2: "" };
+
+  // The 2 MB client cap + the extension allow-list (design §4.4). .dsk/.po load end-to-end; .woz is
+  // validated client-side but the server returns the not-yet-supported reject (no WozFluxImage yet).
+  const UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
+  const FORMAT_BYTE = { woz: 0, dsk: 1, po: 2 };
+
+  // Validate a File, then send it as a binary DK frame on the open socket. Row T's [ Insert… ] picker
+  // onchange calls this with the chosen File. Returns the client-side error string, or "" if the upload
+  // was sent (the server's ack resolves INSERTED / a server-side error).
+  window.uploadDisk = function (drive, file) {
+    const name = (file && file.name) || "";
+    const dotIdx = name.lastIndexOf(".");
+    // A no-dot name has no extension -> "" (which matches no format below); a real ext is lower-cased.
+    const ext = dotIdx === -1 ? "" : name.slice(dotIdx).toLowerCase();   // ".dsk" / ".po" / ".woz"
+    const format = { ".woz": "woz", ".dsk": "dsk", ".po": "po" }[ext];
+    if (!format) {
+      window.uploadLastError[drive] = "Unsupported file — use .woz, .dsk, or .po";
+      window.uploadState[drive] = "error";
+      return window.uploadLastError[drive];
+    }
+    if (file.size === 0) {
+      window.uploadLastError[drive] = "That file is empty";
+      window.uploadState[drive] = "error";
+      return window.uploadLastError[drive];
+    }
+    if (file.size > UPLOAD_MAX_BYTES) {
+      window.uploadLastError[drive] = "File too large — Disk II images are under ~250 KB";
+      window.uploadState[drive] = "error";
+      return window.uploadLastError[drive];
+    }
+    if (ws.readyState !== WebSocket.OPEN) return "disconnected";
+
+    window.uploadState[drive] = "uploading";
+    window.uploadLastError[drive] = "";
+    const reader = new FileReader();
+    reader.onload = function () {
+      const body = new Uint8Array(reader.result);
+      const frame = new Uint8Array(5 + body.length);
+      frame[0] = 0x44; frame[1] = 0x4B;        // 'D','K'
+      frame[2] = 0x01;                          // version
+      frame[3] = drive;                         // 1 | 2
+      frame[4] = FORMAT_BYTE[format];           // 0=woz 1=dsk 2=po
+      frame.set(body, 5);
+      ws.send(frame);                           // binary send (ws.binaryType is "arraybuffer")
+    };
+    reader.readAsArrayBuffer(file);
+    return "";
   };
 })();

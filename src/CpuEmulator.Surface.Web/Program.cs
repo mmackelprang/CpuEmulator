@@ -165,7 +165,8 @@ internal static class DemoSession
         Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);
         Task sendAudio = SendBinaryAsync(socket, audio.Reader, ct);
         Task sendStatus = SendTextAsync(socket, statusFrames.Reader, ct);
-        Task recv = ReceiveKeysAsync(socket, pump, insertDisk, ejectDisk, ct);
+        Action<byte[]> pushText = f => statusFrames.Writer.TryWrite(f);
+        Task recv = ReceiveKeysAsync(socket, pump, insertDisk, ejectDisk, pushText, ct);
 
         await Task.WhenAny(drive, sendFrames, sendAudio, sendStatus, recv);
         frames.Writer.TryComplete();
@@ -201,9 +202,16 @@ internal static class DemoSession
     private static async Task ReceiveKeysAsync(WebSocket socket, ISurfacePump pump,
                                               Action<int, byte[], DiskFormat, string>? insertDisk,
                                               Action<int>? ejectDisk,
+                                              Action<byte[]> pushText,
                                               CancellationToken ct)
     {
-        var buffer = new byte[1024];
+        const int MaxUploadBytes = 2 * 1024 * 1024;   // the design's 2 MB cap, re-enforced server-side
+        var buffer = new byte[8192];
+        var binaryAccumulator = new MemoryStream();
+        // Once a single binary message blows the cap, every remaining fragment of THAT message is drained
+        // (not re-accumulated) so a too-large upload can't dispatch a partial tail frame; the "too large"
+        // ack is sent once, at the message's EndOfMessage. Reset for the next message.
+        bool capExceeded = false;
         while (socket.State == WebSocketState.Open)
         {
             WebSocketReceiveResult result = await socket.ReceiveAsync(buffer, ct);
@@ -212,6 +220,43 @@ internal static class DemoSession
                 await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", ct);
                 break;
             }
+
+            if (result.MessageType == WebSocketMessageType.Binary)
+            {
+                // Drain the rest of an already-over-cap message: ignore its fragments, ack once at the end.
+                if (capExceeded)
+                {
+                    if (result.EndOfMessage)
+                    {
+                        capExceeded = false;
+                        pushText(FrameCodec.EncodeUploadAck(0,
+                            new UploadResult(false, "File too large — Disk II images are under ~250 KB")));
+                    }
+                    continue;
+                }
+
+                // Accumulate fragments until the whole DK message is in (a .dsk is 143,360 bytes — many
+                // 8 KiB fragments). Cap the accumulation to refuse an oversized upload without OOM.
+                if (binaryAccumulator.Length + result.Count > MaxUploadBytes)
+                {
+                    binaryAccumulator.SetLength(0);
+                    if (result.EndOfMessage)
+                        pushText(FrameCodec.EncodeUploadAck(0,
+                            new UploadResult(false, "File too large — Disk II images are under ~250 KB")));
+                    else
+                        capExceeded = true;   // drain the remaining fragments of this oversized message
+                    continue;
+                }
+                binaryAccumulator.Write(buffer, 0, result.Count);
+                if (!result.EndOfMessage)
+                    continue;
+
+                byte[] frame = binaryAccumulator.ToArray();
+                binaryAccumulator.SetLength(0);
+                DispatchUpload(frame, insertDisk, pushText);
+                continue;
+            }
+
             if (result.MessageType != WebSocketMessageType.Text)
                 continue;
             string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
@@ -258,6 +303,46 @@ internal static class DemoSession
             {
                 pump.PostKey(e);
             }
+        }
+
+        binaryAccumulator.Dispose();
+    }
+
+    /// <summary>Decode + validate a reassembled DK upload frame and, on success, load it into the running
+    /// drive (the shipped PR-Q insert via the hoisted delegate). Always pushes an upload-result ack so the
+    /// client's UPLOADING state resolves to INSERTED or the inline error.</summary>
+    private static void DispatchUpload(byte[] frame, Action<int, byte[], DiskFormat, string>? insertDisk,
+                                       Action<byte[]> pushText)
+    {
+        if (!FrameCodec.TryDecodeUpload(frame, out UploadFrame upload))
+        {
+            pushText(FrameCodec.EncodeUploadAck(0, new UploadResult(false, "That image looks corrupt")));
+            return;
+        }
+
+        UploadResult result = UploadValidator.Validate(upload);
+        if (!result.Ok || insertDisk is null)
+        {
+            // A validation failure forwards the validator's calm reason; a valid image on a session with no
+            // Apple disk drive (Spectrum/demo) is honestly "not supported here" — NOT "corrupt" (the file is
+            // fine; this surface just can't take it). The Apple branches always wire insertDisk, so the
+            // null case is only reachable from a non-Apple session / a crafted request.
+            pushText(FrameCodec.EncodeUploadAck(upload.Drive, result.Ok
+                ? new UploadResult(false, "Disk upload isn't supported in this session")
+                : result));
+            return;
+        }
+
+        // .woz never reaches here (the validator rejects it as not-yet-supported); .dsk/.po load via Q.
+        try
+        {
+            insertDisk(upload.Drive, upload.Bytes, upload.Format, $"upload ({upload.Format})".ToLowerInvariant());
+            pushText(FrameCodec.EncodeUploadAck(upload.Drive, new UploadResult(true, "")));
+        }
+        catch (Exception)
+        {
+            // DiskImageFactory/DiskImage throws on a malformed image the length-check let through.
+            pushText(FrameCodec.EncodeUploadAck(upload.Drive, new UploadResult(false, "That image looks corrupt")));
         }
     }
 
