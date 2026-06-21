@@ -45,4 +45,26 @@ public sealed class Fastmem
             // accesses take the bus arm and never mark dirty (MMIO cannot hold code).
         }
     }
+
+    /// <summary>Re-classify ONE page after a bus remap (ADR 0014 Decision 4). Re-runs the same
+    /// TryGetDirectAccess + DisableFastmem rule the constructor applies, for the single page
+    /// <paramref name="page"/>, so emitted fast-path loads/stores see the NEW backing/offset/writability.
+    /// An MMIO/unmapped page (TryGetDirectAccess false) is reset to the bus-arm classification
+    /// (null backing, offset 0, not writable) — symmetric with the constructor's else branch.</summary>
+    public void Reclassify(AddressSpace bus, int page, JitOptions options)
+    {
+        uint pageStart = (uint)page << 8;
+        if (bus.TryGetDirectAccess(pageStart, out byte[] backing, out int offset, out bool writable))
+        {
+            PageOffset[page] = offset;
+            PageWritable[page] = writable;
+            PageBacking[page] = options.DisableFastmem ? null : backing;
+        }
+        else
+        {
+            PageBacking[page] = null;
+            PageOffset[page] = 0;
+            PageWritable[page] = false;
+        }
+    }
 }
