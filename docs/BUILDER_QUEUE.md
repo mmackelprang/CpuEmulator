@@ -1,6 +1,33 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **S SHIPPED (PR #123)**: the disk-upload inbound-binary path (the
+> **Last updated:** 2026-06-21 (Planner — **FINAL surface-UI row T PLANNED** — the control strip + keyboard
+> T-F. [plan](superpowers/plans/2026-06-20-apple2-pr-t-control-strip.md), grounded against `main` @ `f4755e5`
+> (PRs #99–#123). **T-F scope = (B), full, including D5** (the `ctrl`-modifier wiring) per the Coordinator's
+> decision — the hint line already advertises "Ctrl+B = BASIC", so shipping it unwired would be a lying
+> affordance below this surface's honesty bar. T builds the visible client DOM that binds to the already-
+> shipped P/R/S seams (the `ST` `window.machineStatus`, R's `window.diskCatalog`/`insertFromLibrary`/
+> `ejectDrive`, S's `window.uploadDisk`/`uploadState` + the `st.upload` ack route) — **two bordered drive
+> panels** (library `<select>` from `GET /disks`; `Insert…` upload picker → `DK` with UPLOADING→INSERTED/
+> error; eject; the current-image label, both drives; a **real-motor amber light** from `st.drives[i].motor`
+> = the REAL `$C0E8/$C0E9` line + ~1 s 556 off-delay, single shared motor line, NOT faked on insert), the
+> **calm named-script asset banner** (the shipped `applyAssetBanner` kept verbatim; never red), the read-only
+> **mode label** (`st.mode`), and the **one** new token `--drive-active` (amber `#d8a657`) — everything else
+> reuses the shipped Spectrum literals. **PLUS the D5 chip+wire change** (touches server+chip, intended): a
+> trailing `bool Ctrl = false` on `KeyEvent` (non-breaking — all 8 shipped 3-arg call sites compile
+> unchanged), `FrameCodec.TryDecodeKey` reads the optional `ctrl` JSON field, `Apple2KeyMap.TryMap` ANDs a
+> letter with `$1F` when `ctrl` is set, `Apple2Keyboard.PostKey` passes `e.Ctrl`, and `app.js` `sendKey`
+> adds `ctrl: ev.ctrlKey` + `preventDefault`s `Ctrl+B`/`Ctrl+C`. **Hybrid gate, no new JS toolchain:** (a) C#
+> served-asset content assertions (`WebApplicationFactory` reads `/app.js`+`/index.html` — the panel DOM /
+> the `--drive-active` token / the control wiring / the `ctrl` send are present); (b) the shipped wire/seam
+> gates (R/S/P, already green); (c) the **D5 un-fakeable interpreter gate** — a `Ctrl+B` `KeyEvent` posted to
+> a real `Apple2Keyboard` latches `$02` (not `$42`) at `$C000` over the live latch, `Ctrl+C` → `$03`, a plain
+> `B` → `$42`. The **in-browser visual confirmation** (panels render, the amber light turns on during a real
+> disk access + lingers ~1 s, the dropdown populates, a real `Ctrl+B` drops into BASIC) is explicitly **owner
+> UAT** — the surface stays a dumb reflector, no indicator client-fabricated. **No `KeyCode` enum addition**
+> (Ctrl rides the `Ctrl` field, design §2.5). `WozFluxImage` (row W) stays backlog — `.woz` library items
+> render disabled-with-note, uploads honestly reject. **T is Builder-ready** — it is the topmost (and final)
+> eligible surface-UI row; deps P/R/S all ✅. **W remains a backlog `JIT` row; L is deferred. With T cleared,
+> the Apple ][+ surface arc is complete.** **Next: Builder picks up T.**) (Builder — **S SHIPPED (PR #123)**: the disk-upload inbound-binary path (the
 > surface's FIRST inbound binary WS message). `FrameCodec.TryDecodeUpload`/`UploadFrame` decode the binary
 > **`DK`** frame (`'D','K',version,drive,formatByte,...bytes`); `UploadValidator` re-validates server-side
 > (`.dsk`/`.po` exactly `DiskImageFactory.DskBytes`=143360; `.woz` magic `WOZ1`/`WOZ2` then the **honest
@@ -209,7 +236,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **Q** | In-session disk insert / eject mechanism (Disk II runtime image swap) | ✅ (PR #120) | F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-q-disk-runtime-swap.md) | The Disk II controller accepts "load these bytes as drive N's image" + "eject drive N" at runtime, for both `.woz` and `.dsk`/`.po`, via the `IFluxImage` seam; a running machine swaps images without rebuild. *(Designer T-D — shared dep of the two disk-UX paths.)* |
 | **R** | `GET /disks` catalog endpoint + per-drive library dropdown | ✅ (PR #122) | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md) | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. **Folds in the drive-2 status deferral (PR-Q): the `ST` frame now reports BOTH drives.** Gate: the endpoint lists a seeded cache dir + selecting an entry inserts it into drive N (reuse Q's runtime insert). *(Designer T-C.)* |
 | **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | ✅ (PR #123) | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-s-disk-upload.md) | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.dsk`/`.po` exact length / `.woz` magic) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. Gate: a binary `DK` frame with a valid `.dsk` inserts into drive N (server rejects a bad length/magic); the single-text-frame protocol is unaffected. *(Designer T-B — the surface's first inbound binary path; explicitly its own task. **Best taken after R** — reuses PR-R's `insertDisk` hoist + four-arg `InsertDisk` + the drive-2 fold-in; the plan notes the port-forward if S lands first.)* |
-| **T** | Control-strip UI (drive panels, lights, mode label, asset banner) | 📋 | P, R, S | JIT | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; one new `--drive-active` token. Binds to PR-R's `window.diskCatalog`/`insertFromLibrary`/`ejectDrive` + PR-S's `window.uploadDisk`/`uploadState`. *(Designer T-E/T-G/T-H + keyboard extensions T-F.)* |
+| **T** | Control-strip UI (drive panels, lights, mode label, asset banner) + keyboard T-F incl. D5 ctrl-wiring | 📋 | P, R, S | [plan](superpowers/plans/2026-06-20-apple2-pr-t-control-strip.md) | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; the read-only mode label; one new `--drive-active` token. Binds to PR-R's `window.diskCatalog`/`insertFromLibrary`/`ejectDrive` + PR-S's `window.uploadDisk`/`uploadState`. **Plus D5 (T-F scope = B/full per Coordinator):** `KeyEvent.Ctrl` + `TryDecodeKey` reads `ctrl` + `Apple2KeyMap`/`Apple2Keyboard` fold a letter with `$1F` + `app.js` sends `ctrl` + `preventDefault`s `Ctrl+B`/`Ctrl+C`. **Own un-fakeable interpreter gate: a `Ctrl+B` event latches `$02` (not `$42`) at `$C000`.** Hybrid gate: (a) C# served-asset content assertions (`WebApplicationFactory`); (b) the shipped wire/seam gates; (c) the D5 interpreter gate. In-browser visual confirmation = owner UAT. *(Designer T-E/T-G/T-H + keyboard extensions T-F/D5.)* |
 | **W** | `WozFluxImage` — a thin `.woz`-file byte parser → `IFluxImage` | 📋 | F | JIT | The missing half of "full `.woz` fidelity upfront" (the locked decision): PR-F shipped the `.woz`/LSS **read path** + the `IFluxImage` track-bitstream **seam**, but no `.woz`-**file** byte parser. `WozFluxImage` parses the WOZ1/WOZ2 container (INFO/TMAP/TRKS chunks → per-track bitstreams) into an `IFluxImage` the controller reads identically to the shipped `SyntheticFluxImage`/`DskFluxImage`. Unblocks raw `.woz` in `DiskImageFactory.FromBytes` (today an explicit `NotSupportedException`), in the R library list (today listed-disabled), and in S upload (today validates magic then the honest not-yet-supported reject). *(Separable IFluxImage follow-on — backlog; plan JIT when it reaches the front.)* |
 
 ---
