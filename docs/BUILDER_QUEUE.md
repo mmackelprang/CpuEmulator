@@ -1,8 +1,30 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **S CLAIMED** (`feat/apple2-disk-upload`): the disk-upload
-> inbound-binary path — the `DK` binary frame + `UploadValidator` + the multi-fragment receive-loop
-> reassembly (the load-bearing detail) — in flight.) (Builder — **R SHIPPED (PR #122)**: `GET /disks` disk-library catalog
+> **Last updated:** 2026-06-21 (Builder — **S SHIPPED (PR #123)**: the disk-upload inbound-binary path (the
+> surface's FIRST inbound binary WS message). `FrameCodec.TryDecodeUpload`/`UploadFrame` decode the binary
+> **`DK`** frame (`'D','K',version,drive,formatByte,...bytes`); `UploadValidator` re-validates server-side
+> (`.dsk`/`.po` exactly `DiskImageFactory.DskBytes`=143360; `.woz` magic `WOZ1`/`WOZ2` then the **honest
+> not-yet-supported reject** — never reaches `insertDisk`); `EncodeUploadAck` pushes an `ST`-prefixed
+> `{"upload":{drive,ok,message}}` text frame. **The receive loop reassembles the multi-fragment message**
+> (the load-bearing detail — a `.dsk` is 143360 bytes, far over the buffer [grown 1 KiB→8 KiB]; accumulate to
+> `EndOfMessage`, 2 MiB cap) → validate → load via the shipped R/Q `insertDisk` delegate → ack. Client gains
+> `window.uploadDisk(drive,file)` (ext/2 MB/non-empty validation → `FileReader` → binary send) +
+> `window.uploadState`/`uploadLastError` + the `st.upload` ack route (no panel DOM — row T). The single-text-
+> frame protocol is unaffected (R's HIGH try/catch preserved through the receive-loop rewrite). **Pre-merge
+> review: 0 HIGH, 2 MEDIUM + 1 LOW (all fixed).** M1: an oversized multi-fragment message reset the
+> accumulator on the cap-fire fragment then re-accumulated the tail + dispatched a partial frame (wrong
+> "corrupt" ack) — added a `capExceeded` drain flag (ack "too large" once at `EndOfMessage`). M2: a valid
+> `.dsk` on a no-Apple-drive session (`insertDisk` null) acked "corrupt" — now "Disk upload isn't supported
+> in this session". L1: the client ext-parse reached the format map by accident on a no-dot filename —
+> guarded the `-1` case. Full suite **7267 passed / 0 failed / 6 skipped** (+16 net new), warning-clean,
+> stable across runs. **UAT** (live out-of-process server, ROM-absent): a real `ClientWebSocket` sent a
+> genuine **143365-byte `DK` frame** (fragments over the wire) → server reassembled + validated + acked
+> (`ok:false, "Disk upload isn't supported in this session"` — demo board, exercising M2 live + proving
+> multi-fragment reassembly end-to-end); a 100-byte `DK` → `ok:false, "That image looks corrupt"`; a key
+> event after the binary burst → 3 FB frames stream (text path healthy); zero server errors. **STOP per
+> protocol — R + S cleared.** The next eligible row is **T** (control-strip UI, deps P/R/S ✅) but it is
+> **`JIT`-unplanned**; **W** is a backlog `JIT` row; **L** is deferred. **The Planner plans T (the final
+> surface-UI row) next.**) (Builder — **R SHIPPED (PR #122)**: `GET /disks` disk-library catalog
 > (`DiskCatalog` over `<cache>/disks/` + the CP/M `.dsk`, deterministic, `.woz` listed-disabled) + the
 > `disk-insert`/`disk-eject` text-WS dispatch (a library selection resolves the id server-side, reads the
 > cached bytes, inserts via the shipped Q `surface.InsertDisk`) + the **drive-2 status fold-in** (the `ST`
@@ -186,7 +208,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **P** | The `ST` status-frame seam (host→client read-only indicators) | ✅ (PR #119) | — | [plan](superpowers/plans/2026-06-20-apple2-pr-p-status-frame.md) | A new lightweight `ST` wire frame carries board name, asset state, per-drive motor + image label, video-mode label; the client renders them read-only; the host pushes real machine state (not faked). *(Designer T-A — suggested early; most surface indicators consume it.)* |
 | **Q** | In-session disk insert / eject mechanism (Disk II runtime image swap) | ✅ (PR #120) | F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-q-disk-runtime-swap.md) | The Disk II controller accepts "load these bytes as drive N's image" + "eject drive N" at runtime, for both `.woz` and `.dsk`/`.po`, via the `IFluxImage` seam; a running machine swaps images without rebuild. *(Designer T-D — shared dep of the two disk-UX paths.)* |
 | **R** | `GET /disks` catalog endpoint + per-drive library dropdown | ✅ (PR #122) | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md) | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. **Folds in the drive-2 status deferral (PR-Q): the `ST` frame now reports BOTH drives.** Gate: the endpoint lists a seeded cache dir + selecting an entry inserts it into drive N (reuse Q's runtime insert). *(Designer T-C.)* |
-| **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | 🔨 | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-s-disk-upload.md) | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.dsk`/`.po` exact length / `.woz` magic) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. Gate: a binary `DK` frame with a valid `.dsk` inserts into drive N (server rejects a bad length/magic); the single-text-frame protocol is unaffected. *(Designer T-B — the surface's first inbound binary path; explicitly its own task. **Best taken after R** — reuses PR-R's `insertDisk` hoist + four-arg `InsertDisk` + the drive-2 fold-in; the plan notes the port-forward if S lands first.)* |
+| **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | ✅ (PR #123) | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-s-disk-upload.md) | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.dsk`/`.po` exact length / `.woz` magic) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. Gate: a binary `DK` frame with a valid `.dsk` inserts into drive N (server rejects a bad length/magic); the single-text-frame protocol is unaffected. *(Designer T-B — the surface's first inbound binary path; explicitly its own task. **Best taken after R** — reuses PR-R's `insertDisk` hoist + four-arg `InsertDisk` + the drive-2 fold-in; the plan notes the port-forward if S lands first.)* |
 | **T** | Control-strip UI (drive panels, lights, mode label, asset banner) | 📋 | P, R, S | JIT | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; one new `--drive-active` token. Binds to PR-R's `window.diskCatalog`/`insertFromLibrary`/`ejectDrive` + PR-S's `window.uploadDisk`/`uploadState`. *(Designer T-E/T-G/T-H + keyboard extensions T-F.)* |
 | **W** | `WozFluxImage` — a thin `.woz`-file byte parser → `IFluxImage` | 📋 | F | JIT | The missing half of "full `.woz` fidelity upfront" (the locked decision): PR-F shipped the `.woz`/LSS **read path** + the `IFluxImage` track-bitstream **seam**, but no `.woz`-**file** byte parser. `WozFluxImage` parses the WOZ1/WOZ2 container (INFO/TMAP/TRKS chunks → per-track bitstreams) into an `IFluxImage` the controller reads identically to the shipped `SyntheticFluxImage`/`DskFluxImage`. Unblocks raw `.woz` in `DiskImageFactory.FromBytes` (today an explicit `NotSupportedException`), in the R library list (today listed-disabled), and in S upload (today validates magic then the honest not-yet-supported reject). *(Separable IFluxImage follow-on — backlog; plan JIT when it reaches the front.)* |
 
@@ -269,6 +291,46 @@ PR-H landed, so they call the real shipped machine-model signatures).
 ---
 
 ## Recently shipped (Apple ][+ arc)
+
+- **PR-S — disk-upload inbound-binary path (the surface's first inbound binary WS message)** (2026-06-21,
+  PR #123). The fourth surface-UI sub-arc row (design T-B / D12). A client `<input type=file>` (DOM is row T)
+  → client validation (ext allow-list `.woz/.dsk/.po` / 2 MB cap / non-empty) → a binary **`DK`** frame
+  (`'D','K',version(0x01),drive(1|2),formatByte(0=woz,1=dsk,2=po),...imageBytes`, `FrameCodec.TryDecodeUpload`
+  → `UploadFrame`) → **server re-validation** (`UploadValidator`: `.dsk`/`.po` exactly
+  `DiskImageFactory.DskBytes`=143360; `.woz` validates the `WOZ1`/`WOZ2` magic then returns the **honest**
+  `.woz upload isn't supported yet — use .dsk or .po` reject — never reaches `insertDisk`, which throws
+  `NotSupportedException` for `.woz`; empty body → "That file is empty") → load into drive N via the shipped
+  R/Q `insertDisk` delegate → an upload-result ack (`FrameCodec.EncodeUploadAck` — an `ST`-prefixed
+  `{"upload":{drive,ok,message}}` text frame the client routes to resolve UPLOADING → INSERTED / error).
+  **The load-bearing detail — multi-fragment reassembly:** a `.dsk` is 143,360 bytes, far over the receive
+  buffer (grown 1 KiB → 8 KiB), so a `DK` message arrives across many fragments; the receive loop accumulates
+  into a `MemoryStream` until `EndOfMessage`, caps at 2 MiB, then decodes + validates + dispatches. The
+  client gains `window.uploadDisk(drive,file)` (validate → `FileReader` → `Uint8Array` binary send) +
+  `window.uploadState`/`uploadLastError` + the `st.upload` ack route (decoded before the status-snapshot
+  path). **The single-text-frame protocol is unaffected** (the `DK` binary frame is additive; the text key +
+  PR-R disk-insert/eject paths are byte-for-byte, including R's HIGH-fix try/catch, preserved through the
+  receive-loop rewrite). **Pre-merge review: 0 HIGH, 2 MEDIUM + 1 LOW, all fixed.** M1: an oversized
+  multi-fragment message reset the accumulator when the 2 MiB cap fired on a non-final fragment, then
+  re-accumulated the tail and dispatched a partial frame (a misleading "corrupt" ack); added a `capExceeded`
+  drain flag that ignores the rest of an over-cap message and acks "File too large" once at `EndOfMessage`
+  (defense-in-depth — the client enforces the cap; only reachable by a bypassed client). M2: a valid `.dsk`
+  uploaded to a session with no Apple disk drive (Spectrum/demo, `insertDisk == null`) acked "That image
+  looks corrupt" — factually wrong; now "Disk upload isn't supported in this session" (the Apple branches
+  always wire `insertDisk`, so this is only reachable from a non-Apple session / crafted request). L1: the
+  client extension parse reached the format map by accident on a no-dot filename (`slice(-1)`); guarded the
+  `-1` case explicitly. Full suite **7267 passed / 0 failed / 6 skipped** (+16 net new), warning-clean,
+  stable across consecutive runs. The S gate tests use the `DispatchUpload` seam + board-agnostic WS health
+  (mirroring R's structure) — they do **not** mutate the process-global `CPUEMULATOR_TESTVECTORS` (the
+  isolation defect R surfaced + fixed). **UAT** (no browser MCP; live out-of-process server, ROM-absent →
+  demo board): a real `ClientWebSocket` sent a genuine **143,365-byte `DK` frame** (which fragments over the
+  wire) → the server reassembled + validated it + acked (`ok:false, "Disk upload isn't supported in this
+  session"` — the demo board has no Apple drive, exercising the M2 path live + proving multi-fragment
+  reassembly end-to-end); a 100-byte `DK` frame → `ok:false, "That image looks corrupt"`; a key event after
+  the binary burst → 3 binary `FB` frames stream (text path healthy); zero server-side errors/exceptions
+  logged. **The visible upload picker + UPLOADING/INSERTED/error panel is row T** (S ships the transport +
+  validation + state machine T binds to). **STOP per protocol — R + S cleared.** **T** (control-strip UI,
+  deps P/R/S ✅) is the next eligible row but is **`JIT`-unplanned**; **W** is a backlog `JIT` row; **L**
+  deferred → Builder stops; **the Planner plans T (the final surface-UI row) next.**
 
 - **PR-R — `GET /disks` disk-library catalog + per-drive library dropdown transport** (2026-06-21, PR #122).
   The third surface-UI sub-arc row (design T-C / D11/D13). A new **`DiskCatalog`** (`CpuEmulator.Machines`,
