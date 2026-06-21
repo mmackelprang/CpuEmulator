@@ -80,11 +80,14 @@ internal static class DemoSession
                 ?? throw new InvalidOperationException(
                     "SoftCard CP/M needs the slot-6 Disk II boot ROM (disk2.rom) — run tools/get-apple2-roms.");
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
+            byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();      // optional (synthetic fallback)
+            byte[]? videxFirmware = CpuEmulator.Machines.VidexRom.TryLoadFirmware(); // optional
             CpuEmulator.Core.IBlockDevice cpm = CpuEmulator.Machines.SoftCardCpm.LoadBlockDevice(cpmDisk);
-            SoftCardSurface softcard = SoftCardSurface.Create(sys, bootRom, charRom, cpm,
+            SoftCardVidexSurface softcard = SoftCardVidexSurface.Create(sys, bootRom, charRom,
+                videxChar, videxFirmware, cpm,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
             pump = new SurfacePump(softcard.Host, AppleSliceCycles, ApplePeriod);
-            assetState = "softcard-cpm";
+            assetState = "softcard-cpm-videx";
         }
         else if (appleRom is not null)
         {

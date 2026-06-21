@@ -5,10 +5,12 @@ for future work. It is the single forward-looking index; the per-milestone detai
 [architecture decision records](architecture/) (ADRs) and the [user guide](user-guide/README.md).
 
 > **A note on prioritization.** The ordering of the deferred items below is the **owner-set priority**
-> (2026-06-19; Apple ][+ arc PRs A–N shipped 2026-06-20/21 — the base ][+ boot through the **dual-CPU Z-80
-> SoftCard CP/M boot capstone** (PR-K), the **display-multiplexer active-display seam** (PR-M), and the
-> **Videx Videoterm 80-column card** (PR-N); the CP/M-on-Videx capstone (PR-O) is next; per-PR detail in
-> `docs/BUILDER_QUEUE.md`) — the intended next-up
+> (2026-06-19; Apple ][+ arc PRs A–O shipped 2026-06-20/21 — the base ][+ boot through the **dual-CPU Z-80
+> SoftCard CP/M boot capstone** (PR-K), the **display-multiplexer active-display seam** (PR-M), the **Videx
+> Videoterm 80-column card** (PR-N), and the **CP/M-on-Videx capstone** (PR-O — the "usable 80-column CP/M"
+> deliverable: CP/M auto-widens to the 80-col Videx at `A>`, structurally complete, pending owner assets for
+> the live render); the surface-UI sub-arc (the `ST` status frame + the runtime disk-swap mechanism + the
+> disk-library/upload UI) is next; per-PR detail in `docs/BUILDER_QUEUE.md`) — the intended next-up
 > sequence, not a delivery commitment. Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
