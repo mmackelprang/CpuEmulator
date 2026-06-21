@@ -1,9 +1,23 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **SU CLAIMED (🔨 in-flight)** — ZX Spectrum 48K ROM UAT, branch
-> `feat/spectrum-48k-rom-uat`. Implementing Task 1→2→3 TDD per
-> [the plan](superpowers/plans/2026-06-21-spectrum-48k-rom-uat.md); copying the owner's six 48K variants into
-> the cache + running the variant×tier boot sweep + interactive BASIC UAT live, capturing the committed hashes.)
+> **Last updated:** 2026-06-21 (Builder — **SU PAUSED — live UAT surfaced a REAL production interrupt bug**,
+> branch `feat/spectrum-48k-rom-uat` (3 commits, NOT merged). Task 1 (variant discovery + `TryGetPath(root)`
+> overload + copy scripts) and the structural boot/interactive gates are implemented per the plan and **build
+> warning-clean**; the six variants are cached. **Boot sweep: 5 of 6 variants × both tiers GREEN at 7M**
+> (canonical `spec48` @7M = white 48845 / black 307 — textbook). **Two red gates, both reported to the owner,
+> NOT worked around:** (1) `spec48-beckman` boots its "coloured-blocks" reset to the white-paper BASIC screen
+> only by **~20M T-states** (7M lands mid-reset) — an in-scope per-variant calibration choice (raise BootCycles
+> globally vs. a Beckman-only higher budget). (2) **The interactive `PRINT 2+2` UAT exposed a genuine
+> production interrupt-delivery bug** in `SpectrumUla.OnFrameTick` (`src/CpuEmulator.Peripherals`): it
+> `_irq.Assert()`s then `_irq.Release()`s in the SAME synchronous frame-tick callback, so the Z80's
+> level-sampled maskable INT (no edge latch — correct HW) is **never high at a CPU instruction boundary**.
+> Result: the 50 Hz ISR never runs — `FRAMES` (0x5C78) stays 0 across frames, `LAST_K` never updates, BASIC
+> never sees a keystroke. The boot copyright screen still paints (straight-line init code), masking it; no
+> shipped test exercised the interrupt-driven path, so it was latent. The fix is production code
+> (hold /INT asserted ~32 T-states / release on the next tick) — **outside this test-only PR's scope**; the
+> brief said to report a real keyboard/BASIC bug rather than weaken the UAT. **Awaiting owner decision** on the
+> interrupt fix + the Beckman budget before completing + merging SU. SpectrumProbe keep/remove + the scratch
+> cleanup + the hash captures follow that decision.)
 > (Planner — **ZX Spectrum 48K ROM UAT PLANNED (new row SU)** — grounded against
 > `main` @ `fbd3a61`. A live diagnostic found the shipped Spectrum boot gate
 > (`tests/CpuEmulator.Tests/Spectrum/SpectrumBootTests.cs`) has `BootCycles = 200_000` **~30× too small** (the
