@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — claimed row D: Apple2 keyboard + speaker, in-flight). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Builder — PR-D merged: Apple2 keyboard + speaker). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -55,7 +55,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **A** | `AddressSpace.Remap` seam + JIT invalidation listener | ✅ | — | [plan](superpowers/plans/2026-06-20-apple2-pr-a-remap-seam.md) | A mapped range re-pointed by `Remap` reads the new backing; `RemapPeripheral` re-points to MMIO; `OnRemap` fires with the right page span; `BlockCache.InvalidatePages` evicts only those pages; no current device's behavior changes (regression). |
 | **B** | `Apple2Board` BoardSpec skeleton + `Apple2Iou` soft-switch decoder | ✅ | A | [plan](superpowers/plans/2026-06-20-apple2-pr-b-board-and-iou.md) | The board validates + builds; the IOU owns the `$C000` page; `$C050–$C057`/`$C030` toggle on **any access** (read OR write) identically; `TryPeek` has **no** side effect (peek-free); the speaker double-toggles on a write opcode. |
 | **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
-| **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | 🔨 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
+| **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | 📋 | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 📋 | F | JIT | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
@@ -126,6 +126,22 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-D — `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`)** (2026-06-20). The ][+'s two
+  host-facing chips over the shared `Apple2VideoState` the **already-shipped** IOU drives (no IOU/board/state
+  API change — PR-H wires them into the surface). `Apple2KeyMap` folds the portable `KeyCode`/`Char` set to
+  the ][+'s **uppercase-only** 7-bit codes (letters → `$41–$5A`; digits + symbols ASCII; Enter `$0D` / Space
+  `$20` / Backspace `$08` / Escape `$1B`; a printable `Char` with no dedicated key falls back to its uppercase
+  ASCII; everything else is a no-op). `Apple2Keyboard : IKeyboardSink` translates + `LatchKey` on key-**down**
+  only (the ][+ latch has no release — it holds the last key until the guest reads `$C010`); key-up + unmapped
+  keys leave the latch untouched. `Apple2Speaker : IAudioSink` resamples the IOU's monotonic `$C030` toggle
+  **count** into S16 PCM (44100 / 1ch / 735-per-frame), reusing the `SpectrumUla` beeper-sink shape: spreads
+  the frame's new toggles evenly, emits both polarities, and **carries** the ending level into the next frame;
+  it reads-only (never mutates the shared state) and schedules a 60 Hz `AudioReady` tick in `Realize`. The
+  un-fakeable gate runs on the **interpreter** (the oracle): a real 6502 `LDA $C030` loop on a built `Machine`
+  toggles the speaker many times and renders a non-flat both-polarity frame — no faked toggles. Pre-merge
+  review fix: the toggle index is `long` (an overflow guard against a saturated audio thread). Gate: 23 PR-D
+  tests (keymap + keyboard + speaker + the interpreter-tier gate) + the full 7109-test suite green. Unblocks
+  PR-H (surface wires the chips as the `IKeyboardSink`/`IAudioSink`).
 - **PR-C — `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render** (2026-06-20). One host-facing
   chip that reads **live main RAM** for scanout (no VRAM — the `SpectrumUla` pattern) and renders the ][+'s
   three modes into RGBA: text (40×24, GBASCALC interleave), lo-res (40×48 stacked nibble blocks), and hi-res
