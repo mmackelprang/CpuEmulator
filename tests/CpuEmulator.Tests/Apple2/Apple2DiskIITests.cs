@@ -78,6 +78,37 @@ public class Apple2DiskIITests
     }
 
     [Fact]
+    public void Eject_makes_the_drive_read_nothing_and_a_later_insert_restores_reads()
+    {
+        var disk = new Apple2DiskII(OneTrack(SampleNibbles()));
+        disk.MotorOnForTest();
+
+        // Inserted: the head recovers the distinctive bytes.
+        Assert.NotEmpty(ReadGcr(disk, 200));
+
+        // Eject drive 1: the head reads NOTHING — no byte ever has bit 7 set (an empty drive).
+        disk.Eject(drive: 1);
+        var afterEject = ReadGcr(disk, 200);
+        Assert.Empty(afterEject);
+
+        // Insert a fresh image at runtime: reads resume from the new image's bytes.
+        var fresh = new SyntheticFluxImage(trackCount: 35);
+        fresh.SetTrackNibbles(0, new byte[] { 0xFF, 0xFF, 0xAD, 0xDA, 0x96, 0xD5 });
+        disk.Insert(drive: 1, image: fresh);
+        AssertSubsequence(new byte[] { 0xAD, 0xDA, 0x96, 0xD5 }, ReadGcr(disk, 400));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    public void Insert_and_Eject_reject_an_out_of_range_drive(int drive)
+    {
+        var disk = new Apple2DiskII(OneTrack(SampleNibbles()));
+        Assert.Throws<ArgumentOutOfRangeException>(() => disk.Insert(drive, OneTrack(SampleNibbles())));
+        Assert.Throws<ArgumentOutOfRangeException>(() => disk.Eject(drive));
+    }
+
+    [Fact]
     public void With_the_motor_off_the_latch_does_not_advance()
     {
         var disk = new Apple2DiskII(OneTrack(SampleNibbles()));
