@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — PR-B merged). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Builder — PR-C merged; PR-D next is JIT-unplanned — STOP). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -54,7 +54,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 |---|---|---|---|---|---|
 | **A** | `AddressSpace.Remap` seam + JIT invalidation listener | ✅ | — | [plan](superpowers/plans/2026-06-20-apple2-pr-a-remap-seam.md) | A mapped range re-pointed by `Remap` reads the new backing; `RemapPeripheral` re-points to MMIO; `OnRemap` fires with the right page span; `BlockCache.InvalidatePages` evicts only those pages; no current device's behavior changes (regression). |
 | **B** | `Apple2Board` BoardSpec skeleton + `Apple2Iou` soft-switch decoder | ✅ | A | [plan](superpowers/plans/2026-06-20-apple2-pr-b-board-and-iou.md) | The board validates + builds; the IOU owns the `$C000` page; `$C050–$C057`/`$C030` toggle on **any access** (read OR write) identically; `TryPeek` has **no** side effect (peek-free); the speaker double-toggles on a write opcode. |
-| **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
+| **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
 | **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | 📋 | B | JIT | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | 📋 | A, B | JIT | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | 📋 | B | JIT | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
@@ -122,6 +122,18 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-C — `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render** (2026-06-20). One host-facing
+  chip that reads **live main RAM** for scanout (no VRAM — the `SpectrumUla` pattern) and renders the ][+'s
+  three modes into RGBA: text (40×24, GBASCALC interleave), lo-res (40×48 stacked nibble blocks), and hi-res
+  (280×192). The hi-res `addr(y)` uses the **verified** two-level interleave (landmarks y=0→`$2000`,
+  y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`; the refuted swapped-stride variant is excluded by a
+  192-row bijection guard); page 2 reads `$4000`; text uses the GBASCALC row bases. Reads the shared
+  `Apple2VideoState` the IOU writes, so a `$C057` HIRES access flips the next render with no plumbing. Ships
+  correct mono + basic artifact + the 16-colour lo-res palette + a built-in fallback font (the real char-gen
+  ROM injects in PR-H); `Realize` binds the live program space + schedules a 60 Hz `FrameReady` tick (no IRQ —
+  the bare ][+ has no vblank). All render gates run on synthetic RAM, **no ROM**. Gate: 24 render/address tests
+  + the full 7089-test suite green. Unblocks PR-H (surface + ROM-boot, which wires the chip in + injects the
+  real char ROM).
 - **PR-B — `Apple2Board` BoardSpec skeleton + `Apple2Iou` soft-switch decoder** (2026-06-20). The base
   ][+ as a declarative `BoardSpec` (48K RAM `$0000-$BFFF`, the `$C000-$CFFF` Mmio hole, 12K system ROM
   `$D000-$FFFF`, memory-mapped I/O only, reset-from-ROM-vector, no IRQ) + the `Apple2Iou` decoder owning
