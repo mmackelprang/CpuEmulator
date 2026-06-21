@@ -27,7 +27,22 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > (JIT-under-translation), plus owner-asset / owner-browser-UAT items** (fetch the Apple ROMs + CP/M `.dsk` and
 > confirm the live 80-col CP/M render, the panels rendering, the amber light lingering on real disk access, and
 > a real `Ctrl+B` dropping to BASIC); per-PR detail in `docs/BUILDER_QUEUE.md`) — the intended next-up
-> sequence, not a delivery commitment. Each item is tagged
+> sequence, not a delivery commitment.
+>
+> **CORRECTION / IN FLIGHT (2026-06-21, ADR 0017):** the PR-K/PR-O "CP/M boots to `A>` / auto-widens to 80-col"
+> claim above was **over-stated** — a live UAT with the real Microsoft SoftCard CP/M 2.2 disk proved the shipped
+> CP/M deliverable **never boots to `A>`**. The Architect root-caused it (ADR 0017) to a **three-defect cascade**
+> (live-verified): (1) the CP/M sector skew must be **per-track** (system tracks 0–2 use a distinct boot
+> interleave; the single all-tracks table loaded boot2's `$0F7D` as `$00`/BRK → a silent monitor crash);
+> (2) `SoftCardControlPort.Read()` toggled the active CPU on every read, livelocking the SoftCard-detect poll →
+> `CAN'T FIND Z80 SOFTCARD`; (3) `RunDualCpu` ran the active core past its `$CnXX` toggle, corrupting every BIOS
+> round-trip. The fix arc is **planned (queue rows CPM-1…CPM-4)** and strictly ordered; **CPM-1 first restores a
+> green/honest main** (the shipped boot gate was false-passing/now-failing). The "80-col CP/M end-to-end" headline
+> is **honestly narrowed** to "CP/M boots to `A>` on the **40-col** console" + "the Videx 80×24 path proven by a
+> direct render" — this CP/M master is a 40-column console (zero `$C0Bx`); an 80-col CP/M master is **owner-gated**
+> (ADR 0017 Decision 6/7, the deferred PR-5). Per-PR detail in `docs/BUILDER_QUEUE.md`.
+>
+> Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
 
