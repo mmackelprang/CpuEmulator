@@ -235,8 +235,22 @@ internal static class DemoSession
                     // DiskImageFactory.FromBytes throws NotSupportedException for .woz, so skip it.
                     if (format != DiskFormat.Woz)
                     {
-                        byte[] bytes = File.ReadAllBytes(path);
-                        insertDisk(cmd.Drive, bytes, format, Path.GetFileNameWithoutExtension(path));
+                        // A vanished/truncated/unreadable library file is a normal user condition (the cache
+                        // is owner-managed), NOT a server fault: ReadAllBytes (TOCTOU after TryResolve) and
+                        // the DiskImage ctor (a non-256-multiple length) can throw. Swallow so a bad disk
+                        // never tears down the live WS session — the insert simply doesn't happen.
+                        try
+                        {
+                            byte[] bytes = File.ReadAllBytes(path);
+                            insertDisk(cmd.Drive, bytes, format, Path.GetFileNameWithoutExtension(path));
+                        }
+                        catch (Exception ex) when (ex is IOException
+                                                   or UnauthorizedAccessException
+                                                   or ArgumentException
+                                                   or NotSupportedException)
+                        {
+                            // Intentionally ignored — the live session keeps streaming; the drive is unchanged.
+                        }
                     }
                 }
             }
