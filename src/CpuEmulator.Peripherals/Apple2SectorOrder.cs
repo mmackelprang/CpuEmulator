@@ -20,20 +20,43 @@ public static class Apple2SectorOrder
     private static readonly int[] ProDosPhysToLog =
         [0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15];
 
-    // CP/M (SoftCard) data-track skew (research §5, the canonical apple-do data-track order). The Z80 BIOS
-    // does no translation (XLT=0); the skew is applied by the 6502 RWTS, so the on-disk physical->logical
-    // interleave for CP/M data tracks is this third ordering (distinct from DOS 3.3 / ProDOS). Lands with
-    // the CP/M disk in PR-K, exactly as this file's header note promised.
-    private static readonly int[] CpmPhysToLog =
+    // CP/M (SoftCard) DATA-track skew (research §5, the canonical apple-do data-track order, live-verified
+    // correct). Used for tracks 3-34. The single-arg PhysicalToLogical(Cpm) returns this (its historical
+    // meaning); the new (kind, track) overload selects boot vs. data per track.
+    private static readonly int[] CpmDataPhysToLog =
         [0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1];
 
+    // CP/M SoftCard BOOT-track skew (ADR 0017 Decision 1 — live-verified; research §5's earlier boot table
+    // was wrong). System tracks 0-2 were written by the SoftCard boot ROM/loader with this interleave
+    // physToLog[p] = (p*11) mod 16. Using the data table for these tracks loads boot2's bytes at the wrong
+    // addresses (its $0F7D routine becomes $00/BRK -> a silent monitor crash before any handshake).
+    private static readonly int[] CpmBootPhysToLog =
+        [0, 11, 6, 1, 12, 7, 2, 13, 8, 3, 14, 9, 4, 15, 10, 5];
+
+    /// <summary>The number of CP/M system (boot) tracks: tracks 0-2 use the boot interleave, 3-34 the data
+    /// table (DPB OFF=3, research §4 — the disk's own system/data split).</summary>
+    private const int CpmSystemTracks = 3;
+
     /// <summary>The 16-entry physical→logical map for <paramref name="kind"/> (a fresh copy per call so
-    /// callers cannot mutate the shared table).</summary>
+    /// callers cannot mutate the shared table). For <see cref="SectorOrderKind.Cpm"/> this returns the
+    /// DATA-track table (its historical meaning); use the (kind, track) overload for the per-track skew.</summary>
     public static int[] PhysicalToLogical(SectorOrderKind kind) => kind switch
     {
         SectorOrderKind.Dos33 => (int[])Dos33PhysToLog.Clone(),
         SectorOrderKind.ProDos => (int[])ProDosPhysToLog.Clone(),
-        SectorOrderKind.Cpm => (int[])CpmPhysToLog.Clone(),
+        SectorOrderKind.Cpm => (int[])CpmDataPhysToLog.Clone(),
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    /// <summary>The 16-entry physical→logical map for <paramref name="kind"/> on <paramref name="track"/>
+    /// (ADR 0017 Decision 1). Only <see cref="SectorOrderKind.Cpm"/> is track-dependent: system tracks 0-2
+    /// use the boot interleave, tracks 3+ use the data table. DOS 3.3 / ProDOS are single-skew and ignore
+    /// <paramref name="track"/> (the same table the single-arg overload returns). A fresh copy per call.</summary>
+    public static int[] PhysicalToLogical(SectorOrderKind kind, int track) => kind switch
+    {
+        SectorOrderKind.Cpm => track < CpmSystemTracks
+            ? (int[])CpmBootPhysToLog.Clone()
+            : (int[])CpmDataPhysToLog.Clone(),
+        _ => PhysicalToLogical(kind),   // Dos33 / ProDos: track-independent, unchanged
     };
 }

@@ -28,6 +28,42 @@ public class SoftCardBoardTests
         Assert.NotEqual(Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.ProDos), cpm);
     }
 
+    [Fact]
+    public void Cpm_skew_is_per_track_boot_table_for_system_tracks_data_table_for_the_rest()
+    {
+        // ADR 0017 Decision 1 (live-verified): system tracks 0-2 use the BOOT interleave (p*11)%16;
+        // data tracks 3-34 use the existing CP/M-logical (apple-do) table. A single all-tracks table
+        // was the first, fatal defect (boot2's $0F7D loaded as $00/BRK).
+        int[] boot = [0, 11, 6, 1, 12, 7, 2, 13, 8, 3, 14, 9, 4, 15, 10, 5];   // (p*11) mod 16
+        int[] data = [0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1];
+
+        // tracks 0, 1, 2 -> boot table
+        Assert.Equal(boot, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 0));
+        Assert.Equal(boot, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 1));
+        Assert.Equal(boot, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 2));
+        // track 3+ -> data table
+        Assert.Equal(data, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 3));
+        Assert.Equal(data, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 34));
+
+        // The boot table is a genuine 0..15 permutation distinct from the data table.
+        Assert.Equal(Enumerable.Range(0, 16), boot.OrderBy(x => x));
+        Assert.NotEqual(data, boot);
+    }
+
+    [Fact]
+    public void Single_skew_orders_ignore_the_track_argument_dos33_and_prodos_unchanged()
+    {
+        // DOS 3.3 / ProDOS are single-skew: the (kind, track) overload returns the same table for every track,
+        // byte-for-byte equal to the legacy single-arg call (the regression guard for the additive overload).
+        foreach (SectorOrderKind kind in new[] { SectorOrderKind.Dos33, SectorOrderKind.ProDos })
+        {
+            int[] legacy = Apple2SectorOrder.PhysicalToLogical(kind);
+            Assert.Equal(legacy, Apple2SectorOrder.PhysicalToLogical(kind, 0));
+            Assert.Equal(legacy, Apple2SectorOrder.PhysicalToLogical(kind, 3));
+            Assert.Equal(legacy, Apple2SectorOrder.PhysicalToLogical(kind, 34));
+        }
+    }
+
     private static byte[] DiskBootRom()
     {
         var rom = new byte[Apple2Rom.DiskRomLength];   // 256 B
