@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **PR-H merged — the base-machine boot milestone is COMPLETE**: `Apple2Surface` wires the video/keyboard/speaker triad through `MachineHost` (the `SpectrumSurface` twin), `Apple2Board.SpecWithSystem` maps the slot-6 `$C600` Disk II boot ROM, `get-apple2-roms.{sh,ps1}` fetch the three ROMs on-demand (never vendored), and the ROM-boot gate asserts the Applesoft `]` prompt on **both** tiers (skip-with-note absent — Apple ROM is owner-supplied). The base ][+ now boots to `]` when the ROM is cached, else the calm SP0-demo fallback. **Next eligible rows (I dual-CPU, M DisplayMultiplexer, P ST-status) are all `JIT`-unplanned** → Builder STOPS; the Planner plans the dual-CPU arc next.). **Owner:** Mark.
+> **Last updated:** 2026-06-21 (Planner — **dual-CPU arc batch 1 (rows I + J) PLANNED**: ADR 0015's biggest abstraction is now bite-sized. **I** ([plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md)) extends the shipped single-CPU machine model to two CPUs over one shared program space — `CoprocessorSpec?` on `BoardSpec`, `WithCoprocessor`, `IAddressTranslation`/`TranslatingAddressSpace`/`ICoprocessorControl`, the run-one-then-the-other dual-CPU `Run` (6502-domain virtual clock, all-IRQ-to-primary, dormant core never scheduled), with the **single-CPU path byte-for-byte unchanged** as the load-bearing regression gate. **J** ([plan](superpowers/plans/2026-06-20-apple2-pr-j-softcard-translation.md)) adds the concrete `SoftCardTranslation` (the 6-branch MAME-verified table — the refuted `+$1000` shortcut fails branches 2–5; 1 & 6 coincide), `SoftCardControlPort` ($CnXX-write active-CPU toggle, peek-free), with a real Z80 routine running translated against shared 6502 RAM as the end-to-end gate. Plans grounded against `main` @ `d685b0c`. **I is immediately Builder-eligible** (dep A ✅); **J follows I**. K (CP/M boot) stays `JIT` — planned against shipped I/J next. **Next: Builder picks up I.**). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -60,8 +60,8 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | ✅ | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
 | **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | ✅ | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
-| **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | JIT | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
-| **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | 📋 | I | JIT | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branch 2–6; the control-port write flips `_z80Active` and ends the slice. |
+| **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | [plan](superpowers/plans/2026-06-20-apple2-pr-i-dual-cpu-scaffolding.md) | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
+| **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | 📋 | I | [plan](superpowers/plans/2026-06-20-apple2-pr-j-softcard-translation.md) | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branches **2–5** (branches 1 & 6 coincide); the control-port write flips `_z80Active` and ends the slice. |
 | **K** | Interpreter-tier CP/M boot wiring (`$C600`→tracks→`$CnXX`-start) | 📋 | E, F, H, J | JIT | The real SoftCard boot sequence (6502 `$C600` reads tracks `$00–$02`, sets LC banking, writes `$CN00`) hands off to the Z80; CP/M reaches its load state on the **interpreter** tier. **Asset-gated** on the SoftCard CP/M `.dsk` (skip-with-note absent). |
 | **L** | JIT-under-translation (pre-translated physical fastmem) | ⏸️ | K | JIT | *(deferred/optional, ADR 0015 Decision 4 — measure interpreter CP/M throughput first.)* The Z80-under-translation gets fastmem over the physical backing arrays; parity-gated against the running interpreter SoftCard (the oracle). |
 | **M** | `DisplayMultiplexer` + `MachineHost` per-frame re-size | 📋 | — | JIT | The multiplexer delegates `Width`/`Height`/`RenderInto`/`FrameReady` to the active source; `SetActive` fires `FrameReady`; `MachineHost` re-sizes its `_rgba` buffer when dimensions change; a single-display board is transparent (no behavior change). |
@@ -88,12 +88,24 @@ change** (the OQ1-✅ format-agnostic invariant); H mirrors the shipped `Spectru
 (skip-with-note absent). **Together G + H complete the base-machine boot milestone** (a ][+ that reaches
 the `]` prompt + runs DOS 3.3). The earlier `pr-{a..f}` plans were grounded against `97a44d5`.
 
-**Planned just-in-time (`Plan: JIT` above):** I–T are queued with their dependencies + un-fakeable gate
+**Dual-CPU arc batch 1 — now planned:** **I + J** (the ADR 0015 dual-CPU scaffolding + the SoftCard
+translation) now have detailed bite-sized plans (`docs/superpowers/plans/2026-06-20-apple2-pr-{i,j}-*.md`),
+grounded against `main` @ `d685b0c` (PRs #99–#108). **I is immediately Builder-eligible** (dep A ✅);
+**J follows I** (dep I). I extends the shipped `Machine`/`MachineBuilder`/`BoardSpec`/`BoardMachineFactory`/
+`BoardSpecValidator` with the optional `CoprocessorSpec` path (additive — the single-CPU path is
+byte-for-byte unchanged, the load-bearing regression gate the full suite enforces) plus the new
+`IAddressTranslation`/`TranslatingAddressSpace`/`ICoprocessorControl` Core seams + the run-one-then-the-
+other dual-CPU `Run`; J adds the concrete 6-branch `SoftCardTranslation` + the `$CnXX` `SoftCardControlPort`
+as pure `CpuEmulator.Peripherals` additions riding I's seams. **K (CP/M boot) stays `JIT`** — it is planned
+against the *shipped* I/J next, per the cadence below.
+
+**Planned just-in-time (`Plan: JIT` above):** K–T are queued with their dependencies + un-fakeable gate
 fixed, but their bite-sized plans are written **as each approaches the front of the queue** (the
 established cadence — the Spectrum/M6 arcs planned in waves, not all at once). When a `JIT` row becomes
 the topmost eligible item, Builder stops and asks Planner for the detailed plan. This keeps each plan
 grounded against the *then-current* `main` (e.g. PR-E's plan is written after PR-A has actually landed
-the `Remap` API, so its literal code calls the real shipped signature).
+the `Remap` API, so its literal code calls the real shipped signature; the I/J plans were written after
+PR-H landed, so they call the real shipped machine-model signatures).
 
 ### Dependency rationale (the valid build order)
 
