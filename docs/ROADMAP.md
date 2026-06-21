@@ -36,8 +36,15 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > interleave; the single all-tracks table loaded boot2's `$0F7D` as `$00`/BRK → a silent monitor crash);
 > (2) `SoftCardControlPort.Read()` toggled the active CPU on every read, livelocking the SoftCard-detect poll →
 > `CAN'T FIND Z80 SOFTCARD`; (3) `RunDualCpu` ran the active core past its `$CnXX` toggle, corrupting every BIOS
-> round-trip. The fix arc is **planned (queue rows CPM-1…CPM-4)** and strictly ordered; **CPM-1 first restores a
-> green/honest main** (the shipped boot gate was false-passing/now-failing). The "80-col CP/M end-to-end" headline
+> round-trip. The fix arc is **planned (queue rows CPM-1…CPM-4)** and strictly ordered. **CPM-1 SHIPPED
+> (2026-06-21):** landed defect (1) — the **per-track CP/M skew** (boot interleave `(p×11)%16` for system tracks
+> 0–2, the data table for 3+, via the additive `Apple2SectorOrder.PhysicalToLogical(kind,track)` overload +
+> `DskFluxImage` per-track resolution; DOS/ProDOS unregressed) so boot2's `$0F7D` is a valid opcode (no silent
+> BRK-to-monitor crash) — and **de-fanged both CP/M `A>` boot gates** to an honest negative (the skew crash is
+> gone) + a named-skip of the `A>` part (until CPM-4 / CPM-5), restoring a **green/honest CP/M suite** (the 2
+> gates went from RED to honest-skip; the skew fix is gated by an un-fakeable regression that fails pre-fix /
+> passes post-fix). CPM-2…CPM-4 remain queued (read-toggle, run-loop yield, the live `A>`). The "80-col CP/M
+> end-to-end" headline
 > is **honestly narrowed** to "CP/M boots to `A>` on the **40-col** console" + "the Videx 80×24 path proven by a
 > direct render" — this CP/M master is a 40-column console (zero `$C0Bx`); an 80-col CP/M master is **owner-gated**
 > (ADR 0017 Decision 6/7, the deferred PR-5). Per-PR detail in `docs/BUILDER_QUEUE.md`.
