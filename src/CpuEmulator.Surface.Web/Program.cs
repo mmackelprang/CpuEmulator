@@ -63,13 +63,28 @@ internal static class DemoSession
         Channel<byte[]> audio = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
 
-        // Boot the Apple ][+ when its system ROM is cached; else fall back to the Spectrum, else the demo.
-        // (The Spectrum ROM is only probed when the Apple branch isn't taken — no file-stat in the common
-        // Apple-boot path.)
+        // Boot the SoftCard (CP/M) when BOTH the Apple system ROM and the CP/M .dsk are cached; else fall
+        // back to the Apple ][+ when its system ROM is cached; else the Spectrum, else the demo. (Each
+        // subsequent asset is only probed when the earlier branch isn't taken — no file-stat in the common
+        // boot path.)
         string? appleRom = CpuEmulator.Machines.Apple2Rom.TryGetPath();
+        string? cpmDisk = CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath();
         ISurfacePump pump;
         string assetState;   // surfaced to the client banner / status line
-        if (appleRom is not null)
+        if (appleRom is not null && cpmDisk is not null)
+        {
+            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom);
+            byte[] bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom()
+                ?? throw new InvalidOperationException(
+                    "SoftCard CP/M needs the slot-6 Disk II boot ROM (disk2.rom) — run tools/get-apple2-roms.");
+            byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
+            CpuEmulator.Core.IBlockDevice cpm = CpuEmulator.Machines.SoftCardCpm.LoadBlockDevice(cpmDisk);
+            SoftCardSurface softcard = SoftCardSurface.Create(sys, bootRom, charRom, cpm,
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+            pump = new SurfacePump(softcard.Host, AppleSliceCycles, ApplePeriod);
+            assetState = "softcard-cpm";
+        }
+        else if (appleRom is not null)
         {
             byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom);
             byte[]? bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom();

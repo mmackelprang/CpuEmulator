@@ -100,4 +100,34 @@ public class SoftCardBoardTests
         }
         finally { File.Delete(tmp); }
     }
+
+    [Fact]
+    public void SoftCardSurface_constructs_and_renders_a_280x192_frame()
+    {
+        // A synthetic (all-zero) system ROM + a synthetic CP/M block device: the surface must construct,
+        // reset, and produce a 280x192 FB frame (the Apple video tick). No real asset is needed for THIS
+        // smoke test — the boot-to-A> assertion is the separate asset-gated test.
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;
+        IBlockDevice cpm = new DiskImage(new byte[SoftCardCpm.DiskLength], 256, isReadOnly: true);
+        var bootRom = new byte[Apple2Rom.DiskRomLength];
+        bootRom[0x01] = 0x20; bootRom[0x03] = 0x00; bootRom[0x05] = 0x03; bootRom[0x07] = 0x3C;
+        bootRom[0x00] = 0xA9;
+
+        byte[]? lastFrame = null;
+        CpuEmulator.Surface.Web.SoftCardSurface surface =
+            CpuEmulator.Surface.Web.SoftCardSurface.Create(rom, bootRom, charRom: null,
+                cpmDisk: cpm, f => lastFrame = f, _ => { });
+
+        surface.Host.RunHeadless(totalCycles: 40_000, sliceCycles: 17_030);
+
+        Assert.NotNull(lastFrame);
+        Assert.Equal((byte)'F', lastFrame![0]);
+        Assert.Equal((byte)'B', lastFrame[1]);
+        int width = lastFrame[4] | (lastFrame[5] << 8);
+        int height = lastFrame[6] | (lastFrame[7] << 8);
+        Assert.Equal(280, width);
+        Assert.Equal(192, height);
+        Assert.NotNull(surface.Machine.Coprocessor);   // the Z80 is wired even on the synthetic board
+    }
 }

@@ -62,7 +62,9 @@
     const stateName = s.slice(3);
     const banner = document.getElementById("asset-banner");
     banner.hidden = true;
-    if (stateName === "apple-fallback-font") {
+    if (stateName === "softcard-cpm") {
+      status.textContent = "connected · Apple ][+ SoftCard · CP/M";
+    } else if (stateName === "apple-fallback-font") {
       status.textContent = "connected · Apple ][+ · fallback font";
     } else if (stateName.startsWith("apple")) {
       status.textContent = "connected · Apple ][+ · documented 6502";
