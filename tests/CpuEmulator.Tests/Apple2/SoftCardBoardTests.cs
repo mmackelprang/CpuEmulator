@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using CpuEmulator.Core;
 using CpuEmulator.Machines;
 using CpuEmulator.Peripherals;
@@ -129,5 +130,68 @@ public class SoftCardBoardTests
         Assert.Equal(280, width);
         Assert.Equal(192, height);
         Assert.NotNull(surface.Machine.Coprocessor);   // the Z80 is wired even on the synthetic board
+    }
+
+    // Generous budget for the CP/M cold boot: the 6502 reads the 3 system tracks, hands off to the Z80,
+    // and CP/M runs to the A> prompt. Tune down on the first green run with the real asset.
+    private const long CpmBootCycles = 10_000_000;
+
+    [SoftCardCpmFact]
+    public void Cpm_boots_to_the_A_prompt_on_the_interpreter()
+    {
+        var (systemRomPath, cpmDiskPath) = SoftCardCpmVectors.TryGetAssets()!.Value;
+        byte[] systemRom = Apple2Rom.Load(systemRomPath);
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("the slot-6 disk2.rom is required for the CP/M boot gate");
+        byte[]? charRom = Apple2Rom.TryLoadCharRom();   // null -> Apple2Font.Fallback (still renders A>)
+        IBlockDevice cpm = SoftCardCpm.LoadBlockDevice(cpmDiskPath);
+
+        // Build the real SoftCard machine with the CP/M .dsk re-nibblized into drive 1.
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var drive1 = new DskFluxImage(cpm, SectorOrderKind.Cpm);
+        var disk = new Apple2DiskII(drive1);
+        var iou = new Apple2Iou(state, lc, disk);
+        BoardSpec spec = SoftCardBoard.Spec(systemRom, iou, disk, diskBootRom);
+        Machine machine = BoardMachineFactory.Build(spec);   // interpreter tier (coprocessor is interpreter)
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+
+        machine.Reset();
+        machine.Run(CpmBootCycles);                          // the real $C600 -> tracks -> $CnXX -> CP/M boot
+
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+
+        // Un-fakeable structural assertion: CP/M's sign-on + the A> prompt paint ink on a mostly-blank
+        // text screen. A dead/garbage boot is all-off (no prompt) or noisy (no clear background).
+        int offPixels = 0, onPixels = 0;
+        foreach (uint p in rgba)
+        {
+            if (p == Apple2Palette.MonoOff) offPixels++;
+            else if (p == Apple2Palette.MonoOn) onPixels++;
+        }
+        int total = Apple2Video.Width280 * Apple2Video.Height192;
+        Assert.True(offPixels > total / 2,
+            $"expected a mostly-blank CP/M text screen; got {offPixels}/{total} off pixels");
+        Assert.True(onPixels > 50,
+            $"expected the A> prompt + CP/M sign-on ink; got {onPixels} on pixels");
+        // The Z80 ran: it became the bus master during the boot (the $CnXX handoff fired).
+        Assert.True(machine.CoprocessorActive,
+            "expected the Z80 to be the active bus master after the CP/M boot handoff");
+
+        // Tighter gate: a committed RGBA hash. On the FIRST green run with the real asset, capture the
+        // hash (uncomment the print), paste it below, then re-run.
+        string hash = Convert.ToHexString(SHA256.HashData(AsBytes(rgba)));
+        // System.Console.WriteLine($"[cpm boot frame hash] {hash}");  // <-- uncomment once to capture
+        string ExpectedBootHash = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN";
+        if (ExpectedBootHash != "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN")
+            Assert.Equal(ExpectedBootHash, hash);
+    }
+
+    private static byte[] AsBytes(uint[] rgba)
+    {
+        var bytes = new byte[rgba.Length * 4];
+        Buffer.BlockCopy(rgba, 0, bytes, 0, bytes.Length);
+        return bytes;
     }
 }
