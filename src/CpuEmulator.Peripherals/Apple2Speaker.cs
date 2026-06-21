@@ -5,8 +5,9 @@ namespace CpuEmulator.Peripherals;
 /// <summary>The Apple ][+ 1-bit speaker (ADR 0014 Decision 3): a host-facing IAudioSink that resamples
 /// the $C030 toggle stream into S16 PCM, reusing the SpectrumUla beeper sink approach (1-bit DAC: each
 /// toggle flips the level; level 1 -> +amp, level 0 -> -amp; the ending level carries into the next
-/// frame). The IOU increments Apple2VideoState.SpeakerToggles on every $C030 bus access (so an
-/// STA $C030 double-toggles — the RMW dummy read + the store — naturally). This chip reads that
+/// frame). The IOU increments Apple2VideoState.SpeakerToggles on every $C030 bus access — so an RMW
+/// opcode (INC $C030) double-toggles via its phantom read + store, while STA/LDA $C030 each produce one
+/// toggle per instruction (the 6502 STA is a pure write, no dummy read). This chip reads that
 /// monotonic count, derives how many NEW toggles happened this frame, spreads them evenly across the
 /// frame (the IOU exposes a count, not timestamps — the same pragmatic approximation the Spectrum
 /// beeper uses; only relative spacing + the carried level matter for an audible square wave), and emits
@@ -73,7 +74,7 @@ public sealed class Apple2Speaker : IPeripheral, IAudioSink
         // Spread the toggles evenly across the frame: toggle k (0-based) lands at sample
         // floor((k + 1) * SamplesFrame / (newToggles + 1)). Walk samples, flipping the level as each
         // toggle boundary is crossed. (Relative spacing + the carried level are what matter audibly.)
-        int nextToggle = 0;
+        long nextToggle = 0;   // long: a saturated audio thread can accumulate > int.MaxValue toggles
         for (int s = 0; s < SamplesFrame; s++)
         {
             while (nextToggle < newToggles &&
