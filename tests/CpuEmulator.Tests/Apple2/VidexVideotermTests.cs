@@ -97,4 +97,56 @@ public class VidexVideotermTests
 
         Assert.Equal(new[] { true, false }, events);   // one transition each way, no duplicates
     }
+
+    [Fact]
+    public void Selecting_a_vram_bank_remaps_the_CC00_window_to_that_bank_via_the_shipped_Remap()
+    {
+        // Build a real Apple+Videx machine so $CC00-$CDFF is a mappable window the Videx Remaps.
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;   // reset -> $D000
+        (Machine machine, VidexVideoterm videx) = BuildAppleWithVidex(rom);
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+
+        // Select bank 1, then write a byte to $CC00 — it must land in the Videx's bank-1 array.
+        videx.SelectBankForTest(1);
+        bus.Write8(0xCC00, 0x5A);
+        Assert.Equal(0x5A, videx.PeekVramForTest(1, 0));   // the guest write reached the live bank-1 array
+
+        // Select bank 2 and write again — bank 1's byte is untouched (the window re-pointed).
+        videx.SelectBankForTest(2);
+        bus.Write8(0xCC00, 0x3C);
+        Assert.Equal(0x3C, videx.PeekVramForTest(2, 0));
+        Assert.Equal(0x5A, videx.PeekVramForTest(1, 0));   // bank 1 still holds its earlier byte
+    }
+
+    [Fact]
+    public void SpecWithVidex_validates_and_builds_with_the_C800_window_mapped()
+    {
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;
+        (Machine machine, VidexVideoterm videx) = BuildAppleWithVidex(rom);
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+
+        // The $CC00 VRAM window is writable RAM (the Videx Remapped it to bank 0 in Realize): a guest write
+        // round-trips through the live bank-0 array.
+        bus.Write8(0xCC00, 0x77);
+        Assert.Equal(0x77, videx.PeekVramForTest(0, 0));
+
+        // The $C800 firmware window is read-only ROM (the Videx Remapped it read-only): a write is ignored.
+        byte before = bus.Read8(0xC800);
+        bus.Write8(0xC800, 0xAB);
+        Assert.Equal(before, bus.Read8(0xC800));   // ROM — the write did not take
+    }
+
+    private static (Machine, VidexVideoterm) BuildAppleWithVidex(byte[] systemRom)
+    {
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var disk = new Apple2DiskII(new SyntheticFluxImage(trackCount: 35));
+        var videx = new VidexVideoterm();
+        var iou = new Apple2Iou(state, lc, disk, videx);   // the Videx delegate (Task 2 IOU change)
+        BoardSpec spec = Apple2Board.SpecWithVidex(systemRom, iou, disk, videx);  // Task 3
+        Machine machine = BoardMachineFactory.Build(spec);
+        return (machine, videx);
+    }
 }
