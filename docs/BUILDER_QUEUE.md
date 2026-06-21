@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Planner — **rows G + H planned** (the base-machine boot milestone): G = `.dsk`/`.po` re-nibblizing adapter on the PR-F `IFluxImage` seam; H = `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + the ROM-boot gate (boots to `]`). Both have plan links below; G is Builder-eligible now (dep F ✅), H follows G. PR-F merged: Apple2 Disk II (.woz/LSS) + `IFluxImage` seam.). **Owner:** Mark.
+> **Last updated:** 2026-06-21 (Builder — **PR-G merged**: the `.dsk`/`.po` re-nibblizing adapter (`DskFluxImage : IFluxImage`) folds onto the PR-F track-bitstream seam with **no controller/IOU/board change** — the format-agnostic-above-the-seam invariant, OQ1-✅. **H is now Builder-eligible** (deps C, D, E, F, G ✅) — the first UI-touching surface PR + the ROM-boot gate.). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -25,8 +25,6 @@
 
 **Status legend:** 📋 queued · 🔨 in-flight (Builder claimed) · ⛔ blocked (a dep is not done / owner
 input needed) · ✅ done (PR merged) · ⏸️ deferred (intentionally not now).
-
-> **In-flight:** row G claimed by Builder 2026-06-21 (branch `feat/apple2-dsk-adapter`).
 
 **Interpreter-first invariant.** Every row ships + gates on the **interpreter tier** (the oracle). JIT
 emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem) is a *separate*,
@@ -60,7 +58,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | ✅ | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
-| **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 🔨 | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
+| **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | ✅ | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
 | **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
 | **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | JIT | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
 | **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | 📋 | I | JIT | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branch 2–6; the control-port write flips `_z80Active` and ends the slice. |
@@ -132,6 +130,34 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-G — Disk II `.dsk`/`.po` re-nibblizing adapter (`DskFluxImage : IFluxImage`)** (2026-06-21). The
+  `.dsk`/`.po` logical-sector → synthetic-GCR-track adapter that folds into the **same `IFluxImage`
+  track-bitstream seam PR-F shipped** (ADR 0014 Decision 6 + OQ1-✅ — full `.woz`/LSS fidelity upfront,
+  the `.dsk`/`.po` path re-nibblizes into the *same* path). **Purely additive — zero controller/IOU/board
+  change** (the format-agnostic-above-the-seam invariant): the shipped `Apple2DiskII` head cannot tell a
+  re-nibblized `.dsk` from a `.woz`. Three new files in `CpuEmulator.Peripherals`: **`Apple2SectorCodec`**
+  ships the DOS-3.3 6-and-2 data-field nibblize (256 bytes → 342 6-and-2 bytes + 1 running-XOR checksum =
+  **343** on-disk GCR bytes, the low-2-bits-bit-reversed / high-6-bits split through the **shipped**
+  `Apple2Gcr.WriteTable` — no table re-derivation) + its checksum-verifying inverse + the 4-and-4
+  address-field encode/decode (each MSB-set, `| 0xAA`); **`Apple2SectorOrder`** ships the DOS 3.3 (`.dsk`)
+  + ProDOS (`.po`) 16-entry physical↔logical interleave tables (the CP/M skew is **deliberately deferred**
+  to the CP/M arc, named in the notes); **`DskFluxImage : IFluxImage`** wraps the SP0 `IBlockDevice`/
+  `DiskImage` (256-byte sectors, 16/track), exposes `TrackCount = SectorCount / 16`, and **lazily
+  synthesizes** each track's nibble bitstream (16 physical sectors framed by self-sync `$FF` gaps + the
+  `D5 AA 96`/`DE AA EB` address field + the `D5 AA AD`/`DE AA EB` 343-byte data field), packed MSB-first
+  exactly as `SyntheticFluxImage` packs so the PR-F head reads it as-is; `IsWriteProtected` reflects the
+  block device. Pre-merge review confirmed the 6-and-2 encode/decode is a **true inverse** with **no
+  silent-accept path** (a corrupt field changes the XOR chain and fails the checksum), both interleave
+  tables match the canonical Beneath-Apple-DOS / ProDOS sources, and the diff touches no existing source
+  (a one-line thread-safety note on the pure per-track cache was the only review-driven edit). The
+  un-fakeable gate runs on the **interpreter** (the oracle): a real 6502 "motor on, poll `$C0EC`, store
+  every bit-7-set nibble" loop on a built `Machine`, backed by a `DskFluxImage` over the **unchanged**
+  `Apple2DiskII`, captures a track's nibbles whose `D5 AA AD` data field 6-and-2-decodes to a **byte-exact**
+  track-0 sector of the source `.dsk` — **synthetic `.dsk`, no ROM, no controller change.** Gate: 14 PR-G
+  tests (codec round-trip + checksum-rejection + 4-and-4 + the two interleave permutations + adapter
+  geometry/validity + read-back + the interpreter RWTS gate) + the full 7150-test suite green (7147
+  passed, 3 pre-existing asset-gated skips), warning-clean. Unblocks PR-H (DOS-from-`.dsk` boot) + PR-Q
+  (runtime disk swap, both formats).
 - **PR-F — Disk II controller: the `.woz`/LSS nibble path + the `IFluxImage` track-bitstream seam** (2026-06-20).
   The project's first real disk **controller**, modeling the **LSS sequencer + the nibble bitstream as the
   primary path** (the owner decision: full `.woz`/LSS fidelity upfront — no sector-first staging). New
