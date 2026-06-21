@@ -146,4 +146,29 @@
   window.addEventListener("keydown", (ev) => {
     if (ev.ctrlKey && ev.code === "Backspace") ev.preventDefault();
   });
+
+  // --- Disk library (PR-R, design D11) ---
+  // Fetch the cached-disk catalog (GET /disks) once on load; row T's drive panels render window.diskCatalog.
+  // Read-only data — the client never fabricates entries; the server lists the real cache.
+  window.diskCatalog = [];
+  function loadCatalog() {
+    fetch("/disks")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => { window.diskCatalog = Array.isArray(list) ? list : []; })
+      .catch(() => { window.diskCatalog = []; });
+  }
+  loadCatalog();
+
+  // Insert a library disk into drive N (text WS, design D11). The bytes are already server-side; the wire
+  // carries only the catalog id. Row T's [ Library ▾] onchange calls this.
+  window.insertFromLibrary = function (drive, id) {
+    if (ws.readyState !== WebSocket.OPEN || !id) return;
+    ws.send(JSON.stringify({ action: "disk-insert", drive: drive, id: id }));
+  };
+
+  // Eject drive N (text WS, design D13). Row T's [ Eject ] calls this.
+  window.ejectDrive = function (drive) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ action: "disk-eject", drive: drive }));
+  };
 })();
