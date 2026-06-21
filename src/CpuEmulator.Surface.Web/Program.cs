@@ -71,7 +71,13 @@ internal static class DemoSession
         // Only stat the CP/M .dsk when the Apple system ROM is present — the SoftCard needs both, so a
         // missing Apple ROM means no SoftCard boot regardless, and the Spectrum/demo paths take no file-stat.
         string? cpmDisk = appleRom is not null ? CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath() : null;
-        ISurfacePump pump;
+        // Hoisted per-branch state: each branch sets the host + slice/period (the pump is built ONCE after
+        // the branch, with the optional status pusher) and either the Apple status provider (the live ST
+        // frame) or leaves it null (Spectrum/demo keep the legacy one-shot "ST <assetState>" text frame).
+        MachineHost host;
+        long slice;
+        TimeSpan period;
+        Func<MachineStatus>? statusProvider = null;
         string assetState;   // surfaced to the client banner / status line
         if (appleRom is not null && cpmDisk is not null)
         {
@@ -86,8 +92,10 @@ internal static class DemoSession
             SoftCardVidexSurface softcard = SoftCardVidexSurface.Create(sys, bootRom, charRom,
                 videxChar, videxFirmware, cpm,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
-            pump = new SurfacePump(softcard.Host, AppleSliceCycles, ApplePeriod);
+            host = softcard.Host; slice = AppleSliceCycles; period = ApplePeriod;
             assetState = "softcard-cpm-videx";
+            string asset = assetState;                                     // capture for the provider
+            statusProvider = () => softcard.Status() with { Asset = asset };
         }
         else if (appleRom is not null)
         {
@@ -96,41 +104,58 @@ internal static class DemoSession
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
             Apple2Surface apple = Apple2Surface.Create(sys, bootRom, charRom,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
-            pump = new SurfacePump(apple.Host, AppleSliceCycles, ApplePeriod);
+            host = apple.Host; slice = AppleSliceCycles; period = ApplePeriod;
             assetState = charRom is null ? "apple-fallback-font" : "apple";
+            string asset = assetState;                                     // capture for the provider
+            statusProvider = () => apple.Status() with { Asset = asset };   // real state, real asset string
         }
         else if (CpuEmulator.Machines.SpectrumRom.TryGetPath() is { } romPath)
         {
             byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
             SpectrumSurface spectrum = SpectrumSurface.Create(rom,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
-            pump = new SurfacePump(spectrum.Host, SpectrumPumpCycles, SpectrumPeriod);
-            assetState = "spectrum";
+            host = spectrum.Host; slice = SpectrumPumpCycles; period = SpectrumPeriod;
+            assetState = "spectrum";   // no Apple status -> the legacy one-shot text frame covers it
         }
         else
         {
             // The demo board has no audio device; the audio channel stays empty.
             DemoBoardSurface demo = DemoBoardSurface.Create(f => frames.Writer.TryWrite(f));
-            pump = new SurfacePump(demo.Host, SliceCycles, SlicePeriod);
-            assetState = "demo";
+            host = demo.Host; slice = SliceCycles; period = SlicePeriod;
+            assetState = "demo";       // no Apple status -> the legacy one-shot text frame covers it
         }
 
-        // One-shot board/asset string the client renders into the banner + status line (the design
-        // copy.md strings). Text frame — the binary FB/AU path below is untouched (PR-H seam; the richer
-        // ST status frame is PR-P).
-        if (socket.State == WebSocketState.Open)
+        // The status frame: for the Apple surfaces, a live ST frame pushed on change (design D14, the
+        // drive light / mode label / banner consume it). For the Spectrum/demo, the legacy one-shot
+        // "ST <assetState>" text frame (no Apple status to reflect) — the client handles both shapes.
+        Channel<byte[]> statusFrames = Channel.CreateBounded<byte[]>(
+            new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.DropOldest });
+
+        StatusPusher? statusPusher = statusProvider is null
+            ? null
+            : new StatusPusher(statusProvider, f => statusFrames.Writer.TryWrite(f));
+
+        if (statusPusher is not null)
+            statusPusher.Tick();                          // initial real-state push
+        else if (socket.State == WebSocketState.Open)     // Spectrum/demo: the legacy one-shot text frame
             await socket.SendAsync(Encoding.UTF8.GetBytes($"ST {assetState}"),
                 WebSocketMessageType.Text, endOfMessage: true, ct);
+
+        // The pump is built once, post-branch, with the optional status pusher (null for Spectrum/demo —
+        // their tick stays byte-for-byte unchanged).
+        ISurfacePump pump = new SurfacePump(host, slice, period, statusPusher);
 
         Task drive = pump.RunAsync(ct);
         Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);
         Task sendAudio = SendBinaryAsync(socket, audio.Reader, ct);
+        Task sendStatus = SendTextAsync(socket, statusFrames.Reader, ct);
         Task recv = ReceiveKeysAsync(socket, pump, ct);
 
-        await Task.WhenAny(drive, sendFrames, sendAudio, recv);
+        await Task.WhenAny(drive, sendFrames, sendAudio, sendStatus, recv);
         frames.Writer.TryComplete();
         audio.Writer.TryComplete();
-        try { await Task.WhenAll(drive, sendFrames, sendAudio, recv); } catch { /* teardown races expected */ }
+        statusFrames.Writer.TryComplete();
+        try { await Task.WhenAll(drive, sendFrames, sendAudio, sendStatus, recv); } catch { /* teardown races expected */ }
     }
 
     private static async Task SendBinaryAsync(WebSocket socket, ChannelReader<byte[]> reader,
@@ -141,6 +166,19 @@ internal static class DemoSession
             if (socket.State != WebSocketState.Open)
                 break;
             await socket.SendAsync(frame, WebSocketMessageType.Binary, endOfMessage: true, ct);
+        }
+    }
+
+    /// <summary>The text-frame sender: mirrors <see cref="SendBinaryAsync"/> but writes the ST status
+    /// frames as WebSocket TEXT (the client's onmessage routes every string to handleStatusText).</summary>
+    private static async Task SendTextAsync(WebSocket socket, ChannelReader<byte[]> reader,
+                                            CancellationToken ct)
+    {
+        await foreach (byte[] frame in reader.ReadAllAsync(ct))
+        {
+            if (socket.State != WebSocketState.Open)
+                break;
+            await socket.SendAsync(frame, WebSocketMessageType.Text, endOfMessage: true, ct);
         }
     }
 
@@ -177,18 +215,23 @@ internal static class DemoSession
         private readonly MachineHost _host;
         private readonly long _slice;
         private readonly TimeSpan _period;
-        public SurfacePump(MachineHost host, long slice, TimeSpan period)
+        private readonly StatusPusher? _statusPusher;
+        public SurfacePump(MachineHost host, long slice, TimeSpan period, StatusPusher? statusPusher = null)
         {
             _host = host;
             _slice = slice;
             _period = period;
+            _statusPusher = statusPusher;
         }
 
         public async Task RunAsync(CancellationToken ct)
         {
             using var timer = new PeriodicTimer(_period);
             while (await timer.WaitForNextTickAsync(ct))
+            {
                 _host.Step(_slice);
+                _statusPusher?.Tick();        // push ST only when the real snapshot changed
+            }
         }
 
         public void PostKey(in KeyEvent e) => _host.PostKey(e);
