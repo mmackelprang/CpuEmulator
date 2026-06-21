@@ -10,6 +10,12 @@ namespace CpuEmulator.Surface.Web;
 /// server-side, so the wire carries only the id; the server resolves + loads them.</summary>
 public readonly record struct DiskCommand(bool Eject, int Drive, string Id);
 
+/// <summary>A decoded disk-UPLOAD binary frame from the client (design D12 / T-B — the surface's first
+/// inbound binary path). Wire: ['D','K', version(0x01), driveByte(1|2), formatByte(0=woz,1=dsk,2=po),
+/// ...imageBytes]. The bytes are the raw disk image; the server re-validates (see UploadValidator) before
+/// loading them into the running Disk II.</summary>
+public readonly record struct UploadFrame(int Drive, DiskFormat Format, byte[] Bytes);
+
 /// <summary>
 /// The SP0 WebSocket wire format. Frames OUT: a small binary header ('F','B', version, reserved,
 /// uint16 width LE, uint16 height LE) followed by width*height little-endian RGBA8888 pixels (raw —
@@ -141,6 +147,36 @@ public static class FrameCodec
         {
             return false;
         }
+    }
+
+    private const int UploadHeaderBytes = 5;   // 'D','K', version, drive, format
+
+    /// <summary>Decode the binary <c>DK</c> upload frame (design D12). Returns false on a bad tag/version,
+    /// an out-of-range drive (1..2) or format (0..2), or a frame shorter than the 5-byte header. The image
+    /// bytes (everything after the header) are copied into <see cref="UploadFrame.Bytes"/>; an empty body
+    /// is allowed here (the validator rejects 0 bytes — keep decode and validation separate).</summary>
+    public static bool TryDecodeUpload(ReadOnlySpan<byte> frame, out UploadFrame upload)
+    {
+        upload = default;
+        if (frame.Length < UploadHeaderBytes)
+            return false;
+        if (frame[0] != (byte)'D' || frame[1] != (byte)'K' || frame[2] != 0x01)
+            return false;
+        int drive = frame[3];
+        if (drive is < 1 or > 2)
+            return false;
+        DiskFormat format = frame[4] switch
+        {
+            0 => DiskFormat.Woz,
+            1 => DiskFormat.Dsk,
+            2 => DiskFormat.Po,
+            _ => (DiskFormat)(-1),
+        };
+        if (format == (DiskFormat)(-1))
+            return false;
+        byte[] bytes = frame[UploadHeaderBytes..].ToArray();
+        upload = new UploadFrame(drive, format, bytes);
+        return true;
     }
 
     /// <summary>Map a DOM <c>KeyboardEvent.code</c> to a portable <see cref="KeyCode"/>. Unknown
