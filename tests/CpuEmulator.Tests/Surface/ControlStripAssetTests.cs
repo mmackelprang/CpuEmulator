@@ -93,7 +93,9 @@ public class ControlStripAssetTests : IClassFixture<WebApplicationFactory<WebPro
         Assert.DoesNotContain("drive ●", js);
         // M4: the 3 s "no frame yet" diagnostic (copy.md §3).
         Assert.Contains("connected · waiting for first frame…", js);
-        // M6: the UPLOADING label interpolates the captured filename.
-        Assert.Contains("\"Uploading \" + name + \"…\"", js);
+        // M6: the UPLOADING label interpolates the captured filename (assert the functional tokens, not the
+        // exact concatenation syntax, so a semantics-preserving refactor doesn't break the gate).
+        Assert.Contains("Uploading ", js);
+        Assert.Contains("window.uploadFilename[drive]", js);
     }
 }

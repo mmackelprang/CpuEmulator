@@ -9,9 +9,10 @@
   ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
-    status.textContent = "connected";
-    // M4: arm the "no frame yet" diagnostic. A real FB frame (near-instant on localhost) clears it; if
-    // nothing paints within ~3 s the surface reads as alive-but-waiting rather than silently blank.
+    // Leave the "connecting…" line until the first ST frame sets the canonical copy.md §3 status (the bare
+    // "connected" was a non-canonical transient). M4: arm the "no frame yet" diagnostic — a real FB frame
+    // (near-instant on localhost) or the first canonical ST status clears it; if neither lands within ~3 s
+    // the surface reads as alive-but-waiting rather than silently blank.
     firstFrameTimer = setTimeout(() => {
       if (!firstFrameSeen) status.textContent = "connected · waiting for first frame…";
     }, 3000);
@@ -120,6 +121,11 @@
   // The asset → banner/status mapping (shared by both ST shapes). Owns the canonical copy.md §3 status
   // line, the §4 hint state, and (demo only) the §5 banner + §6.5 disabled-drive note.
   function applyAssetBanner(stateName, banner) {
+    // M4: a real board-level ST status proves the session is live, so it retires the "waiting for first
+    // frame…" diagnostic and prevents the 3 s timer from later clobbering this canonical line. (Without
+    // this, a slow first FB frame on an already-status'd session would leave the diagnostic stuck.)
+    firstFrameSeen = true;
+    clearFirstFrameTimer();
     if (stateName === "softcard-cpm-videx") {
       status.textContent = "connected · Apple ][+ SoftCard · CP/M · Videx 80-col";
       leaveDemoMode();
