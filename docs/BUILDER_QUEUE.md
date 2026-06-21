@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — claimed PR-A). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Builder — PR-A merged). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -52,7 +52,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 
 | id | Title | Status | Deps | Plan | Un-fakeable gate (interpreter, no asset needed unless noted) |
 |---|---|---|---|---|---|
-| **A** | `AddressSpace.Remap` seam + JIT invalidation listener | 🔨 | — | [plan](superpowers/plans/2026-06-20-apple2-pr-a-remap-seam.md) | A mapped range re-pointed by `Remap` reads the new backing; `RemapPeripheral` re-points to MMIO; `OnRemap` fires with the right page span; `BlockCache.InvalidatePages` evicts only those pages; no current device's behavior changes (regression). |
+| **A** | `AddressSpace.Remap` seam + JIT invalidation listener | ✅ | — | [plan](superpowers/plans/2026-06-20-apple2-pr-a-remap-seam.md) | A mapped range re-pointed by `Remap` reads the new backing; `RemapPeripheral` re-points to MMIO; `OnRemap` fires with the right page span; `BlockCache.InvalidatePages` evicts only those pages; no current device's behavior changes (regression). |
 | **B** | `Apple2Board` BoardSpec skeleton + `Apple2Iou` soft-switch decoder | 📋 | A | [plan](superpowers/plans/2026-06-20-apple2-pr-b-board-and-iou.md) | The board validates + builds; the IOU owns the `$C000` page; `$C050–$C057`/`$C030` toggle on **any access** (read OR write) identically; `TryPeek` has **no** side effect (peek-free); the speaker double-toggles on a write opcode. |
 | **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
 | **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | 📋 | B | JIT | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
@@ -122,7 +122,13 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
-*(none yet — this queue is newly established for the arc.)*
+- **PR-A — `AddressSpace.Remap` seam + JIT invalidation listener** (2026-06-20). The run-time bank-switch
+  primitive ADR 0009 Decision 2 designed: `Remap`/`RemapPeripheral` on `IAddressSpace` (in-place page-table
+  re-point, memory↔MMIO), the `IMapInvalidationListener` seam (Core defines, Jit implements — AOT-clean),
+  `BlockCache.InvalidatePages` (page-precise eviction), and `Fastmem.Reclassify`. Interpreter-correct on
+  every access; the JIT re-classifies + evicts the remapped pages so the new bank's code runs. Inert until
+  a device remaps (every existing board byte/cycle-identical). Unblocks PR-E (Language Card), PR-N (Videx
+  `$C800`), PR-I (dual-CPU). Gate: 8 remap tests + the full 7042-test suite green.
 
 The arc builds on the **shipped** SP0 web surface + the ZX Spectrum 48K machine (see `docs/ROADMAP.md`
 § *Recently shipped*), reusing the `BoardSpec`/`BoardMachineFactory`/`IPeripheral` + `IDisplayDevice` /
