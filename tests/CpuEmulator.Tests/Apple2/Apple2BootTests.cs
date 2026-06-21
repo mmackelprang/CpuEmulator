@@ -56,4 +56,31 @@ public class Apple2BootTests
         // $C600 is ROM (a different page); reading it has no soft-switch side effect.
         Assert.Equal(0xA9, bus.Read8(0xC600));
     }
+
+    [Fact]
+    public void Apple2Surface_constructs_and_renders_a_280x192_frame()
+    {
+        // The surface wires the Apple triad through MachineHost (the SpectrumSurface pattern). With a
+        // bare (all-zero) system ROM there is no boot, but the surface must construct, reset, and produce
+        // a 280x192 FB frame when stepped (the host renders on the video chip's frame tick). No real ROM
+        // is needed for THIS smoke test (the boot-to-] assertion is the separate ROM-gated test).
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;   // reset -> $D000 (a NOP region; no crash)
+
+        byte[]? lastFrame = null;
+        CpuEmulator.Surface.Web.Apple2Surface surface =
+            CpuEmulator.Surface.Web.Apple2Surface.Create(rom, diskBootRom: null, charRom: null,
+                f => lastFrame = f, _ => { });
+
+        surface.Host.RunHeadless(totalCycles: 40_000, sliceCycles: 17_030);   // > one frame tick
+
+        Assert.NotNull(lastFrame);
+        // FB header: 'F','B', ver, reserved, u16 width LE, u16 height LE.
+        Assert.Equal((byte)'F', lastFrame![0]);
+        Assert.Equal((byte)'B', lastFrame[1]);
+        int width = lastFrame[4] | (lastFrame[5] << 8);
+        int height = lastFrame[6] | (lastFrame[7] << 8);
+        Assert.Equal(280, width);
+        Assert.Equal(192, height);
+    }
 }
