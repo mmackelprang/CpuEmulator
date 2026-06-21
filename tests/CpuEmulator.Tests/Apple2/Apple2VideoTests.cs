@@ -98,4 +98,46 @@ public class Apple2VideoTests
 
         Assert.Throws<ArgumentException>(() => video.RenderInto(new uint[10]));
     }
+
+    private static (Apple2Video video, AddressSpace ram, Apple2VideoState state) BuildText(bool loRes)
+    {
+        var space = new AddressSpace(AddressSpaceKind.Program, 16);
+        space.MapMemory(0x0000, new byte[0x10000], writable: true);
+        var state = new Apple2VideoState { GraphicsOn = loRes, HiRes = false };
+        return (new Apple2Video(space, state), space, state);
+    }
+
+    [Fact]
+    public void Text_renders_a_glyph_at_its_cell_via_GBASCALC()
+    {
+        var (video, ram, _) = BuildText(loRes: false);
+        // Put a printable glyph at row 8, col 0 -> base $428 (a GBASCALC landmark).
+        uint cellBase = Apple2HiResAddress.TextRowBase(8, page2: false); // $428
+        ram.Write8(cellBase, (byte)'A');
+
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+
+        // The 'A' glyph cell occupies x in [0,7), y in [64,72). At least one pixel there is ON.
+        bool anyOn = false;
+        for (int gy = 0; gy < 8; gy++)
+            for (int gx = 0; gx < 7; gx++)
+                if (rgba[(64 + gy) * Apple2Video.Width280 + gx] == Apple2Palette.MonoOn) anyOn = true;
+        Assert.True(anyOn, "the 'A' glyph should light pixels in its cell at row 8 / $428");
+    }
+
+    [Fact]
+    public void LoRes_paints_the_two_stacked_colour_blocks_of_a_byte()
+    {
+        var (video, ram, _) = BuildText(loRes: true);
+        uint cellBase = Apple2HiResAddress.TextRowBase(0, page2: false); // $400
+        // Low nibble = 15 (white) top; high nibble = 1 (magenta) bottom.
+        ram.Write8(cellBase, (byte)((1 << 4) | 15));
+
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+
+        Assert.Equal(Apple2Palette.LoRes[15], rgba[0 * Apple2Video.Width280 + 0]);     // top block
+        Assert.Equal(Apple2Palette.LoRes[1], rgba[4 * Apple2Video.Width280 + 0]);      // bottom block
+    }
 }
