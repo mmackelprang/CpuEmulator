@@ -14,7 +14,8 @@ namespace CpuEmulator.Surface.Web;
 /// shared RAM and drives the Videx terminal. The Videx ROMs are optional (synthetic fallback).</summary>
 public sealed record SoftCardVidexSurface(
     Machine Machine, Apple2Video Video, VidexVideoterm Videx, DisplayMultiplexer Display,
-    Apple2Keyboard Keyboard, Apple2Speaker Speaker, MachineHost Host)
+    Apple2Keyboard Keyboard, Apple2Speaker Speaker, MachineHost Host,
+    Apple2DiskII Disk, string Drive1Label)
 {
     private const int AppleIndex = 0;
     private const int VidexIndex = 1;
@@ -23,7 +24,8 @@ public sealed record SoftCardVidexSurface(
                                               byte[]? videxCharRom, byte[]? videxFirmware,
                                               IBlockDevice cpmDisk,
                                               Action<byte[]> frameSink, Action<byte[]> audioSink,
-                                              ExecutionTier tier = ExecutionTier.Interpreter)
+                                              ExecutionTier tier = ExecutionTier.Interpreter,
+                                              string drive1Label = "CP/M")
     {
         ArgumentNullException.ThrowIfNull(systemRom);
         ArgumentNullException.ThrowIfNull(diskBootRom);
@@ -58,6 +60,17 @@ public sealed record SoftCardVidexSurface(
         videx.ActiveChanged += active => mux.SetActive(active ? VidexIndex : AppleIndex);
 
         var host = new MachineHost(machine, mux, keyboard, frameSink, speaker, audioSink);
-        return new SoftCardVidexSurface(machine, video, videx, mux, keyboard, speaker, host);
+        return new SoftCardVidexSurface(
+            machine, video, videx, mux, keyboard, speaker, host, disk, drive1Label);
     }
+
+    /// <summary>Snapshot the REAL machine state for the <c>ST</c> status frame (design D14): the SoftCard
+    /// board name, the live drive-1 motor + CP/M image label, and the mode label read from the LIVE
+    /// display multiplexer — when the Videx is the active source (CP/M's terminal driver enabled it) the
+    /// mode is the Videx 80-col label, else the Apple 40-col video-mode label.</summary>
+    public MachineStatus Status() => new(
+        Board: "Apple ][+ SoftCard",
+        Asset: "softcard-cpm-videx",
+        Mode: Display.ActiveIndex == VidexIndex ? "Videx 80×24 · CP/M" : Video.ModeLabel,
+        Drives: [new DriveStatus(Disk.MotorOn, Drive1Label)]);
 }

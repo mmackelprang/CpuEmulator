@@ -48,6 +48,13 @@ public sealed class Apple2DiskII : IPeripheral
     public bool MotorOnForTestProperty => _motorOn;
     public int SelectedDriveForTest => _drive;
 
+    /// <summary>The REAL motor state (the $C0E9 on / $C0E8-with-556-delay off, ADR 0014 Decision 6) —
+    /// the host reads this for the drive-activity light in the <c>ST</c> status frame. It is NOT set by
+    /// inserting an image (design D10 / interactions §4.2 — the light is "not faked on insert"); it
+    /// follows the guest's motor switches and lingers ~1 s after the last access, exactly as the lamp
+    /// on a real Disk II does.</summary>
+    public bool MotorOn => _motorOn;
+
     /// <summary>Test-only: force the motor on without a soft-switch (the real $C0E9 path is Access).</summary>
     internal void MotorOnForTest() => _motorOn = true;
 
@@ -69,7 +76,7 @@ public sealed class Apple2DiskII : IPeripheral
             case 0x6: SetPhase(3, false); break;
             case 0x7: SetPhase(3, true);  break;
             case 0x8: RequestMotorOff();  break;   // $C0E8: ~1 s 556 delay
-            case 0x9: MotorOn();          break;   // $C0E9: motor on now
+            case 0x9: TurnMotorOn();      break;   // $C0E9: motor on now
             case 0xA: _drive = 1;         break;   // $C0EA: select drive 1
             case 0xB: _drive = 2;         break;   // $C0EB: select drive 2
             case 0xC: return ReadDataLatch();      // $C0EC: read the data latch (shift a nibble)
@@ -107,7 +114,7 @@ public sealed class Apple2DiskII : IPeripheral
         }
     }
 
-    private void MotorOn()
+    private void TurnMotorOn()
     {
         _pendingMotorOff?.Cancel();
         _pendingMotorOff = null;

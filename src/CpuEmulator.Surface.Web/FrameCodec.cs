@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using System.Text.Json;
 using CpuEmulator.Core;
 
@@ -55,6 +56,27 @@ public static class FrameCodec
         for (int i = 0; i < samples.Length; i++)
             BinaryPrimitives.WriteInt16LittleEndian(body.Slice(i * 2, 2), samples[i]);
         return frame;
+    }
+
+    /// <summary>Encode a machine-status snapshot as the <c>ST</c> text frame: the literal prefix
+    /// <c>"ST "</c> (the existing client contract — app.js routes every text frame to handleStatusText
+    /// and gates on "ST ") followed by a compact JSON body. Text, not binary: the FB/AU binary path is
+    /// untouched; the client's text branch already owns this. JSON keys are lower-case + stable so equal
+    /// snapshots produce byte-identical frames (the host's change-detection compares the encoded bytes).
+    /// </summary>
+    public static byte[] EncodeStatus(MachineStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        var body = new
+        {
+            board = status.Board,
+            asset = status.Asset,
+            mode = status.Mode,
+            drives = status.Drives.Select(d => new { motor = d.MotorOn, label = d.Label }).ToArray(),
+        };
+        // No indented/whitespace options -> deterministic compact JSON (equal snapshots -> equal bytes).
+        string json = JsonSerializer.Serialize(body);
+        return Encoding.UTF8.GetBytes("ST " + json);
     }
 
     public static bool TryDecodeKey(string json, out KeyEvent e)

@@ -25,6 +25,25 @@ public sealed class Apple2Video : IPeripheral, IDisplayDevice
     public int Height => Height192;
     public event Action? FrameReady;
 
+    /// <summary>A read-only human label of the current video mode, derived from the SAME live
+    /// <see cref="Apple2VideoState"/> flags the renderer reads (design D1 / interactions §1.1). Mixed
+    /// takes precedence in the label (it is the visible-on-screen split). The host reads this for the
+    /// <c>ST</c> status frame; it is never a control.</summary>
+    public string ModeLabel
+    {
+        get
+        {
+            string page = _state.Page2 ? "page 2" : "page 1";
+            if (!_state.GraphicsOn)
+                return $"TEXT · 40×24 · {page}";
+            if (_state.Mixed)
+                return $"MIXED · text+gfx · {page}";
+            return _state.HiRes
+                ? $"HIRES · 280×192 · {page}"
+                : $"LORES · 40×48 · {page}";
+        }
+    }
+
     /// <param name="ram">The program bus the chip reads $0400/$2000 etc. live from BEFORE Realize (the
     /// unit-test path passes a built space and renders without a Machine). When wired into a Machine,
     /// Realize re-binds this to the live program space — so a board peripheral need not pre-bind it.</param>

@@ -13,12 +13,14 @@ namespace CpuEmulator.Surface.Web;
 /// boot ROM is absent the board uses <see cref="Apple2Board.SpecWithDiskII"/> (no $C600 window — no disk
 /// boot, but the ROM-monitor `]` still appears). The char ROM is optional (Apple2Font.Fallback covers it).</summary>
 public sealed record Apple2Surface(
-    Machine Machine, Apple2Video Video, Apple2Keyboard Keyboard, Apple2Speaker Speaker, MachineHost Host)
+    Machine Machine, Apple2Video Video, Apple2Keyboard Keyboard, Apple2Speaker Speaker,
+    MachineHost Host, Apple2DiskII Disk, string Drive1Label)
 {
     public static Apple2Surface Create(byte[] systemRom, byte[]? diskBootRom, byte[]? charRom,
                                        Action<byte[]> frameSink, Action<byte[]> audioSink,
                                        IFluxImage? drive1Image = null,
-                                       ExecutionTier tier = ExecutionTier.Interpreter)
+                                       ExecutionTier tier = ExecutionTier.Interpreter,
+                                       string drive1Label = "—")
     {
         var state = new Apple2VideoState();
         // The video chip is constructed over a placeholder space; Realize re-binds it to the built
@@ -46,6 +48,16 @@ public sealed record Apple2Surface(
         machine.Reset();
 
         var host = new MachineHost(machine, video, keyboard, frameSink, speaker, audioSink);
-        return new Apple2Surface(machine, video, keyboard, speaker, host);
+        return new Apple2Surface(machine, video, keyboard, speaker, host, disk, drive1Label);
     }
+
+    /// <summary>Snapshot the REAL machine state for the <c>ST</c> status frame (design D14): the board
+    /// name, the live video-mode label, and the live per-drive motor + image label. The plain ][+ has one
+    /// modeled drive (drive 1; PR-F models drive 1) — the synthetic-image label is "—" until a real disk
+    /// is inserted.</summary>
+    public MachineStatus Status() => new(
+        Board: "Apple ][+",
+        Asset: "apple",
+        Mode: Video.ModeLabel,
+        Drives: [new DriveStatus(Disk.MotorOn, Drive1Label)]);
 }

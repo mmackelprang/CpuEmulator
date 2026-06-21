@@ -54,21 +54,42 @@
     nextStartTime += buffer.duration;
   }
 
-  // Inbound text from the host: a one-shot "ST <assetState>" board/asset string drives the banner +
-  // status line (the design copy.md strings). Text frames arrive as strings; binary FB/AU frames arrive
-  // as ArrayBuffer — so a string is NEVER fed to DataView below.
+  // Inbound text from the host: the "ST " status frame. Two shapes: a STRUCTURED JSON body
+  // (the Apple surfaces, design D14 — board/asset/mode/per-drive motor+label, pushed on change) or the
+  // LEGACY bare asset string (Spectrum/demo one-shot). Both start with "ST ". Read-only: the client never
+  // fabricates these — every field is real machine state the host pushed. Text frames arrive as strings;
+  // binary FB/AU frames arrive as ArrayBuffer — so a string is NEVER fed to DataView below.
   function handleStatusText(s) {
     if (!s.startsWith("ST ")) return;
-    const stateName = s.slice(3);
+    const body = s.slice(3);
     const banner = document.getElementById("asset-banner");
     banner.hidden = true;
+
+    if (body.startsWith("{")) {
+      let st;
+      try { st = JSON.parse(body); } catch { return; }
+      window.machineStatus = st;                 // row T binds drive panels to this
+      applyAssetBanner(st.asset, banner);
+      // The status line: board · mode · the active drive summary (read-only reflection).
+      const active = (st.drives || []).find(d => d.motor);
+      const driveText = active ? " · drive ●" : "";
+      status.textContent = "connected · " + st.board + " · " + st.mode + driveText;
+      return;
+    }
+
+    // Legacy bare-asset one-shot (Spectrum/demo).
+    applyAssetBanner(body, banner);
+  }
+
+  // The asset → banner/status mapping (shared by both ST shapes). Preserves the shipped demo banner copy.
+  function applyAssetBanner(stateName, banner) {
     if (stateName === "softcard-cpm-videx") {
       status.textContent = "connected · Apple ][+ SoftCard · CP/M · Videx 80-col";
     } else if (stateName === "softcard-cpm") {
       status.textContent = "connected · Apple ][+ SoftCard · CP/M";
     } else if (stateName === "apple-fallback-font") {
       status.textContent = "connected · Apple ][+ · fallback font";
-    } else if (stateName.startsWith("apple")) {
+    } else if (stateName && stateName.startsWith("apple")) {
       status.textContent = "connected · Apple ][+ · documented 6502";
     } else if (stateName === "spectrum") {
       status.textContent = "connected · ZX Spectrum";
