@@ -83,4 +83,42 @@ public class Apple2LanguageCardTests
         _ = bus.Read8(0xC083);
         Assert.Equal(0xB1, bus.Read8(0xD000));
     }
+
+    [Fact]
+    public void One_read_of_an_odd_C08x_does_NOT_write_enable_LC_RAM()
+    {
+        var (_, bus, _) = BuildWithLc();
+        _ = bus.Read8(0xC083);                 // ONE arm-read: read-RAM selected, but write NOT enabled
+        bus.Write8(0xD000, 0x99);              // write to $D000 RAM -> should be IGNORED (write-protected)
+        Assert.NotEqual(0x99, bus.Read8(0xD000));  // the poke did not take (RAM still write-protected)
+    }
+
+    [Fact]
+    public void Two_consecutive_reads_of_an_odd_C08x_write_enable_LC_RAM()
+    {
+        var (_, bus, _) = BuildWithLc();
+        _ = bus.Read8(0xC083); _ = bus.Read8(0xC083);   // TWO consecutive arm-reads -> write-enabled
+        bus.Write8(0xD000, 0x99);
+        Assert.Equal(0x99, bus.Read8(0xD000));          // the poke took (RAM now writable)
+    }
+
+    [Fact]
+    public void A_write_between_the_reads_resets_the_pre_write_flip_flop()
+    {
+        var (_, bus, _) = BuildWithLc();
+        _ = bus.Read8(0xC083);                 // arm 1
+        bus.Write8(0xC083, 0x00);              // a WRITE to $C083 resets the counter (not a qualifying read)
+        _ = bus.Read8(0xC083);                 // arm 1 again (not 2) -> still write-protected
+        bus.Write8(0xD000, 0x77);
+        Assert.NotEqual(0x77, bus.Read8(0xD000));
+    }
+
+    [Fact]
+    public void Presence_detection_a_write_test_to_D000_RAM_reads_back_when_64K()
+    {
+        var (_, bus, _) = BuildWithLc();
+        _ = bus.Read8(0xC083); _ = bus.Read8(0xC083);   // read-RAM + write-enable
+        bus.Write8(0xD000, 0x3C);
+        Assert.Equal(0x3C, bus.Read8(0xD000));          // write-then-read-back succeeds => 64K present
+    }
 }
