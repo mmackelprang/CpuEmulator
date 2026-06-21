@@ -66,4 +66,36 @@ public class Apple2IouTests
         Assert.True(ok);
         Assert.False(state.HiRes);            // ... and HIRES stays OFF (peek-free)
     }
+
+    [Fact]
+    public void C000_read_returns_the_latched_key_and_C010_clears_the_strobe()
+    {
+        var (iou, state) = Build();
+        state.LatchKey(0x41);                            // host pushed 'A'
+        uint c000 = iou.Read(0x00, AccessWidth.Byte);   // $C000
+        Assert.Equal(0xC1u, c000);                       // bit7 strobe + 0x41
+
+        iou.Read(0x10, AccessWidth.Byte);                // $C010 clears strobe (any access)
+        Assert.Equal(0x41u, iou.Read(0x00, AccessWidth.Byte) & 0xFF); // strobe gone, code retained
+    }
+
+    [Fact]
+    public void A_single_C030_access_toggles_the_speaker_once()
+    {
+        var (iou, state) = Build();
+        iou.Read(0x30, AccessWidth.Byte);   // one access (e.g. LDA $C030)
+        Assert.Equal(1, state.SpeakerToggles);
+    }
+
+    [Fact]
+    public void A_write_opcodes_read_before_write_double_toggles_the_speaker()
+    {
+        // A 6502 STA $C030 issues a dummy READ then the WRITE at the bus — TWO accesses. Modelled at
+        // the bus-access level, that is two ToggleSpeaker() calls. We simulate the bus pattern here
+        // (the real core issues it; the cross-check against the live Mos6502Cpu is Task 5).
+        var (iou, state) = Build();
+        iou.Read(0x30, AccessWidth.Byte);                // the dummy read
+        iou.Write(0x30, AccessWidth.Byte, 0x00);         // the store
+        Assert.Equal(2, state.SpeakerToggles);           // double toggle, as on real hardware
+    }
 }
