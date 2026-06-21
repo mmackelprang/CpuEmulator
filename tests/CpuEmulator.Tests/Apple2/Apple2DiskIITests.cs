@@ -44,6 +44,40 @@ public class Apple2DiskIITests
     }
 
     [Fact]
+    public void The_read_follows_the_selected_drive_after_a_runtime_insert_into_drive_2()
+    {
+        // Build with drive 1 = the sample track (the legacy single-image ctor path).
+        var disk = new Apple2DiskII(OneTrack(SampleNibbles()));
+
+        // Insert a DISTINCT image into drive 2 at runtime (a different distinctive nibble run).
+        var drive2 = new SyntheticFluxImage(trackCount: 35);
+        drive2.SetTrackNibbles(0, new byte[] { 0xFF, 0xFF, 0xB5, 0xD7, 0xE7, 0xF7 });
+        disk.Insert(drive: 2, image: drive2);
+
+        disk.MotorOnForTest();
+
+        // Still on drive 1 (default): we read drive 1's distinctive bytes.
+        var d1 = ReadGcr(disk, 200);
+        AssertSubsequence(new byte[] { 0x96, 0xD5, 0xAA, 0x96 }, d1);
+
+        // Select drive 2 ($C0EB) and read: we now read drive 2's distinctive bytes, NOT drive 1's.
+        disk.Access(0xB, isRead: true);             // $C0EB: select drive 2
+        var d2 = ReadGcr(disk, 200);
+        AssertSubsequence(new byte[] { 0xB5, 0xD7, 0xE7, 0xF7 }, d2);
+    }
+
+    private static List<byte> ReadGcr(Apple2DiskII disk, int polls)
+    {
+        var seen = new List<byte>();
+        for (int i = 0; i < polls; i++)
+        {
+            byte b = disk.ReadDataLatch();
+            if ((b & 0x80) != 0) seen.Add(b);
+        }
+        return seen;
+    }
+
+    [Fact]
     public void With_the_motor_off_the_latch_does_not_advance()
     {
         var disk = new Apple2DiskII(OneTrack(SampleNibbles()));

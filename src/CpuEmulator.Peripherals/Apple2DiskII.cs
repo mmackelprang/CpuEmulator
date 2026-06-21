@@ -14,7 +14,9 @@ public sealed class Apple2DiskII : IPeripheral
 {
     private const long MotorOffDelayCycles = 1_020_500; // ~1 s at ~1.0205 MHz (the 556 one-shot)
 
-    private readonly IFluxImage _image;
+    // Two drive slots, 1-based ([1] = drive 1, [2] = drive 2; [0] is unused). PR-F/G shipped a single
+    // build-time image (drive 1); Q makes drive 2 real and adds runtime insert/eject (design T-D).
+    private readonly IFluxImage?[] _drives = new IFluxImage?[3];
 
     private int _halfTrack;         // 0..(2*TrackCount-2); track = _halfTrack / 2
     private int _bitPos;            // head position within the current track's bitstream
@@ -27,11 +29,44 @@ public sealed class Apple2DiskII : IPeripheral
     private int _lastPhaseOn;                        // the most recently energized phase (for the step model)
     private int _drive = 1;                          // selected drive (1 or 2; PR-F models drive 1)
 
+    /// <summary>Build the controller with <paramref name="image"/> inserted into drive 1 (the shipped
+    /// single-image construction — the SoftCard CP/M disk, the synthetic boot image). Drive 2 starts
+    /// empty; both drives can be swapped at runtime via <see cref="Insert"/> / <see cref="Eject"/>.</summary>
     public Apple2DiskII(IFluxImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
-        _image = image;
+        _drives[1] = image;
     }
+
+    /// <summary>Insert <paramref name="image"/> into <paramref name="drive"/> (1 or 2) at runtime — the
+    /// in-session swap (design T-D / D12: the library dropdown and the upload path both land bytes here).
+    /// Format-agnostic above the IFluxImage seam: a .woz image and a .dsk/.po DskFluxImage are inserted
+    /// identically. Re-seeks the head to the track start (the disk just changed under it). Replacing an
+    /// already-inserted image is allowed (a re-insert). Does NOT spin the motor — the light follows the
+    /// real $C0E9/$C0E8 motor, never the insert (design D10).</summary>
+    public void Insert(int drive, IFluxImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        if (drive is < 1 or > 2)
+            throw new ArgumentOutOfRangeException(nameof(drive), drive, "Disk II has drives 1 and 2.");
+        _drives[drive] = image;
+        if (drive == _drive) _bitPos = 0;     // re-seek the active drive's head to the new image's start
+    }
+
+    /// <summary>Eject <paramref name="drive"/>'s image at runtime (design D13: allowed mid-access, no
+    /// confirm — nothing is destroyed; a re-insert re-reads). An empty drive reads nothing (the head
+    /// never assembles a bit-7-set byte). Ejecting an already-empty drive is a no-op.</summary>
+    public void Eject(int drive)
+    {
+        if (drive is < 1 or > 2)
+            throw new ArgumentOutOfRangeException(nameof(drive), drive, "Disk II has drives 1 and 2.");
+        _drives[drive] = null;
+        if (drive == _drive) _bitPos = 0;
+    }
+
+    /// <summary>Whether <paramref name="drive"/> currently holds an image (for the surface's drive-state
+    /// readout; the controller owns the truth).</summary>
+    public bool HasImage(int drive) => drive is >= 1 and <= 2 && _drives[drive] is not null;
 
     public string Name => "apple2disk2";
 
@@ -106,7 +141,8 @@ public sealed class Apple2DiskII : IPeripheral
             // copy-protection stepping needs).
             if (delta != 0)
             {
-                int max = 2 * (_image.TrackCount - 1);
+                int tracks = _drives[_drive]?.TrackCount ?? 1;
+                int max = 2 * (tracks - 1);
                 _halfTrack = Math.Clamp(_halfTrack + delta, 0, max);
                 _bitPos = 0;            // a track change re-seeks the head to the track start
                 _lastPhaseOn = phase;
@@ -134,13 +170,16 @@ public sealed class Apple2DiskII : IPeripheral
     /// advance (bit 7 stays clear). This is the authentic "poll until bit 7" read.</summary>
     public byte ReadDataLatch()
     {
-        if (!_motorOn)
-            return (byte)(_latch & 0x7F);   // not ready: bit 7 clear, no advance
+        IFluxImage? image = _drives[_drive];
+        if (!_motorOn || image is null)
+            return (byte)(_latch & 0x7F);   // motor off OR empty drive: not ready, no advance
 
         int track = _halfTrack / 2;
-        ReadOnlySpan<byte> bits = _image.TrackBits(track);
-        int bitLen = _image.TrackBitLength(track);
+        if (track >= image.TrackCount) return (byte)(_latch & 0x7F);   // head past the image's tracks
+        ReadOnlySpan<byte> bits = image.TrackBits(track);
+        int bitLen = image.TrackBitLength(track);
         if (bitLen <= 0) return 0x00;
+        if (_bitPos >= bitLen) _bitPos %= bitLen;   // a drive-select can leave the head past a shorter track
 
         // Shift bits one at a time into a register MSB-first; a real disk byte begins with a 1 bit (the
         // MSB-set invariant), so we shift until the register's top bit is set with 8 bits accumulated.
