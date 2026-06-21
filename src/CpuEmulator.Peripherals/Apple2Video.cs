@@ -16,7 +16,7 @@ public sealed class Apple2Video : IPeripheral, IDisplayDevice
 
     private const long CyclesPerFrame = 17030; // ~1.0205 MHz / 60 Hz (the present cadence; Coarse)
 
-    private readonly IAddressSpace _ram;
+    private IAddressSpace _ram;     // the program bus; (re)bound authoritatively in Realize
     private readonly Apple2VideoState _state;
     private readonly byte[] _charRom;   // 256x8; the fallback font unless a real ROM is injected
 
@@ -25,7 +25,9 @@ public sealed class Apple2Video : IPeripheral, IDisplayDevice
     public int Height => Height192;
     public event Action? FrameReady;
 
-    /// <param name="ram">The program bus — the chip reads $0400/$2000 etc. live.</param>
+    /// <param name="ram">The program bus the chip reads $0400/$2000 etc. live from BEFORE Realize (the
+    /// unit-test path passes a built space and renders without a Machine). When wired into a Machine,
+    /// Realize re-binds this to the live program space — so a board peripheral need not pre-bind it.</param>
     /// <param name="state">The shared mode/page state the IOU writes.</param>
     /// <param name="charRom">Optional 256x8 char-gen ROM; null uses the built-in fallback font.</param>
     public Apple2Video(IAddressSpace ram, Apple2VideoState state, byte[]? charRom = null)
@@ -41,7 +43,11 @@ public sealed class Apple2Video : IPeripheral, IDisplayDevice
 
     public void Realize(IMachineContext context)
     {
-        // Schedule the present tick only; no IRQ on the bare ][+ (IrqWiring.None).
+        // Bind the LIVE program bus (the SpectrumUla precedent): when a Machine realizes this chip as a
+        // board peripheral (PR-H), Realize authoritatively re-points _ram at the machine's program space,
+        // overriding whatever space was supplied at construction (a test stub in the unit gates). Then
+        // schedule the present tick only — no IRQ on the bare ][+ (IrqWiring.None).
+        _ram = context.Space(AddressSpaceKind.Program);
         context.Scheduler.ScheduleEvery(CyclesPerFrame, () => FrameReady?.Invoke());
     }
 
