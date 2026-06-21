@@ -1,7 +1,45 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-21 (Builder — **Q SHIPPED (PR #120)**: in-session Disk II insert/eject (the
+> **Last updated:** 2026-06-21 (Planner — **surface-UI batch R + S PLANNED** (the disk-library catalog +
+> the upload binary path, the two now-eligible surface-arc rows), grounded against `main` @ `204cf3d`
+> (PRs #99–#120). **R** ([plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md), deps Q ✅): a new
+> `DiskCatalog` (in `CpuEmulator.Machines`, beside `Apple2Rom`/`SoftCardCpm`) enumerates `<cache>/disks/*.dsk|
+> *.po|*.woz` + the already-cached CP/M `.dsk` (`<cache>/cpm/softcard-cpm.dsk`, grouped last + flagged) into
+> deterministic `DiskCatalogEntry`s; `Program.cs` maps **`GET /disks`** (compact JSON) + threads two hoisted
+> delegates (`insertDisk`/`ejectDisk`) from the chosen Apple surface into `ReceiveKeysAsync`, which now also
+> dispatches a **`disk-insert`/`disk-eject` text** message (new `FrameCodec.TryDecodeDisk`) — a library insert
+> resolves the id → reads the cached bytes server-side → calls the shipped **Q `surface.InsertDisk`**. `.woz`
+> entries are listed **`supported:false`** (no `WozFluxImage` yet) and never inserted (the dispatch guards
+> `format != Woz`). **Folds in the PR-Q drive-2 deferral:** a tiny mutable `DriveLabels` holder on each of the
+> three surfaces grows `Status()` to **two `DriveStatus` entries** (both report the shared `Disk.MotorOn` motor
+> line — correct for the one-motor Disk II; only labels are per-drive), updated on insert/eject; the four-arg
+> `InsertDisk(drive,bytes,format,label)` is added (the two-arg PR-Q overload kept). The client gains read-only
+> `loadCatalog()`/`window.diskCatalog` + `insertFromLibrary`/`ejectDrive` text senders (the visible `[ Library
+> ▾]` panel is row T, which binds to these). Gate (in-memory `WebApplicationFactory`, seeded cache): `GET
+> /disks` lists a seeded dir + a `disk-insert` keeps the live session streaming + a resolved-then-loaded `.dsk`
+> reads back a real nibble off the `$C0E9`/`$C0EC` bus (un-fakeable). **S** ([plan](superpowers/plans/2026-06-20-apple2-pr-s-disk-upload.md),
+> deps Q ✅; best after R): the surface's **first inbound binary path** — a client `<input type=file>` →
+> client validation (ext allow-list / 2 MB cap / non-empty) → a binary **`DK` frame** (`'D','K',version,drive,
+> formatByte,...bytes`, `FrameCodec.TryDecodeUpload`) → **server re-validation** (`UploadValidator`: `.dsk`/`.po`
+> exactly `DiskImageFactory.DskBytes`=143360; `.woz` magic `WOZ1`/`WOZ2` then the **honest not-yet-supported
+> reject** — no `WozFluxImage`) → load into drive N via the **Q `insertDisk`** delegate (reused from R). The
+> receive loop (which today **drops every binary frame**) gains a binary branch that **reassembles the
+> multi-fragment** message (a `.dsk` is 143360 bytes — far over the receive buffer; the load-bearing detail) up
+> to a 2 MiB cap, then validates + dispatches + pushes an **upload-result ack** (`EncodeUploadAck` — an `ST`-
+> prefixed `{"upload":{drive,ok,message}}` text frame the client routes to resolve UPLOADING → INSERTED/error).
+> The client gains `uploadDisk(drive,file)` + `window.uploadState`. Gate: a valid `.dsk` `DK` frame inserts +
+> ack `ok:true`; a wrong-length `DK` → ack `That image looks corrupt`; a key event still streams FB after the
+> binary branch lands (the single-text-frame protocol unaffected). **Two shipped-API facts grounded:** (1) the
+> receive loop's `ReceiveKeysAsync(socket, pump, ct)` only handled **text** keys (binary `continue`d) — R/S
+> thread `insertDisk`/`ejectDisk`/`pushText` through it; (2) `app.js` already carries the PR-P structured-`ST`
+> decoder + `window.machineStatus` + `ws.binaryType="arraybuffer"` — R/S add transport helpers only (no panel
+> DOM — row T). **Backlog row W added:** **`WozFluxImage`** (a thin `.woz`-file byte parser → `IFluxImage`, deps
+> F ✅) — the missing half of the locked "full `.woz` fidelity upfront" decision (PR-F shipped the read path +
+> seam, no file parser); `JIT`-unplanned (separable). **Both R + S Builder-ready** — R (deps Q ✅) is the
+> topmost eligible row; S follows R. **T stays `JIT`** (deps P/R/S — planned after R/S ship). **Next: Builder
+> picks up R.**) (Builder — **Q SHIPPED (PR #120)**: in-session Disk II insert/eject (the
 > runtime image swap, design T-D — the shared dep of R/S). The controller's single `_image` becomes a
+> 1-based `IFluxImage?[3] _drives`; the read routes through the **selected** drive (`_drives[_drive]`), so
 > 1-based `IFluxImage?[3] _drives`; the read routes through the **selected** drive (`_drives[_drive]`), so
 > `$C0EB`-select / **drive 2 is real for the first time** (tracked-but-ignored before Q). Runtime
 > `Insert(int,IFluxImage)` / `Eject(int)` / `HasImage(int)` re-seek the active head on a swap, range-guard
@@ -124,9 +162,10 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **O** | Videx + CP/M asset scripts (`get-videx-roms`, `get-softcard-cpm`) + CP/M-on-Videx end-to-end gate | ✅ (PR #117) | K, N | [plan](superpowers/plans/2026-06-20-apple2-pr-o-cpm-on-videx.md) | With all assets fetched, booting the CP/M disk widens the display to the **80-col Videx terminal** (the `DisplayMultiplexer` auto-switches Apple-40 → Videx-80, guest-driven) and reaches the `A>` prompt — **interpreter-tier** (the row's "both tiers" is imprecise; the CP/M/Z80 side is interpreter-only per PR-K/ADR 0015 D4). **Asset-gated + owner-sign-off-given** (skip-with-note absent). |
 | **P** | The `ST` status-frame seam (host→client read-only indicators) | ✅ (PR #119) | — | [plan](superpowers/plans/2026-06-20-apple2-pr-p-status-frame.md) | A new lightweight `ST` wire frame carries board name, asset state, per-drive motor + image label, video-mode label; the client renders them read-only; the host pushes real machine state (not faked). *(Designer T-A — suggested early; most surface indicators consume it.)* |
 | **Q** | In-session disk insert / eject mechanism (Disk II runtime image swap) | ✅ (PR #120) | F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-q-disk-runtime-swap.md) | The Disk II controller accepts "load these bytes as drive N's image" + "eject drive N" at runtime, for both `.woz` and `.dsk`/`.po`, via the `IFluxImage` seam; a running machine swaps images without rebuild. *(Designer T-D — shared dep of the two disk-UX paths.)* |
-| **R** | `GET /disks` catalog endpoint + per-drive library dropdown | 📋 | Q | JIT | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. *(Designer T-C.)* |
-| **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | 📋 | Q | JIT | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.woz` magic / `.dsk`/`.po` exact length) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. *(Designer T-B — the surface's first inbound binary path; explicitly its own task.)* |
-| **T** | Control-strip UI (drive panels, lights, mode label, asset banner) | 📋 | P, R, S | JIT | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; one new `--drive-active` token. *(Designer T-E/T-G/T-H + keyboard extensions T-F.)* |
+| **R** | `GET /disks` catalog endpoint + per-drive library dropdown | 📋 | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-r-disk-library.md) | The server lists the cached `disks/` images (name, format, drive-compat, CP/M grouping); both per-drive `[ Library ▾]` selects populate from it; an empty catalog disables the select with the named-script hint. **Folds in the drive-2 status deferral (PR-Q): the `ST` frame now reports BOTH drives.** Gate: the endpoint lists a seeded cache dir + selecting an entry inserts it into drive N (reuse Q's runtime insert). *(Designer T-C.)* |
+| **S** | Disk-upload inbound-binary path (the NEW binary WS frame + validation + UPLOADING state) | 📋 | Q | [plan](superpowers/plans/2026-06-20-apple2-pr-s-disk-upload.md) | Client `<input type=file>` → client validation (ext / 2 MB cap / non-empty) → binary WS `DK` frame → **server** re-validation (`.dsk`/`.po` exact length / `.woz` magic) → load into drive N; the UPLOADING → INSERTED / error states drive the panel. Gate: a binary `DK` frame with a valid `.dsk` inserts into drive N (server rejects a bad length/magic); the single-text-frame protocol is unaffected. *(Designer T-B — the surface's first inbound binary path; explicitly its own task. **Best taken after R** — reuses PR-R's `insertDisk` hoist + four-arg `InsertDisk` + the drive-2 fold-in; the plan notes the port-forward if S lands first.)* |
+| **T** | Control-strip UI (drive panels, lights, mode label, asset banner) | 📋 | P, R, S | JIT | Two bordered drive panels (library select + upload + eject + a real-motor amber light driven by `$C0E8/$C0E9` + the 1 s off-delay, **not** faked on insert); the calm named-script asset banner replaces the silent fallback; one new `--drive-active` token. Binds to PR-R's `window.diskCatalog`/`insertFromLibrary`/`ejectDrive` + PR-S's `window.uploadDisk`/`uploadState`. *(Designer T-E/T-G/T-H + keyboard extensions T-F.)* |
+| **W** | `WozFluxImage` — a thin `.woz`-file byte parser → `IFluxImage` | 📋 | F | JIT | The missing half of "full `.woz` fidelity upfront" (the locked decision): PR-F shipped the `.woz`/LSS **read path** + the `IFluxImage` track-bitstream **seam**, but no `.woz`-**file** byte parser. `WozFluxImage` parses the WOZ1/WOZ2 container (INFO/TMAP/TRKS chunks → per-track bitstreams) into an `IFluxImage` the controller reads identically to the shipped `SyntheticFluxImage`/`DskFluxImage`. Unblocks raw `.woz` in `DiskImageFactory.FromBytes` (today an explicit `NotSupportedException`), in the R library list (today listed-disabled), and in S upload (today validates magic then the honest not-yet-supported reject). *(Separable IFluxImage follow-on — backlog; plan JIT when it reaches the front.)* |
 
 ---
 
@@ -181,7 +220,18 @@ PR-H landed, so they call the real shipped machine-model signatures).
   the shared seams; the library dropdown (R) and the upload path (S) both depend on Q; the control-strip
   UI (T) composes P + R + S + the keyboard extensions. P and Q can start early (P depends on nothing
   hard; Q depends on the disk controller F/G). These are client + thin-server tasks; they do **not** gate
-  the emulation-core arc and can interleave once their deps land.
+  the emulation-core arc and can interleave once their deps land. **R lands the drive-2 status fold-in**
+  (the PR-Q deferral — the `ST` frame grows from 1 to 2 `DriveStatus` entries via a mutable per-drive
+  label holder + a four-arg `InsertDisk(…,label)`); **S is best taken after R** (it reuses R's
+  `insertDisk` hoist + four-arg insert + the drive-2 fold-in; its plan notes the port-forward if S lands
+  first), though both are formally deps-Q-only.
+- **The `.woz`-file parser (W)** is the missing half of the locked "full `.woz` fidelity upfront" decision:
+  PR-F shipped the `.woz`/LSS **read path** + the `IFluxImage` **seam**, but no `.woz`-**file** byte
+  parser. `WozFluxImage` (deps F ✅) is a separable follow-on — it unblocks raw `.woz` in
+  `DiskImageFactory.FromBytes` (today `NotSupportedException`), in R's library list (today
+  `supported:false`), and in S's upload (today validates magic then the honest not-yet-supported reject).
+  It does **not** block R/S/T (the `.dsk`/`.po` paths are end-to-end-complete without it). `JIT`-unplanned
+  in the backlog; plan it when it reaches the front.
 
 ### Owner-input items before Builder clears past the foundation
 
