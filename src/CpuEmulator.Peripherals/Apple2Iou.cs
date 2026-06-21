@@ -9,8 +9,10 @@ namespace CpuEmulator.Peripherals;
 /// differs. TryPeek (the debugger's side-effect-free path) calls the parallel BusValue path and applies
 /// NO side effect — a class of "the monitor changed the video mode by looking at it" bugs is structurally
 /// impossible. The keyboard latch + speaker live in the shared Apple2VideoState the video/speaker chips
-/// read. The Language Card ($C080-$C08F) and Disk II ($C0E0-$C0EF) are delegated in later PRs (E, F);
-/// for now those offsets are inert open-bus.</summary>
+/// read. The Language Card ($C080-$C08F) is delegated to the optional Apple2LanguageCard (PR-E) — a $C08x
+/// READ's side effect rides BusValue and a WRITE's rides ApplyAnyAccessSideEffect, so the LC's Access
+/// fires exactly once per bus access, while TryPeek short-circuits $C08x (peek-free). Disk II
+/// ($C0E0-$C0EF) is delegated in PR-F; until then that range is inert open-bus.</summary>
 public sealed class Apple2Iou : IPeripheral
 {
     private readonly Apple2VideoState _state;
@@ -46,6 +48,16 @@ public sealed class Apple2Iou : IPeripheral
 
     public bool TryPeek(uint offset, out byte value)
     {
+        byte o = (byte)offset;
+        // PEEK-FREE for $C08x: a debugger looking at a Language-Card soft switch must NOT bank-switch.
+        // BusValue owns the $C08x READ side effect (the LC remap + arm) for the real bus-read path, so
+        // routing a peek through BusValue would silently drive the LC — a breach of the ][+ peek-free
+        // invariant (ADR 0014 Decision 2) and the IPeripheral.TryPeek contract. Short-circuit it here.
+        if (o is >= 0x80 and <= 0x8F)
+        {
+            value = 0x00;   // open-bus; no LC.Access, no remap, no arm-count change
+            return true;
+        }
         value = BusValue(offset);   // the would-be read value, with NO side effect
         return true;
     }
@@ -88,11 +100,11 @@ public sealed class Apple2Iou : IPeripheral
         }
     }
 
-    /// <summary>The bus value a READ (or a peek) returns for an offset, WITHOUT side effects — except
-    /// for $C08x, whose READ side effect (the LC bank remap + arm) is owned here so the LC's Access
-    /// fires exactly once per bus access (Read calls ApplyAnyAccessSideEffect AND BusValue). Note that
-    /// TryPeek also routes through BusValue and so would drive the LC; the Apple2 board maps $C08x
-    /// inside the IOU's MMIO page, and the LC's remap is the intended any-read side effect.</summary>
+    /// <summary>The bus value a READ returns for an offset. Side-effect-free EXCEPT for $C08x, whose READ
+    /// side effect (the LC bank remap + arm) is owned here so the LC's Access fires exactly once per bus
+    /// access (Read calls ApplyAnyAccessSideEffect AND BusValue, and ApplyAnyAccessSideEffect skips $C08x
+    /// reads). NOTE: TryPeek short-circuits $C08x BEFORE calling this, so a debugger peek never drives the
+    /// LC — the peek-free invariant holds.</summary>
     private byte BusValue(uint offset)
     {
         byte o = (byte)offset;

@@ -52,7 +52,13 @@ public static class Apple2Board
     /// <summary>The ][+ board with the Language Card wired (ADR 0014 Decision 4). The LC owns no bus
     /// page of its own (the IOU owns $C000-$C0FF, which includes $C08x) — so the board spec is byte-for-
     /// byte the base Spec; the IOU (already holding the LC) Realizes it (IOU-forwards-Realize), which is
-    /// how the LC captures the program bus it remaps. No extra slot is added.</summary>
+    /// how the LC captures the program bus it remaps. No extra slot is added.
+    /// <para>CALLER CONTRACT: <paramref name="iou"/> MUST have been constructed with this same
+    /// <paramref name="lc"/> instance (<c>new Apple2Iou(state, lc)</c>). The <paramref name="lc"/>
+    /// parameter is the spec's documentation of intent + the null-check; the IOU holds the live
+    /// reference it both delegates $C08x to and Realizes. Passing a different LC here is a no-op footgun
+    /// (the IOU's own LC wins) — kept as a constructor parameter rather than restructured to avoid a
+    /// wider board-builder change in this PR.</para></summary>
     public static BoardSpec SpecWithLanguageCard(byte[] systemRom, Apple2Iou iou, Apple2LanguageCard lc)
     {
         ArgumentNullException.ThrowIfNull(lc);

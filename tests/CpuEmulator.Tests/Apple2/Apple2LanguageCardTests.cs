@@ -122,6 +122,36 @@ public class Apple2LanguageCardTests
         Assert.Equal(0x3C, bus.Read8(0xD000));          // write-then-read-back succeeds => 64K present
     }
 
+    [Fact]
+    public void TryPeek_of_C08x_has_no_side_effect_and_does_not_bank_switch()
+    {
+        // The ][+ peek-free invariant (ADR 0014 Decision 2): a debugger LOOKING at a Language-Card soft
+        // switch must NOT bank-switch. A peek must never reach the LC's Access (no remap, no arm).
+        var (_, bus, lc) = BuildWithLc();
+        long countBefore = lc.AccessCount;
+        bool ok = bus.TryPeek8(0xC083, out byte peeked);   // peek the bank-1/read-RAM/arm switch
+        Assert.True(ok);
+        Assert.Equal(0x00, peeked);                         // open-bus, side-effect-free
+        Assert.Equal(countBefore, lc.AccessCount);          // LC.Access was NOT called
+        Assert.Equal(0xA5, bus.Read8(0xD000));              // ROM still mapped -> no bank switch occurred
+    }
+
+    [Fact]
+    public void An_even_address_read_after_write_enable_disables_writes_again()
+    {
+        // After write-enabling (two $C083 reads), a NON-qualifying access (an even-address $C080 read)
+        // resets the pre-write flip-flop: writes are disabled again. (Coverage for the reset-from-enabled
+        // path, distinct from the never-armed path.)
+        var (_, bus, _) = BuildWithLc();
+        _ = bus.Read8(0xC083); _ = bus.Read8(0xC083);   // write-enabled, read-RAM bank 1
+        bus.Write8(0xD000, 0x55);
+        Assert.Equal(0x55, bus.Read8(0xD000));          // sanity: the write took while enabled
+
+        _ = bus.Read8(0xC080);                          // even-address read: still read-RAM, but disarms
+        bus.Write8(0xD000, 0xAA);                       // now write-protected -> ignored
+        Assert.Equal(0x55, bus.Read8(0xD000));          // the second poke did NOT take (writes disabled)
+    }
+
     [Theory]
     [InlineData(ExecutionTier.Interpreter)]   // the oracle: correct with no listener
     [InlineData(ExecutionTier.Jit)]           // exercises PR-A's OnRemap -> reclassify + evict
