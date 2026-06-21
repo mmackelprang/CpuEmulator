@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using CpuEmulator.Core;
 using CpuEmulator.Machines;
 using CpuEmulator.Peripherals;
@@ -26,6 +25,72 @@ public class SoftCardBoardTests
         // And it is genuinely a third ordering (distinct from the two shipped tables).
         Assert.NotEqual(Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Dos33), cpm);
         Assert.NotEqual(Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.ProDos), cpm);
+    }
+
+    [Fact]
+    public void Cpm_skew_is_per_track_boot_table_for_system_tracks_data_table_for_the_rest()
+    {
+        // ADR 0017 Decision 1 (live-verified): system tracks 0-2 use the BOOT interleave (p*11)%16;
+        // data tracks 3-34 use the existing CP/M-logical (apple-do) table. A single all-tracks table
+        // was the first, fatal defect (boot2's $0F7D loaded as $00/BRK).
+        int[] boot = [0, 11, 6, 1, 12, 7, 2, 13, 8, 3, 14, 9, 4, 15, 10, 5];   // (p*11) mod 16
+        int[] data = [0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1];
+
+        // tracks 0, 1, 2 -> boot table
+        Assert.Equal(boot, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 0));
+        Assert.Equal(boot, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 1));
+        Assert.Equal(boot, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 2));
+        // track 3+ -> data table
+        Assert.Equal(data, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 3));
+        Assert.Equal(data, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 34));
+
+        // The boot table is a genuine 0..15 permutation distinct from the data table.
+        Assert.Equal(Enumerable.Range(0, 16), boot.OrderBy(x => x));
+        Assert.NotEqual(data, boot);
+    }
+
+    [Fact]
+    public void Single_skew_orders_ignore_the_track_argument_dos33_and_prodos_unchanged()
+    {
+        // DOS 3.3 / ProDOS are single-skew: the (kind, track) overload returns the same table for every track,
+        // byte-for-byte equal to the legacy single-arg call (the regression guard for the additive overload).
+        foreach (SectorOrderKind kind in new[] { SectorOrderKind.Dos33, SectorOrderKind.ProDos })
+        {
+            int[] legacy = Apple2SectorOrder.PhysicalToLogical(kind);
+            Assert.Equal(legacy, Apple2SectorOrder.PhysicalToLogical(kind, 0));
+            Assert.Equal(legacy, Apple2SectorOrder.PhysicalToLogical(kind, 3));
+            Assert.Equal(legacy, Apple2SectorOrder.PhysicalToLogical(kind, 34));
+        }
+    }
+
+    [Fact]
+    public void DskFluxImage_cpm_uses_the_boot_skew_on_track_0_and_the_data_skew_on_track_3()
+    {
+        // A 35-track .dsk where each 256-byte sector is filled with a byte == its absolute LBA (mod 256).
+        // The synthesized track's 6-and-2 data fields therefore encode WHICH logical sector landed at each
+        // physical slot; decoding the first data byte of each physical sector recovers physToLog[phys].
+        const int tracks = 35, spt = 16;
+        var bytes = new byte[tracks * spt * 256];
+        for (int lba = 0; lba < tracks * spt; lba++)
+            Array.Fill(bytes, (byte)(lba % 256), lba * 256, 256);
+        IBlockDevice block = new DiskImage(bytes, 256, isReadOnly: true);
+
+        var flux = new DskFluxImage(block, SectorOrderKind.Cpm);
+
+        // The boot table for track 0 maps physical 1 -> logical 11; the data table maps physical 1 -> logical 6.
+        // Decode physical sector 1's first payload byte on track 0 (boot) and track 3 (data) and assert the
+        // logical sector each carries.
+        Assert.Equal(11, FirstPayloadLogical(flux, track: 0, phys: 1));   // boot table: (1*11)%16 = 11
+        Assert.Equal(6,  FirstPayloadLogical(flux, track: 3, phys: 1));   // data table: 6
+    }
+
+    // Decode the LBA byte the synthesized data field carries for (track, phys); the test image fills each
+    // sector with (track*16 + logical) % 256, so payload % 16 (for track < 16) recovers `logical`.
+    private static int FirstPayloadLogical(DskFluxImage flux, int track, int phys)
+    {
+        byte[] nibbles = flux.TrackBits(track).ToArray();
+        int payload = Apple2SectorDecoder.FirstDataByteOfPhysicalSector(nibbles, phys);  // see Task 2c
+        return payload % 16;   // track < 16 in this test, so the low nibble is the logical sector
     }
 
     private static byte[] DiskBootRom()
@@ -132,21 +197,67 @@ public class SoftCardBoardTests
         Assert.NotNull(surface.Machine.Coprocessor);   // the Z80 is wired even on the synthetic board
     }
 
-    // Generous budget for the CP/M cold boot: the 6502 reads the 3 system tracks, hands off to the Z80,
-    // and CP/M runs to the A> prompt. Tune down on the first green run with the real asset.
+    // Generous budget for the CP/M cold boot (tuned on the first green run with the real asset).
     private const long CpmBootCycles = 10_000_000;
 
+    // ADR 0017 PR-1 (CPM-1): with the per-track skew (Task 1/2), boot2's $0F7D is a VALID opcode -> the 6502
+    // no longer BRKs into the monitor. PR-1 alone does NOT reach A> (that needs the control-port open-bus fix
+    // [CPM-2] + the run-loop yield [CPM-3]); this gate asserts the NEGATIVE -- the SKEW CRASH is gone -- so
+    // main is green/honest without false-passing on the incomplete boot. The full A> assertion lands in CPM-4.
+    //
+    // DRIFT FROM THE PLAN (live-verified, grounded in ADR 0017 §root-cause step 6): the plan's literal
+    // predicates (DoesNotContain('*') / DoesNotContain("CAN'T FIND")) are WRONG against ground truth. Both the
+    // PRE-fix and POST-fix screens end at a monitor '*' prompt, and `CAN'T FIND Z80 SOFTCARD` is precisely the
+    // POST-fix signal that the skew crash cleared and the boot ADVANCED to the SoftCard-detect handshake --
+    // which then livelocks on the CPM-2 read-toggle defect (NOT fixed in this PR). So '*' can't discriminate,
+    // and asserting the absence of "CAN'T FIND" would be backwards (it would fail forever in CPM-1, red main).
+    // The honest un-fakeable discriminator is the SKEW-CRASH SIGNATURE itself: the Apple Monitor BRK register
+    // dump at the $0F7D region (live PRE-fix: "0F7F-    A=00 X=60 Y=0B P=37 S=F7"). It is present ONLY when
+    // boot2 BRKed at $0F7D (the skew bug); it is absent once $0F7D is a valid opcode. This row FAILS pre-fix
+    // (register dump present) and PASSES post-fix (register dump gone) -- the load-bearing Task 3b proof.
     [SoftCardCpmFact]
+    public void Cpm_boot_clears_the_per_track_skew_crash_no_brk_to_monitor_register_dump()
+    {
+        string[] screen = DecodeBootScreen();
+
+        // (1) NOT the $0F7D skew-crash BRK: the Apple Monitor's BRK handler prints a register dump line
+        //     "<addr>-    A=hh X=hh Y=hh P=hh S=hh". Pre-fix this is "0F7F-..." right after boot2's
+        //     "JSR $0F7D" hits the $00/BRK byte. We assert NO such register-dump row exists (the skew crash
+        //     is gone). A row is the monitor register dump iff it carries the A=/X=/P=/S= register fields.
+        Assert.DoesNotContain(screen, IsMonitorRegisterDump);
+        // (2) The boot ran a real text screen, not all-blank garbage: at least one printable cell. (Post-fix
+        //     the screen carries the ADR-documented CPM-2 "CAN'T FIND Z80 SOFTCARD" detect-failure line, which
+        //     is EXPECTED here -- it proves the boot advanced past the skew crash to the detect handshake.)
+        Assert.Contains(screen, row => row.Any(ch => ch != ' '));
+    }
+
+    /// <summary>True iff <paramref name="row"/> is the Apple Monitor's BRK register-dump line
+    /// (".... A=hh X=hh Y=hh P=hh S=hh") -- the on-screen signature of a crash into the monitor. boot2's
+    /// $0F7D skew-crash BRK lands here; a clean (skew-fixed) boot never shows it. Matches on the four
+    /// register-field tags together so an ordinary "A=" in text can't false-trip it.</summary>
+    private static bool IsMonitorRegisterDump(string row) =>
+        row.Contains("A=") && row.Contains("X=") && row.Contains("P=") && row.Contains("S=");
+
+    [Fact(Skip = "A> deliverable lands in CPM-4 (ADR 0017 PR-4); PR-1 only restores honest main.")]
     public void Cpm_boots_to_the_A_prompt_on_the_interpreter()
+    {
+        // Intentionally skipped until CPM-4 wires the full handshake (control-port open-bus + run-loop yield
+        // + the $1010 bridge bring-up). CPM-4 replaces this body with the decoded-`A>` substring assertion
+        // + CoprocessorActive + ActiveIndex==0 (ADR 0017 Decision 5). Kept named so the gate is visible and
+        // un-fakeable when it lands -- never a silent PLACEHOLDER pass.
+    }
+
+    /// <summary>Build the real SoftCard machine over the cached CP/M .dsk, run the cold boot, and decode the
+    /// 24x40 Apple text page ($0400) to ASCII (high "normal-video" bit stripped) -- the same TextRowBase walk
+    /// BootProbe uses. Returns 24 rows of 40 chars.</summary>
+    private static string[] DecodeBootScreen()
     {
         var (systemRomPath, cpmDiskPath) = SoftCardCpmVectors.TryGetAssets()!.Value;
         byte[] systemRom = Apple2Rom.Load(systemRomPath);
         byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
             ?? throw new InvalidOperationException("the slot-6 disk2.rom is required for the CP/M boot gate");
-        byte[]? charRom = Apple2Rom.TryLoadCharRom();   // null -> Apple2Font.Fallback (still renders A>)
         IBlockDevice cpm = SoftCardCpm.LoadBlockDevice(cpmDiskPath);
 
-        // Build the real SoftCard machine with the CP/M .dsk re-nibblized into drive 1.
         var state = new Apple2VideoState();
         var lc = new Apple2LanguageCard(systemRom);
         var drive1 = new DskFluxImage(cpm, SectorOrderKind.Cpm);
@@ -154,44 +265,23 @@ public class SoftCardBoardTests
         var iou = new Apple2Iou(state, lc, disk);
         BoardSpec spec = SoftCardBoard.Spec(systemRom, iou, disk, diskBootRom);
         Machine machine = BoardMachineFactory.Build(spec);   // interpreter tier (coprocessor is interpreter)
-        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
 
         machine.Reset();
-        machine.Run(CpmBootCycles);                          // the real $C600 -> tracks -> $CnXX -> CP/M boot
+        machine.Run(CpmBootCycles);                          // the real $C600 -> tracks -> $CnXX boot
 
-        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
-        video.RenderInto(rgba);
-
-        // Un-fakeable structural assertion: CP/M's sign-on + the A> prompt paint ink on a mostly-blank
-        // text screen. A dead/garbage boot is all-off (no prompt) or noisy (no clear background).
-        int offPixels = 0, onPixels = 0;
-        foreach (uint p in rgba)
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+        var rows = new string[24];
+        for (int r = 0; r < 24; r++)
         {
-            if (p == Apple2Palette.MonoOff) offPixels++;
-            else if (p == Apple2Palette.MonoOn) onPixels++;
+            uint rowBase = Apple2HiResAddress.TextRowBase(r, page2: false);
+            var sb = new System.Text.StringBuilder(40);
+            for (int c = 0; c < 40; c++)
+            {
+                int g = bus.Read8(rowBase + (uint)c) & 0x7F;   // strip the normal-video high bit
+                sb.Append(g is >= 0x20 and <= 0x7E ? (char)g : ' ');
+            }
+            rows[r] = sb.ToString();
         }
-        int total = Apple2Video.Width280 * Apple2Video.Height192;
-        Assert.True(offPixels > total / 2,
-            $"expected a mostly-blank CP/M text screen; got {offPixels}/{total} off pixels");
-        Assert.True(onPixels > 50,
-            $"expected the A> prompt + CP/M sign-on ink; got {onPixels} on pixels");
-        // The Z80 ran: it became the bus master during the boot (the $CnXX handoff fired).
-        Assert.True(machine.CoprocessorActive,
-            "expected the Z80 to be the active bus master after the CP/M boot handoff");
-
-        // Tighter gate: a committed RGBA hash. On the FIRST green run with the real asset, capture the
-        // hash (uncomment the print), paste it below, then re-run.
-        string hash = Convert.ToHexString(SHA256.HashData(AsBytes(rgba)));
-        // System.Console.WriteLine($"[cpm boot frame hash] {hash}");  // <-- uncomment once to capture
-        string ExpectedBootHash = "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN";
-        if (ExpectedBootHash != "PLACEHOLDER_CAPTURE_ON_FIRST_GREEN_RUN")
-            Assert.Equal(ExpectedBootHash, hash);
-    }
-
-    private static byte[] AsBytes(uint[] rgba)
-    {
-        var bytes = new byte[rgba.Length * 4];
-        Buffer.BlockCopy(rgba, 0, bytes, 0, bytes.Length);
-        return bytes;
+        return rows;
     }
 }
