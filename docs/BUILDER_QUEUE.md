@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — claimed row E: Apple2 Language Card, in-flight). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Builder — PR-E merged: Apple2 Language Card, first `Remap` consumer). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -56,7 +56,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **B** | `Apple2Board` BoardSpec skeleton + `Apple2Iou` soft-switch decoder | ✅ | A | [plan](superpowers/plans/2026-06-20-apple2-pr-b-board-and-iou.md) | The board validates + builds; the IOU owns the `$C000` page; `$C050–$C057`/`$C030` toggle on **any access** (read OR write) identically; `TryPeek` has **no** side effect (peek-free); the speaker double-toggles on a write opcode. |
 | **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
 | **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
-| **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | 🔨 | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
+| **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | ✅ | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 📋 | F | JIT | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
 | **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | JIT | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
@@ -126,6 +126,27 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-E — Language Card mapper (`$C080–$C08F`): the first real `AddressSpace.Remap` consumer** (2026-06-20).
+  `Apple2LanguageCard : IPeripheral` run-time bank-switches `$D000–$FFFF` between the system ROM and 16 KiB of
+  card RAM by calling the **shipped** `IAddressSpace.Remap` (PR-A) — proving the bank-switch primitive end to
+  end through a real device. The ][+ layout: `$D000–$DFFF` (4 KiB) has two RAM banks (bank 1 / bank 2,
+  bit-3 / the `$C088` line); `$E000–$FFFF` (8 KiB) is one **shared** RAM region. The card holds three
+  index-0-based RAM arrays + two ROM-slice arrays (the `Remap` backing is index-0-based — `BackingOffset = i<<8`
+  from the passed array). The `$C08x` decode: bit 3 → bank, `(offset & 3) is 0 or 3` → read-RAM, an odd-address
+  **read** arms the **two-consecutive-reads** pre-write flip-flop (one read does not write-enable; any
+  non-qualifying access — a write or an even address — resets it). The IOU delegates `$C08x` (it owns the
+  `$C000` page): a **write**'s side effect rides `ApplyAnyAccessSideEffect`, a **read**'s rides `BusValue`, so
+  the LC's `Access` fires **exactly once** per bus access; `TryPeek` short-circuits `$C08x` so a debugger peek
+  never bank-switches (the ][+ **peek-free** invariant, fixed in pre-merge review). The un-fakeable gate runs
+  on **both tiers**: a real 6502 routine copied into LC RAM **executes from `$D000`** and stores `$42` — the
+  interpreter is correct by re-reading the live page table; the **JIT** exercises PR-A's `OnRemap` →
+  `Fastmem.Reclassify` + `BlockCache.InvalidatePages` (the LC is the first real `Remap` consumer, so this is
+  the first end-to-end validation of the JIT remap-evict path). The read-ROM/write-RAM split collapses to the
+  read source per page on the single-backing page table — the cases DOS/ProDOS/CP/M use; the exotic
+  simultaneous read-ROM-while-write-RAM page is scoped out (no target software needs it). No drift from PR-A's
+  shipped `Remap` API. Gate: 12 LC tests (decode truth table + flip-flop + presence + peek-free + both-tier
+  run-code) + the full 7121-test suite green. Unblocks PR-H (DOS lives in LC RAM) + PR-J (the Z80's
+  `$B000`/`$D000` view reuses this `Remap`).
 - **PR-D — `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`)** (2026-06-20). The ][+'s two
   host-facing chips over the shared `Apple2VideoState` the **already-shipped** IOU drives (no IOU/board/state
   API change — PR-H wires them into the surface). `Apple2KeyMap` folds the portable `KeyCode`/`Char` set to
