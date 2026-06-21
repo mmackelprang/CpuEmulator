@@ -5,24 +5,80 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CpuEmulator — Apple ][+</title>
   <style>
+    /* The one NEW visual value (tokens.md): the drive-activity amber. Everything else reuses the
+       shipped Spectrum literals (#111/#ccc/#333/#222/#444/#888). --drive-active is the only addition. */
+    :root { --drive-active: #d8a657; --drive-idle: #888; }
     body { margin: 0; background: #111; color: #ccc; font-family: system-ui, sans-serif;
            display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
     h1 { font-size: 14px; font-weight: 600; letter-spacing: .04em; margin: 4px 0; }
-    /* Nearest-neighbour upscaling so the 280×192 framebuffer stays crisp when enlarged. */
+    /* Nearest-neighbour upscaling so the framebuffer stays crisp; aspect tracks the per-frame size. */
     canvas { image-rendering: pixelated; border: 1px solid #333; background: #000;
              width: min(90vw, 840px); height: auto; aspect-ratio: 280 / 192; }
     #status { font-size: 12px; color: #888; }
+    #mode-label { font-size: 12px; color: #888; }
     #asset-banner { font-size: 12px; color: #cc8; max-width: 840px; text-align: center; }
     kbd { background: #222; border: 1px solid #444; border-radius: 3px; padding: 1px 5px; }
+    /* --- Control strip (NEW; composed only from the shipped tokens + --drive-active) --- */
+    #control-strip { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .drive-panel { border: 1px solid #333; border-radius: 3px; padding: 8px 10px;
+                   min-width: 240px; font-size: 12px; color: #ccc; }
+    .drive-panel legend, .drive-panel .legend { color: #888; font-size: 12px; padding: 0 4px; }
+    .drive-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .drive-light { font-family: system-ui; color: var(--drive-idle); }
+    .drive-light.active { color: var(--drive-active); }
+    .drive-label { flex: 1; color: #ccc; }
+    .drive-eject { margin-left: auto; }
+    .drive-controls { display: flex; gap: 8px; align-items: center; }
+    .drive-controls select, .drive-controls button { font-size: 12px; }
+    .drive-error { color: #cc8; margin-top: 4px; min-height: 1em; }
+    /* Reduced motion: the upload spinner is a static glyph (interactions §8). */
+    @media (prefers-reduced-motion: reduce) { .drive-light.uploading { animation: none; } }
   </style>
 </head>
 <body>
   <h1>CpuEmulator — Apple ][+</h1>
   <canvas id="screen" width="280" height="192"></canvas>
+  <div id="mode-label"></div>
   <div id="status">connecting…</div>
   <div id="asset-banner" hidden></div>
   <button id="enable-sound" type="button">click to enable sound</button>
   <div id="hint">Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET.</div>
+
+  <!-- The control strip (PR-T). app.js (renderControlStrip) fills each panel's top line (light +
+       label + eject) and controls line (library select + Insert… + the hidden file input) from the
+       host-pushed ST snapshot + the disk catalog. The containers are scaffold only — no fabricated
+       indicator lives in the markup. -->
+  <div id="control-strip">
+    <fieldset class="drive-panel" id="drive-1">
+      <legend>Drive 1</legend>
+      <div class="drive-top">
+        <span class="drive-light" id="drive-1-light" aria-label="drive 1 empty">○</span>
+        <span class="drive-label" id="drive-1-label">empty</span>
+        <button class="drive-eject" id="drive-1-eject" type="button" hidden>Eject</button>
+      </div>
+      <div class="drive-controls">
+        <select id="drive-1-library" aria-label="Drive 1 library"></select>
+        <button id="drive-1-insert" type="button">Insert…</button>
+        <input id="drive-1-file" type="file" accept=".woz,.dsk,.po" hidden />
+      </div>
+      <div class="drive-error" id="drive-1-error" role="status" aria-live="polite"></div>
+    </fieldset>
+    <fieldset class="drive-panel" id="drive-2">
+      <legend>Drive 2</legend>
+      <div class="drive-top">
+        <span class="drive-light" id="drive-2-light" aria-label="drive 2 empty">○</span>
+        <span class="drive-label" id="drive-2-label">empty</span>
+        <button class="drive-eject" id="drive-2-eject" type="button" hidden>Eject</button>
+      </div>
+      <div class="drive-controls">
+        <select id="drive-2-library" aria-label="Drive 2 library"></select>
+        <button id="drive-2-insert" type="button">Insert…</button>
+        <input id="drive-2-file" type="file" accept=".woz,.dsk,.po" hidden />
+      </div>
+      <div class="drive-error" id="drive-2-error" role="status" aria-live="polite"></div>
+    </fieldset>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

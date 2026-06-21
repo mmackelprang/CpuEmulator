@@ -32,7 +32,7 @@ public sealed class Apple2Keyboard : IPeripheral, IKeyboardSink
     {
         if (e.Action != KeyAction.Down)
             return; // the ][+ keyboard latch has no release event
-        if (Apple2KeyMap.TryMap(e.Key, e.Char, out byte code))
+        if (Apple2KeyMap.TryMap(e.Key, e.Char, out byte code, e.Ctrl))
             _state.LatchKey(code);  // sets the 7-bit code + raises the strobe (bit 7)
         // an unmapped key is silently ignored (the IKeyboardSink unknown-key contract)
     }

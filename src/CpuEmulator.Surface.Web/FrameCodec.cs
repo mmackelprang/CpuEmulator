@@ -115,11 +115,16 @@ public static class FrameCodec
             string action = root.TryGetProperty("action", out JsonElement a) ? a.GetString() ?? "" : "";
             string code = root.TryGetProperty("code", out JsonElement c) ? c.GetString() ?? "" : "";
             string charStr = root.TryGetProperty("char", out JsonElement ch) ? ch.GetString() ?? "" : "";
+            // D5: the optional ctrl modifier (browser KeyboardEvent.ctrlKey). Absent -> false (the shipped
+            // non-ctrl key shape is unchanged); a true value lets the Apple keyboard chip fold the letter
+            // with $1F so Ctrl+B/Ctrl+C reach the guest as control codes.
+            bool ctrl = root.TryGetProperty("ctrl", out JsonElement ck)
+                        && ck.ValueKind == JsonValueKind.True;
 
             KeyAction keyAction = action == "up" ? KeyAction.Up : KeyAction.Down;
             KeyCode key = MapDomCode(code);
             char? typed = charStr.Length == 1 ? charStr[0] : null;
-            e = new KeyEvent(keyAction, key, typed);
+            e = new KeyEvent(keyAction, key, typed, ctrl);
             return true;
         }
         catch (JsonException)
