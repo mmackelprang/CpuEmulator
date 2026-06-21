@@ -43,7 +43,13 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > BRK-to-monitor crash) — and **de-fanged both CP/M `A>` boot gates** to an honest negative (the skew crash is
 > gone) + a named-skip of the `A>` part (until CPM-4 / CPM-5), restoring a **green/honest CP/M suite** (the 2
 > gates went from RED to honest-skip; the skew fix is gated by an un-fakeable regression that fails pre-fix /
-> passes post-fix). CPM-2…CPM-4 remain queued (read-toggle, run-loop yield, the live `A>`). The "80-col CP/M
+> passes post-fix). **CPM-2 SHIPPED (2026-06-21, PR #131):** landed defect (2) — `SoftCardControlPort.Read()`
+> is now **open-bus `0x00` with NO toggle** (only `Write()` toggles the active CPU; ADR 0017 Decision 2),
+> killing the per-read toggle that livelocked the SoftCard-detect poll. Gated un-fakeably at the port level (a
+> read fires 0 toggles, a write fires exactly 1 — fails pre-fix, passes post-fix); full suite green. The live
+> decoded-text "`CAN'T FIND` is gone" effect is not yet observable (the detect livelock clears only with
+> CPM-3's run-loop yield — live-verified byte-identical screens here), so that gate is a named-skip deferred
+> to CPM-3. **CPM-3…CPM-4 remain queued** (run-loop yield, then the live `A>`). The "80-col CP/M
 > end-to-end" headline
 > is **honestly narrowed** to "CP/M boots to `A>` on the **40-col** console" + "the Videx 80×24 path proven by a
 > direct render" — this CP/M master is a 40-column console (zero `$C0Bx`); an 80-col CP/M master is **owner-gated**
