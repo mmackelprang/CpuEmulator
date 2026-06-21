@@ -44,6 +44,8 @@ public sealed class DskFluxImage : IFluxImage
     {
         if (track < 0 || track >= _trackCache.Length)
             throw new ArgumentOutOfRangeException(nameof(track));
+        // Not thread-safe: concurrent first-touch of the same track may Synthesize twice, but Synthesize is
+        // pure (same image bytes + order -> identical bitstream), so the result is the same either way.
         return _trackCache[track] ??= Synthesize(track);
     }
 
