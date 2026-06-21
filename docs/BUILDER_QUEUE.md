@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — PR-F merged: Apple2 Disk II (.woz/LSS) + `IFluxImage` seam. **D/E/F cleared — STOP per batch protocol; next eligible row (G) is JIT-unplanned.**). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Planner — **rows G + H planned** (the base-machine boot milestone): G = `.dsk`/`.po` re-nibblizing adapter on the PR-F `IFluxImage` seam; H = `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + the ROM-boot gate (boots to `]`). Both have plan links below; G is Builder-eligible now (dep F ✅), H follows G. PR-F merged: Apple2 Disk II (.woz/LSS) + `IFluxImage` seam.). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -58,8 +58,8 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | ✅ | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
 | **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
-| **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 📋 | F | JIT | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
-| **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | JIT | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
+| **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 📋 | F | [plan](superpowers/plans/2026-06-20-apple2-pr-g-disk-dsk-adapter.md) | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
+| **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | [plan](superpowers/plans/2026-06-20-apple2-pr-h-surface-and-rom-boot.md) | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
 | **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | JIT | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
 | **J** | `SoftCardTranslation` (6-branch table) + `TranslatingAddressSpace` + `SoftCardControlPort` | 📋 | I | JIT | All **6** translation branches assert at their boundaries (`$AFFF→$BFFF`, `$B000→$D000`, `$EFFF→$CFFF`, `$F000→$0000`, …) — the refuted `+$1000 mod 64K` shortcut fails branch 2–6; the control-port write flips `_z80Active` and ends the slice. |
 | **K** | Interpreter-tier CP/M boot wiring (`$C600`→tracks→`$CnXX`-start) | 📋 | E, F, H, J | JIT | The real SoftCard boot sequence (6502 `$C600` reads tracks `$00–$02`, sets LC banking, writes `$CN00`) hands off to the Z80; CP/M reaches its load state on the **interpreter** tier. **Asset-gated** on the SoftCard CP/M `.dsk` (skip-with-note absent). |
@@ -77,14 +77,18 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 
 ## Per-row notes, dependencies, and just-in-time planning
 
-**Planned now (ready for Builder):** **A, B, C** (shipped) plus **D, E, F** have detailed bite-sized
-plans (`docs/superpowers/plans/2026-06-20-apple2-pr-{a,b,c,d,e,f}-*.md`). D/E/F's dependencies (A, B)
-are all ✅, so all three are immediately Builder-eligible. The plans are grounded against the
-actually-shipped PR-A/B/C source at `main` @ `97a44d5` (E's literal code calls the real `Remap`
-signature; D mirrors the shipped IOU latch + the Spectrum beeper sink; F mirrors the `Apple2Video`
-Realize-binding + the `IntervalTimer` one-shot for the motor delay).
+**Planned now (ready for Builder):** **A, B, C, D, E, F** (shipped) plus **G + H** now have detailed
+bite-sized plans (`docs/superpowers/plans/2026-06-20-apple2-pr-{a..h}-*.md`). **G is immediately
+Builder-eligible** (dep F ✅); **H follows G** (deps C, D, E, F ✅ + G). The G + H plans are grounded
+against the actually-shipped PR-A..F source at `main` @ `c2ae005`: G's `DskFluxImage` re-nibblizes onto
+the shipped `IFluxImage` seam + composes the shipped `Apple2Gcr` table with **no controller/IOU/board
+change** (the OQ1-✅ format-agnostic invariant); H mirrors the shipped `SpectrumSurface`/`SpectrumRom`/
+`get-spectrum-rom`/`SpectrumBootTests` set verbatim, wiring the `Apple2Video`/`Apple2Keyboard`/
+`Apple2Speaker` triad through `MachineHost` and gating the Applesoft `]` boot on both tiers
+(skip-with-note absent). **Together G + H complete the base-machine boot milestone** (a ][+ that reaches
+the `]` prompt + runs DOS 3.3). The earlier `pr-{a..f}` plans were grounded against `97a44d5`.
 
-**Planned just-in-time (`Plan: JIT` above):** G–T are queued with their dependencies + un-fakeable gate
+**Planned just-in-time (`Plan: JIT` above):** I–T are queued with their dependencies + un-fakeable gate
 fixed, but their bite-sized plans are written **as each approaches the front of the queue** (the
 established cadence — the Spectrum/M6 arcs planned in waves, not all at once). When a `JIT` row becomes
 the topmost eligible item, Builder stops and asks Planner for the detailed plan. This keeps each plan
