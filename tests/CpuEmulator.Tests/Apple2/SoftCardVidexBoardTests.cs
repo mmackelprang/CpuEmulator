@@ -70,4 +70,32 @@ public class SoftCardVidexBoardTests
         Assert.Contains(spec.Peripherals, p => p.Name == "videx");
         Assert.Contains(spec.Peripherals, p => p.Name == "iou");
     }
+
+    [Fact]
+    public void VidexRom_char_path_is_null_when_absent_under_an_empty_root()
+    {
+        string emptyRoot = Path.Combine(Path.GetTempPath(), $"empty-videx-{Guid.NewGuid():N}");
+        Assert.Null(VidexRom.TryGetCharRomPath(emptyRoot));
+        Assert.Null(VidexRom.TryGetFirmwarePath(emptyRoot));
+    }
+
+    [Fact]
+    public void VidexRom_loads_an_exact_2KiB_char_rom_and_rejects_a_wrong_length()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"videx-ok-{Guid.NewGuid():N}");
+        string dir = Path.Combine(root, "videx");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string good = Path.Combine(dir, "videx-char.rom");
+            File.WriteAllBytes(good, new byte[VidexRom.CharLength]);   // 2048
+            byte[]? rom = VidexRom.TryLoadCharRom(root);
+            Assert.NotNull(rom);
+            Assert.Equal(VidexRom.CharLength, rom!.Length);
+
+            File.WriteAllBytes(good, new byte[100]);                   // wrong length
+            Assert.Throws<InvalidDataException>(() => VidexRom.TryLoadCharRom(root));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
 }
