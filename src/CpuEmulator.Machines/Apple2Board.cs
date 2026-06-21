@@ -122,4 +122,51 @@ public static class Apple2Board
             Irq: IrqWiring.None,
             Reset: ResetConfig.None);
     }
+
+    public const uint VidexFirmwareBase = 0xC800;
+    public const uint VidexFirmwareLength = 0x0400;   // $C800-$CBFF (1 KiB, the Videx firmware window slot)
+    public const uint VidexVramBase = 0xCC00;
+    public const uint VidexVramLength = 0x0200;        // $CC00-$CDFF (512 B, the banked VRAM window)
+
+    /// <summary>The ][+ board with the Videx Videoterm 80-column card wired (ADR 0016 Decision 3, PR-N).
+    /// The Videx CRTC ($C0B0/$C0B1) is delegated by the IOU (like the LC's $C08x / Disk II's $C0Ex — the
+    /// IOU must have been constructed with this same <paramref name="videx"/>), so no $C0B0 slot is added.
+    /// The Videx owns the $C800 expansion window: $C800-$CBFF (firmware, Remapped to ROM in Realize) is the
+    /// Videx's board peripheral SLOT (so the factory Realizes the card), and $CC00-$CDFF (banked VRAM,
+    /// Remapped to bank 0) is a Ram region the Videx re-points. The $C000-$CFFF band is re-carved so each
+    /// window is a validator-clean region. This is the render board (no disk-boot ROM); the CP/M-on-Videx
+    /// board is PR-O (SoftCardBoard + the Videx).
+    /// <para>CALLER CONTRACT: <paramref name="iou"/> MUST have been constructed with this same
+    /// <paramref name="videx"/> (and the LC/Disk II) — <c>new Apple2Iou(state, lc, disk2, videx)</c>.</para></summary>
+    public static BoardSpec SpecWithVidex(byte[] systemRom, Apple2Iou iou, Apple2DiskII disk2,
+                                          VidexVideoterm videx)
+    {
+        ArgumentNullException.ThrowIfNull(systemRom);
+        ArgumentNullException.ThrowIfNull(iou);
+        ArgumentNullException.ThrowIfNull(disk2);
+        ArgumentNullException.ThrowIfNull(videx);
+        if (systemRom.Length != RomLength)
+            throw new ArgumentException(
+                $"Apple ][+ system ROM must be exactly ${RomLength:X} bytes; got ${systemRom.Length:X}.",
+                nameof(systemRom));
+
+        return new BoardSpec("apple2plus-videx", CpuKind.Mos6502, AddressBits: 16,
+            Memory:
+            [
+                new MemoryRegion(RamBase, RamLength, RegionKind.Ram),                       // $0000-$BFFF RAM
+                new MemoryRegion(IoBase, VidexFirmwareBase - IoBase, RegionKind.Mmio),      // $C000-$C7FF I/O
+                new MemoryRegion(VidexFirmwareBase, VidexFirmwareLength, RegionKind.Mmio),  // $C800-$CBFF (Videx slot)
+                new MemoryRegion(VidexVramBase, VidexVramLength, RegionKind.Ram),           // $CC00-$CDFF VRAM window
+                new MemoryRegion(VidexVramBase + VidexVramLength,                           // $CE00-$CFFF I/O
+                    IoBase + IoLength - (VidexVramBase + VidexVramLength), RegionKind.Mmio),
+                new MemoryRegion(RomBase, RomLength, RegionKind.Rom, systemRom),            // $D000-$FFFF ROM
+            ],
+            Peripherals:
+            [
+                new PeripheralSlot("iou", iou, IouBase, IouLength),                         // the $C000 page decoder
+                new PeripheralSlot("videx", videx, VidexFirmwareBase, VidexFirmwareLength), // the $C800 firmware slot
+            ],
+            Irq: IrqWiring.None,
+            Reset: ResetConfig.None);
+    }
 }
