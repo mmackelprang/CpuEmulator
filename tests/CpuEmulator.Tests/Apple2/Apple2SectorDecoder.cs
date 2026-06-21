@@ -15,11 +15,14 @@ internal static class Apple2SectorDecoder
         for (int i = 0; i + 3 < nibbles.Length; i++)
         {
             if (nibbles[i] != 0xD5 || nibbles[i + 1] != 0xAA || nibbles[i + 2] != 0x96) continue;
-            // 4-and-4: vol(2) track(2) sector(2) chk(2) -> the sector pair is bytes [i+7, i+8].
+            // 4-and-4: vol(2) track(2) sector(2) chk(2) -> the sector pair is bytes [i+7, i+8]. Guard the
+            // address-field span (defensive — synthesized tracks are always complete, but a truncated stream
+            // must not IndexOutOfRange this test-only walk).
+            if (i + 8 >= nibbles.Length) break;
             int sector = Decode44(nibbles[i + 7], nibbles[i + 8]);
             if (sector != physSector) continue;
             int d = FindDataPrologue(nibbles, i + 3);
-            if (d < 0) return -1;
+            if (d < 0 || d + 3 + 343 > nibbles.Length) return -1;
             // The data field is D5 AA AD | 343 GCR bytes | DE AA EB; TryDecodeData is the shipped inverse
             // of Apple2SectorCodec.EncodeData (returns the full 256-byte sector).
             var gcr = nibbles.AsSpan(d + 3, 343).ToArray();
