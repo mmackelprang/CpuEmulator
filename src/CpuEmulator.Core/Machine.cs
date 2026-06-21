@@ -196,10 +196,10 @@ public sealed class Machine : IMachineContext, ICoprocessorControl
             if (_z80Active && (IrqLine.IsAsserted || NmiLine.IsAsserted))
                 _z80Active = false;
 
-            // A control-port write this slice (SetCoprocessorActive) already flipped _z80Active and set
-            // _sliceEndRequested; reading the flag here ends the current slice so the NEXT iteration drives
-            // the newly-active core cleanly (the writing instruction has already completed). The switch is
-            // otherwise implicit — _z80Active alone selects the core on the next pass.
+            // SetCoprocessorActive set _sliceEndRequested + flipped _z80Active this slice; _z80Active alone
+            // selects the core on the next pass, so the switch is already in effect. The continue is a no-op
+            // (no code follows in the loop body) — it exists only to read _sliceEndRequested and satisfy the
+            // compiler's CS0414 "assigned but never used" check under TreatWarningsAsErrors.
             if (_sliceEndRequested)
                 continue;
         }

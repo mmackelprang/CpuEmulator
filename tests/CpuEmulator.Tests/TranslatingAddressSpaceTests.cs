@@ -60,4 +60,19 @@ public class TranslatingAddressSpaceTests
         var (view, _) = Build();
         Assert.Throws<NotSupportedException>(() => view.MapMemory(0, new byte[0x100], true));
     }
+
+    [Fact]
+    public void Mapping_a_peripheral_on_the_wrapper_is_unsupported()
+    {
+        var (view, _) = Build();
+        Assert.Throws<NotSupportedException>(() => view.MapPeripheral(0, 0x100, new NullPeripheral()));
+    }
+
+    private sealed class NullPeripheral : IPeripheral
+    {
+        public string Name => "null";
+        public void Realize(IMachineContext context) { }
+        public uint Read(uint offset, AccessWidth width) => 0;
+        public void Write(uint offset, AccessWidth width, uint value) { }
+    }
 }

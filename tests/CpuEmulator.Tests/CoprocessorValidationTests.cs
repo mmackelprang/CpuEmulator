@@ -48,4 +48,13 @@ public class CoprocessorValidationTests
         var spec = BaseSpec(new CoprocessorSpec(CpuKind.Z80, new Identity(), "ctl", 0.0));
         Assert.Contains(BoardSpecValidator.Validate(spec), d => d.Code == "copro-bad-clock-ratio");
     }
+
+    [Fact]
+    public void A_null_translation_is_flagged()
+    {
+        // The record param is non-nullable; null! exercises the validator's defensive guard
+        // (a future nullable-ref relaxation would otherwise reach a silent mis-wire).
+        var spec = BaseSpec(new CoprocessorSpec(CpuKind.Z80, null!, "ctl", 2.0));
+        Assert.Contains(BoardSpecValidator.Validate(spec), d => d.Code == "copro-no-translation");
+    }
 }
