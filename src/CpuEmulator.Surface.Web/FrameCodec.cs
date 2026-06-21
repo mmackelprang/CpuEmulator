@@ -90,6 +90,18 @@ public static class FrameCodec
         return Encoding.UTF8.GetBytes("ST " + json);
     }
 
+    /// <summary>Encode the upload-result ack as an <c>ST</c> text frame (design D12 UPLOADING -> INSERTED /
+    /// error). The wire reuses the "ST " prefix (the client routes all text to handleStatusText); the
+    /// distinguishing <c>upload</c> key tells the client this is an upload result, not a status snapshot.
+    /// On ok=true the panel goes INSERTED (the live label arrives via the normal ST snapshot); on ok=false
+    /// the panel shows <c>message</c> inline + reverts.</summary>
+    public static byte[] EncodeUploadAck(int drive, UploadResult result)
+    {
+        var body = new { upload = new { drive, ok = result.Ok, message = result.Message } };
+        string json = JsonSerializer.Serialize(body);
+        return Encoding.UTF8.GetBytes("ST " + json);
+    }
+
     public static bool TryDecodeKey(string json, out KeyEvent e)
     {
         e = default;
