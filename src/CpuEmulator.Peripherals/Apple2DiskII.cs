@@ -93,10 +93,17 @@ public sealed class Apple2DiskII : IPeripheral
                 3 => -1,   // adjacent descending -> outward
                 _ => 0,    // same or opposite phase -> no net half-track step
             };
-            int max = 2 * (_image.TrackCount - 1);
-            _halfTrack = Math.Clamp(_halfTrack + delta, 0, max);
-            _bitPos = 0;            // a track change re-seeks the head to the track start
-            _lastPhaseOn = phase;
+            // Only an actual half-track step re-seeks the head + advances the reference phase. A same- or
+            // opposite-phase rising edge (delta == 0) leaves the head — and _lastPhaseOn — put, so an
+            // opposite-phase blip cannot corrupt the direction of the NEXT real step (the model PR-G /
+            // copy-protection stepping needs).
+            if (delta != 0)
+            {
+                int max = 2 * (_image.TrackCount - 1);
+                _halfTrack = Math.Clamp(_halfTrack + delta, 0, max);
+                _bitPos = 0;            // a track change re-seeks the head to the track start
+                _lastPhaseOn = phase;
+            }
         }
     }
 

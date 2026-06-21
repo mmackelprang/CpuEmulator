@@ -95,6 +95,28 @@ public class Apple2DiskIITests
     }
 
     [Fact]
+    public void An_opposite_phase_blip_does_not_move_the_head_nor_corrupt_the_next_step()
+    {
+        var (_, disk, bus) = BuildBoardWithDisk();
+        // Step inward to phase 2 (the reference phase is now 2).
+        _ = bus.Read8(0xC0E3);   // phase 1 on
+        _ = bus.Read8(0xC0E5);   // phase 2 on
+        int afterStep = disk.HalfTrackForTest;
+        Assert.True(afterStep > 0);
+
+        // An OPPOSITE-phase blip (phase 0 vs the reference phase 2: delta == 0) must NOT move the head,
+        // and must NOT become the new reference (else the next real step's direction would be wrong).
+        _ = bus.Read8(0xC0E0);   // phase 0 off (no-op)
+        _ = bus.Read8(0xC0E1);   // phase 0 on  -> opposite of phase 2: no net step
+        Assert.Equal(afterStep, disk.HalfTrackForTest);   // head unchanged by the blip
+
+        // The next adjacent step from the (preserved) reference phase 2 still advances inward correctly.
+        _ = bus.Read8(0xC0E7);   // phase 3 on -> adjacent ascending from phase 2: inward
+        Assert.True(disk.HalfTrackForTest > afterStep,
+            "the blip must not have corrupted the reference phase; the next real step advances inward");
+    }
+
+    [Fact]
     public void Motor_on_then_off_keeps_the_motor_running_for_the_one_second_delay()
     {
         var (machine, disk, bus) = BuildBoardWithDisk();
