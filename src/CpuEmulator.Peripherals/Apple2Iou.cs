@@ -12,26 +12,35 @@ namespace CpuEmulator.Peripherals;
 /// read. The Language Card ($C080-$C08F) is delegated to the optional Apple2LanguageCard (PR-E) — a $C08x
 /// READ's side effect rides BusValue and a WRITE's rides ApplyAnyAccessSideEffect, so the LC's Access
 /// fires exactly once per bus access, while TryPeek short-circuits $C08x (peek-free). Disk II
-/// ($C0E0-$C0EF) is delegated in PR-F; until then that range is inert open-bus.</summary>
+/// ($C0E0-$C0EF) is delegated to the optional Apple2DiskII (PR-F) the SAME way — a $C0Ex READ's side
+/// effect (e.g. $C0EC shifting a nibble) rides BusValue, a WRITE's rides ApplyAnyAccessSideEffect, and
+/// TryPeek short-circuits $C0Ex (peek-free: a debugger peek of $C0EC never advances the head).</summary>
 public sealed class Apple2Iou : IPeripheral
 {
     private readonly Apple2VideoState _state;
     private readonly Apple2LanguageCard? _lc;   // PR-E: $C080-$C08F delegate (null on the bare board)
+    private readonly Apple2DiskII? _disk2;      // PR-F: $C0E0-$C0EF delegate (null on the bare board)
 
-    public Apple2Iou(Apple2VideoState state) : this(state, null) { }
+    public Apple2Iou(Apple2VideoState state) : this(state, null, null) { }
 
-    public Apple2Iou(Apple2VideoState state, Apple2LanguageCard? lc)
+    public Apple2Iou(Apple2VideoState state, Apple2LanguageCard? lc) : this(state, lc, null) { }
+
+    public Apple2Iou(Apple2VideoState state, Apple2DiskII? disk2) : this(state, null, disk2) { }
+
+    public Apple2Iou(Apple2VideoState state, Apple2LanguageCard? lc, Apple2DiskII? disk2)
     {
         ArgumentNullException.ThrowIfNull(state);
         _state = state;
         _lc = lc;
+        _disk2 = disk2;
     }
 
     public string Name => "iou";
 
     public void Realize(IMachineContext context)
     {
-        _lc?.Realize(context);   // PR-E: the LC owns no page, so the IOU (a mapped peripheral) Realizes it
+        _lc?.Realize(context);      // PR-E: the LC owns no page, so the IOU (a mapped peripheral) Realizes it
+        _disk2?.Realize(context);   // PR-F: same — the Disk II captures the scheduler for the motor-off delay
     }
 
     public uint Read(uint offset, AccessWidth width)
@@ -56,6 +65,15 @@ public sealed class Apple2Iou : IPeripheral
         if (o is >= 0x80 and <= 0x8F)
         {
             value = 0x00;   // open-bus; no LC.Access, no remap, no arm-count change
+            return true;
+        }
+        // PEEK-FREE for $C0Ex: $C0EC is the Disk II data latch — a real read SHIFTS A NIBBLE (advances the
+        // bitstream head). BusValue owns that $C0Ex READ side effect, so routing a peek through BusValue
+        // would silently advance the head + relatch (a peek-free breach of the same class PR-E's review
+        // caught on $C08x). Short-circuit it to a side-effect-free open-bus 0 BEFORE calling BusValue.
+        if (o is >= 0xE0 and <= 0xEF)
+        {
+            value = 0x00;   // open-bus; no Disk2.Access, no head advance, no latch change
             return true;
         }
         value = BusValue(offset);   // the would-be read value, with NO side effect
@@ -95,7 +113,13 @@ public sealed class Apple2Iou : IPeripheral
                 if (!isRead) _lc?.Access(o, isRead: false);
                 break;
 
-            // $C0E0-$C0EF (Disk II) is delegated in PR-F.
+            // --- Disk II $C0E0-$C0EF (delegated to the controller; WRITES only here — a $C0Ex read's
+            // Access is owned by BusValue so the controller's Access fires exactly once per bus access,
+            // and $C0EC advances the head exactly once per read). ---
+            case >= 0xE0 and <= 0xEF:
+                if (!isRead) _disk2?.Access(o, isRead: false);
+                break;
+
             default: break;
         }
     }
@@ -110,6 +134,11 @@ public sealed class Apple2Iou : IPeripheral
         byte o = (byte)offset;
         if (o is >= 0x80 and <= 0x8F)
             return _lc?.Access(o, isRead: true) ?? 0x00;
+        // $C0E0-$C0EF (Disk II): a READ's side effect rides here ($C0EC returns the latched nibble AND
+        // advances the head exactly once per read). TryPeek short-circuits $C0Ex before reaching this, so
+        // a debugger peek never advances the head — the peek-free invariant holds.
+        if (o is >= 0xE0 and <= 0xEF)
+            return _disk2?.Access(o, isRead: true) ?? 0x00;
         return o switch
         {
             0x00 => _state.KeyboardByte,   // $C000: bit7 strobe + 7-bit code

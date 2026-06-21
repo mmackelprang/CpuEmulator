@@ -64,4 +64,18 @@ public static class Apple2Board
         ArgumentNullException.ThrowIfNull(lc);
         return Spec(systemRom, iou);   // the IOU (holding the LC) Realizes it; no extra slot needed
     }
+
+    /// <summary>The ][+ board with the Disk II controller wired (ADR 0014 Decision 6). The controller is
+    /// delegated $C0E0-$C0EF by the IOU (already attached) and is Realized by the IOU (IOU-forwards-Realize)
+    /// so it captures the scheduler for the ~1 s motor-off delay. The $C600 boot ROM slot is added in PR-H
+    /// (when the boot ROM is fetched); the synthetic gate needs no ROM.
+    /// <para>CALLER CONTRACT: <paramref name="iou"/> MUST have been constructed with this same
+    /// <paramref name="disk2"/> instance (<c>new Apple2Iou(state, disk2)</c>). The <paramref name="disk2"/>
+    /// parameter is the spec's documentation of intent + the null-check; the IOU holds the live reference
+    /// it both delegates $C0Ex to and Realizes (mirrors SpecWithLanguageCard).</para></summary>
+    public static BoardSpec SpecWithDiskII(byte[] systemRom, Apple2Iou iou, Apple2DiskII disk2)
+    {
+        ArgumentNullException.ThrowIfNull(disk2);
+        return Spec(systemRom, iou);   // the IOU (holding disk2) Realizes it; no extra slot needed
+    }
 }

@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — PR-E merged: Apple2 Language Card, first `Remap` consumer). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Builder — PR-F merged: Apple2 Disk II (.woz/LSS) + `IFluxImage` seam. **D/E/F cleared — STOP per batch protocol; next eligible row (G) is JIT-unplanned.**). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -57,7 +57,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
 | **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
 | **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | ✅ | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
-| **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
+| **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 📋 | F | JIT | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
 | **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | JIT | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
 | **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | JIT | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
@@ -126,6 +126,30 @@ the `Remap` API, so its literal code calls the real shipped signature).
 
 ## Recently shipped (Apple ][+ arc)
 
+- **PR-F — Disk II controller: the `.woz`/LSS nibble path + the `IFluxImage` track-bitstream seam** (2026-06-20).
+  The project's first real disk **controller**, modeling the **LSS sequencer + the nibble bitstream as the
+  primary path** (the owner decision: full `.woz`/LSS fidelity upfront — no sector-first staging). New
+  **`IFluxImage`** seam in Core **beside** `IBlockDevice` (it does not modify it): a per-track bit array +
+  exact bit length that loops (`TrackCount` / `TrackBits` / `TrackBitLength` / `IsWriteProtected`) — a `.woz`
+  *is* this; PR-G's `.dsk`/`.po` adapter *synthesizes* one on the same path. `SyntheticFluxImage` packs nibble
+  bytes MSB-first into a looping bitstream (the foundation PR-G reuses). `Apple2Gcr` ships the 6-and-2 GCR
+  table (64 valid `$96–$FF` bytes, each MSB-set + ≤2 consecutive zero bits) + its round-tripping inverse.
+  `Apple2DiskII : IPeripheral` is a **polled** controller (no IRQ — the byte cadence IS the polled-read model;
+  **`TimingTier` is not shipped** — ADR-only — so the plan correctly avoids it): the LSS read head shifts
+  track bits MSB-first until a byte with bit 7 set assembles (a `$C0EC` poll recovers nibbles); the slot-6
+  soft switches drive the 4-phase stepper (head half-tracks), the motor on/off with the **~1 s 556 delay**
+  (via `IScheduler.ScheduleAt` + `Cancel()`), and drive select — all **delegated by the IOU** over the
+  `$C0Ex` seam (the parallel of PR-E's `$C08x`: a read's side effect rides `BusValue`, a write's rides
+  `ApplyAnyAccessSideEffect`, so `Access` fires exactly once per bus access; `TryPeek` short-circuits `$C0Ex`
+  so a debugger peek of `$C0EC` never advances the head — the peek-free invariant). Pre-merge review fixes:
+  the stepper only re-seeks + advances the reference phase on an **actual** half-track step (an opposite-phase
+  blip can't corrupt the next step's direction); the `$C0Ex` peek-free short-circuit + its gate. The
+  un-fakeable gate runs on the **interpreter** (the oracle): a real 6502 "poll `$C0EC` until bit 7, store the
+  nibble" loop recovers the synthetic `.woz` track's GCR bytes into RAM — no faked data, **no ROM**. The
+  controller is **format-agnostic above the `IFluxImage` seam** (PR-G folds in with no controller change).
+  Gate: 17 PR-F tests (GCR invariant + read head + stepper + motor delay + peek-free + the interpreter
+  poll-loop) + the full 7133-test suite green. Unblocks PR-G (`.dsk`/`.po` adapter) + PR-Q (runtime disk
+  swap) + PR-H (the `$C600` boot ROM slot + DOS-from-`.dsk`).
 - **PR-E — Language Card mapper (`$C080–$C08F`): the first real `AddressSpace.Remap` consumer** (2026-06-20).
   `Apple2LanguageCard : IPeripheral` run-time bank-switches `$D000–$FFFF` between the system ROM and 16 KiB of
   card RAM by calling the **shipped** `IAddressSpace.Remap` (PR-A) — proving the bank-switch primitive end to
