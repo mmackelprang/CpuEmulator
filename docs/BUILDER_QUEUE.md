@@ -1,6 +1,6 @@
 # Builder Queue
 
-> **Last updated:** 2026-06-20 (Builder — PR-C merged; PR-D next is JIT-unplanned — STOP). **Owner:** Mark.
+> **Last updated:** 2026-06-20 (Planner — rows D/E/F planned; bite-sized plans linked below, Builder-ready). **Owner:** Mark.
 > **Producer:** Claude Planner (writes specs + plans, appends rows). **Consumer:** Claude Builder
 > (claims a 📋 row whose dependencies are all ✅, ships one PR per cycle, marks it ✅, loops).
 >
@@ -55,9 +55,9 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **A** | `AddressSpace.Remap` seam + JIT invalidation listener | ✅ | — | [plan](superpowers/plans/2026-06-20-apple2-pr-a-remap-seam.md) | A mapped range re-pointed by `Remap` reads the new backing; `RemapPeripheral` re-points to MMIO; `OnRemap` fires with the right page span; `BlockCache.InvalidatePages` evicts only those pages; no current device's behavior changes (regression). |
 | **B** | `Apple2Board` BoardSpec skeleton + `Apple2Iou` soft-switch decoder | ✅ | A | [plan](superpowers/plans/2026-06-20-apple2-pr-b-board-and-iou.md) | The board validates + builds; the IOU owns the `$C000` page; `$C050–$C057`/`$C030` toggle on **any access** (read OR write) identically; `TryPeek` has **no** side effect (peek-free); the speaker double-toggles on a write opcode. |
 | **C** | `Apple2Video` (`IDisplayDevice`): text / lo-res / hi-res render | ✅ | B | [plan](superpowers/plans/2026-06-20-apple2-pr-c-video.md) | `RenderInto` reproduces the verified hi-res `addr(y)` landmarks (y=0→`$2000`, y=1→`$2400`, y=8→`$2080`, y=64→`$2028`, y=191→`$3FD0`) + the GBASCALC text row bases, reading live main RAM into RGBA. Synthetic RAM, no ROM. |
-| **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | 📋 | B | JIT | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
-| **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | 📋 | A, B | JIT | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
-| **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | 📋 | B | JIT | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
+| **D** | `Apple2Keyboard` (`IKeyboardSink`) + `Apple2Speaker` (`IAudioSink`) | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-d-keyboard-speaker.md) | `$C000` returns the latch (bit7 strobe + ][+ code), `$C010` clears strobe; `PostKey` folds to the uppercase-only ][+ set; `$C030` toggle log → S16 PCM both polarities + level-carry (the Spectrum beeper gate shape). |
+| **E** | Language Card mapper (`$C080–$C08F`) — first `Remap` consumer | 📋 | A, B | [plan](superpowers/plans/2026-06-20-apple2-pr-e-language-card.md) | Two consecutive odd-`$C08x` reads write-enable `$D000–$FFFF` RAM (one read does not); bank-1/bank-2 + read-ROM/read-RAM select correctly; each switch calls `Remap` and (JIT) evicts the banked pages; runs code out of LC RAM. |
+| **F** | Disk II controller — `.woz`/LSS nibble path + `IFluxImage` seam | 📋 | B | [plan](superpowers/plans/2026-06-20-apple2-pr-f-disk-ii-woz.md) | The LSS sequencer produces the 6-and-2 GCR nibble stream a guest poll reads at `$C0EC`; stepper/motor soft switches drive head + the ~1 s 556 motor-off delay; `Fine` timing. The `IFluxImage` track-bitstream seam sits beside `IBlockDevice`. Synthetic `.woz` track, no ROM. |
 | **G** | Disk II — `.dsk`/`.po` re-nibblizing adapter | 📋 | F | JIT | A `.dsk`/`.po` logical-sector image re-nibblizes into a synthetic track on the **same** `IFluxImage` path PR-F reads — the controller is format-agnostic above the seam. Synthetic `.dsk`, no ROM. |
 | **H** | `Apple2Surface` + `get-apple2-roms.{sh,ps1}` + ROM-boot gate | 📋 | C, D, E, F, G | JIT | With the system + char-gen ROMs fetched, the ][+ boots to the Applesoft `]` prompt (text-screen RGBA assertion) on **both** tiers; DOS 3.3 boots from a `.dsk` in drive 1. **Asset-gated** (skip-with-note absent). |
 | **I** | Dual-CPU `Machine` / `MachineBuilder` scaffolding (`CoprocessorSpec`) | 📋 | A | JIT | `CoprocessorSpec` + `WithCoprocessor` + the dual-CPU `Run` build a 2-CPU machine; the **single-CPU path is byte-for-byte unchanged** (every existing board regression-identical); all interrupts route to the primary 6502; the dormant core is never scheduled. |
@@ -77,10 +77,14 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 
 ## Per-row notes, dependencies, and just-in-time planning
 
-**Planned now (ready for Builder):** **A, B, C** have detailed bite-sized plans
-(`docs/superpowers/plans/2026-06-20-apple2-pr-{a,b,c}-*.md`). These unblock the foundation immediately.
+**Planned now (ready for Builder):** **A, B, C** (shipped) plus **D, E, F** have detailed bite-sized
+plans (`docs/superpowers/plans/2026-06-20-apple2-pr-{a,b,c,d,e,f}-*.md`). D/E/F's dependencies (A, B)
+are all ✅, so all three are immediately Builder-eligible. The plans are grounded against the
+actually-shipped PR-A/B/C source at `main` @ `97a44d5` (E's literal code calls the real `Remap`
+signature; D mirrors the shipped IOU latch + the Spectrum beeper sink; F mirrors the `Apple2Video`
+Realize-binding + the `IntervalTimer` one-shot for the motor delay).
 
-**Planned just-in-time (`Plan: JIT` above):** D–T are queued with their dependencies + un-fakeable gate
+**Planned just-in-time (`Plan: JIT` above):** G–T are queued with their dependencies + un-fakeable gate
 fixed, but their bite-sized plans are written **as each approaches the front of the queue** (the
 established cadence — the Spectrum/M6 arcs planned in waves, not all at once). When a `JIT` row becomes
 the topmost eligible item, Builder stops and asks Planner for the detailed plan. This keeps each plan
