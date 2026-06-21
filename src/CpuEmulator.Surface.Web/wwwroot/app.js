@@ -77,6 +77,9 @@
         return;
       }
       window.machineStatus = st;                 // row T binds drive panels to this
+      const modeLabel = document.getElementById("mode-label");
+      if (modeLabel) modeLabel.textContent = st.mode || "";
+      renderControlStrip();                       // repaint lights/labels/eject from the real snapshot
       applyAssetBanner(st.asset, banner);
       // The status line: board · mode · the active drive summary (read-only reflection).
       const active = (st.drives || []).find(d => d.motor);
@@ -140,9 +143,13 @@
     if (ws.readyState !== WebSocket.OPEN) return;
     // A single printable character (length-1 key) is the typed char; otherwise empty.
     const ch = ev.key && ev.key.length === 1 ? ev.key : "";
-    ws.send(JSON.stringify({ action: action, code: ev.code, char: ch }));
-    // Keep the browser from scrolling on Space/Arrows while focused.
+    // D5: forward the Ctrl modifier so the Apple keyboard chip can fold Ctrl+letter into a control code
+    // (Ctrl+B = enter BASIC, Ctrl+C = break). The server reads the `ctrl` field; absent on older shapes.
+    ws.send(JSON.stringify({ action: action, code: ev.code, char: ch, ctrl: ev.ctrlKey }));
+    // Keep the browser from scrolling on Space/Arrows, and from stealing Ctrl+B / Ctrl+C, while focused.
     if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(ev.code))
+      ev.preventDefault();
+    if (ev.ctrlKey && (ev.code === "KeyB" || ev.code === "KeyC"))
       ev.preventDefault();
   }
 
@@ -184,6 +191,23 @@
   // Per-drive UPLOADING state for row T's panel: "idle" | "uploading" | "error", + the last error message.
   window.uploadState = { 1: "idle", 2: "idle" };
   window.uploadLastError = { 1: "", 2: "" };
+
+  // The S ack hook: handleStatusText calls this when an upload result arrives. Repaint the panel; on a
+  // server-side error, show the calm inline message (it auto-clears on the next ST snapshot or after ~6 s).
+  window.onUploadResult = function (drive, ok, message) {
+    renderControlStrip();
+    if (!ok) showDriveError(drive, message || "That image looks corrupt");
+  };
+
+  // A per-drive inline error (copy.md §7). Auto-clears after ~6 s; the next successful action also clears it.
+  const driveErrorTimers = { 1: null, 2: null };
+  function showDriveError(drive, msg) {
+    const el = document.getElementById("drive-" + drive + "-error");
+    if (!el) return;
+    el.textContent = msg;
+    if (driveErrorTimers[drive]) clearTimeout(driveErrorTimers[drive]);
+    driveErrorTimers[drive] = setTimeout(() => { el.textContent = ""; }, 6000);
+  }
 
   // The 2 MB client cap + the extension allow-list (design §4.4). .dsk/.po load end-to-end; .woz is
   // validated client-side but the server returns the not-yet-supported reject (no WozFluxImage yet).
@@ -232,4 +256,134 @@
     reader.readAsArrayBuffer(file);
     return "";
   };
+
+  // --- Control strip (PR-T, design T-E/T-G/T-H) ---
+  // Repaint both drive panels from the REAL host-pushed snapshot (window.machineStatus.drives[i] =
+  // {motor,label}) + the per-drive upload state. Nothing here is fabricated: an absent snapshot leaves
+  // the boot defaults (○ / empty). Called on each ST frame and after an upload result.
+  const GLYPH = { idle: "○", active: "●", uploading: "◐" };
+
+  function renderControlStrip() {
+    for (let drive = 1; drive <= 2; drive++) renderDrivePanel(drive);
+  }
+
+  function renderDrivePanel(drive) {
+    const st = window.machineStatus;
+    const d = st && st.drives && st.drives[drive - 1];   // {motor, label} or undefined
+    const uploading = window.uploadState[drive] === "uploading";
+    const label = d ? d.label : "—";
+    const hasDisk = !!d && label && label !== "—" && label !== "empty";
+
+    const lightEl = document.getElementById("drive-" + drive + "-light");
+    const labelEl = document.getElementById("drive-" + drive + "-label");
+    const ejectEl = document.getElementById("drive-" + drive + "-eject");
+
+    // The light: amber only when the REAL motor is on; the spinner during upload; else the idle outline.
+    let glyph, cls, aria;
+    if (uploading) { glyph = GLYPH.uploading; cls = "drive-light uploading"; aria = "drive " + drive + " uploading"; }
+    else if (d && d.motor) { glyph = GLYPH.active; cls = "drive-light active"; aria = "drive " + drive + " active"; }
+    else if (hasDisk) { glyph = GLYPH.idle; cls = "drive-light"; aria = "drive " + drive + " idle"; }
+    else { glyph = GLYPH.idle; cls = "drive-light"; aria = "drive " + drive + " empty"; }
+    if (lightEl) { lightEl.textContent = glyph; lightEl.className = cls; lightEl.setAttribute("aria-label", aria); }
+
+    // The label: the uploading text, the image name, or "empty".
+    if (labelEl) {
+      if (uploading) labelEl.textContent = "Uploading…";
+      else if (hasDisk) labelEl.textContent = label;
+      else labelEl.textContent = "empty";
+    }
+
+    // Eject is shown only when a disk is inserted and not uploading.
+    if (ejectEl) ejectEl.hidden = !(hasDisk && !uploading);
+
+    // The library select + the Insert… button are disabled during an upload (controls locked, interactions §4.1).
+    const selEl = document.getElementById("drive-" + drive + "-library");
+    const insEl = document.getElementById("drive-" + drive + "-insert");
+    if (selEl) selEl.disabled = uploading || selEl.dataset.empty === "1";
+    if (insEl) insEl.disabled = uploading;
+  }
+
+  // Populate a drive's [ Library ▾] from window.diskCatalog (read-only — the server lists the real cache).
+  // The placeholder option is first; an empty catalog disables the select with the named-script hint;
+  // .woz items (supported:false) render disabled-with-note (no WozFluxImage yet — backlog row W).
+  function populateLibrary(drive) {
+    const sel = document.getElementById("drive-" + drive + "-library");
+    if (!sel) return;
+    const cat = window.diskCatalog || [];
+    sel.innerHTML = "";
+    if (cat.length === 0) {
+      const opt = document.createElement("option");
+      opt.textContent = "No cached disks — see tools/get-*";
+      opt.value = "";
+      sel.appendChild(opt);
+      sel.disabled = true;
+      sel.dataset.empty = "1";
+      return;
+    }
+    sel.dataset.empty = "0";
+    const placeholder = document.createElement("option");
+    placeholder.textContent = "Insert from library…";
+    placeholder.value = "";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    sel.appendChild(placeholder);
+    cat.forEach((e) => {
+      const opt = document.createElement("option");
+      const fmt = e.format ? " (." + String(e.format).toLowerCase() + ")" : "";
+      if (e.supported === false) {
+        opt.textContent = e.name + fmt + " — not yet supported";
+        opt.disabled = true;
+      } else {
+        opt.textContent = e.name + fmt;
+      }
+      opt.value = e.id;
+      sel.appendChild(opt);
+    });
+  }
+
+  // Wire each panel's controls ONCE (the renderer only repaints; the listeners are attached here).
+  function wireDrivePanels() {
+    for (let drive = 1; drive <= 2; drive++) {
+      const sel = document.getElementById("drive-" + drive + "-library");
+      const ins = document.getElementById("drive-" + drive + "-insert");
+      const file = document.getElementById("drive-" + drive + "-file");
+      const eject = document.getElementById("drive-" + drive + "-eject");
+
+      // Library select: an explicit choice inserts that catalog id into this drive (text WS); reset to
+      // the placeholder so the same item can be re-selected.
+      if (sel) sel.addEventListener("change", function () {
+        const id = sel.value;
+        if (id) { window.insertFromLibrary(drive, id); sel.selectedIndex = 0; }
+      });
+
+      // Insert…: open the OS file picker (a real button .click()s the hidden input — no keyboard trap).
+      if (ins && file) ins.addEventListener("click", function () { file.value = ""; file.click(); });
+      if (file) file.addEventListener("change", function () {
+        const f = file.files && file.files[0];
+        if (!f) return;
+        const err = window.uploadDisk(drive, f);   // "" on send; a client-side error string otherwise
+        renderDrivePanel(drive);
+        if (err) showDriveError(drive, err);
+      });
+
+      // Eject: remove this drive's image (text WS); the next ST snapshot repaints to empty.
+      if (eject) eject.addEventListener("click", function () { window.ejectDrive(drive); });
+    }
+  }
+
+  // Initial render + wiring. The catalog arrives async (loadCatalog's fetch); re-populate when it lands by
+  // polling window.diskCatalog once it differs from the initial empty array (cheap, one-shot).
+  wireDrivePanels();
+  populateLibrary(1); populateLibrary(2);
+  renderControlStrip();
+  // loadCatalog() resolves asynchronously; re-populate the selects once the catalog is in.
+  (function awaitCatalog() {
+    let tries = 0;
+    const t = setInterval(function () {
+      if ((window.diskCatalog && window.diskCatalog.length) || ++tries > 40) {
+        clearInterval(t);
+        populateLibrary(1); populateLibrary(2); renderControlStrip();
+      }
+    }, 100);
+  })();
 })();
