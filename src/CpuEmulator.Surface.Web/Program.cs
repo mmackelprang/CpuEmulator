@@ -208,6 +208,10 @@ internal static class DemoSession
         const int MaxUploadBytes = 2 * 1024 * 1024;   // the design's 2 MB cap, re-enforced server-side
         var buffer = new byte[8192];
         var binaryAccumulator = new MemoryStream();
+        // Once a single binary message blows the cap, every remaining fragment of THAT message is drained
+        // (not re-accumulated) so a too-large upload can't dispatch a partial tail frame; the "too large"
+        // ack is sent once, at the message's EndOfMessage. Reset for the next message.
+        bool capExceeded = false;
         while (socket.State == WebSocketState.Open)
         {
             WebSocketReceiveResult result = await socket.ReceiveAsync(buffer, ct);
@@ -219,6 +223,18 @@ internal static class DemoSession
 
             if (result.MessageType == WebSocketMessageType.Binary)
             {
+                // Drain the rest of an already-over-cap message: ignore its fragments, ack once at the end.
+                if (capExceeded)
+                {
+                    if (result.EndOfMessage)
+                    {
+                        capExceeded = false;
+                        pushText(FrameCodec.EncodeUploadAck(0,
+                            new UploadResult(false, "File too large — Disk II images are under ~250 KB")));
+                    }
+                    continue;
+                }
+
                 // Accumulate fragments until the whole DK message is in (a .dsk is 143,360 bytes — many
                 // 8 KiB fragments). Cap the accumulation to refuse an oversized upload without OOM.
                 if (binaryAccumulator.Length + result.Count > MaxUploadBytes)
@@ -227,6 +243,8 @@ internal static class DemoSession
                     if (result.EndOfMessage)
                         pushText(FrameCodec.EncodeUploadAck(0,
                             new UploadResult(false, "File too large — Disk II images are under ~250 KB")));
+                    else
+                        capExceeded = true;   // drain the remaining fragments of this oversized message
                     continue;
                 }
                 binaryAccumulator.Write(buffer, 0, result.Count);
@@ -305,8 +323,12 @@ internal static class DemoSession
         UploadResult result = UploadValidator.Validate(upload);
         if (!result.Ok || insertDisk is null)
         {
+            // A validation failure forwards the validator's calm reason; a valid image on a session with no
+            // Apple disk drive (Spectrum/demo) is honestly "not supported here" — NOT "corrupt" (the file is
+            // fine; this surface just can't take it). The Apple branches always wire insertDisk, so the
+            // null case is only reachable from a non-Apple session / a crafted request.
             pushText(FrameCodec.EncodeUploadAck(upload.Drive, result.Ok
-                ? new UploadResult(false, "That image looks corrupt")   // no surface to insert into
+                ? new UploadResult(false, "Disk upload isn't supported in this session")
                 : result));
             return;
         }

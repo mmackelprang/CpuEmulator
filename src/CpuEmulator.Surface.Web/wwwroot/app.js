@@ -195,7 +195,9 @@
   // was sent (the server's ack resolves INSERTED / a server-side error).
   window.uploadDisk = function (drive, file) {
     const name = (file && file.name) || "";
-    const ext = name.slice(name.lastIndexOf(".")).toLowerCase();   // ".dsk" / ".po" / ".woz"
+    const dotIdx = name.lastIndexOf(".");
+    // A no-dot name has no extension -> "" (which matches no format below); a real ext is lower-cased.
+    const ext = dotIdx === -1 ? "" : name.slice(dotIdx).toLowerCase();   // ".dsk" / ".po" / ".woz"
     const format = { ".woz": "woz", ".dsk": "dsk", ".po": "po" }[ext];
     if (!format) {
       window.uploadLastError[drive] = "Unsupported file — use .woz, .dsk, or .po";
