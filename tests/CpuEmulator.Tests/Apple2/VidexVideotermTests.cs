@@ -138,6 +138,56 @@ public class VidexVideotermTests
         Assert.Equal(before, bus.Read8(0xC800));   // ROM — the write did not take
     }
 
+    [Fact]
+    public void DisplayMultiplexer_switches_to_the_Videx_80col_when_it_signals_active()
+    {
+        // A 40-col Apple video source (PR-C) + the 80-col Videx (this PR) behind the host multiplexer (PR-M).
+        var apple = new Apple2Video(
+            ApplePlaceholderBus(), new Apple2VideoState());     // 280x192 (the 40-col render)
+        var videx = new VidexVideoterm();
+        Program80x24(videx);
+
+        var mux = new DisplayMultiplexer([apple, videx], initialActive: 0);
+
+        // Initially the Apple 40-col source is active.
+        Assert.Equal(Apple2Video.Width280, mux.Width);
+        Assert.Equal(Apple2Video.Height192, mux.Height);
+
+        // Wire the guest-driven active-display signal exactly as PR-O's surface will: ActiveChanged ->
+        // SetActive (index 1 = the Videx; index 0 = the Apple video).
+        videx.ActiveChanged += active => mux.SetActive(active ? 1 : 0);
+
+        int frames = 0;
+        mux.FrameReady += () => frames++;
+
+        // The guest enables the Videx (its $C800 window): the multiplexer switches to the 80-col geometry.
+        videx.SetActiveForTest(true);
+        Assert.Equal(1, frames);                                // the switch fired FrameReady (host re-pulls)
+        Assert.Equal(videx.Width, mux.Width);                   // now the Videx 80x24 geometry (560)
+        Assert.Equal(videx.Height, mux.Height);                 // (216)
+        Assert.Equal(80 * VidexFont.CellWidth, mux.Width);
+
+        // And the multiplexer now renders the Videx frame (structural ink against the synthetic char ROM).
+        var rgba = new uint[mux.Width * mux.Height];
+        for (int c = 0; c < 80; c++) videx.PokeVramForTest(0, c, (byte)'A');
+        mux.RenderInto(rgba);
+        int on = 0;
+        foreach (uint p in rgba) if (p == Apple2Palette.MonoOn) on++;
+        Assert.True(on > 80, "the multiplexer renders the Videx's inked 80-col frame");
+
+        // The guest hands back to the Apple video: the multiplexer switches back to 40-col.
+        videx.SetActiveForTest(false);
+        Assert.Equal(Apple2Video.Width280, mux.Width);
+        Assert.Equal(2, frames);                                // the switch-back also fired FrameReady
+    }
+
+    private static IAddressSpace ApplePlaceholderBus()
+    {
+        var space = new AddressSpace(AddressSpaceKind.Program, 16);
+        space.MapMemory(0x0000, new byte[0x10000], writable: true);
+        return space;
+    }
+
     private static (Machine, VidexVideoterm) BuildAppleWithVidex(byte[] systemRom)
     {
         var state = new Apple2VideoState();
