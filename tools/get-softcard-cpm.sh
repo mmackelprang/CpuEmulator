@@ -36,7 +36,15 @@ fetch_one() {
     echo "NOTE: optional $name not fetched" >&2; return 0
 }
 
-fetch_one "softcard-cpm.dsk" 143360 1 \
-    "https://mirror.example/cpm/softcard-cpm.dsk"
+# The owner confirms the real Asimov-mirror URL at PR time (sign-off GIVEN, ADR 0016 Decision 5). Until then
+# the placeholder below would fail with an opaque DNS error — guard it so an unconfigured run says so plainly.
+CPM_URL="https://mirror.example/cpm/softcard-cpm.dsk"
+if [ ! -f "$CPM_DIR/softcard-cpm.dsk" ] && [ "${CPM_URL#*mirror.example}" != "$CPM_URL" ]; then
+    echo "ERROR: the CP/M .dsk URL has not been configured — edit tools/get-softcard-cpm.sh and set the" >&2
+    echo "       real Asimov mirror URL (apple2.org.za /images/cpm/os/, research §9), then re-run." >&2
+    exit 1
+fi
+
+fetch_one "softcard-cpm.dsk" 143360 1 "$CPM_URL"
 
 echo "SoftCard CP/M fetch complete (cache: $CPM_DIR)."

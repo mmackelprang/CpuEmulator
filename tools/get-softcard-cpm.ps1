@@ -30,8 +30,15 @@ function Fetch-One($name, $wantLen, $required, $urls) {
     if ($required) { Write-Error "could not fetch the required $name from any source" }
 }
 
-# NOTE: placeholder URL for the owner to point at the Asimov mirror (apple2.org.za /images/cpm/os/,
-# research §9) or a preferred source; the length sanity-check (143360) guarantees a correct image.
-Fetch-One "softcard-cpm.dsk" 143360 $true @("https://mirror.example/cpm/softcard-cpm.dsk")
+# The owner confirms the real Asimov-mirror URL at PR time (sign-off GIVEN, ADR 0016 Decision 5). Until then
+# the placeholder below would fail with an opaque DNS error — guard it so an unconfigured run says so plainly.
+$cpmUrl = "https://mirror.example/cpm/softcard-cpm.dsk"
+if (-not (Test-Path (Join-Path $cpmDir "softcard-cpm.dsk")) -and $cpmUrl -like "*mirror.example*") {
+    Write-Error ("the CP/M .dsk URL has not been configured — edit tools/get-softcard-cpm.ps1 and set the " +
+                 "real Asimov mirror URL (apple2.org.za /images/cpm/os/, research §9), then re-run.")
+}
+
+# The length sanity-check (143360) guarantees a correct image regardless of source.
+Fetch-One "softcard-cpm.dsk" 143360 $true @($cpmUrl)
 
 Write-Host "SoftCard CP/M fetch complete (cache: $cpmDir)."

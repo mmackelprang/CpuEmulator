@@ -68,7 +68,9 @@ internal static class DemoSession
         // subsequent asset is only probed when the earlier branch isn't taken — no file-stat in the common
         // boot path.)
         string? appleRom = CpuEmulator.Machines.Apple2Rom.TryGetPath();
-        string? cpmDisk = CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath();
+        // Only stat the CP/M .dsk when the Apple system ROM is present — the SoftCard needs both, so a
+        // missing Apple ROM means no SoftCard boot regardless, and the Spectrum/demo paths take no file-stat.
+        string? cpmDisk = appleRom is not null ? CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath() : null;
         ISurfacePump pump;
         string assetState;   // surfaced to the client banner / status line
         if (appleRom is not null && cpmDisk is not null)
