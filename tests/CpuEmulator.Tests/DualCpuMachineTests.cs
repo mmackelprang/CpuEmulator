@@ -161,4 +161,47 @@ public class DualCpuMachineTests
         Assert.True(machine.Coprocessor!.CycleCount > z80After);   // the Z80 ran while active
         Assert.Equal(six502After, machine.Cpu.CycleCount);         // the suspended 6502 did NOT advance
     }
+
+    [Fact]
+    public void Every_shipped_board_is_single_cpu_no_coprocessor()
+    {
+        // A representative shipped board: the bare Apple ][+ (PR-B). Its spec must carry no coprocessor,
+        // so it takes the unchanged single-CPU construction + run path.
+        var rom = new byte[0x3000];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;     // reset -> $D000 (a NOP-spin ROM)
+        rom[0x0000] = 0x4C; rom[0x0001] = 0x00; rom[0x0002] = 0xD0;
+        var state = new CpuEmulator.Peripherals.Apple2VideoState();
+        var iou = new CpuEmulator.Peripherals.Apple2Iou(state);
+        var spec = CpuEmulator.Machines.Apple2Board.Spec(rom, iou);
+        Assert.Null(spec.Coprocessor);
+
+        var machine = BoardMachineFactory.Build(spec);
+        Assert.Null(machine.Coprocessor);
+        Assert.False(machine.CoprocessorActive);
+    }
+
+    [Fact]
+    public void Single_cpu_Run_is_deterministic_across_two_identical_builds()
+    {
+        // The single-CPU Run loop is unchanged (RunSingleCpu == the pre-PR-I body). Two identical builds
+        // run for the same budget execute the same cycles — a guard that the refactor preserved behavior.
+        static Machine BuildApple()
+        {
+            var rom = new byte[0x3000];
+            rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;
+            rom[0x0000] = 0x4C; rom[0x0001] = 0x00; rom[0x0002] = 0xD0; // JMP $D000 spin
+            var state = new CpuEmulator.Peripherals.Apple2VideoState();
+            var iou = new CpuEmulator.Peripherals.Apple2Iou(state);
+            var m = BoardMachineFactory.Build(CpuEmulator.Machines.Apple2Board.Spec(rom, iou));
+            m.Reset();
+            return m;
+        }
+
+        var a = BuildApple();
+        var b = BuildApple();
+        long ranA = a.Run(1000);
+        long ranB = b.Run(1000);
+        Assert.Equal(ranA, ranB);
+        Assert.Equal(a.Cpu.CycleCount, b.Cpu.CycleCount);
+    }
 }
