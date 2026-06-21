@@ -11,15 +11,19 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > deliverable: CP/M auto-widens to the 80-col Videx at `A>`, structurally complete, pending owner assets for
 > the live render); the surface-UI sub-arc (the `ST` status frame + the runtime disk-swap mechanism + the
 > disk-library/upload UI) is underway — **rows P (the `ST` status seam) + Q (the Disk II runtime image swap)
-> shipped**: P pushes the REAL machine state — board/asset/video-mode label + per-drive motor [the real
-> `$C0E8/$C0E9` switch, false at boot] + image label — as a structured `ST` text frame on change (the client
-> renders it read-only + exposes `window.machineStatus` for the control-strip UI); Q makes the Disk II
-> controller hold two drive slots (drive 2 real for the first time) + accept runtime `Insert`/`Eject` for
-> `.dsk`/`.po` via a shared `DiskImageFactory` (`.woz` bytes await a thin `WozFluxImage` follow-on), exposing
-> `surface.InsertDisk`/`EjectDisk` as the call point for the library + upload paths. **Rows R (`GET /disks` +
-> library dropdown) + S (the upload binary path) are next** (deps Q ✅; planned next), then T (the
-> control-strip UI) composes P/R/S; per-PR detail in `docs/BUILDER_QUEUE.md`) — the intended next-up
-> sequence, not a delivery commitment. Each item is tagged
+> + R (the disk-library catalog) shipped**: P pushes the REAL machine state — board/asset/video-mode label +
+> per-drive motor [the real `$C0E8/$C0E9` switch, false at boot] + image label — as a structured `ST` text
+> frame on change (the client renders it read-only + exposes `window.machineStatus` for the control-strip
+> UI); Q makes the Disk II controller hold two drive slots (drive 2 real for the first time) + accept runtime
+> `Insert`/`Eject` for `.dsk`/`.po` via a shared `DiskImageFactory` (`.woz` bytes await a thin `WozFluxImage`
+> follow-on), exposing `surface.InsertDisk`/`EjectDisk` as the call point for the library + upload paths; R
+> adds the `GET /disks` catalog (`DiskCatalog` over `<cache>/disks/` + the CP/M `.dsk`) + the
+> `disk-insert`/`disk-eject` text-WS dispatch (a library selection inserts the cached bytes server-side) + the
+> drive-2 status fold-in (the `ST` frame now reports both drives), plus the read-only client transport
+> (`window.diskCatalog`/`insertFromLibrary`/`ejectDrive`) the control-strip panel will bind to. **Row S (the
+> upload binary path) is next** (deps Q ✅; best after R — it reuses R's `insertDisk` hoist + four-arg insert +
+> the drive-2 fold-in), then T (the control-strip UI) composes P/R/S; per-PR detail in
+> `docs/BUILDER_QUEUE.md`) — the intended next-up sequence, not a delivery commitment. Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
 
