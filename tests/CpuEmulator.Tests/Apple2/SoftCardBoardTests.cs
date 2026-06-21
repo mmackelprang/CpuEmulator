@@ -238,6 +238,38 @@ public class SoftCardBoardTests
     private static bool IsMonitorRegisterDump(string row) =>
         row.Contains("A=") && row.Contains("X=") && row.Contains("P=") && row.Contains("S=");
 
+    // ADR 0017 PR-2 (CPM-2): the control-port Read() is now open-bus with NO toggle (SoftCardControlPort.cs).
+    // The un-fakeable proof of that change is the PORT-LEVEL gate in SoftCardControlPortTests
+    // (A_read_is_open_bus_and_does_NOT_toggle_the_active_cpu + Reads_interleaved_with_writes_only_count_the_writes):
+    // a read -- even 1000 reads -- fires 0 toggles; a write fires exactly 1. That test FAILS with the old
+    // read-toggle and PASSES with the open-bus Read, so it fully discriminates CPM-2.
+    //
+    // The LIVE decoded-text gate the plan envisioned (assert "CAN'T FIND Z80 SOFTCARD" disappears after the
+    // open-bus Read) is DEFERRED to CPM-3, because on THIS build it is NOT discriminating. Live-verified on the
+    // cached softcard-cpm.dsk at the CpmBootCycles budget (the arbiter the plan §Drift 1 / Task 2c names):
+    //
+    //   single Run(CpmBootCycles):  read-toggle -> finalActive=True, screen row 19 "CAN'T FIND Z80 SOFTCARD",
+    //                                              row 23 monitor "*" prompt
+    //                               open-bus    -> finalActive=True, screen row 19 "CAN'T FIND Z80 SOFTCARD",
+    //                                              row 23 monitor "*" prompt   (BYTE-IDENTICAL)
+    //
+    // i.e. with CPM-2 ALONE the boot still reaches the detect, still prints CAN'T FIND, and the Z80 is still the
+    // bus master at the end -- the read-toggle vs open-bus difference is NOT observable on the decoded screen at
+    // this stage. (This is exactly what the merged CPM-1 gate already documents: CAN'T FIND is the post-CPM-1
+    // state that "then livelocks on the CPM-2 read-toggle defect" and clears only once CPM-3's run-loop yield
+    // stabilizes the handshake.) A decoded-text gate here would be a FALSE PASS -- it cannot fail with the
+    // read-toggle restored -- which the plan forbids. So the decoded "CAN'T FIND"-gone assertion moves to CPM-3,
+    // kept visible and un-fakeable as this named-skip until the yield lands.
+    [Fact(Skip = "CPM-2's decoded-text effect is not live-observable until CPM-3's run-loop yield clears the " +
+        "detect livelock; the un-fakeable CPM-2 proof is the port-level read/write-toggle asymmetry test. " +
+        "(ADR 0017 PR-2; live-verified -- CAN'T FIND is byte-identical with read-toggle vs open-bus here.)")]
+    public void Cpm_boot_passes_the_softcard_detect_no_cant_find_message()
+    {
+        // CPM-3 replaces this body with the decoded "CAN'T FIND"-gone negative + the z80-handshake-stable
+        // assertion, once the run-loop yield makes the detect non-fatal. Kept named so the gate is visible and
+        // un-fakeable when it lands -- never a silent placeholder pass.
+    }
+
     [Fact(Skip = "A> deliverable lands in CPM-4 (ADR 0017 PR-4); PR-1 only restores honest main.")]
     public void Cpm_boots_to_the_A_prompt_on_the_interpreter()
     {
