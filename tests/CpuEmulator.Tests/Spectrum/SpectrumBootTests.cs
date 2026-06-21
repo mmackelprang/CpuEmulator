@@ -17,10 +17,6 @@ namespace CpuEmulator.Tests.Spectrum;
 [Trait("Category", "UAT")]
 public class SpectrumBootTests
 {
-    // Full boot to the copyright screen ≈ 5.9M T-states; stable by ~13M. 7M (~100 frames) is safely past the
-    // (C) screen and before the unnecessary 13M. (Was 200_000 — ~30× too small; the RAM test wasn't even done.)
-    private const long BootCycles = 7_000_000;
-
     [SpectrumRomVariantTheory]
     [MemberData(nameof(SpectrumRomVariantData.VariantTierRows), MemberType = typeof(SpectrumRomVariantData))]
     public void Rom_boots_to_the_basic_copyright_screen(string variant, string romPath, ExecutionTier tier)
@@ -33,7 +29,13 @@ public class SpectrumBootTests
         byte[] rom = SpectrumRom.Load(romPath);
         Machine machine = SpectrumMachine.Build(rom, out SpectrumUla ula, tier);
         machine.Reset();
-        machine.Run(BootCycles);
+
+        // Per-variant boot budget. Full boot to the copyright screen ≈ 5.9M T-states, stable by ~13M, so 7M
+        // (~100 frames) is safely past the (C) screen for every variant — EXCEPT spec48-beckman, whose reset
+        // paints coloured blocks that only settle to its white-paper BASIC screen by ~20M T-states; 22M gives
+        // a comfortable margin without raising the global budget.
+        long bootCycles = variant == "spec48-beckman" ? 22_000_000 : 7_000_000;
+        machine.Run(bootCycles);
 
         var rgba = new uint[SpectrumUla.FullWidth * SpectrumUla.FullHeight];
         ula.RenderInto(rgba);
