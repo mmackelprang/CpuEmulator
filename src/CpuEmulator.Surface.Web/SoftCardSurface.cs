@@ -13,12 +13,14 @@ namespace CpuEmulator.Surface.Web;
 /// runs translated. On the bare SoftCard board the display is the Apple 40-col video (the Videx 80-col is
 /// PR-N/O); the triad + MachineHost wiring is the Apple2Surface body verbatim.</summary>
 public sealed record SoftCardSurface(
-    Machine Machine, Apple2Video Video, Apple2Keyboard Keyboard, Apple2Speaker Speaker, MachineHost Host)
+    Machine Machine, Apple2Video Video, Apple2Keyboard Keyboard, Apple2Speaker Speaker,
+    MachineHost Host, Apple2DiskII Disk, string Drive1Label)
 {
     public static SoftCardSurface Create(byte[] systemRom, byte[] diskBootRom, byte[]? charRom,
                                          IBlockDevice cpmDisk,
                                          Action<byte[]> frameSink, Action<byte[]> audioSink,
-                                         ExecutionTier tier = ExecutionTier.Interpreter)
+                                         ExecutionTier tier = ExecutionTier.Interpreter,
+                                         string drive1Label = "CP/M")
     {
         ArgumentNullException.ThrowIfNull(systemRom);
         ArgumentNullException.ThrowIfNull(diskBootRom);
@@ -44,6 +46,15 @@ public sealed record SoftCardSurface(
         machine.Reset();
 
         var host = new MachineHost(machine, video, keyboard, frameSink, speaker, audioSink);
-        return new SoftCardSurface(machine, video, keyboard, speaker, host);
+        return new SoftCardSurface(machine, video, keyboard, speaker, host, disk, drive1Label);
     }
+
+    /// <summary>Snapshot the REAL machine state for the <c>ST</c> status frame (design D14): the SoftCard
+    /// board name, the live Apple 40-col video-mode label, and the live drive-1 motor + CP/M image label.
+    /// On the bare SoftCard board the display is the Apple video (the Videx 80-col is the Videx surface).</summary>
+    public MachineStatus Status() => new(
+        Board: "Apple ][+ SoftCard",
+        Asset: "softcard-cpm",
+        Mode: Video.ModeLabel,
+        Drives: [new DriveStatus(Disk.MotorOn, Drive1Label)]);
 }
