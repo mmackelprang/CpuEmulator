@@ -22,6 +22,7 @@ public sealed class AddressSpace : IAddressSpace
 
     private readonly PageEntry[] _pages;
     private readonly AddressSpaceOptions _options;
+    private List<IMapInvalidationListener>? _mapListeners;
 
     public AddressSpaceKind Kind { get; }
     public int AddressBits { get; }
@@ -90,6 +91,61 @@ public sealed class AddressSpace : IAddressSpace
             page.Handler = peripheral;
             page.HandlerBase = start;
         }
+    }
+
+    /// <summary>Re-point an already-mapped, page-aligned range to a new RAM/ROM backing in place
+    /// (the bank-switch primitive). Same range rules as MapMemory, but WITHOUT the "must be unmapped"
+    /// check — the range is expected to be mapped already. Clears each page's Handler (so a range that
+    /// was MMIO becomes memory) and fires the invalidation listener.</summary>
+    public void Remap(uint start, byte[] backing, bool writable)
+    {
+        ArgumentNullException.ThrowIfNull(backing);
+        ValidateRange(start, (uint)backing.Length);
+        int firstPage = (int)(start >> PageShift);
+        int pageCount = backing.Length >> PageShift;
+        for (int i = 0; i < pageCount; i++)
+        {
+            ref PageEntry page = ref _pages[firstPage + i];
+            page.Backing = backing;
+            page.BackingOffset = i << PageShift;
+            page.Writable = writable;
+            page.Handler = null;            // memory now wins; drop any prior MMIO handler
+        }
+        FireRemap(firstPage, pageCount);
+    }
+
+    /// <summary>Re-point an already-mapped, page-aligned range to an MMIO device in place. Clears each
+    /// page's memory Backing (so a range that was memory becomes MMIO) and fires the listener.</summary>
+    public void RemapPeripheral(uint start, uint length, IPeripheral peripheral)
+    {
+        ArgumentNullException.ThrowIfNull(peripheral);
+        ValidateRange(start, length);
+        int firstPage = (int)(start >> PageShift);
+        int pageCount = (int)(length >> PageShift);
+        for (int i = 0; i < pageCount; i++)
+        {
+            ref PageEntry page = ref _pages[firstPage + i];
+            page.Handler = peripheral;
+            page.HandlerBase = start;
+            page.Backing = null;            // MMIO now wins; drop any prior memory backing
+        }
+        FireRemap(firstPage, pageCount);
+    }
+
+    /// <summary>Register a JIT invalidation listener (Jit-only — same InternalsVisibleTo as the
+    /// fastmem view). Core defines the seam; Jit implements + registers. The interpreter registers
+    /// none.</summary>
+    internal void AddMapInvalidationListener(IMapInvalidationListener listener)
+    {
+        ArgumentNullException.ThrowIfNull(listener);
+        (_mapListeners ??= []).Add(listener);
+    }
+
+    private void FireRemap(int firstPage, int pageCount)
+    {
+        if (_mapListeners is null) return;
+        foreach (IMapInvalidationListener l in _mapListeners)
+            l.OnRemap(firstPage, pageCount);
     }
 
     public byte Read8(uint address)

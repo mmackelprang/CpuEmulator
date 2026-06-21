@@ -5,7 +5,8 @@ for future work. It is the single forward-looking index; the per-milestone detai
 [architecture decision records](architecture/) (ADRs) and the [user guide](user-guide/README.md).
 
 > **A note on prioritization.** The ordering of the deferred items below is the **owner-set priority**
-> (2026-06-19) — the intended next-up sequence, not a delivery commitment. Each item is tagged
+> (2026-06-19; Apple ][+ PR-A shipped the `Remap` seam 2026-06-20) — the intended next-up sequence, not a
+> delivery commitment. Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
 
@@ -78,7 +79,11 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 5. **[candidate] Per-bank specialization + the generic emitter.** (a) **Per-bank `(PC, bankState)` block
    specialization** (ADR 0009 OQ3) — key blocks on `(PC, bankState)` so a re-entered memory bank reuses
    compiled blocks instead of evicting on every bank switch (complementary to the M6 SMC lever, which
-   handles self-modifying code, not bank-switching). (b) the **generic `OpModel`-walked emitter** (ADR
+   handles self-modifying code, not bank-switching). *The run-time bank-switch primitive this builds on —
+   `AddressSpace.Remap`/`RemapPeripheral` (ADR 0009 Decision 2) + the JIT `IMapInvalidationListener` +
+   `BlockCache.InvalidatePages` (page-precise eviction) + `Fastmem.Reclassify` — **shipped** as Apple ][+
+   PR-A (2026-06-20): interpreter-correct on every access, JIT-page-precise on remap. What remains here is
+   the (PC, bankState) keying that would reuse rather than evict.* (b) the **generic `OpModel`-walked emitter** (ADR
    0011 Decision 2 / OQ2) — promote the hand-written per-CPU emit arms to a single spec-`OpModel`-driven
    emitter (with per-CPU flag/cycle plug-ins) once ≥2 CPUs' arms reveal what genuinely generalizes; the
    descriptor `Ops` bridge keeps this possible with no spec change.

@@ -10,7 +10,7 @@ namespace CpuEmulator.Jit;
 /// TomHarte runner drive it identically to the interpreter. The CPU-specific reflection + decode is
 /// resolved through the injected <see cref="IJitTarget"/> (the per-CPU seam) — the JIT assembly no
 /// longer references any concrete CPU assembly (a structural genericity proof).</summary>
-public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
+public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidationListener
     where TCpu : class, ICpuCore, IMonitorSupport
 {
     /// <summary>The gate message — extracted to a const so the gate test references it directly
@@ -77,6 +77,10 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
         _cache = new BlockCache<TCpu>(bus.PageCount, opts);
         _compiler = new BlockCompiler<TCpu>(_inner, target, _bus, _fastmem, opts);
         _pcName = ((IMonitorSupport)_inner).ProgramCounterName;
+        // Run-time bus remaps (the Language Card, the Videx $C800 window) must re-classify the
+        // remapped pages in fastmem AND evict their stale compiled blocks. The interpreter needs no
+        // such hook (it re-reads the page table every access); the JIT registers itself here.
+        _bus.AddMapInvalidationListener(this);
     }
 
     /// <summary>Test seam: how many blocks have been compiled (the cache-hit pin reads this).</summary>
@@ -101,8 +105,10 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
     /// case's bytes — the block-cache-isolation invariant), clears the per-run chain-walk state, and resets the
     /// inner CPU. Fastmem is NOT rebuilt: the pooled bus (PR-T2) re-zeroes the SAME backing array in place, so
     /// Fastmem's PageBacking[] snapshot still points at the live backing — only its CONTENTS changed, which the
-    /// emitted code reads at run time. (If a future pooled bus REMAPS to a different backing array, also rebuild
-    /// Fastmem here; today it does not.)</summary>
+    /// emitted code reads at run time. (If a future pooled bus calls IAddressSpace.Remap to point a page at a
+    /// DIFFERENT backing array, this seam leaves Fastmem stale — OnRemap reclassifies live during a run, but
+    /// ResetForReuse does not re-run it. A reused CPU that has had Remap applied must rebuild Fastmem here, or
+    /// not be combined with reuse. No current pooled-reuse path remaps; today it does not.)</summary>
     public void ResetForReuse()
     {
         _cache.FlushAll();
@@ -232,4 +238,17 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport
     public bool Halted => ((IMonitorSupport)_inner).Halted;
     public string ProgramCounterName => ((IMonitorSupport)_inner).ProgramCounterName;
     public int RegisterBits(string n) => ((IMonitorSupport)_inner).RegisterBits(n);
+
+    /// <summary>IMapInvalidationListener: a bus range was re-pointed (AddressSpace.Remap /
+    /// RemapPeripheral). Re-classify each remapped page in fastmem so emitted fast-path code sees the
+    /// new backing, then evict every compiled block decoded from those pages (stale: the old bank's
+    /// bytes). The next dispatch recompiles from the new mapping. Page-precise — everything outside the
+    /// remapped range is untouched.</summary>
+    void IMapInvalidationListener.OnRemap(int firstPage, int pageCount)
+    {
+        int end = firstPage + pageCount;
+        for (int page = firstPage; page < end; page++)
+            _fastmem.Reclassify(_bus, page, _opts);
+        _cache.InvalidatePages(firstPage, pageCount);
+    }
 }

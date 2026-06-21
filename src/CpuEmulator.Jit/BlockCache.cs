@@ -115,11 +115,32 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
         for (int page = 0; page < _pageCount; page++)        // 256 for a 16-bit board; cheap scan
         {
             if (!Dirty[page]) continue;
-            if (_blocksByPage.TryGetValue(page, out var list))
-                foreach (CompiledBlock<TCpu> block in list.ToArray())   // copy: Evict mutates the list
-                    Evict(block);
+            EvictBlocksOnPage(page);
         }
         Dirty.Clear();
+    }
+
+    /// <summary>Evict every compiled block that spans <paramref name="page"/> (and sever their chain
+    /// links). Shared by the SMC path (InvalidateIfDirty) and the bus-remap path (InvalidatePages).
+    /// A page that owns no block evicts nothing.</summary>
+    private void EvictBlocksOnPage(int page)
+    {
+        if (_blocksByPage.TryGetValue(page, out var list))
+            foreach (CompiledBlock<TCpu> block in list.ToArray())   // copy: Evict mutates the list
+                Evict(block);
+    }
+
+    /// <summary>Evict every block decoded from the <paramref name="pageCount"/> pages starting at
+    /// <paramref name="firstPage"/> — the bus-remap invalidation (ADR 0014 Decision 4). Called by the
+    /// JIT's IMapInvalidationListener.OnRemap when AddressSpace.Remap re-points a range: the old bank's
+    /// compiled code is stale (the Language Card runs code out of the banked RAM), so it must be evicted
+    /// so the next dispatch recompiles from the NEW backing. Page-precise (not a whole-cache flush):
+    /// only the remapped pages' blocks drop; everything else's chains survive.</summary>
+    public void InvalidatePages(int firstPage, int pageCount)
+    {
+        int end = firstPage + pageCount;
+        for (int page = firstPage; page < end; page++)
+            EvictBlocksOnPage(page);
     }
 
     /// <summary>Evict EVERY block and reset all derived state — the per-worker REUSE reset (lever 4). After this

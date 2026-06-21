@@ -42,7 +42,33 @@ public sealed class Fastmem
                     PageBacking[p] = backing;
             }
             // An MMIO/unmapped page leaves PageBacking[p] null AND PageWritable[p] false, so its
-            // accesses take the bus arm and never mark dirty (MMIO cannot hold code).
+            // accesses take the bus arm and never mark dirty (MMIO cannot hold code). At construction
+            // a page is never RAM-first, so leaving PageOffset[p]/PageWritable[p] at their array-default
+            // 0/false is sufficient here. Reclassify() (the post-Remap path) must instead EXPLICITLY zero
+            // those slots — a RAM page that is later RemapPeripheral'd to MMIO would otherwise keep a
+            // stale offset/writable. Do not copy this implicit-default pattern into a reclassification.
+        }
+    }
+
+    /// <summary>Re-classify ONE page after a bus remap (ADR 0014 Decision 4). Re-runs the same
+    /// TryGetDirectAccess + DisableFastmem rule the constructor applies, for the single page
+    /// <paramref name="page"/>, so emitted fast-path loads/stores see the NEW backing/offset/writability.
+    /// An MMIO/unmapped page (TryGetDirectAccess false) is reset to the bus-arm classification
+    /// (null backing, offset 0, not writable) — symmetric with the constructor's else branch.</summary>
+    public void Reclassify(AddressSpace bus, int page, JitOptions options)
+    {
+        uint pageStart = (uint)page << 8;
+        if (bus.TryGetDirectAccess(pageStart, out byte[] backing, out int offset, out bool writable))
+        {
+            PageOffset[page] = offset;
+            PageWritable[page] = writable;
+            PageBacking[page] = options.DisableFastmem ? null : backing;
+        }
+        else
+        {
+            PageBacking[page] = null;
+            PageOffset[page] = 0;
+            PageWritable[page] = false;
         }
     }
 }
