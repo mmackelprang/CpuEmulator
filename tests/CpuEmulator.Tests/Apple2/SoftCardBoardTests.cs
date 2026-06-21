@@ -270,6 +270,50 @@ public class SoftCardBoardTests
         // un-fakeable when it lands -- never a silent placeholder pass.
     }
 
+    [SoftCardCpmFact]
+    public void Cpm_boot_runs_the_z80_bios_at_Axxx_stably_after_the_run_loop_yield()
+    {
+        // ADR 0017 PR-3: with the per-track skew (CPM-1) + open-bus Read (CPM-2) + the run-loop yield (CPM-3),
+        // the Z80 executes real CP/M BIOS code in the $Axxx region and -- crucially -- does NOT collapse back to
+        // its $0000 reset stub once it gets there (the instability the whole-slice Run caused). We sample the
+        // Z80 PC over the boot and assert it reached $A000-$AFFF and that, in the LATER boot window, it is no
+        // longer stuck at the reset stub ($0000-$00FF).
+        var (systemRomPath, cpmDiskPath) = SoftCardCpmVectors.TryGetAssets()!.Value;
+        byte[] systemRom = Apple2Rom.Load(systemRomPath);
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("the slot-6 disk2.rom is required for the CP/M boot gate");
+        IBlockDevice cpm = SoftCardCpm.LoadBlockDevice(cpmDiskPath);
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var drive1 = new DskFluxImage(cpm, SectorOrderKind.Cpm);
+        var disk = new Apple2DiskII(drive1);
+        var iou = new Apple2Iou(state, lc, disk);
+        BoardSpec spec = SoftCardBoard.Spec(systemRom, iou, disk, diskBootRom);
+        Machine machine = BoardMachineFactory.Build(spec);
+
+        machine.Reset();
+        bool reachedAxxx = false;
+        bool lateInResetStub = false;
+        const long slice = 50_000;
+        long lateThreshold = CpmBootCycles * 3 / 4;   // the last quarter of the boot is the "stable" window
+        for (long run = 0; run < CpmBootCycles; run += slice)
+        {
+            machine.Run(slice);
+            if (machine.Coprocessor is { } z80 && machine.CoprocessorActive)
+            {
+                ulong pc = z80.GetRegister("PC");            // Z80Spec.cs:47 — the program-counter register
+                if (pc is >= 0xA000 and <= 0xAFFF) reachedAxxx = true;
+                if (run >= lateThreshold && pc <= 0x00FF) lateInResetStub = true;
+            }
+        }
+
+        Assert.True(reachedAxxx, "expected the Z80 to execute CP/M BIOS code in the $Axxx region during the boot");
+        Assert.False(lateInResetStub,
+            "the Z80 fell back to its $0000 reset stub late in the boot -- the run-loop yield did not stabilise " +
+            "the BIOS handshake");
+    }
+
     [Fact(Skip = "A> deliverable lands in CPM-4 (ADR 0017 PR-4); PR-1 only restores honest main.")]
     public void Cpm_boots_to_the_A_prompt_on_the_interpreter()
     {
