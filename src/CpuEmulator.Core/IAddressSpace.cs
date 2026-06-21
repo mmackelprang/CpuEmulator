@@ -24,6 +24,21 @@ public interface IAddressSpace
     /// <summary>Map a device over [start, start+length). Same alignment rules.</summary>
     void MapPeripheral(uint start, uint length, IPeripheral peripheral);
 
+    /// <summary>Re-point an ALREADY-mapped, page-aligned range to a new RAM (<paramref
+    /// name="writable"/>=true) or ROM (false) backing — the run-time bank-switch primitive (ADR 0009
+    /// Decision 2; the Apple Language Card is the first consumer, ADR 0014 Decision 4). Unlike
+    /// MapMemory, the range may already be mapped (that is the point); the old mapping is overwritten.
+    /// Fires the JIT invalidation listener so emitted fast-path code re-classifies + evicts the range.
+    /// Default: not supported (only the concrete AddressSpace remaps).</summary>
+    void Remap(uint start, byte[] backing, bool writable) =>
+        throw new NotSupportedException("This address space does not support Remap.");
+
+    /// <summary>Re-point an ALREADY-mapped, page-aligned range to an MMIO device (the remap analogue
+    /// of MapPeripheral). Used by the Videx $C800 expansion-bank window (ADR 0016 Decision 3). Default:
+    /// not supported.</summary>
+    void RemapPeripheral(uint start, uint length, IPeripheral peripheral) =>
+        throw new NotSupportedException("This address space does not support RemapPeripheral.");
+
     /// <summary>Side-effect-free read for monitors and debuggers. Memory pages: always true
     /// (RAM and ROM bytes). Peripheral pages: the device's TryPeek (false if the device
     /// has no honest peek). Unmapped: open-bus value, true, never throws — even in strict
