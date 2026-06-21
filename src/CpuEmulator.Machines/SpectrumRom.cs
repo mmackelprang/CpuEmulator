@@ -9,10 +9,11 @@ public static class SpectrumRom
 {
     public const int RomLength = 0x4000; // 16 KiB
 
-    /// <summary>Resolve the cached ROM path, or null if absent.</summary>
-    public static string? TryGetPath()
+    /// <summary>Resolve the cached canonical ROM path, or null if absent. The optional <paramref name="root"/>
+    /// overrides the cache root (defaults to $CPUEMULATOR_TESTVECTORS or ~/.cache/cpuemulator/vectors).</summary>
+    public static string? TryGetPath(string? root = null)
     {
-        string root = Environment.GetEnvironmentVariable("CPUEMULATOR_TESTVECTORS")
+        root ??= Environment.GetEnvironmentVariable("CPUEMULATOR_TESTVECTORS")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                             ".cache", "cpuemulator", "vectors");
         string path = Path.Combine(root, "spectrum", "48.rom");
