@@ -71,6 +71,39 @@ public class SoftCardVidexBoardTests
     }
 
     [Fact]
+    public void Videx_board_defaults_to_slot_5_and_accepts_slot_4_for_apl2cpm3()
+    {
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;
+
+        // Default: slot 5 ($C500) -- byte-for-byte the shipped Videx board.
+        (BoardSpec def, _) = BuildVidexSpec(rom, controlPortBase: null);
+        Assert.Equal(0xC500u, def.Peripherals.Single(p => p.Name == SoftCardBoard.ControlPortName).Base);
+
+        // apl2cpm3: slot 4 ($C400).
+        (BoardSpec slot4, VidexVideoterm videx) = BuildVidexSpec(rom, SoftCardBoard.ControlPortBaseSlot4);
+        Assert.Equal(0xC400u, slot4.Peripherals.Single(p => p.Name == SoftCardBoard.ControlPortName).Base);
+
+        // The slot-4 Videx board still validates + builds (the $C400 page is inside the $C000-$C5FF Mmio band,
+        // disjoint from the $C600 disk ROM / $C800 Videx slot / $CC00 VRAM windows).
+        Assert.NotNull(BoardMachineFactory.Build(slot4).Coprocessor);
+        Assert.NotNull(videx);
+    }
+
+    private static (BoardSpec spec, VidexVideoterm videx) BuildVidexSpec(byte[] systemRom, uint? controlPortBase)
+    {
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var disk = new Apple2DiskII(new SyntheticFluxImage(trackCount: 35));
+        var videx = new VidexVideoterm();
+        var iou = new Apple2Iou(state, lc, disk, videx);
+        BoardSpec spec = controlPortBase is { } cpb
+            ? SoftCardVidexBoard.Spec(systemRom, iou, disk, DiskBootRom(), videx, controlPortBase: cpb)
+            : SoftCardVidexBoard.Spec(systemRom, iou, disk, DiskBootRom(), videx);
+        return (spec, videx);
+    }
+
+    [Fact]
     public void VidexRom_char_path_is_null_when_absent_under_an_empty_root()
     {
         string emptyRoot = Path.Combine(Path.GetTempPath(), $"empty-videx-{Guid.NewGuid():N}");
