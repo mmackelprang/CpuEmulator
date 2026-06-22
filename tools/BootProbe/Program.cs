@@ -26,6 +26,20 @@ if (args.Length >= 2 && args[0] == "--videx-discover")
     return;
 }
 
+// --- apl2cpm3 CP/M 3.1 Videx 80-col boot screenshot (V80-2/V80-3, ADR 0018) ------------------------
+//   tools/BootProbe --apl2cpm3-videx <out.png>
+// Boots the REAL apl2cpm3 Disk 1 on the SoftCard+Videx board at slot 4 (controlPortBase $C400) with the
+// SectorOrderKind.Cpm3 raw-DOS33 skew (ADR 0018-A) and the REAL Videx firmware + char ROM, then renders the
+// Videx 80x24 active source to a PNG -- the human-visible proof that apl2cpm3's CRT80 console (the genuine
+// "CP/M Version 3.0, 56K BIOS R6/89" sign-on) paints on the Videx via the real $C800 firmware. The headless
+// gate (Apl2Cpm3BootTests) is the arbiter; this is the owner-UAT artifact. (The boot renders the CP/M-3
+// sign-on but does not reach `A>` -- a fifth layer in the banked BDOS/CCP execution; see the gate comment.)
+if (args.Length >= 2 && args[0] == "--apl2cpm3-videx")
+{
+    Apl2Cpm3VidexShot.Run(args[1]);
+    return;
+}
+
 // --- Direct Videx 80x24 render (the asset-free proof, ADR 0017 Decision 6) -------------------------
 //   tools/BootProbe --videx-80col-render <out.png>
 // Programs the Videx CRTC for 80x24 through the real SoftCardVidexBoard bus ($C0B0/$C0B1), writes a CP/M
@@ -440,5 +454,73 @@ internal static class VidexDiscover
         videx.RenderInto(rgba);
         CpmScreenshot.WritePngScaled(outPng, rgba, w, h, scale: 1);
         Console.WriteLine($"wrote {outPng} ({w}x{h}) — direct Videx 80x24 render (asset-free proof)");
+    }
+}
+
+/// <summary>V80-2/V80-3 (ADR 0018): boot the REAL apl2cpm3 Disk 1 on the SoftCard+Videx board at slot 4 with
+/// the SectorOrderKind.Cpm3 raw-DOS33 skew + the REAL Videx firmware, and render the Videx 80x24 console to a
+/// PNG. The genuine CP/M 3.1 sign-on ("CP/M Version 3.0, 56K BIOS R6/89" / "46K TPA") paints on the Videx via
+/// the real $C800 firmware (the synthetic firmware is empty). The headless gate is the arbiter; this is the
+/// human-visible UAT artifact. (The boot does not reach `A>` -- a fifth layer; see the gate comment.)</summary>
+internal static class Apl2Cpm3VidexShot
+{
+    public static void Run(string outPng)
+    {
+        const long CpmBootCycles = 12_000_000L;
+
+        byte[] systemRom = Apple2Rom.Load(Apple2Rom.TryGetPath()
+            ?? throw new InvalidOperationException("apple2plus.rom not cached -- run tools/get-apple2-roms"));
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("disk2.rom (slot-6 boot ROM) not cached");
+        byte[]? videxCharRom = VidexRom.TryLoadCharRom();
+        byte[]? videxFirmware = VidexRom.TryLoadFirmware();
+        if (videxFirmware is null)
+            throw new InvalidOperationException("the REAL Videx firmware ROM is required -- run tools/get-videx-roms");
+        string disk1 = Apl2Cpm3.TryGetBootDiskPath()
+            ?? throw new InvalidOperationException("apl2cpm3 Disk 1 not cached -- run tools/get-apl2cpm3");
+        IBlockDevice disk = Apl2Cpm3.LoadBootDisk(disk1);
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var drive1 = new DskFluxImage(disk, SectorOrderKind.Cpm3);   // ADR 0018-A: raw DOS33 on every track
+        var disk2 = new Apple2DiskII(drive1);
+        var videx = new VidexVideoterm(videxCharRom, videxFirmware);
+        var iou = new Apple2Iou(state, lc, disk2, videx);
+        BoardSpec spec = SoftCardVidexBoard.Spec(systemRom, iou, disk2, diskBootRom, videx,
+            controlPortBase: SoftCardBoard.ControlPortBaseSlot4);
+        Machine machine = BoardMachineFactory.Build(spec);
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state);
+
+        var mux = new DisplayMultiplexer([video, videx], initialActive: 0);
+        int videxEngaged = 0;
+        videx.ActiveChanged += active => { if (active) videxEngaged++; mux.SetActive(active ? 1 : 0); };
+
+        machine.Reset();
+        machine.Run(CpmBootCycles);
+
+        Console.WriteLine($"CoprocessorActive = {machine.CoprocessorActive}   videxEngaged = {videxEngaged}   ActiveIndex = {mux.ActiveIndex}");
+
+        // Decode the active VRAM bank through the $CC00 window (the firmware painted the sign-on into bank 0,
+        // the active bank) and echo it -- the human-readable proof the genuine CP/M-3 console text is on the
+        // Videx (the same content the headless gate decodes off PeekVramForTest).
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+        Console.WriteLine("decoded Videx $CC00 VRAM (active bank, 80-col rows, high-bit stripped):");
+        for (int row = 0; row * 80 < (int)VidexVideoterm.VramWindowLength; row++)
+        {
+            var sb = new StringBuilder(80);
+            for (int col = 0; col < 80 && row * 80 + col < (int)VidexVideoterm.VramWindowLength; col++)
+            {
+                int code = bus.Read8(VidexVideoterm.VramWindowBase + (uint)(row * 80 + col)) & 0x7F;
+                sb.Append(code is >= 0x20 and <= 0x7E ? (char)code : ' ');
+            }
+            if (sb.ToString().Trim().Length > 0) Console.WriteLine($"  v{row,2}|{sb.ToString().TrimEnd()}|");
+        }
+
+        // Render the Videx 80x24 (its render reads the active VRAM bank, where the firmware painted the sign-on).
+        int w = videx.Width, h = videx.Height;
+        var rgba = new uint[w * h];
+        videx.RenderInto(rgba);
+        CpmScreenshot.WritePngScaled(outPng, rgba, w, h, scale: 2);
+        Console.WriteLine($"wrote {outPng} ({w * 2}x{h * 2}) — apl2cpm3 CP/M 3.1 Videx 80-col console (sign-on)");
     }
 }
