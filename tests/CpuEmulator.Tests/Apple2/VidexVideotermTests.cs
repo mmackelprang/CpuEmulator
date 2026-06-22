@@ -144,25 +144,30 @@ public class VidexVideotermTests
         // A 40-col Apple video source (PR-C) + the 80-col Videx (this PR) behind the host multiplexer (PR-M).
         var apple = new Apple2Video(
             ApplePlaceholderBus(), new Apple2VideoState());     // 280x192 (the 40-col render)
-        var videx = new VidexVideoterm();
-        Program80x24(videx);
+        var videx = new VidexVideoterm();                       // NOT yet programmed -> still dormant (_active=false)
 
         var mux = new DisplayMultiplexer([apple, videx], initialActive: 0);
 
-        // Initially the Apple 40-col source is active.
+        // Initially the Apple 40-col source is active (the Videx has not engaged yet).
+        Assert.Equal(0, mux.ActiveIndex);
         Assert.Equal(Apple2Video.Width280, mux.Width);
         Assert.Equal(Apple2Video.Height192, mux.Height);
 
-        // Wire the guest-driven active-display signal exactly as PR-O's surface will: ActiveChanged ->
-        // SetActive (index 1 = the Videx; index 0 = the Apple video).
+        // Wire the guest-driven active-display signal exactly as PR-O's surface will, BEFORE the guest
+        // programs the card: ActiveChanged -> SetActive (index 1 = the Videx; index 0 = the Apple video).
+        // Wiring first lets the engagement that happens during CRTC programming actually drive the switch.
         videx.ActiveChanged += active => mux.SetActive(active ? 1 : 0);
 
         int frames = 0;
         mux.FrameReady += () => frames++;
 
-        // The guest enables the Videx (its $C800 window): the multiplexer switches to the 80-col geometry.
-        videx.SetActiveForTest(true);
-        Assert.Equal(1, frames);                                // the switch fired FrameReady (host re-pulls)
+        // The guest brings the 80-col display online by programming the 6845 CRTC ($C0B0/$C0B1). Under
+        // V80-3 (ADR 0018-C OQ1) the FIRST $C0B1 data write IS the active-display engagement trigger
+        // (the auto-engage for a CRT80 build like apl2cpm3 that paints VRAM linearly and never bank-selects):
+        // it raises ActiveChanged(true) -> mux.SetActive(1) -> the multiplexer switches to the 80-col geometry.
+        Program80x24(videx);                                    // 5 x $C0B1 writes, but the no-op guard means ONE transition
+        Assert.Equal(1, mux.ActiveIndex);                       // the CRTC program engaged the Videx
+        Assert.Equal(1, frames);                                // exactly one switch fired FrameReady (the guard works -> stronger proof)
         Assert.Equal(videx.Width, mux.Width);                   // now the Videx 80x24 geometry (560)
         Assert.Equal(videx.Height, mux.Height);                 // (216)
         Assert.Equal(80 * VidexFont.CellWidth, mux.Width);
@@ -175,8 +180,10 @@ public class VidexVideotermTests
         foreach (uint p in rgba) if (p == Apple2Palette.MonoOn) on++;
         Assert.True(on > 80, "the multiplexer renders the Videx's inked 80-col frame");
 
-        // The guest hands back to the Apple video: the multiplexer switches back to 40-col.
+        // The guest hands back to the Apple video: the multiplexer switches back to 40-col. (SetActiveForTest
+        // is the explicit deactivate seam -- "hand back to Apple" has no production $C0Bx trigger.)
         videx.SetActiveForTest(false);
+        Assert.Equal(0, mux.ActiveIndex);
         Assert.Equal(Apple2Video.Width280, mux.Width);
         Assert.Equal(2, frames);                                // the switch-back also fired FrameReady
     }
