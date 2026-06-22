@@ -31,9 +31,10 @@ if (args.Length >= 2 && args[0] == "--videx-discover")
 // Boots the REAL apl2cpm3 Disk 1 on the SoftCard+Videx board at slot 4 (controlPortBase $C400) with the
 // SectorOrderKind.Cpm3 raw-DOS33 skew (ADR 0018-A) and the REAL Videx firmware + char ROM, then renders the
 // Videx 80x24 active source to a PNG -- the human-visible proof that apl2cpm3's CRT80 console (the genuine
-// "CP/M Version 3.0, 56K BIOS R6/89" sign-on) paints on the Videx via the real $C800 firmware. The headless
-// gate (Apl2Cpm3BootTests) is the arbiter; this is the owner-UAT artifact. (The boot renders the CP/M-3
-// sign-on but does not reach `A>` -- a fifth layer in the banked BDOS/CCP execution; see the gate comment.)
+// "CP/M Version 3.0, 56K BIOS R6/89" sign-on + the `A>` CCP prompt) paints on the Videx via the real $C800
+// firmware. The headless gate (Apl2Cpm3BootTests) is the arbiter; this is the owner-UAT artifact. With the
+// V80-4 two-latch Language-Card fix (ADR 0018-C) the boot reaches `A>` in 80 columns on the Videx and the
+// DisplayMultiplexer auto-engages (ActiveIndex==1) -- the headline.
 if (args.Length >= 2 && args[0] == "--apl2cpm3-videx")
 {
     Apl2Cpm3VidexShot.Run(args[1]);
@@ -457,11 +458,12 @@ internal static class VidexDiscover
     }
 }
 
-/// <summary>V80-2/V80-3 (ADR 0018): boot the REAL apl2cpm3 Disk 1 on the SoftCard+Videx board at slot 4 with
-/// the SectorOrderKind.Cpm3 raw-DOS33 skew + the REAL Videx firmware, and render the Videx 80x24 console to a
-/// PNG. The genuine CP/M 3.1 sign-on ("CP/M Version 3.0, 56K BIOS R6/89" / "46K TPA") paints on the Videx via
-/// the real $C800 firmware (the synthetic firmware is empty). The headless gate is the arbiter; this is the
-/// human-visible UAT artifact. (The boot does not reach `A>` -- a fifth layer; see the gate comment.)</summary>
+/// <summary>V80-2/V80-3/V80-4 (ADR 0018 / 0018-C): boot the REAL apl2cpm3 Disk 1 on the SoftCard+Videx board
+/// at slot 4 with the SectorOrderKind.Cpm3 raw-DOS33 skew + the REAL Videx firmware, and render the Videx 80x24
+/// console to a PNG. The genuine CP/M 3.1 sign-on ("CP/M Version 3.0, 56K BIOS R6/89" / "46K TPA") AND the `A>`
+/// CCP prompt paint on the Videx via the real $C800 firmware (the synthetic firmware is empty). With the V80-4
+/// two-latch Language-Card fix (ADR 0018-C) the boot reaches `A>` in 80 columns and the Videx auto-engages
+/// (ActiveIndex==1). The headless gate is the arbiter; this is the human-visible UAT artifact.</summary>
 internal static class Apl2Cpm3VidexShot
 {
     public static void Run(string outPng)
