@@ -129,7 +129,7 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > the `L65A` loop); (3) with the **REAL Videx firmware** (`videx-firmware.rom`, cached) the apl2cpm3 CRT80 console
 > works: `?icrt` programs the Videx CRTC for 80×24 and `?odcrt` paints the **genuine CP/M 3.1 sign-on**
 > (`CP/M Version 3.0, 56K BIOS R6/89` / `46K TPA`) into the Videx `$CC00` VRAM — decoded off the live VRAM by the
-> `[Apl2Cpm3VidexFact]` gate (`Cpm3_renders_the_cpm3_signon_on_the_Videx_80col_interpreter`) + the
+> `[Apl2Cpm3VidexFact]` gate (`Cpm3_boots_to_the_A_prompt_in_80col_on_the_Videx_interpreter`) + the
 > `tools/BootProbe --apl2cpm3-videx` screenshot. (With the **synthetic** all-zero firmware the prior pass saw
 > nothing — the real firmware is the load-bearing console unblock.) **The wall (escalated, NOT faked):** the boot
 > renders the sign-on but does **not** reach `A>`. After the sign-on the CCP takes control (Z80 `JP $0100`,

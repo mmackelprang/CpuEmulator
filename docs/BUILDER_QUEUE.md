@@ -12,7 +12,7 @@
 > firmware** (`videx-firmware.rom`, cached — the prior synthetic all-zero firmware showed nothing) apl2cpm3's CRT80
 > `?icrt`/`?odcrt` program the Videx CRTC for 80×24 and paint the **genuine CP/M 3.1 sign-on** (`CP/M Version 3.0,
 > 56K BIOS R6/89` / `46K TPA`) into the Videx `$CC00` VRAM — decoded live by the new `[Apl2Cpm3VidexFact]` gate
-> `Cpm3_renders_the_cpm3_signon_on_the_Videx_80col_interpreter` + captured to **`/d/prj/cpm-videx-80col-LIVE.png`**
+> `Cpm3_boots_to_the_A_prompt_in_80col_on_the_Videx_interpreter` + captured to **`/d/prj/cpm-videx-80col-LIVE.png`**
 > (legible text-grid render). **The ONLY production change is the additive `SectorOrderKind.Cpm3` enum+table**
 > (2.2 `Cpm`/`Dos33`/`ProDos` byte-for-byte unchanged; NO Z80-core / translation / `Machine`/`ICoprocessorControl`
 > / LC change). **Pre-merge review (`feature-dev:code-reviewer`): 0 HIGH / 3 MEDIUM (all stale-comment accuracy) /

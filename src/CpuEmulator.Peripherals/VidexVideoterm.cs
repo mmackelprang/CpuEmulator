@@ -45,7 +45,10 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
     public event Action? FrameReady;
     /// <summary>The guest-driven active-display signal (ADR 0016 Decision 2): true when the Videx becomes
     /// the live terminal (its $C800 window enabled), false when the Apple video is re-selected. The host
-    /// DisplayMultiplexer subscribes this and calls SetActive (PR-O).</summary>
+    /// DisplayMultiplexer subscribes this and calls SetActive (PR-O). Engagement is raised either by a VRAM
+    /// bank-select ($C0B8-$C0BF) OR by a CRTC-data write ($C0B1) -- the latter is the firmware bringing the
+    /// 80-col display online for a CRT80 build (apl2cpm3) that paints VRAM linearly and never bank-selects
+    /// (ADR 0018-C OQ1 / V80-3 -- the auto-engage trigger). The transition no-op guard means it fires once.</summary>
     public event Action<bool>? ActiveChanged;
 
     /// <param name="charRom">Optional 256x8 char-gen ROM; null uses the synthetic VidexFont.Fallback (the
@@ -109,9 +112,16 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
             case 0x00:                        // $C0B0: register-select
                 _crtcAddr = value & 0x1F;     // 6845 has 18 regs; mask to 0-31, index guarded on use
                 break;
-            case 0x01:                        // $C0B1: data
+            case 0x01:                        // $C0B1: data -- the firmware programming a 6845 register
                 if (_crtcAddr < _crtc.Length)
                     _crtc[_crtcAddr] = value;
+                // Programming the CRTC is the firmware bringing the 80-col display online -- it is the
+                // active-display engagement signal for a CRT80 build (apl2cpm3) that paints VRAM linearly
+                // and never does a $C0B8-$C0BF bank-select (ADR 0018-C OQ1 -- the auto-engage trigger).
+                // SetActive has a transition no-op guard, so ActiveChanged(true) fires exactly once. A 40-col
+                // SoftCard master (CP/M 2.2) issues ZERO $C0Bx, so it never engages -- ActiveIndex stays 0
+                // (the CPM-5 gate's load-bearing invariant, kept byte-for-byte).
+                SetActive(true);
                 break;
             default:
                 // $C0B8-$C0BF region: VRAM bank select (research §8: bank = ((offset>>2)&3)). A bank-select

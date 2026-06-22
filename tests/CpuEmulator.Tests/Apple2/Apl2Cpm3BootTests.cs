@@ -37,14 +37,23 @@ public class Apl2Cpm3BootTests
     //       AND the decoded `A>`, plus the LC-bank-2-nonzero discriminator (the tight red->green proof
     //       that the CCP copy landed -- bank 2 is all zeros under the old model, ADR 0018-C).
     //
-    // CONTRAST SIBLING (V80-3 Task 4): the shipped CPM-5 2.2 gate
+    //   (5) THE V80-3 80-col AUTO-ENGAGE (ADR 0018-C OQ1): the boot also proves the DisplayMultiplexer
+    //       switched to the Videx (ActiveIndex==1). The apl2cpm3 CRT80 firmware programs the Videx CRTC via
+    //       $C0B1 data writes but paints VRAM LINEARLY at $CC00 and never does a $C0B8-$C0BF bank-select, so
+    //       the old bank-select-only engagement trigger never fired (ActiveIndex stayed 0). V80-3 makes a
+    //       CRTC-data write ($C0B1 -- the firmware bringing the 80-col display online) ALSO engage the Videx,
+    //       so the mux flips to index 1 from a real CP/M-3 boot. This is the headline + the contrast sibling
+    //       to the CPM-5 gate's ActiveIndex==0.
+    //
+    // CONTRAST SIBLING (V80-3): the shipped CPM-5 2.2 gate
     // (SoftCardVidexBoardTests.Cpm_boots_and_renders_the_A_prompt_on_the_Videx_80col_interpreter) asserts
     // videxEngagedCount==0 + ActiveIndex==0 -- the 2.2 master is a 40-col console that issues ZERO $C0Bx and
-    // never touches the Videx VRAM. apl2cpm3 is the opposite: it programs the Videx CRTC and paints the
-    // console into the $CC00 VRAM (the sign-on decoded below). Same board wiring + auto-switch; the only
+    // never touches the Videx VRAM, so the CRTC-program trigger never fires. apl2cpm3 is the opposite: it
+    // programs the Videx CRTC ($C0B1) and paints the console into the $CC00 VRAM (the sign-on + `A>` decoded
+    // below), which engages the 80-col display -> ActiveIndex==1. Same board wiring + auto-switch; the only
     // difference is the disk. (Do NOT modify the CPM-5 gate -- it asserts the 40-col hardware truth.)
     [Apl2Cpm3VidexFact]
-    public void Cpm3_renders_the_cpm3_signon_on_the_Videx_80col_interpreter()
+    public void Cpm3_boots_to_the_A_prompt_in_80col_on_the_Videx_interpreter()
     {
         var (systemRomPath, disk1Path, videxFirmware, videxCharRom) =
             Apl2Cpm3Vectors.TryGetVidexAssets()!.Value;
@@ -83,12 +92,14 @@ public class Apl2Cpm3BootTests
         const long slice = 2_000L;
         bool sawZ31AtZ80Entry = false;     // $31 (LD SP) at Z80 $0100 == phys $1100 -- the Cpm3-skew proof
         int handBacks = 0;                 // Z80->6502 transitions (CoprocessorActive true->false) -- the bridge
+        bool sawCoprocessorActive = false; // the Z80 was the bus master at some point -- the boot is genuinely live
         bool prevActive = machine.CoprocessorActive;
         for (long run = 0; run < total; run += slice)
         {
             machine.Run(slice);
             if (!sawZ31AtZ80Entry && bus.Read8(0x1100) == 0x31) sawZ31AtZ80Entry = true;
             bool active = machine.CoprocessorActive;
+            if (active) sawCoprocessorActive = true;
             if (active != prevActive)
             {
                 if (!active) handBacks++;
@@ -108,6 +119,25 @@ public class Apl2Cpm3BootTests
         //         predicted dead bridge (0 hand-backs) is falsified live (ADR 0018-B Decision B3 discriminator).
         Assert.True(handBacks > 0,
             $"expected >=1 Z80->6502 hand-back (the ?jsr65 service-loop bridge); observed {handBacks}.");
+
+        // --- (2b) The Z80 was the active bus master during the boot -- the boot is genuinely live (the
+        //          coprocessor took the bus and ran CP/M-3). Sampled across the loop, not at the final instant:
+        //          the CCP idles in the 6502 `?jsr65` service loop, so at loop-exit the 6502 is the master
+        //          (CoprocessorActive false). The sibling of the CPM-5 gate's CoprocessorActive truth -- the Z80 ran.
+        Assert.True(sawCoprocessorActive,
+            "expected the Z80 to have been the active bus master during the apl2cpm3 CP/M-3 boot (the live coprocessor)");
+
+        // --- (2c) THE V80-3 HEADLINE (ADR 0018-C OQ1): the Videx auto-engaged and the DisplayMultiplexer
+        //          switched to the 80-col terminal (ActiveIndex==1). The apl2cpm3 CRT80 firmware programmed the
+        //          Videx CRTC ($C0B1 data writes), which engaged the 80-col display (the CRTC-program trigger
+        //          fired). This is the contrast sibling to the CPM-5 2.2 gate's ActiveIndex==0: a 40-col master
+        //          issues ZERO $C0Bx and never engages, while apl2cpm3 programs the CRTC and flips the mux to
+        //          the live 80-col terminal (index 1).
+        Assert.True(videxEngagedCount > 0,
+            $"expected the Videx to auto-engage: the apl2cpm3 CRT80 firmware programmed the Videx CRTC ($C0B1), "
+          + $"which engages the 80-col display (ADR 0018-C OQ1 / V80-3); observed {videxEngagedCount} engagements. "
+          + "A 40-col master issues zero $C0Bx and never engages -- ActiveIndex would stay 0 (the CPM-5 gate).");
+        Assert.Equal(1, mux.ActiveIndex);   // the DisplayMultiplexer switched to the Videx (index 1 = the live 80-col terminal)
 
         // --- (3a) The LC-bank-2-nonzero discriminator (ADR 0018-C Decision C4 -- the tight red->green proof of
         //          the V80-4 fix). apl2cpm3's ?ldccp `LDIR` copies the CP/M-3 CCP into LC bank 2 via the
