@@ -114,6 +114,29 @@ public class Apple2LanguageCardTests
     }
 
     [Fact]
+    public void An_odd_address_write_preserves_an_already_set_write_enable()
+    {
+        // ADR 0018-C (the two-latch 74LS175 correction): the pre-write COUNT and the write-enable LATCH
+        // are SEPARATE. An odd-address WRITE clears only the COUNT -- it must NOT clear an already-set
+        // write-enable (only an EVEN access does). The old single-latch model wrongly cleared write-enable
+        // on ANY non-qualifying access (including an odd write), which dropped apl2cpm3's CCP `LDIR` copy
+        // into LC bank 2. This test FAILS under that old model and PASSES under the fix.
+        var (_, bus, _) = BuildWithLc();
+
+        // Arm + enable writes via two consecutive odd reads of $C083 (read-RAM bank 1, write-enabled).
+        _ = bus.Read8(0xC083); _ = bus.Read8(0xC083);   // write-enabled, read-RAM, bank 1
+
+        // An odd-address WRITE to $C083 (o=3, odd; keeps bank 1 + read-RAM). Under the OLD single-latch
+        // model this clears write-enable; under the two-latch fix it clears only the COUNT and write-enable
+        // SURVIVES on the same bank.
+        bus.Write8(0xC083, 0x00);
+
+        // The poke now TAKES because write-enable survived the odd-address write.
+        bus.Write8(0xD000, 0x5A);
+        Assert.Equal(0x5A, bus.Read8(0xD000));
+    }
+
+    [Fact]
     public void Presence_detection_a_write_test_to_D000_RAM_reads_back_when_64K()
     {
         var (_, bus, _) = BuildWithLc();
