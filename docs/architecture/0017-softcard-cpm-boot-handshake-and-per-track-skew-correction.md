@@ -421,6 +421,11 @@ changes are test-only.
    for the cached master + the asset-free direct Videx 80×24 render gates prove the Videx independently. Sourcing a
    true Videx-console (80-col) CP/M master remains an **owner-asset** item; if one is found, the gate gains a sibling
    asserting `ActiveIndex==1` against it.
+   **FOLLOW-ON (2026-06-22, ADR 0018):** the owner-sourced 80-col master is **apl2cpm3 / CP/M 3.1** — it *requires* an
+   80-column card (its BIOS `icrt` drives the Videx slot-3 CRTC) and is the first real CP/M expected to make
+   `ActiveIndex==1` true from a boot. A live trace pins the gating blocker (the SoftCard control port must decode at
+   **slot 4 `$C400`**, not this 2.2 master's slot 5 `$C500`). See **ADR 0018** for the configurable-slot decision, the
+   CP/M-3 boot chain, and the `ActiveIndex==1`-from-real-CP/M sibling gate this OQ anticipated.
 3. **Clock-ratio under per-instruction stepping (Decision 3).** Per-`Step` virtual-clock conversion is finer-grained
    than per-`Run`; confirm the rounding stays invisible to CP/M (it will — CP/M is coarse-timed). Inherited from ADR
    0015 OQ3; no new risk.

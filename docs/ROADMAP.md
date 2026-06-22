@@ -80,6 +80,22 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > Release suite green (7311 passed / 0 failed / 3 skipped), warning-clean. **The SoftCard CP/M arc is complete
 > (CPM-1…CPM-5 ✅).** Per-PR detail in `docs/BUILDER_QUEUE.md`.
 >
+> **IN FLIGHT (2026-06-22, ADR 0018) — apl2cpm3 CP/M 3.1 in 80 columns on the Videx (the real 80-col CP/M console
+> the 2.2 arc could not produce).** A live instruction-step trace of the real **apl2cpm3 / CPM3.1_Z80_Softcard**
+> Disk 1 (CP/M 3.1, 46K TPA, no banked memory; README pins SoftCard in **slot 4**, 80-col card in slot 3) on the
+> shipped `SoftCardBoard` pins the gating blocker: apl2cpm3 hard-codes `STA $C400` (slot 4) to start the Z80, but our
+> board decodes the control port at `$C500` (slot 5) — so the writes hit an empty MMIO hole and the boot prints
+> `NO Z80 FOUND`. At **slot 4** the Z80 activates and the CP/M-3 loader (CPMLDR / `CP/M V3.0`) loads to RAM `$1100+`,
+> no crash. The fix is one additive, defaulted **per-board control-port-slot parameter** (the 2.2 board stays slot 5,
+> byte-for-byte unchanged); everything else is reused unchanged (dual-CPU model, write-only toggle + per-instruction
+> yield, the per-track `SectorOrderKind.Cpm` skew — live-verified correct for apl2cpm3, the 64K Language Card —
+> live-confirmed wired, and the Videx slot-3 CRTC + `DisplayMultiplexer` auto-switch — already wired, waiting on the
+> boot). One residual (the Z80 NOP-slides from `$0000` because its entry vector to the loaded loader is absent) is a
+> bounded Builder bring-up against the live disk, the same shape that closed 2.2's `$1010` bridge. apl2cpm3 is the
+> first real CP/M expected to engage the Videx 80-col path (`ActiveIndex==1`) — the owner-sourced 80-col master ADR
+> 0017 OQ2 left open. **PR sequence (planned):** the configurable slot + asset loader + honest skipped gate → CP/M 3.1
+> `A>` in 40-col → CP/M 3.1 `A>` in **80 columns on the Videx**. See **ADR 0018**.
+>
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
