@@ -29,8 +29,11 @@ public class Apl2Cpm3Tests
             File.WriteAllBytes(disk1, new byte[Apl2Cpm3.DiskLength]);   // 143,360
             Assert.Equal(disk1, Apl2Cpm3.TryGetBootDiskPath(root));
             Assert.Equal(disk1, Apl2Cpm3.TryGetDiskPath(1, root));
-            // The 2.2 disk path is a DIFFERENT subdir -- never touched.
-            Assert.NotEqual(SoftCardCpm.TryGetDiskPath(root), Apl2Cpm3.TryGetBootDiskPath(root));
+            // The 2.2 disk path is a DIFFERENT subdir -- never touched. Assert directly on the resolved
+            // path (a vacuous NotEqual-vs-null would pass even if Apl2Cpm3 resolved to the 2.2 path).
+            string? resolved = Apl2Cpm3.TryGetBootDiskPath(root);
+            Assert.Contains(Path.Combine("cpm", "apl2cpm3"), resolved!);
+            Assert.DoesNotContain("softcard-cpm.dsk", resolved!);
         }
         finally { Directory.Delete(root, recursive: true); }
     }

@@ -42,12 +42,18 @@ public static class SoftCardVidexBoard
             throw new ArgumentException(
                 $"Disk II boot ROM must be exactly ${Apple2Board.DiskBootRomLength:X} bytes; "
               + $"got ${diskBootRom.Length:X}.", nameof(diskBootRom));
+        // The slot must be page-aligned and inside the $C000-$CFFF I/O band, AND must not overlap the
+        // $C600-$C6FF disk-boot-ROM window (a Rom region, not Mmio — a peripheral there would fail
+        // BoardSpecValidator's slot-not-in-mmio check). ADR 0018 Decision 1.
         if (controlPortBase % SoftCardBoard.ControlPortLength != 0
             || controlPortBase < Apple2Board.IoBase
-            || controlPortBase + SoftCardBoard.ControlPortLength > Apple2Board.IoBase + Apple2Board.IoLength)
+            || controlPortBase + SoftCardBoard.ControlPortLength > Apple2Board.IoBase + Apple2Board.IoLength
+            || (controlPortBase < Apple2Board.DiskBootRomBase + Apple2Board.DiskBootRomLength
+                && controlPortBase + SoftCardBoard.ControlPortLength > Apple2Board.DiskBootRomBase))
             throw new ArgumentOutOfRangeException(nameof(controlPortBase),
-                $"the SoftCard control-port base must be a page-aligned address in the "
-              + $"$C000-$CFFF I/O band; got ${controlPortBase:X}.");
+                $"the SoftCard control-port base must be a page-aligned address in the $C000-$CFFF "
+              + $"I/O band and must not overlap the $C600-$C6FF disk-boot-ROM window; "
+              + $"got ${controlPortBase:X}.");
 
         var controlPort = new SoftCardControlPort();
         var coprocessor = new CoprocessorSpec(

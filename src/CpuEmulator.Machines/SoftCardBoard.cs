@@ -47,7 +47,7 @@ public static class SoftCardBoard
     /// <param name="controlPortBase">The page the SoftCard control port decodes (ADR 0018 Decision 1).
     /// Defaults to <see cref="ControlPortBaseSlot5"/> ($C500) so the shipped 2.2 board is byte-for-byte
     /// unchanged; apl2cpm3 passes <see cref="ControlPortBaseSlot4"/> ($C400). MUST be page-aligned and lie in
-    /// the $C000-$C7FF I/O band so the BoardSpecValidator's slot-not-in-mmio check passes.</param>
+    /// the $C000-$CFFF I/O band so the BoardSpecValidator's slot-not-in-mmio check passes.</param>
     public static BoardSpec Spec(byte[] systemRom, Apple2Iou iou, Apple2DiskII disk2, byte[] diskBootRom,
                                  uint controlPortBase = ControlPortBaseSlot5)
     {
@@ -55,14 +55,18 @@ public static class SoftCardBoard
         ArgumentNullException.ThrowIfNull(iou);
         ArgumentNullException.ThrowIfNull(disk2);
         ArgumentNullException.ThrowIfNull(diskBootRom);
-        // The slot must be page-aligned and inside the $C000-$C7FF I/O band (so the validator's
-        // slot-not-in-mmio check holds for any caller-chosen slot). ADR 0018 Decision 1.
+        // The slot must be page-aligned and inside the $C000-$CFFF I/O band, AND must not overlap the
+        // $C600-$C6FF disk-boot-ROM window (a Rom region, not Mmio — a peripheral there would fail
+        // BoardSpecValidator's slot-not-in-mmio check). ADR 0018 Decision 1.
         if (controlPortBase % ControlPortLength != 0
             || controlPortBase < Apple2Board.IoBase
-            || controlPortBase + ControlPortLength > Apple2Board.IoBase + Apple2Board.IoLength)
+            || controlPortBase + ControlPortLength > Apple2Board.IoBase + Apple2Board.IoLength
+            || (controlPortBase < Apple2Board.DiskBootRomBase + Apple2Board.DiskBootRomLength
+                && controlPortBase + ControlPortLength > Apple2Board.DiskBootRomBase))
             throw new ArgumentOutOfRangeException(nameof(controlPortBase),
-                $"the SoftCard control-port base must be a page-aligned address in the "
-              + $"$C000-$CFFF I/O band; got ${controlPortBase:X}.");
+                $"the SoftCard control-port base must be a page-aligned address in the $C000-$CFFF "
+              + $"I/O band and must not overlap the $C600-$C6FF disk-boot-ROM window; "
+              + $"got ${controlPortBase:X}.");
 
         BoardSpec baseSpec = Apple2Board.SpecWithSystem(systemRom, iou, disk2, diskBootRom);
 
