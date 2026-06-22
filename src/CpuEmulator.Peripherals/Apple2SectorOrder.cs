@@ -2,8 +2,10 @@ namespace CpuEmulator.Peripherals;
 
 /// <summary>Which logical-sector ordering a flat .dsk/.po image uses. A `.dsk` is in DOS 3.3 logical
 /// order; a `.po` is in ProDOS order; the SoftCard CP/M `.dsk` is in the CP/M (apple-do) order (the
-/// THIRD ordering, research §5 — added in the CP/M arc, PR-K).</summary>
-public enum SectorOrderKind { Dos33, ProDos, Cpm }
+/// THIRD ordering, research §5 — added in the CP/M arc, PR-K). <see cref="Cpm3"/> is apl2cpm3's CP/M 3.1
+/// ordering — RAW DOS 3.3 on EVERY track (ADR 0018-A; the BOOTLDR `xlt` + the running LDRBIOS `fdxlt`
+/// compose to identity over a raw presentation, so the disk must be laid down un-skewed).</summary>
+public enum SectorOrderKind { Dos33, ProDos, Cpm, Cpm3 }
 
 /// <summary>The logical↔physical sector interleave (Beneath Apple DOS). The disk head reads PHYSICAL
 /// sectors 0..15 along a track; a .dsk/.po file stores its 16 sectors in LOGICAL order. When PR-G's
@@ -45,18 +47,27 @@ public static class Apple2SectorOrder
         SectorOrderKind.Dos33 => (int[])Dos33PhysToLog.Clone(),
         SectorOrderKind.ProDos => (int[])ProDosPhysToLog.Clone(),
         SectorOrderKind.Cpm => (int[])CpmDataPhysToLog.Clone(),
+        // apl2cpm3 (CP/M 3.1): RAW DOS 3.3 on EVERY track. ADR 0018-A — the apl2cpm3 BOOTLDR applies its
+        // OWN software `xlt` skew over the Disk II interface ROM, and the running LDRBIOS RWTS (`fdxlt`)
+        // does the same, both matching the address-field sector ID; against a raw (un-pre-skewed) DOS 3.3
+        // presentation these compose to identity. So unlike the 2.2 `Cpm` path (which needs the
+        // `CpmBootPhysToLog`/`CpmDataPhysToLog` pre-skew because its loader does NOT re-translate), apl2cpm3
+        // must be presented un-skewed: live-verified — under raw DOS33 on all tracks, CPMLDR's `LD SP,$0281`
+        // (`$31`) lands at Z80 $0100, CPM3.SYS reads byte-exact, and the boot reaches CP/M 3.1 `A>`.
+        SectorOrderKind.Cpm3 => (int[])Dos33PhysToLog.Clone(),
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
     /// <summary>The 16-entry physical→logical map for <paramref name="kind"/> on <paramref name="track"/>
     /// (ADR 0017 Decision 1). Only <see cref="SectorOrderKind.Cpm"/> is track-dependent: system tracks 0-2
-    /// use the boot interleave, tracks 3+ use the data table. DOS 3.3 / ProDOS are single-skew and ignore
-    /// <paramref name="track"/> (the same table the single-arg overload returns). A fresh copy per call.</summary>
+    /// use the boot interleave, tracks 3+ use the data table. DOS 3.3 / ProDOS / <see cref="SectorOrderKind.Cpm3"/>
+    /// are single-skew and ignore <paramref name="track"/> (the same table the single-arg overload returns —
+    /// <see cref="SectorOrderKind.Cpm3"/> is raw DOS 3.3 on EVERY track, ADR 0018-A). A fresh copy per call.</summary>
     public static int[] PhysicalToLogical(SectorOrderKind kind, int track) => kind switch
     {
         SectorOrderKind.Cpm => track < CpmSystemTracks
             ? (int[])CpmBootPhysToLog.Clone()
             : (int[])CpmDataPhysToLog.Clone(),
-        _ => PhysicalToLogical(kind),   // Dos33 / ProDos: track-independent, unchanged
+        _ => PhysicalToLogical(kind),   // Dos33 / ProDos / Cpm3: track-independent, unchanged
     };
 }

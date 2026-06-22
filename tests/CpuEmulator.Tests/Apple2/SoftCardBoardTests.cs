@@ -50,6 +50,41 @@ public class SoftCardBoardTests
     }
 
     [Fact]
+    public void Cpm3_order_is_raw_dos33_on_every_track_a_clean_permutation()
+    {
+        // ADR 0018-A: apl2cpm3's CP/M 3.1 disk must be presented in RAW DOS 3.3 order on EVERY track. Its
+        // BOOTLDR `xlt` + the running LDRBIOS `fdxlt` both re-translate logical->physical against the disk's
+        // address-field IDs, so a raw (un-pre-skewed) DOS 3.3 presentation composes to identity (live-verified:
+        // CPMLDR's `LD SP` lands at Z80 $0100, CPM3.SYS reads byte-exact, the boot reaches CP/M 3.1 A>). This
+        // is the OPPOSITE of the 2.2 `Cpm` path (which needs the CpmBoot/CpmData pre-skew); Cpm3 is single-skew
+        // = the documented DOS 3.3 table for all 35 tracks.
+        int[] dos33 = Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Dos33);
+
+        // The single-arg overload returns raw DOS 3.3.
+        Assert.Equal(dos33, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm3));
+
+        // The (kind, track) overload returns raw DOS 3.3 for the boot tracks (0/1/2), the system/data split
+        // boundary (3), and the last track (34) alike -- there is NO per-track split for Cpm3.
+        foreach (int track in new[] { 0, 1, 2, 3, 34 })
+            Assert.Equal(dos33, Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm3, track));
+
+        // It is a genuine 0..15 permutation (the DOS 3.3 interleave).
+        int[] cpm3 = Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm3);
+        Assert.Equal(Enumerable.Range(0, 16), cpm3.OrderBy(x => x));
+
+        // And it is DISTINCT from the 2.2 CP/M data/boot tables (the un-fakeable proof Cpm3 is its own kind,
+        // not aliased onto the 2.2 skew that double-skews apl2cpm3).
+        Assert.NotEqual(Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm), cpm3);
+        Assert.NotEqual(Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 0), cpm3);   // boot table
+
+        // The 2.2 Cpm tables are byte-for-byte unchanged by the additive Cpm3 kind (no shared-path drift).
+        Assert.Equal(new[] { 0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1 },
+            Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm));
+        Assert.Equal(new[] { 0, 11, 6, 1, 12, 7, 2, 13, 8, 3, 14, 9, 4, 15, 10, 5 },
+            Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Cpm, 0));
+    }
+
+    [Fact]
     public void Single_skew_orders_ignore_the_track_argument_dos33_and_prodos_unchanged()
     {
         // DOS 3.3 / ProDOS are single-skew: the (kind, track) overload returns the same table for every track,
