@@ -13,6 +13,16 @@
 > legal), §2 (the `$C800` expansion band). Section references are to the SoftCard doc unless noted.
 > **Owner scope decision (final, do not re-litigate):** the Videx 80-column card is **bundled into the CP/M deliverable**
 > — SoftCard + CP/M + Videx 80-col ship together; CP/M is never shipped in a half-usable 40-col state (research §7).
+>
+> **Status of the "usable 80-column CP/M" deliverable (2026-06-22, V80-2/V80-3 — PARTIAL):** the 2.2 master is a
+> 40-col console (ADR 0017 Decision 6, `ActiveIndex==0`). **apl2cpm3 / CP/M 3.1** is the real 80-col candidate: with
+> the slot-4 fix + `SectorOrderKind.Cpm3` (raw DOS33, ADR 0018-A) + the **real Videx firmware**, it now renders its
+> **genuine CP/M 3.1 sign-on** on the Videx `$CC00` VRAM (the first real CP/M-3 console text on the 80-col card —
+> the `[Apl2Cpm3VidexFact]` gate). The deliverable is **not yet complete**: the boot stalls before `A>` on a
+> **deterministic banked-BDOS execution divergence** (a fifth layer below the V80-2 scope — Z80 core / SoftCard
+> translation / LC-banking, off-limits per ADR 0018-A A1), so `ActiveIndex==1` from a real CP/M boot remains OPEN.
+> See **ADR 0018** + ADR 0017 OQ2.
+>
 > **Supersedes / relates to:**
 > - **ADR 0015** (dual-CPU SoftCard board) — CP/M runs on the Z80 via ADR 0015; this ADR adds its *display* (Videx) and
 >   its *assets* (the CP/M disk). The Videx inherits the `$C800` expansion-bank mapper ADR 0014 Decision 5 deferred here.

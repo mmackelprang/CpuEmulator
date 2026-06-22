@@ -119,6 +119,28 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > **[ADR 0018-A](architecture/0018-A-apl2cpm3-z80-coldstart-and-the-bootldr-software-skew.md)** + the re-pointed
 > V80-2 plan. **V80-2 unblocked (⛔→📋); V80-3 unchanged behind it.**
 >
+> **V80-2/V80-3 PARTIAL — the CP/M-3 console renders on the Videx; `A>` blocked by a fifth layer (2026-06-22).**
+> The combined V80-2+V80-3 work landed the in-scope fix and live-triaged the boot to its true ceiling. **Shipped
+> + green:** (1) `SectorOrderKind.Cpm3` = **raw DOS 3.3 on every track** (ADR 0018-A live-resolved: BOOTLDR's
+> `xlt` + the running LDRBIOS `fdxlt` compose to identity over a raw presentation, so the disk is laid down
+> un-skewed — NOT the per-track split the plan guessed; under it CPMLDR's `LD SP` (`$31`) lands at Z80 `$0100`
+> byte-exact); (2) the **`?jsr65` Z80↔6502 service-loop bridge round-trips with NO change** — the live boot shows
+> ~73 hand-backs (ADR 0018-B's predicted dead bridge is **falsified**; the natural `$03C9` resume already re-enters
+> the `L65A` loop); (3) with the **REAL Videx firmware** (`videx-firmware.rom`, cached) the apl2cpm3 CRT80 console
+> works: `?icrt` programs the Videx CRTC for 80×24 and `?odcrt` paints the **genuine CP/M 3.1 sign-on**
+> (`CP/M Version 3.0, 56K BIOS R6/89` / `46K TPA`) into the Videx `$CC00` VRAM — decoded off the live VRAM by the
+> `[Apl2Cpm3VidexFact]` gate (`Cpm3_renders_the_cpm3_signon_on_the_Videx_80col_interpreter`) + the
+> `tools/BootProbe --apl2cpm3-videx` screenshot. (With the **synthetic** all-zero firmware the prior pass saw
+> nothing — the real firmware is the load-bearing console unblock.) **The wall (escalated, NOT faked):** the boot
+> renders the sign-on but does **not** reach `A>`. After the sign-on the CCP takes control (Z80 `JP $0100`,
+> `CALL 5`) and the **banked CP/M-3 BDOS** path hits a **deterministic** execution divergence — a conditional
+> `RET` returns to a zeroed region (Z80 `$1901`) and the Z80 NOP-slides (reproduced byte-identically: instr 36583,
+> `PC=$1929`). This is a **fifth layer** in the banked BDOS/CCP execution (the Z80 core / SoftCard translation /
+> Language-Card-banking model), which **ADR 0018-A A1 + the V80-2 hard constraints put off-limits** for this PR
+> (no Z80-core, no translation change). So `A>` and `ActiveIndex==1` are **not yet achieved**; the headline
+> ("80-col CP/M end-to-end") **remains open**, now pinned to a concrete, reproducible BDOS-execution divergence for
+> the owner to scope. The 2.2 no-regression gates (CPM-4 hash, CPM-5 Videx `ActiveIndex==0`) ran live and passed.
+>
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.

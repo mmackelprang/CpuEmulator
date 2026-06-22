@@ -426,6 +426,14 @@ changes are test-only.
    `ActiveIndex==1` true from a boot. A live trace pins the gating blocker (the SoftCard control port must decode at
    **slot 4 `$C400`**, not this 2.2 master's slot 5 `$C500`). See **ADR 0018** for the configurable-slot decision, the
    CP/M-3 boot chain, and the `ActiveIndex==1`-from-real-CP/M sibling gate this OQ anticipated.
+   **PARTIAL (2026-06-22, V80-2/V80-3):** with the slot-4 fix + `SectorOrderKind.Cpm3` (raw DOS33, ADR 0018-A) + the
+   **real Videx firmware**, apl2cpm3 now renders its **genuine CP/M 3.1 sign-on** (`CP/M Version 3.0, 56K BIOS R6/89`)
+   on the Videx `$CC00` VRAM — the first real CP/M-3 console text on the 80-col card (the `[Apl2Cpm3VidexFact]` gate).
+   But the boot does **not** yet reach `A>`: after the sign-on the banked CP/M-3 BDOS/CCP hits a **deterministic**
+   execution divergence (a `RET` into a zeroed region; instr 36583, Z80 `PC=$1929`), a **fifth layer** below the
+   V80-2 scope (the Z80 core / SoftCard translation / LC-banking model, which ADR 0018-A A1 puts off-limits). So
+   **`ActiveIndex==1` remains OPEN** — pending the owner scoping that BDOS-execution divergence; the sibling gate is
+   not yet green.
 3. **Clock-ratio under per-instruction stepping (Decision 3).** Per-`Step` virtual-clock conversion is finer-grained
    than per-`Run`; confirm the rounding stays invisible to CP/M (it will — CP/M is coarse-timed). Inherited from ADR
    0015 OQ3; no new risk.
