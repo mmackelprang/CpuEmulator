@@ -56,12 +56,21 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > Gated un-fakeably by a synthetic dual-CPU yield test (sentinel must not run before the Z80 — fails pre-fix,
 > passes post-fix) and a live gate proving the Z80 reaches and **stably holds** real CP/M BIOS at `$Axxx`
 > (pre-fix it collapsed entirely to the `$0000` reset stub). With CPM-1+2+3 the boot stably reaches the CP/M
-> BIOS — **no 4th defect**, exactly as ADR 0017 predicted. **CPM-4 remains queued** (the live `A>` deliverable
-> + the `$1010` bridge live-triage bring-up). The "80-col CP/M
-> end-to-end" headline
+> BIOS — **no 4th defect**, exactly as ADR 0017 predicted. **CPM-4 SHIPPED (2026-06-21) — THE HEADLINE: the
+> SoftCard CP/M deliverable now actually boots to `A>`.** The live triage landed in **outcome (1)** of ADR 0017
+> Decision 4's scoped hypothesis: with CPM-1+2+3 all landed, CONOUT already reaches the 40-col Apple text screen
+> and the real Microsoft SoftCard CP/M 2.2 disk boots to `A>` with **no further production change** — fixes 1-3
+> were the complete gating set, **no `$1010` bridge change needed**, exactly as the ADR anticipated. CPM-4 is
+> therefore **test-only**: it un-skips the `A>` gate into the live un-fakeable oracle (ADR 0017 Decision 5) —
+> decode the 40-col text page and assert the **decoded `A>`** (the CCP prompt) + a CP/M sign-on line (the cached
+> disk signs on as `APPLE ][ CP/M 44K VER. 2.20B / (C) 1980 MICROSOFT`) + `CoprocessorActive` + a committed real
+> frame hash. The decoded `A>` boot frame is captured as a human-visible PNG via `tools/BootProbe
+> --cpm-screenshot`. Full Release suite green (7310 passed / 0 failed / 4 skipped), warning-clean. The "80-col
+> CP/M end-to-end" headline
 > is **honestly narrowed** to "CP/M boots to `A>` on the **40-col** console" + "the Videx 80×24 path proven by a
 > direct render" — this CP/M master is a 40-column console (zero `$C0Bx`); an 80-col CP/M master is **owner-gated**
-> (ADR 0017 Decision 6/7, the deferred PR-5). Per-PR detail in `docs/BUILDER_QUEUE.md`.
+> (ADR 0017 Decision 6/7, PR-5 — 5 candidate masters now downloaded for the auto-engage discovery). Per-PR
+> detail in `docs/BUILDER_QUEUE.md`.
 >
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
