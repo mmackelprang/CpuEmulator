@@ -23,16 +23,19 @@ public class Apl2Cpm3BootTests
     //       (With the SYNTHETIC all-zero firmware the prior pass saw NOTHING here -- the real firmware is the
     //       load-bearing unblock, which is why this gate is [Apl2Cpm3VidexFact] -- it skips without it.)
     //
-    // THE WALL (honest -- NOT asserted here): the boot renders the CP/M-3 sign-on on the Videx but does NOT
-    // reach the `A>` CCP prompt. After the sign-on, the CCP takes control (JP Z80 $0100, CALL 5 = BDOS) and the
-    // BDOS path hits a DETERMINISTIC execution divergence -- a conditional RET returns to Z80 $1901 (a zeroed
-    // region) and the Z80 NOP-slides (reproduced byte-identically: instr 36583, PC=$1929, across runs). This is
-    // a FIFTH layer BELOW the V80-2/V80-3 scope (skew OK + bridge OK + firmware OK => the sign-on), in the
-    // banked CP/M-3 BDOS/CCP execution -- i.e. the Z80 core / SoftCard translation / LC-banking model, which
-    // ADR 0018-A A1 + the V80-2 hard constraints put OFF-LIMITS for this PR (no Z80-core / no translation
-    // change). So this gate asserts the genuine, un-fakeable milestone the in-scope work achieves (the real
-    // CP/M-3 console text on the Videx 80-col VRAM) and the `A>` headline is escalated for the owner to scope
-    // the fifth layer. Asserting `A>` or ActiveIndex==1 here would be a false pass (neither happens live).
+    //   (4) The boot reaches the decoded `A>` CCP prompt on the Videx 80-col VRAM (the headline arbiter,
+    //       ADR 0018 Decision 4 / ADR 0018-C Decision C4). The fifth-layer blocker is now FIXED by V80-4
+    //       (ADR 0018-C): the CP/M-3 loader's ?ldccp copies the CCP into LC bank 2 with `LD (0E08BH),A`
+    //       (an odd-address WRITE to Apple $C08B, a bank-2 select) -> `LDIR` -> `LD (0E083H),A`. The old
+    //       single-latch Language-Card model cleared write-enable on that odd-address WRITE, so the `LDIR`
+    //       was silently dropped and LC bank 2 stayed zeroed (the banked BDOS then RET'd into a zeroed
+    //       Z80 $1901 and NOP-slid -- no `A>`). The two-latch 74LS175 correction (MAME ramcard16k do_io /
+    //       Sather ch.5) keeps write-enable across the odd-address write (only an even access clears it),
+    //       so the CCP copy LANDS in LC bank 2 and the boot runs far past the old wedge to the genuine
+    //       `A>` prompt -- decoded here off the live Videx $CC00 VRAM (the un-fakeable CCP prompt, never a
+    //       heuristic). This gate now asserts BOTH the CP/M-3 sign-on (still on screen above the prompt)
+    //       AND the decoded `A>`, plus the LC-bank-2-nonzero discriminator (the tight red->green proof
+    //       that the CCP copy landed -- bank 2 is all zeros under the old model, ADR 0018-C).
     //
     // CONTRAST SIBLING (V80-3 Task 4): the shipped CPM-5 2.2 gate
     // (SoftCardVidexBoardTests.Cpm_boots_and_renders_the_A_prompt_on_the_Videx_80col_interpreter) asserts
@@ -106,16 +109,34 @@ public class Apl2Cpm3BootTests
         Assert.True(handBacks > 0,
             $"expected >=1 Z80->6502 hand-back (the ?jsr65 service-loop bridge); observed {handBacks}.");
 
-        // --- (3) The REAL Videx firmware drove the 80-col console: the GENUINE CP/M 3.1 sign-on is decoded off
-        //         the live Videx $CC00 VRAM (the firmware programmed the CRTC for 80x24 and ran ?odcrt). This is
-        //         the headline in-scope achievement -- the first real CP/M-3 console text on the Videx 80-col
-        //         render. With the synthetic all-zero firmware this VRAM is EMPTY (the firmware is load-bearing).
+        // --- (3a) The LC-bank-2-nonzero discriminator (ADR 0018-C Decision C4 -- the tight red->green proof of
+        //          the V80-4 fix). apl2cpm3's ?ldccp `LDIR` copies the CP/M-3 CCP into LC bank 2 via the
+        //          odd-address bank-2-select write `LD (0E08BH),A`. Under the OLD single-latch LC model that
+        //          odd-address write cleared write-enable, so the `LDIR` was dropped and bank 2 stayed ALL ZEROS.
+        //          With the two-latch fix write-enable survives the odd write and the copy LANDS (the live trace
+        //          saw 3026/4096 nonzero). Assert it is well above noise -- this is 0 under the old model.
+        int bank2NonZero = lc.Bank2NonZeroCountForTest();
+        Assert.True(bank2NonZero > 100,
+            $"expected LC bank 2 to be populated by the ?ldccp CCP `LDIR` copy (the live trace saw 3026/4096); "
+          + $"observed {bank2NonZero} nonzero bytes. It is 0 under the old single-latch LC model that cleared "
+          + "write-enable on the odd-address bank-2-select write -- the V80-4 two-latch fix (ADR 0018-C) lets it land.");
+
+        // --- (3b) The REAL Videx firmware drove the 80-col console and the boot reached the decoded `A>` CCP
+        //          prompt (the headline arbiter, ADR 0018 Decision 4 / ADR 0018-C Decision C4). The firmware
+        //          programmed the CRTC for 80x24 and the CP/M-3 sign-on + the `A>` prompt are decoded off the
+        //          live Videx $CC00 VRAM. The sign-on remains on screen above the prompt, so the gate proves
+        //          BOTH the sign-on AND the `A>` CCP prompt. With the synthetic all-zero firmware this VRAM is
+        //          EMPTY (the firmware is load-bearing); under the old single-latch LC model `A>` never appears.
         string videxConsole = DecodeVidexConsole(videx);
         Assert.True(
             videxConsole.Contains("CP/M", StringComparison.OrdinalIgnoreCase),
             $"expected the CP/M-3 sign-on on the Videx 80-col VRAM; decoded console was:\n{videxConsole}");
         Assert.Contains("BIOS", videxConsole, StringComparison.OrdinalIgnoreCase);   // "...56K BIOS R6/89"
         Assert.Contains("TPA", videxConsole, StringComparison.OrdinalIgnoreCase);    // "46K TPA"
+        Assert.True(
+            videxConsole.Contains("A>", StringComparison.Ordinal),
+            $"expected the decoded `A>` CCP prompt on the Videx 80-col VRAM (the un-fakeable arbiter -- "
+          + $"ADR 0018 Decision 4 / ADR 0018-C / V80-4); decoded console was:\n{videxConsole}");
     }
 
     /// <summary>Decode the Videx 80x24 character VRAM to ASCII -- the terminal console text. The Videx maps its
