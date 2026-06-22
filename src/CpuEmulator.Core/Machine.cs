@@ -154,54 +154,46 @@ public sealed class Machine : IMachineContext, ICoprocessorControl
         while (_scheduler.CurrentCycle < target)
         {
             _sliceEndRequested = false;
-            long virtualBefore = _scheduler.CurrentCycle;
             long sliceEnd = _scheduler.TryPeekNextEventCycle(out long eventCycle)
                             && eventCycle < target
-                ? Math.Max(eventCycle, virtualBefore + 1)
+                ? Math.Max(eventCycle, _scheduler.CurrentCycle + 1)
                 : target;
 
-            if (!_z80Active)
+            // Drive the ACTIVE core ONE INSTRUCTION AT A TIME, yielding the instant a $CnXX write flips it
+            // (SetCoprocessorActive sets _sliceEndRequested INSIDE Step). ADR 0017 Decision 3.
+            while (_scheduler.CurrentCycle < sliceEnd && !_sliceEndRequested)
             {
-                // The primary runs in its own (virtual = real) domain.
-                long before = Cpu.CycleCount;
-                long budget = sliceEnd - _scheduler.CurrentCycle;
-                if (budget <= 0) budget = 1;
-                Cpu.Run(ref budget);
-                if (Cpu.CycleCount <= before)
-                    throw new EmulationException(
-                        $"CPU '{Cpu.Architecture}' made no progress during Run; aborting to avoid a hang.");
+                if (!_z80Active)
+                {
+                    long before = Cpu.CycleCount;
+                    Cpu.Step();                                   // exactly one 6502 instruction
+                    if (Cpu.CycleCount <= before)
+                        throw new EmulationException(
+                            $"CPU '{Cpu.Architecture}' made no progress during Step; aborting to avoid a hang.");
+                }
+                else
+                {
+                    ICpuCore copro = _coprocessor!;
+                    long coproBefore = copro.CycleCount;
+                    copro.Step();                                 // exactly one Z80 instruction
+                    long coproRan = copro.CycleCount - coproBefore;
+                    if (coproRan <= 0)
+                        throw new EmulationException(
+                            $"Coprocessor '{copro.Architecture}' made no progress during Step; aborting to avoid a hang.");
+                    _coprocessorCyclesContributed += coproRan;    // convert to the virtual clock via the ratio
+                }
+
+                // Fire any events due at the new (derived) virtual time.
+                _scheduler.AdvanceTo(_scheduler.CurrentCycle);
+
+                // A pending interrupt forces a switch to the primary (ADR 0015 Decision 5: all interrupts to
+                // the 6502; while the coprocessor runs the primary is DMA-suspended, so an IRQ resumes it).
+                if (_z80Active && (IrqLine.IsAsserted || NmiLine.IsAsserted))
+                    _z80Active = false;
+                // _sliceEndRequested (set by a $CnXX write this instruction) breaks the inner loop; _z80Active
+                // already selects the other core for the next instruction (the writing instruction completed
+                // first -- ADR 0015 OQ5: the switch takes effect on the next dispatch).
             }
-            else
-            {
-                // The coprocessor runs; its cycles convert into the virtual domain via the ratio. Size the
-                // coprocessor budget so its converted contribution does not overshoot the slice end.
-                ICpuCore copro = _coprocessor!;
-                long virtualBudget = sliceEnd - _scheduler.CurrentCycle;
-                if (virtualBudget <= 0) virtualBudget = 1;
-                long coproBudget = Math.Max(1, (long)Math.Round(virtualBudget * _coprocessorRatio));
-                long coproBefore = copro.CycleCount;
-                long budget = coproBudget;
-                copro.Run(ref budget);
-                long coproRan = copro.CycleCount - coproBefore;
-                if (coproRan <= 0)
-                    throw new EmulationException(
-                        $"Coprocessor '{copro.Architecture}' made no progress during Run; aborting to avoid a hang.");
-                _coprocessorCyclesContributed += coproRan;
-            }
-
-            _scheduler.AdvanceTo(_scheduler.CurrentCycle);
-
-            // A pending interrupt forces a switch to the primary (ADR 0015 Decision 5: all interrupts to
-            // the 6502; while the coprocessor runs the primary is DMA-suspended, so an IRQ means resume it).
-            if (_z80Active && (IrqLine.IsAsserted || NmiLine.IsAsserted))
-                _z80Active = false;
-
-            // SetCoprocessorActive set _sliceEndRequested + flipped _z80Active this slice; _z80Active alone
-            // selects the core on the next pass, so the switch is already in effect. The continue is a no-op
-            // (no code follows in the loop body) — it exists only to read _sliceEndRequested and satisfy the
-            // compiler's CS0414 "assigned but never used" check under TreatWarningsAsErrors.
-            if (_sliceEndRequested)
-                continue;
         }
         return _scheduler.CurrentCycle - virtualStart;
     }
