@@ -7,7 +7,11 @@ namespace CpuEmulator.Peripherals;
 /// shipped IAddressSpace.Remap (PR-A) — the FIRST real consumer of that bank-switch primitive. The ][+
 /// layout (research §7): $D000-$DFFF (4 KiB) has two RAM banks (bank 1 / bank 2); $E000-$FFFF (8 KiB)
 /// is a single shared RAM region. Write-enabling LC RAM requires TWO CONSECUTIVE READS of an odd $C08x
-/// (the 74LS175 pre-write count flip-flop) — a single read does not arm it. The card is delegated
+/// (the 74LS175 pre-write count flip-flop) — a single read does not arm it. The 74LS175 holds TWO
+/// independent latches (MAME ramcard16k do_io / Sather ch.5, ADR 0018-C): the pre-write COUNT and the
+/// write-enable LATCH are separate. Once two odd reads set write-enable, it PERSISTS across bank-selects,
+/// RAM writes, and odd-address writes — only an EVEN-address access clears it (an odd-address write
+/// clears just the count). The card is delegated
 /// $C08x by the IOU (which owns the $C000 page); it captures the program bus in Realize and remaps on
 /// each access. Remap fires PR-A's JIT invalidation listener, so a remapped CODE page runs the new
 /// bank (the LC commonly runs DOS/ProDOS/CP/M out of the banked RAM).</summary>
@@ -31,12 +35,26 @@ public sealed class Apple2LanguageCard : IPeripheral
 
     // Decoded LC state (power-on = read-ROM, write-protected, bank 1).
     private bool _readRam;        // false => read ROM, true => read LC RAM
-    private bool _writeEnabled;   // LC RAM writable (armed by two consecutive odd-$C08x reads)
+    private bool _writeEnabled;   // LC RAM writable latch (set by two consecutive odd-$C08x reads;
+                                  // cleared ONLY by an even-$C08x access -- survives odd-address writes)
     private int _bank = 1;        // 1 or 2 (the $D000 bank)
     private int _armCount;        // consecutive-qualifying-read counter (0,1 -> 2 arms write)
 
     /// <summary>Test-only: total $C08x accesses seen (proves the IOU delegate seam).</summary>
     public long AccessCount { get; private set; }
+
+    /// <summary>Test-only (ADR 0018-C / V80-4 discriminator): count of nonzero bytes in LC $D000 bank 2.
+    /// apl2cpm3's ?ldccp `LDIR` copies the CP/M-3 CCP into bank 2; under the old single-latch model the
+    /// odd-address bank-2-select write cleared write-enable and the copy was dropped (bank 2 all zeros).
+    /// With the two-latch fix the copy lands (the live trace saw 3026/4096 nonzero). Internal seam,
+    /// no production caller.</summary>
+    internal int Bank2NonZeroCountForTest()
+    {
+        int count = 0;
+        foreach (byte b in _bankD2)
+            if (b != 0) count++;
+        return count;
+    }
 
     /// <param name="systemRom">The same 12 KiB $D000-$FFFF image the board maps as ROM; the card
     /// slices it for the read-ROM remaps.</param>
@@ -77,18 +95,28 @@ public sealed class Apple2LanguageCard : IPeripheral
         int sel = o & 0x03;
         _readRam = sel is 0 or 3;
 
-        // Pre-write flip-flop: an ODD address (bit 0 set) READ arms; two consecutive arm-reads enable
-        // writes. Any non-qualifying access (a write, or an even address) resets the counter + disables.
-        bool qualifies = isRead && (o & 0x01) != 0;
-        if (qualifies)
+        // Pre-write flip-flop -- the real 74LS175 has TWO independent latches (MAME ramcard16k do_io /
+        // Sather ch.5), NOT one. The pre-write COUNT and the write-enable LATCH are separate:
+        //   EVEN access       -> clear the COUNT and clear write-enable (the only thing that disables writes)
+        //   odd-address WRITE  -> clear the COUNT ONLY (write-enable, if already set, SURVIVES)
+        //   odd-address READ   -> 1st read arms the count; 2nd consecutive read sets write-enable
+        // The load-bearing correction (ADR 0018-C): an odd-address WRITE (e.g. a $C08B bank-2 select,
+        // STA $C08B / LD ($C08B),A) must NOT clear write-enable -- only an EVEN access does. The old
+        // single-flag model wrongly write-protected LC bank 2 on the bank-select write, dropping
+        // apl2cpm3's ?ldccp CCP `LDIR` copy. Two odd reads still enable; even access still disables.
+        if ((o & 0x01) == 0)
         {
-            if (_armCount < 2) _armCount++;
-            _writeEnabled = _armCount >= 2;
+            _armCount = 0;
+            _writeEnabled = false;            // EVEN access: clear both latches
+        }
+        else if (!isRead)
+        {
+            _armCount = 0;                    // odd-address WRITE: clear the COUNT only (write-enable survives)
         }
         else
         {
-            _armCount = 0;
-            _writeEnabled = false;
+            if (_armCount < 2) _armCount++;   // odd-address READ: arm the count
+            if (_armCount >= 2) _writeEnabled = true;   // 2nd consecutive odd read enables writes
         }
 
         ApplyMapping();
