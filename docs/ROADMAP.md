@@ -49,7 +49,15 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > read fires 0 toggles, a write fires exactly 1 — fails pre-fix, passes post-fix); full suite green. The live
 > decoded-text "`CAN'T FIND` is gone" effect is not yet observable (the detect livelock clears only with
 > CPM-3's run-loop yield — live-verified byte-identical screens here), so that gate is a named-skip deferred
-> to CPM-3. **CPM-3…CPM-4 remain queued** (run-loop yield, then the live `A>`). The "80-col CP/M
+> to CPM-3. **CPM-3 SHIPPED (2026-06-21, PR #133):** landed defect (3) — `RunDualCpu` now drives the active
+> core **one instruction at a time** via `ICpuCore.Step()` and yields the instant a `$CnXX` write requests the
+> switch (ADR 0017 Decision 3), so the bus-master handoff lands at the writing instruction instead of after
+> the whole slice budget; the single-CPU `RunSingleCpu` path is byte-for-byte unchanged (full suite green).
+> Gated un-fakeably by a synthetic dual-CPU yield test (sentinel must not run before the Z80 — fails pre-fix,
+> passes post-fix) and a live gate proving the Z80 reaches and **stably holds** real CP/M BIOS at `$Axxx`
+> (pre-fix it collapsed entirely to the `$0000` reset stub). With CPM-1+2+3 the boot stably reaches the CP/M
+> BIOS — **no 4th defect**, exactly as ADR 0017 predicted. **CPM-4 remains queued** (the live `A>` deliverable
+> + the `$1010` bridge live-triage bring-up). The "80-col CP/M
 > end-to-end" headline
 > is **honestly narrowed** to "CP/M boots to `A>` on the **40-col** console" + "the Videx 80×24 path proven by a
 > direct render" — this CP/M master is a 40-column console (zero `$C0Bx`); an 80-col CP/M master is **owner-gated**
