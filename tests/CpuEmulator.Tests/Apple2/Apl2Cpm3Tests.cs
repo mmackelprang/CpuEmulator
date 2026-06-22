@@ -58,8 +58,9 @@ public class Apl2Cpm3Tests
             Assert.Equal(256, block.SectorSize);
             Assert.Equal(560, block.SectorCount);   // 35 tracks * 16 sectors
             Assert.True(block.IsReadOnly);
-            // And it re-nibblizes onto the shipped DskFluxImage with the CP/M order (no new skew -- Decision 2).
-            var flux = new DskFluxImage(block, SectorOrderKind.Cpm);
+            // And it re-nibblizes onto the shipped DskFluxImage with the Cpm3 skew (raw DOS 3.3 on every track --
+            // ADR 0018-A Decision A2).
+            var flux = new DskFluxImage(block, SectorOrderKind.Cpm3);
             Assert.Equal(35, flux.TrackCount);
         }
         finally { File.Delete(tmp); }

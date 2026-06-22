@@ -119,6 +119,48 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > **[ADR 0018-A](architecture/0018-A-apl2cpm3-z80-coldstart-and-the-bootldr-software-skew.md)** + the re-pointed
 > V80-2 plan. **V80-2 unblocked (⛔→📋); V80-3 unchanged behind it.**
 >
+> **V80-2/V80-3 PARTIAL — the CP/M-3 console renders on the Videx; `A>` blocked by a fifth layer (2026-06-22).**
+> The combined V80-2+V80-3 work landed the in-scope fix and live-triaged the boot to its true ceiling. **Shipped
+> + green:** (1) `SectorOrderKind.Cpm3` = **raw DOS 3.3 on every track** (ADR 0018-A live-resolved: BOOTLDR's
+> `xlt` + the running LDRBIOS `fdxlt` compose to identity over a raw presentation, so the disk is laid down
+> un-skewed — NOT the per-track split the plan guessed; under it CPMLDR's `LD SP` (`$31`) lands at Z80 `$0100`
+> byte-exact); (2) the **`?jsr65` Z80↔6502 service-loop bridge round-trips with NO change** — the live boot shows
+> ~73 hand-backs (ADR 0018-B's predicted dead bridge is **falsified**; the natural `$03C9` resume already re-enters
+> the `L65A` loop); (3) with the **REAL Videx firmware** (`videx-firmware.rom`, cached) the apl2cpm3 CRT80 console
+> works: `?icrt` programs the Videx CRTC for 80×24 and `?odcrt` paints the **genuine CP/M 3.1 sign-on**
+> (`CP/M Version 3.0, 56K BIOS R6/89` / `46K TPA`) into the Videx `$CC00` VRAM — decoded off the live VRAM by the
+> `[Apl2Cpm3VidexFact]` gate (`Cpm3_boots_to_the_A_prompt_in_80col_on_the_Videx_interpreter`) + the
+> `tools/BootProbe --apl2cpm3-videx` screenshot. (With the **synthetic** all-zero firmware the prior pass saw
+> nothing — the real firmware is the load-bearing console unblock.) **The wall (escalated, NOT faked):** the boot
+> renders the sign-on but does **not** reach `A>`. After the sign-on the CCP takes control (Z80 `JP $0100`,
+> `CALL 5`) and the **banked CP/M-3 BDOS** path hits a **deterministic** execution divergence — a conditional
+> `RET` returns to a zeroed region (Z80 `$1901`) and the Z80 NOP-slides (reproduced byte-identically: instr 36583,
+> `PC=$1929`). This is a **fifth layer** in the banked BDOS/CCP execution (the Z80 core / SoftCard translation /
+> Language-Card-banking model), which **ADR 0018-A A1 + the V80-2 hard constraints put off-limits** for this PR
+> (no Z80-core, no translation change). So `A>` and `ActiveIndex==1` are **not yet achieved**; the headline
+> ("80-col CP/M end-to-end") **remains open**, now pinned to a concrete, reproducible BDOS-execution divergence for
+> the owner to scope. The 2.2 no-regression gates (CPM-4 hash, CPM-5 Videx `ActiveIndex==0`) ran live and passed.
+>
+> **🎉 V80-2/V80-3/V80-4 SHIPPED — CP/M 3.1 BOOTS TO `A>` IN 80 COLUMNS ON THE VIDEX (2026-06-22, PR #139).** The
+> fifth-layer wall is down. **[ADR 0018-C](architecture/0018-C-apl2cpm3-language-card-bank2-write-enable-flip-flop.md)**
+> root-caused the BDOS divergence to the **Language-Card write-enable flip-flop** conflating the real 74LS175's TWO
+> latches (MAME `ramcard16k` `do_io` / Sather ch.5) and clearing write-enable on an odd-address WRITE — so apl2cpm3's
+> `?ldccp` bank-2-select write (`LD ($C08B),A`) write-protected LC bank 2 and the `LDIR` CCP copy was silently
+> dropped (bank 2 zeroed → `RET` into a zeroed `$1901`). **Classified SAFE** (the fix makes the LC model MORE
+> faithful to documented hardware — no Z80-core / translation / handoff / skew / 2.2-board change) and **V80-4**
+> productionized the one-method two-latch correction in `Apple2LanguageCard.Access`: even access clears both latches;
+> an odd-address write clears only the pre-write count (write-enable survives); two odd reads enable. With it, LC
+> bank 2 receives the CCP (3026/4096 bytes) and the real apl2cpm3 Disk 1 reaches the decoded **`A>`** on the Videx
+> 80-col VRAM. **V80-3** closed the auto-engage: the live pin showed apl2cpm3 programs the Videx CRTC (`$C0B1`: 420
+> writes) but never bank-selects, so `VidexVideoterm` now also engages on a CRTC-data write — the
+> `DisplayMultiplexer` flips to `ActiveIndex==1` from a real CP/M-3 boot (the 2.2 master issues zero `$C0Bx` so its
+> CPM-5 `ActiveIndex==0` gate is unchanged — the disk-driven contrast). **Gates:** `[Apl2Cpm3VidexFact]` strengthened
+> to the decoded `A>` + a LC-bank-2-nonzero discriminator + a positive LC two-latch unit test; the 2.2 CPM-4/CPM-5
+> gates + all 13 LC unit tests + the full Apple2/SoftCard/dual-CPU sweep stay green live. Screenshot
+> `/d/prj/cpm-videx-80col-A-LIVE.png` (frame SHA-256 `627a1657…5004`). **This is the first true 80-column CP/M
+> end-to-end — the headline the M6 / ADR 0016/0017 arc set out to reach. ADR 0017 OQ2/D6 (`ActiveIndex==1` from a
+> real CP/M boot) is CLOSED.**
+>
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.

@@ -1,7 +1,11 @@
 # ADR 0018-B — Addendum: the V80-2 third-layer blocker is the missing `?jsr65` Z80→6502 service-loop bridge; CP/M-3's LDRBIOS calls *back into* the 6502 (for disk reads AND console) while the Z80 is bus master, and our bus-handoff never resumes the 6502 at its service loop
 
-> **Status:** ACCEPTED (Architect phase, apl2cpm3 CP/M 3.1 / Videx-80-col sub-arc). **Second addendum to ADR 0018**
-> (sibling of ADR 0018-A).
+> **Status:** ACCEPTED, with the **`?jsr65` dead-bridge prediction SUPERSEDED by the live V80-2 finding** (the
+> bridge round-trips with NO machine change — ~73 hand-backs observed; the natural `$03C9` resume re-enters
+> `L65A`) and the **§8 OQ3 "possible tail" realized as the fifth layer in [ADR 0018-C](0018-C-apl2cpm3-language-card-bank2-write-enable-flip-flop.md)** (the Language-Card bank-2 write-enable
+> flip-flop). ADR 0018-B's core principle (the residual is a bus/banking-fidelity gap, NOT a Z80-core change)
+> **stands and is reinforced** by 0018-C. Read ADR 0018-C for the actual fifth-layer root cause + the SAFE fix
+> that reaches `A>`. **Second addendum to ADR 0018** (sibling of ADR 0018-A).
 > **Date:** 2026-06-22
 > **Deciders:** Mark (owner). Drafted autonomously by Claude Architect.
 > **Resolves:** the NEW third-layer blocker the V80-2 Builder hit and escalated per protocol after ADR 0018-A's
