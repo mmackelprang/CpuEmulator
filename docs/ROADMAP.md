@@ -216,7 +216,15 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 1. **[deferred] 8086 far-flow emit.** Far `JMP`/`CALL`/`RET` (and far interrupts) stay fallback because
    the block-cache key is `(IP)`, CS-invariant. Emitting them requires **widening the cache key to
    `(CS,IP)`** so a far transfer to the same offset under a different segment is a distinct block. The
-   most-named M6 gap — it unblocks real-mode 8086 programs.
+   most-named M6 gap — it unblocks real-mode 8086 programs. **Designed in [ADR 0019](architecture/0019-8086-far-flow-emit-and-the-cs-ip-block-key.md)**
+   (Proposed, 2026-06-22): widen the shared block-cache key to the **generic 32-bit linear `(CS<<4)+IP`**
+   (the physical the decode/fetch already compute), projected per-CPU via `IJitTarget.ProjectBlockKey` — the
+   non-segmented 6502/Z80/68000 project the identity `(uint)PC`, so they are **byte-for-byte unchanged**
+   (classified **SAFE**, gated by a key-projection identity regression). Emit far `JMP`/`CALL`/`RET`;
+   `INT`/`INTO`/`IRET`/`BOUND` stay fallback (ADR 0011 §2/OQ5). A short arc — **FF-1** (the linear key + the
+   SAFE identity gate) **→ FF-2** (the far arms + the un-fakeable aliasing regression: two segments, same
+   offset, distinct blocks — fails on the old `(IP)` key, passes on the linear key). Pending owner approval +
+   Planner TDD plan.
 
 2. **[deferred] Cycle-exact emitted 68000 timing (the prefetch-queue model).** The 68000 is
    data-axis-exact but charges **coarse cycles** today; the cycle-exact axis (ADR 0008 §6 / ADR 0011 OQ4)
