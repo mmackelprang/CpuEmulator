@@ -224,7 +224,7 @@ design rationale (the emit-vs-fallback boundary, the rollout order, the profilin
 These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set priority order**
 (2026-06-19) — the intended next-up sequence, not a schedule.
 
-1. **[deferred] 8086 far-flow emit.** Far `JMP`/`CALL`/`RET` (and far interrupts) stay fallback because
+1. **[planned] 8086 far-flow emit.** Far `JMP`/`CALL`/`RET` (and far interrupts) stay fallback because
    the block-cache key is `(IP)`, CS-invariant. Emitting them requires **widening the cache key to
    `(CS,IP)`** so a far transfer to the same offset under a different segment is a distinct block. The
    most-named M6 gap — it unblocks real-mode 8086 programs. **Designed in [ADR 0019](architecture/0019-8086-far-flow-emit-and-the-cs-ip-block-key.md)**
@@ -234,8 +234,9 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
    (classified **SAFE**, gated by a key-projection identity regression). Emit far `JMP`/`CALL`/`RET`;
    `INT`/`INTO`/`IRET`/`BOUND` stay fallback (ADR 0011 §2/OQ5). A short arc — **FF-1** (the linear key + the
    SAFE identity gate) **→ FF-2** (the far arms + the un-fakeable aliasing regression: two segments, same
-   offset, distinct blocks — fails on the old `(IP)` key, passes on the linear key). Pending owner approval +
-   Planner TDD plan.
+   offset, distinct blocks — fails on the old `(IP)` key, passes on the linear key). **Planner-decomposed
+   2026-06-22 into queue rows FF-1 → FF-2** (`docs/BUILDER_QUEUE.md`; plans under `docs/superpowers/plans/2026-06-22-ff{1,2}-*.md`)
+   — **strictly ordered, FF-2 not co-merged with FF-1**. Builder clears them after W → D68 → B68-DOC.
 
 2. **[deferred] Cycle-exact emitted 68000 timing (the prefetch-queue model).** The 68000 is
    data-axis-exact but charges **coarse cycles** today; the cycle-exact axis (ADR 0008 §6 / ADR 0011 OQ4)
