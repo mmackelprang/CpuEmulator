@@ -141,6 +141,45 @@ public class SoftCardBoardTests
     }
 
     [Fact]
+    public void Slot5_is_the_default_control_port_address_byte_for_byte_unchanged()
+    {
+        // The shipped 2.2 board MUST be byte-for-byte unchanged: the default slot is 5 ($C500).
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;   // reset -> $D000
+        BoardSpec spec = SoftCardBoard.Spec(
+            rom, new Apple2Iou(new Apple2VideoState(), new Apple2LanguageCard(rom),
+                               new Apple2DiskII(new SyntheticFluxImage(trackCount: 35))),
+            new Apple2DiskII(new SyntheticFluxImage(trackCount: 35)), DiskBootRom());
+
+        PeripheralSlot port = spec.Peripherals.Single(p => p.Name == SoftCardBoard.ControlPortName);
+        Assert.Equal(SoftCardBoard.ControlPortBaseSlot5, port.Base);   // $C500 -- the shipped default
+        Assert.Equal(0xC500u, port.Base);
+    }
+
+    [Fact]
+    public void Apl2cpm3_board_decodes_the_control_port_at_slot_4_C400()
+    {
+        // ADR 0018 Decision 1: apl2cpm3 hard-codes STA $C400 (slot 4). The board built with the slot-4 base
+        // decodes the control port at $C400, NOT $C500.
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;
+        BoardSpec spec = SoftCardBoard.Spec(
+            rom, new Apple2Iou(new Apple2VideoState(), new Apple2LanguageCard(rom),
+                               new Apple2DiskII(new SyntheticFluxImage(trackCount: 35))),
+            new Apple2DiskII(new SyntheticFluxImage(trackCount: 35)), DiskBootRom(),
+            controlPortBase: SoftCardBoard.ControlPortBaseSlot4);
+
+        PeripheralSlot port = spec.Peripherals.Single(p => p.Name == SoftCardBoard.ControlPortName);
+        Assert.Equal(SoftCardBoard.ControlPortBaseSlot4, port.Base);   // $C400 -- apl2cpm3's slot
+        Assert.Equal(0xC400u, port.Base);
+
+        // The board still validates clean: $C400 (len $100) is fully contained in SpecWithSystem's
+        // $C000-$C5FF Mmio region (BoardSpecValidator's slot-not-in-mmio check). Building the machine proves it.
+        Machine machine = BoardMachineFactory.Build(spec);
+        Assert.NotNull(machine.Coprocessor);
+    }
+
+    [Fact]
     public void SoftCardCpm_load_rejects_a_wrong_length_image()
     {
         string tmp = Path.Combine(Path.GetTempPath(), $"cpm-bad-{Guid.NewGuid():N}.dsk");
