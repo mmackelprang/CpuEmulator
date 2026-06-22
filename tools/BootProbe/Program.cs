@@ -14,6 +14,30 @@ if (args.Length >= 2 && args[0] == "--cpm-screenshot")
     return;
 }
 
+// --- Videx 80-col CP/M discovery (ADR 0017 Decision 6/7 / OQ2) -------------------------------------
+//   tools/BootProbe --videx-discover <diskPath> [out.png]
+// Boots the given CP/M master on the SoftCard + Videx board (Videx in the slot) and reports whether the
+// master auto-engages the Videx: it counts $C0Bx CRTC accesses, reports whether the Videx ActiveChanged
+// signal fired (the DisplayMultiplexer would switch to index 1), dumps the 40-col Apple console + whether
+// the Videx VRAM ever took content, and optionally screenshots the active display. Discovery, not a gate.
+if (args.Length >= 2 && args[0] == "--videx-discover")
+{
+    VidexDiscover.Run(args[1], args.Length >= 3 ? args[2] : null);
+    return;
+}
+
+// --- Direct Videx 80x24 render (the asset-free proof, ADR 0017 Decision 6) -------------------------
+//   tools/BootProbe --videx-80col-render <out.png>
+// Programs the Videx CRTC for 80x24 through the real SoftCardVidexBoard bus ($C0B0/$C0B1), writes a CP/M
+// sign-on into the $CC00 VRAM window via the bus, and renders the Videx 80x24 frame to a PNG. This is the
+// direct-render proof (the Videx renders 80x24 from VRAM) the VidexVideotermTests gate asserts, made
+// human-visible. No copyrighted 80-col CP/M master needed.
+if (args.Length >= 2 && args[0] == "--videx-80col-render")
+{
+    VidexDiscover.RenderDirect80x24(args[1]);
+    return;
+}
+
 // Boots the Apple ][+ in BOTH board configurations and dumps the live text-page screen +
 // the exact MonoOn ink-pixel count (the same metric the headless gate asserts on).
 //
@@ -226,7 +250,7 @@ internal static class CpmScreenshot
     private static byte[] Zlib(byte[] data)
     {
         using var ms = new MemoryStream();
-        ms.WriteByte(0x78); ms.WriteByte(0x01);   // zlib header (CM=8, no preset dict, fastest)
+        ms.WriteByte(0x78); ms.WriteByte(0x01);   // zlib header (CM=8/32K window; FLEVEL informational, divisible-by-31)
         using (var df = new System.IO.Compression.DeflateStream(
                    ms, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
             df.Write(data, 0, data.Length);
@@ -281,5 +305,140 @@ internal static class CpmScreenshot
                 crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
         }
         return crc;
+    }
+
+    // Exposed so VidexDiscover reuses the exact PNG path.
+    internal static void WritePngScaled(string path, uint[] rgba, int width, int height, int scale)
+        => WritePng(path, rgba, width, height, scale);
+}
+
+/// <summary>ADR 0017 Decision 6/7 / OQ2 discovery: boots a CP/M master on the SoftCard + Videx board and
+/// reports whether it auto-engages the Videx 80-col card (the ActiveChanged signal fires + VRAM takes
+/// content) or stays a 40-col console (the cached master's behavior). Discovery, not a gate.</summary>
+internal static class VidexDiscover
+{
+    public static void Run(string diskPath, string? outPng)
+    {
+        const long CpmBootCycles = 10_000_000;
+
+        byte[] systemRom = Apple2Rom.Load(Apple2Rom.TryGetPath()
+            ?? throw new InvalidOperationException("apple2plus.rom not cached"));
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("disk2.rom not cached");
+        byte[]? charRom = Apple2Rom.TryLoadCharRom();
+        IBlockDevice cpm = SoftCardCpm.LoadBlockDevice(diskPath);
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var drive1 = new DskFluxImage(cpm, SectorOrderKind.Cpm);
+        var disk = new Apple2DiskII(drive1);
+        var videx = new VidexVideoterm();
+        var iou = new Apple2Iou(state, lc, disk, videx);
+        BoardSpec spec = SoftCardVidexBoard.Spec(systemRom, iou, disk, diskBootRom, videx);
+        Machine machine = BoardMachineFactory.Build(spec);
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+
+        // The DisplayMultiplexer auto-switch the surface wires: ActiveChanged -> SetActive (index 1 = Videx).
+        var mux = new DisplayMultiplexer([video, videx], initialActive: 0);
+        int activeChangedCount = 0;
+        bool videxEverEngaged = false;
+        videx.ActiveChanged += active =>
+        {
+            activeChangedCount++;
+            if (active) videxEverEngaged = true;
+            mux.SetActive(active ? 1 : 0);
+        };
+
+        machine.Reset();
+        machine.Run(CpmBootCycles);
+
+        // Decode the 40-col Apple console (the same oracle as the SoftCard gate).
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+        bool sawPromptApple = false;
+        Console.WriteLine($"=== {Path.GetFileName(diskPath)} ===");
+        Console.WriteLine($"  CoprocessorActive      = {machine.CoprocessorActive}");
+        Console.WriteLine($"  Videx ActiveChanged    = {activeChangedCount} event(s), engaged={videxEverEngaged}");
+        Console.WriteLine($"  DisplayMux ActiveIndex = {mux.ActiveIndex}   (0=Apple-40, 1=Videx-80)");
+
+        Console.WriteLine("  decoded 40-col Apple console (high-bit stripped):");
+        for (int r = 0; r < 24; r++)
+        {
+            uint rowBase = Apple2HiResAddress.TextRowBase(r, page2: false);
+            var sb = new StringBuilder(40);
+            for (int c = 0; c < 40; c++)
+            {
+                int g = bus.Read8(rowBase + (uint)c) & 0x7F;
+                sb.Append(g is >= 0x20 and <= 0x7E ? (char)g : ' ');
+            }
+            string line = sb.ToString();
+            if (line.Contains("A>")) sawPromptApple = true;
+            if (line.TrimEnd().Length > 0) Console.WriteLine($"    r{r,2} |{line}|");
+        }
+        Console.WriteLine($"  \"A>\" on 40-col Apple   = {sawPromptApple}");
+
+        string verdict = videxEverEngaged
+            ? "VIDEX ENGAGED (80-col candidate!)"
+            : "40-col only (no Videx engagement)";
+        Console.WriteLine($"  VERDICT: {verdict}");
+        Console.WriteLine();
+
+        if (outPng is not null)
+        {
+            // Render the active display source (Videx if engaged, else the Apple 40-col).
+            int w = mux.Width, h = mux.Height;
+            var rgba = new uint[w * h];
+            mux.RenderInto(rgba);
+            CpmScreenshot.WritePngScaled(outPng, rgba, w, h, scale: 2);
+            Console.WriteLine($"  wrote {outPng} ({w * 2}x{h * 2}, active source index {mux.ActiveIndex})");
+        }
+    }
+
+    /// <summary>The asset-free direct Videx 80x24 render proof (ADR 0017 Decision 6): program the CRTC for
+    /// 80x24 + write a CP/M sign-on into VRAM, both through the real SoftCardVidexBoard bus, then render. No
+    /// copyrighted 80-col CP/M master is needed — this proves the Videx renders 80x24 from VRAM.</summary>
+    public static void RenderDirect80x24(string outPng)
+    {
+        // A minimal board to host the Videx $C0Bx delegate + the $CC00 VRAM window (no CP/M disk needed).
+        var systemRom = new byte[Apple2Rom.SystemRomLength];
+        systemRom[0x2FFC] = 0x00; systemRom[0x2FFD] = 0xD0;   // reset -> $D000
+        var diskBootRom = new byte[Apple2Rom.DiskRomLength];
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var disk = new Apple2DiskII(new SyntheticFluxImage(trackCount: 35));
+        var videx = new VidexVideoterm();
+        var iou = new Apple2Iou(state, lc, disk, videx);
+        BoardSpec spec = SoftCardVidexBoard.Spec(systemRom, iou, disk, diskBootRom, videx);
+        Machine machine = BoardMachineFactory.Build(spec);
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+
+        // Program the standard Videx 80x24 init through the bus (the $C0B0 register-select / $C0B1 data path).
+        void SetReg(byte reg, byte val) { bus.Write8(0xC0B0, reg); bus.Write8(0xC0B1, val); }
+        SetReg(1, 0x50);   // R1 = 80 chars/row
+        SetReg(6, 0x18);   // R6 = 24 displayed rows
+        SetReg(9, 0x08);   // R9 = 9 scan lines/char
+        SetReg(12, 0x00);  // R12 = start address high
+        SetReg(13, 0x00);  // R13 = start address low
+
+        // Write a CP/M-style 80-col sign-on into the active VRAM bank via the $CC00 window (linear cells).
+        string[] lines =
+        {
+            "APPLE ][ CP/M  VER. 2.20B   (C) 1980 MICROSOFT   [VIDEX 80-COLUMN VIDEOTERM]",
+            "",
+            "A>DIR",
+            "A: PIP      COM : STAT     COM : ASM      COM : LOAD     COM : ED       COM",
+            "A: SUBMIT   COM : XSUB     COM : DDT      COM : DUMP     COM : CONFIGIO COM",
+            "",
+            "A>",
+        };
+        void PutCell(int index, byte code) => bus.Write8(0xCC00 + (uint)index, code);
+        for (int row = 0; row < lines.Length; row++)
+            for (int col = 0; col < lines[row].Length && col < 80; col++)
+                PutCell(row * 80 + col, (byte)lines[row][col]);
+
+        int w = videx.Width, h = videx.Height;   // 560 x 216 (80x7 x 24x9)
+        var rgba = new uint[w * h];
+        videx.RenderInto(rgba);
+        CpmScreenshot.WritePngScaled(outPng, rgba, w, h, scale: 1);
+        Console.WriteLine($"wrote {outPng} ({w}x{h}) — direct Videx 80x24 render (asset-free proof)");
     }
 }
