@@ -1,6 +1,13 @@
 # ADR 0018 — Booting apl2cpm3 (CP/M 3.1) on the SoftCard + Videx: a configurable per-board SoftCard slot, the CP/M-3 boot chain, and the first Videx-80-column CP/M console
 
-> **Status:** PROPOSED (Architect phase, Apple ][+ arc — apl2cpm3 CP/M 3.1 / Videx-80-col sub-arc).
+> **Status:** ACCEPTED, with **Decision 6 / Open Question 1 SUPERSEDED by [ADR 0018-A](0018-A-apl2cpm3-z80-coldstart-and-the-bootldr-software-skew.md)** (2026-06-22). The V80-2
+> live triage proved the post-slot-fix residual is **NOT** a Z80-entry-handoff / latched-start-PC gap (§1.2 / OQ1
+> below mis-characterised it): apl2cpm3's own `BOOTLDR.MAC` zero-fills Z80 page zero with NOPs and loads
+> `CPMLDR.COM` at Z80 `$0100`, so the Z80 NOP-slides `$0000→$0100` onto CPMLDR's entry — a faithful cold-start our
+> core already models. The real blocker is a **double sector-skew** in the 6502 boot-read path (BOOTLDR's own
+> software `xlt` composing with our `DskFluxImage` pre-skew). **The Z80-core-reset escalation is resolved in the
+> negative — do NOT change the Z80 core.** Read ADR 0018-A before acting on Decision 3 / Decision 6 / Open
+> Question 1. Decisions 1, 2, 4, 5 stand. (Original status: PROPOSED — Architect phase, Apple ][+ arc.)
 > **Builds on ADR 0015** (the dual-CPU board), **ADR 0016** (the Videx display seam + assets), and **ADR 0017**
 > (the SoftCard CP/M 2.2 boot-to-`A>` correction — the per-track skew, write-only control toggle, and the
 > per-instruction run-loop yield). This ADR does **not** relitigate those; it reuses every one of their decisions

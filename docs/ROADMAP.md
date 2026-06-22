@@ -104,7 +104,20 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > ($C400 toggles the slot-4 board, $C500 does not). **Live-verified on the real apl2cpm3 Disk 1:** on the
 > slot-4 board the Z80 activates (no error); on the slot-5 default board the boot prints `NO Z80 FOUND` — the
 > gating fix ADR 0018 traced. V80-1 does not yet reach `A>` (the Z80-entry handoff is V80-2). The 2.2
-> no-regression gates (CPM-4 hash, CPM-5 Videx) ran live and passed. **V80-2 + V80-3 remain in flight.**
+> no-regression gates (CPM-4 hash, CPM-5 Videx) ran live and passed. V80-1 does not yet reach `A>` (V80-2).
+> **V80-2 ROOT-CAUSED + UNBLOCKED (2026-06-22, ADR 0018-A).** The V80-2 Builder hit a NOP-slide and escalated on
+> the flagged Z80-reset risk. The Architect mined apl2cpm3's **own boot source** (`BOOTLDR.MAC` et al. on Disks
+> 5–6) + a RAM-correlation trace and overturned the framing: the Z80 cold-start (a deliberate NOP-slide from
+> `$0000` onto `CPMLDR.COM` at Z80 `$0100`) is **faithful and already works** — **there is NO Z80-core change**
+> (ADR 0018 Decision 6 / OQ1 resolved in the negative). The real blocker is a **double sector-skew** in the 6502
+> boot-read path: apl2cpm3's `BOOTLDR` reads `CPMLDR.COM` through the Disk II interface ROM with its own software
+> `xlt` skew, which composes with our `DskFluxImage` `CpmBootPhysToLog` pre-skew, page-permuting the load so a
+> `JP (HL)` (`$E9`) lands at Z80 `$0100` instead of `LD SP` (`$31`). Proven: the composition reproduces the
+> measured permutation 15/15 on track 0. The fix is an **additive, apl2cpm3-scoped disk-skew correction** (a new
+> `SectorOrderKind.Cpm3` table, or raw/identity boot-track presentation) on the existing per-board
+> `DskFluxImage(disk, kind)` seam — the shared 2.2 path and the Z80 core are byte-for-byte untouched. See
+> **[ADR 0018-A](architecture/0018-A-apl2cpm3-z80-coldstart-and-the-bootldr-software-skew.md)** + the re-pointed
+> V80-2 plan. **V80-2 unblocked (⛔→📋); V80-3 unchanged behind it.**
 >
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
