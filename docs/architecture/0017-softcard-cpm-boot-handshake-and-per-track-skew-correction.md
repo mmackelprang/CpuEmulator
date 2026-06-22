@@ -280,6 +280,21 @@ capture. *Bad/accepted:* the gate decodes text (a few lines of code) instead of 
 
 ### Decision 6 — Re-frame the Videx (PR-O) CP/M gate: this CP/M master is a **40-column** console; assert the 40-col path for this asset + add a separate Videx-console test (do NOT assert `ActiveIndex==1` for this disk)
 
+> **RESOLVED 2026-06-21 (CPM-5 / PR-5 — Builder discovery against OQ2; the re-frame is the outcome).** The owner
+> downloaded **five** candidate SoftCard CP/M masters (each 143,360 B, from the Asimov mirror) to test whether a
+> standard SoftCard master auto-hunts an 80-column card in the slots (Videx in slot 3): `cpm223-60k.dsk`,
+> `ms-softcard-ii-228b.dsk`, `cpm-z80softcard.dsk`, `softcard-1980.dsk`, `premium-iie-225.dsk`. The Builder booted
+> **all five** on the real `SoftCardVidexBoard` (Videx wired) with CP/M now reaching `A>` (CPM-1…CPM-4 landed) and
+> instrumented the Videx auto-engage signal (`videx.ActiveChanged` → `DisplayMultiplexer.SetActive`). **Result:
+> NONE auto-engages the Videx.** Three (`cpm223-60k`, `cpm-z80softcard`, `softcard-1980`) share the cached
+> master's boot1 sector byte-for-byte but **crash in the 6502 boot2** (undefined opcode `$B7` at `$0FAD` — a
+> different on-disk data-track skew than the cached 44K master's `SectorOrderKind.Cpm`), so they never reach any
+> CP/M terminal init. Two (`ms-softcard-ii-228b`, `premium-iie-225`) have a **different boot loader** and never
+> even hand off to the Z80 (`CoprocessorActive=False`). On every candidate `videx.ActiveChanged` fired **0**
+> times and `ActiveIndex` stayed **0**. **Conclusion: no clean-redistribution Videx-console CP/M master among
+> these auto-hunts the Videx** — the Default below (the 40-col re-frame + the asset-free direct Videx render)
+> stands. An 80-col CP/M master remains the owner-asset item (Decision 7 / OQ2).
+
 This SoftCard CP/M 2.2 master drives the **40-column Apple screen** as its console — the live trace shows **zero `$C0Bx`
 accesses** (the Videx 6845 registers are never touched), so the `DisplayMultiplexer` never switches to the Videx and
 `ActiveIndex==1` **cannot** hold for this image. This is **not an emulation bug** (the Videx activation path is wired,
@@ -395,11 +410,17 @@ changes are test-only.
 
 ## 5. Open questions
 
-1. **The `$1010` BIOS-bridge completion (Decision 4).** After fixes 1–3, does CONOUT reach the 40-col screen, or does
-   the bridge need an LC-pre-state set (ADR 0015 Decision 3's build-time LC item)? **Resolve by Builder bring-up against
-   the live disk in PR-4** — do not pre-design.
-2. **An 80-col CP/M master (Decision 6 / 7).** Does a clean-redistribution Videx-console CP/M disk exist? **Owner.**
-   Default: ship the direct Videx-render gate; retarget the headline.
+1. **The `$1010` BIOS-bridge completion (Decision 4).** ~~After fixes 1–3, does CONOUT reach the 40-col screen…~~
+   **RESOLVED 2026-06-21 (CPM-4 / PR-4):** outcome (1) — CONOUT **already reaches** the 40-col screen with CPM-1+2+3
+   in place; the real disk boots to `A>` with **no `$1010` bridge change**. Fixes 1–3 were the complete gating set,
+   exactly as Decision 4 anticipated. CPM-4 was test-only (the un-fakeable decoded-`A>` gate + the captured frame hash).
+2. **An 80-col CP/M master (Decision 6 / 7).** ~~Does a clean-redistribution Videx-console CP/M disk exist?~~
+   **RESOLVED 2026-06-21 (CPM-5 / PR-5 discovery):** of the **five** owner-downloaded SoftCard CP/M masters, **none
+   auto-hunts/auto-engages the Videx** (zero `$C0Bx`; three crash in 6502 boot2 on a skew mismatch, two never hand off
+   to the Z80) — see Decision 6's resolution note. The re-frame is shipped: the 40-col `A>` gate asserts `ActiveIndex==0`
+   for the cached master + the asset-free direct Videx 80×24 render gates prove the Videx independently. Sourcing a
+   true Videx-console (80-col) CP/M master remains an **owner-asset** item; if one is found, the gate gains a sibling
+   asserting `ActiveIndex==1` against it.
 3. **Clock-ratio under per-instruction stepping (Decision 3).** Per-`Step` virtual-clock conversion is finer-grained
    than per-`Run`; confirm the rounding stays invisible to CP/M (it will — CP/M is coarse-timed). Inherited from ADR
    0015 OQ3; no new risk.

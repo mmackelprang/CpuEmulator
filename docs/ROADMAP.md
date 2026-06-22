@@ -65,12 +65,20 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > decode the 40-col text page and assert the **decoded `A>`** (the CCP prompt) + a CP/M sign-on line (the cached
 > disk signs on as `APPLE ][ CP/M 44K VER. 2.20B / (C) 1980 MICROSOFT`) + `CoprocessorActive` + a committed real
 > frame hash. The decoded `A>` boot frame is captured as a human-visible PNG via `tools/BootProbe
-> --cpm-screenshot`. Full Release suite green (7310 passed / 0 failed / 4 skipped), warning-clean. The "80-col
-> CP/M end-to-end" headline
-> is **honestly narrowed** to "CP/M boots to `A>` on the **40-col** console" + "the Videx 80×24 path proven by a
-> direct render" — this CP/M master is a 40-column console (zero `$C0Bx`); an 80-col CP/M master is **owner-gated**
-> (ADR 0017 Decision 6/7, PR-5 — 5 candidate masters now downloaded for the auto-engage discovery). Per-PR
-> detail in `docs/BUILDER_QUEUE.md`.
+> --cpm-screenshot`. Full Release suite green (7310 passed / 0 failed / 4 skipped), warning-clean. **CPM-5
+> SHIPPED (2026-06-21) — the Videx CP/M gate re-frame (ADR 0017 Decision 6) + the 80-col auto-engage question
+> RESOLVED.** The Builder booted **all five** owner-downloaded candidate SoftCard CP/M masters (`cpm223-60k`,
+> `ms-softcard-ii-228b`, `cpm-z80softcard`, `softcard-1980`, `premium-iie-225`) on the real SoftCard+Videx board
+> with CP/M now reaching `A>`, instrumenting the Videx auto-engage signal — and **none auto-hunts/auto-engages
+> the Videx** (zero `$C0Bx`; three crash in 6502 boot2 on a skew mismatch, two never hand off to the Z80). So the
+> "80-col CP/M end-to-end" headline is **honestly settled** as "CP/M boots to `A>` on the **40-col** console" +
+> "the Videx 80×24 path proven by an asset-free direct render": the re-framed Videx gate asserts the cached 40-col
+> master boots to `A>` with `ActiveIndex==0` (the multiplexer correctly stays Apple-40 — the hardware truth; the
+> production auto-switch wiring is live in the gate), and the Videx 80×24 render is proven independently by the
+> PR-N `VidexVideotermTests` direct-render gates. **A true 80-col (Videx-console) CP/M master remains an
+> owner-asset item** (Decision 7); if one is sourced, the gate gains a sibling asserting `ActiveIndex==1`. Full
+> Release suite green (7311 passed / 0 failed / 3 skipped), warning-clean. **The SoftCard CP/M arc is complete
+> (CPM-1…CPM-5 ✅).** Per-PR detail in `docs/BUILDER_QUEUE.md`.
 >
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
