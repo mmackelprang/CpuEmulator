@@ -53,7 +53,9 @@ public static class Apple2SectorOrder
         // presentation these compose to identity. So unlike the 2.2 `Cpm` path (which needs the
         // `CpmBootPhysToLog`/`CpmDataPhysToLog` pre-skew because its loader does NOT re-translate), apl2cpm3
         // must be presented un-skewed: live-verified — under raw DOS33 on all tracks, CPMLDR's `LD SP,$0281`
-        // (`$31`) lands at Z80 $0100, CPM3.SYS reads byte-exact, and the boot reaches CP/M 3.1 `A>`.
+        // (`$31`) lands at Z80 $0100, CPM3.SYS reads byte-exact, and the CP/M-3 sign-on renders on the Videx VRAM
+        // (the V80-2 milestone); `A>` is blocked by a fifth layer (a Language-Card banking write-protect defect
+        // in the banked BDOS/CCP) — see `Apl2Cpm3BootTests` / ADR 0018-B.
         SectorOrderKind.Cpm3 => (int[])Dos33PhysToLog.Clone(),
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };

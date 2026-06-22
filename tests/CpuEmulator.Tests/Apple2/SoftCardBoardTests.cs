@@ -55,7 +55,9 @@ public class SoftCardBoardTests
         // ADR 0018-A: apl2cpm3's CP/M 3.1 disk must be presented in RAW DOS 3.3 order on EVERY track. Its
         // BOOTLDR `xlt` + the running LDRBIOS `fdxlt` both re-translate logical->physical against the disk's
         // address-field IDs, so a raw (un-pre-skewed) DOS 3.3 presentation composes to identity (live-verified:
-        // CPMLDR's `LD SP` lands at Z80 $0100, CPM3.SYS reads byte-exact, the boot reaches CP/M 3.1 A>). This
+        // CPMLDR's `LD SP` lands at Z80 $0100, CPM3.SYS reads byte-exact, the CP/M-3 sign-on renders on the Videx
+        // VRAM (the V80-2 milestone); `A>` is blocked by a fifth layer in the banked BDOS/CCP -- see
+        // `Apl2Cpm3BootTests` / ADR 0018-B). This
         // is the OPPOSITE of the 2.2 `Cpm` path (which needs the CpmBoot/CpmData pre-skew); Cpm3 is single-skew
         // = the documented DOS 3.3 table for all 35 tracks.
         int[] dos33 = Apple2SectorOrder.PhysicalToLogical(SectorOrderKind.Dos33);
