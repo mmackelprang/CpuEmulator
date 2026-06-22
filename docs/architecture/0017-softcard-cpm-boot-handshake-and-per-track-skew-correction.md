@@ -426,14 +426,18 @@ changes are test-only.
    `ActiveIndex==1` true from a boot. A live trace pins the gating blocker (the SoftCard control port must decode at
    **slot 4 `$C400`**, not this 2.2 master's slot 5 `$C500`). See **ADR 0018** for the configurable-slot decision, the
    CP/M-3 boot chain, and the `ActiveIndex==1`-from-real-CP/M sibling gate this OQ anticipated.
-   **PARTIAL (2026-06-22, V80-2/V80-3):** with the slot-4 fix + `SectorOrderKind.Cpm3` (raw DOS33, ADR 0018-A) + the
-   **real Videx firmware**, apl2cpm3 now renders its **genuine CP/M 3.1 sign-on** (`CP/M Version 3.0, 56K BIOS R6/89`)
-   on the Videx `$CC00` VRAM — the first real CP/M-3 console text on the 80-col card (the `[Apl2Cpm3VidexFact]` gate).
-   But the boot does **not** yet reach `A>`: after the sign-on the banked CP/M-3 BDOS/CCP hits a **deterministic**
-   execution divergence (a `RET` into a zeroed region; instr 36583, Z80 `PC=$1929`), a **fifth layer** below the
-   V80-2 scope (the Z80 core / SoftCard translation / LC-banking model, which ADR 0018-A A1 puts off-limits). So
-   **`ActiveIndex==1` remains OPEN** — pending the owner scoping that BDOS-execution divergence; the sibling gate is
-   not yet green.
+   **✅ CLOSED (2026-06-22, V80-2/V80-3/V80-4, PR #139).** The fifth layer was the **Language-Card write-enable
+   flip-flop** conflating the real 74LS175's two latches and clearing write-enable on an odd-address WRITE
+   (**[ADR 0018-C](0018-C-apl2cpm3-language-card-bank2-write-enable-flip-flop.md)**, classified SAFE) — apl2cpm3's
+   `?ldccp` bank-2-select write write-protected LC bank 2, dropping the `LDIR` CCP copy → `RET` into a zeroed `$1901`.
+   The one-method two-latch correction in `Apple2LanguageCard.Access` (V80-4) lets the CCP copy land (LC bank 2 =
+   3026/4096 nonzero) and the real apl2cpm3 Disk 1 reaches the decoded **`A>`** on the Videx 80-col VRAM. The Videx
+   auto-engage was closed by V80-3 (apl2cpm3 programs the CRTC `$C0B1` but never bank-selects, so `VidexVideoterm`
+   now engages on a CRTC-data write) → **`ActiveIndex==1` from a real CP/M-3 boot — the sibling gate is GREEN**
+   (`[Apl2Cpm3VidexFact]` asserts the decoded `A>` + `videxEngagedCount>0` + `ActiveIndex==1`). The 2.2 master still
+   issues zero `$C0Bx` so its CPM-5 `ActiveIndex==0` gate is unchanged (the disk-driven contrast). **The first true
+   80-column CP/M console end-to-end.** No Z80-core / translation change was needed (ADR 0018-A A1 stands; the residual
+   was the shared LC banking truth-table, corrected toward documented hardware).
 3. **Clock-ratio under per-instruction stepping (Decision 3).** Per-`Step` virtual-clock conversion is finer-grained
    than per-`Run`; confirm the rounding stays invisible to CP/M (it will — CP/M is coarse-timed). Inherited from ADR
    0015 OQ3; no new risk.
