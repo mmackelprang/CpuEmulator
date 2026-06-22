@@ -161,6 +161,17 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > end-to-end — the headline the M6 / ADR 0016/0017 arc set out to reach. ADR 0017 OQ2/D6 (`ActiveIndex==1` from a
 > real CP/M boot) is CLOSED.**
 >
+> **PLANNED (2026-06-22, Planner) — three follow-ons now have bite-sized TDD plans + queue rows
+> (`docs/BUILDER_QUEUE.md` rows W / D68 / B68-DOC), priority W → D68 → B68-DOC, all independent:** the
+> **`WozFluxImage` `.woz`-file parser** (Apple ][+ backlog row W — the WOZ2 container → `IFluxImage`, wired
+> end-to-end through the surface's insert/upload/library); a **real 68000 disassembler** (deferred #6 below —
+> a `FieldGrammar`-walking disassembler so the `--board m68000` monitor renders mnemonics, monitor-display-only,
+> no IL); and the **bench doc-reconciliation** (deferred #3 below — doc-only: the W3 profiler arm shipped in
+> `bc68ee7`, the W2 off-by-2 is accepted coarse-cycle slack per DECISION T2). Specs:
+> `docs/superpowers/specs/2026-06-22-{woz-flux-image,m68000-disassembler,bench-doc-reconciliation}-design.md`.
+> (The **[deferred]/[candidate]** tags on items #3 and #6 are updated to **[resolved]** / planned by their
+> Builder PRs.)
+>
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
 > idea worth recording). Nothing here is scheduled.
