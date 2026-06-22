@@ -179,6 +179,37 @@ public class SoftCardBoardTests
         Assert.NotNull(machine.Coprocessor);
     }
 
+    // ADR 0018 PR-1's un-fakeable slot-placement gate: the slot-4 board's control port toggles ONLY on a
+    // $C400 write; the default slot-5 board toggles ONLY on a $C500 write. One slot per board, exclusive
+    // (Decision 1 rejects a both-slots decode). A 6502 ROM writes a slot then spins; we assert who toggled.
+    [Theory]
+    [InlineData(0xC400u, 0xC4, true)]    // slot-4 board, write $C400 -> the Z80 activates
+    [InlineData(0xC400u, 0xC5, false)]   // slot-4 board, write $C500 -> NO toggle (empty MMIO hole)
+    [InlineData(0xC500u, 0xC5, true)]    // slot-5 (default) board, write $C500 -> the Z80 activates
+    [InlineData(0xC500u, 0xC4, false)]   // slot-5 board, write $C400 -> NO toggle
+    public void The_control_port_toggles_only_on_a_write_to_its_own_slot(
+        uint boardSlot, byte writeHiByte, bool expectActive)
+    {
+        // A 6502 system ROM: STA $<writeHiByte>00 ; JMP self. Reset vector -> $D000.
+        var rom = new byte[Apple2Rom.SystemRomLength];
+        rom[0x0000] = 0x8D; rom[0x0001] = 0x00; rom[0x0002] = writeHiByte;   // STA $hh00
+        rom[0x0003] = 0x4C; rom[0x0004] = 0x03; rom[0x0005] = 0xD0;          // JMP $D003 (spin)
+        rom[0x2FFC] = 0x00; rom[0x2FFD] = 0xD0;                              // reset -> $D000
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(rom);
+        var disk = new Apple2DiskII(new SyntheticFluxImage(trackCount: 35));
+        var iou = new Apple2Iou(state, lc, disk);
+        BoardSpec spec = SoftCardBoard.Spec(rom, iou, disk, DiskBootRom(), controlPortBase: boardSlot);
+        Machine machine = BoardMachineFactory.Build(spec);
+
+        machine.Reset();
+        Assert.False(machine.CoprocessorActive);   // the 6502 is the bus master at reset
+        machine.Run(100);                          // run past the STA + into the spin
+
+        Assert.Equal(expectActive, machine.CoprocessorActive);
+    }
+
     [Fact]
     public void SoftCardCpm_load_rejects_a_wrong_length_image()
     {
