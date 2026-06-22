@@ -22,8 +22,12 @@ public static class SoftCardVidexBoard
     /// <param name="disk2">The Disk II controller (drive 1 holds the CP/M .dsk).</param>
     /// <param name="diskBootRom">The 256 B slot-6 $C600 Disk II boot ROM (the Autostart cold-boot entry).</param>
     /// <param name="videx">The Videx Videoterm (the same instance the IOU delegates $C0Bx to).</param>
+    /// <param name="controlPortBase">The page the SoftCard control port decodes (ADR 0018 Decision 1).
+    /// Defaults to <see cref="SoftCardBoard.ControlPortBaseSlot5"/> ($C500) so the shipped Videx board is
+    /// byte-for-byte unchanged; apl2cpm3 passes <see cref="SoftCardBoard.ControlPortBaseSlot4"/> ($C400).</param>
     public static BoardSpec Spec(byte[] systemRom, Apple2Iou iou, Apple2DiskII disk2, byte[] diskBootRom,
-                                 VidexVideoterm videx)
+                                 VidexVideoterm videx,
+                                 uint controlPortBase = SoftCardBoard.ControlPortBaseSlot5)
     {
         ArgumentNullException.ThrowIfNull(systemRom);
         ArgumentNullException.ThrowIfNull(iou);
@@ -38,6 +42,12 @@ public static class SoftCardVidexBoard
             throw new ArgumentException(
                 $"Disk II boot ROM must be exactly ${Apple2Board.DiskBootRomLength:X} bytes; "
               + $"got ${diskBootRom.Length:X}.", nameof(diskBootRom));
+        if (controlPortBase % SoftCardBoard.ControlPortLength != 0
+            || controlPortBase < Apple2Board.IoBase
+            || controlPortBase + SoftCardBoard.ControlPortLength > Apple2Board.IoBase + Apple2Board.IoLength)
+            throw new ArgumentOutOfRangeException(nameof(controlPortBase),
+                $"the SoftCard control-port base must be a page-aligned address in the "
+              + $"$C000-$CFFF I/O band; got ${controlPortBase:X}.");
 
         var controlPort = new SoftCardControlPort();
         var coprocessor = new CoprocessorSpec(
@@ -68,8 +78,8 @@ public static class SoftCardVidexBoard
             Peripherals:
             [
                 new PeripheralSlot("iou", iou, Apple2Board.IouBase, Apple2Board.IouLength),       // $C000 page
-                new PeripheralSlot(SoftCardBoard.ControlPortName, controlPort,                    // $C500 control port
-                    SoftCardBoard.ControlPortBase, SoftCardBoard.ControlPortLength),
+                new PeripheralSlot(SoftCardBoard.ControlPortName, controlPort,                    // slot control port
+                    controlPortBase, SoftCardBoard.ControlPortLength),
                 new PeripheralSlot("videx", videx,                                               // $C800 Videx slot
                     Apple2Board.VidexFirmwareBase, Apple2Board.VidexFirmwareLength),
             ],
