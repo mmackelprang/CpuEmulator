@@ -314,13 +314,61 @@ public class SoftCardBoardTests
             "the BIOS handshake");
     }
 
-    [Fact(Skip = "A> deliverable lands in CPM-4 (ADR 0017 PR-4); PR-1 only restores honest main.")]
+    // ADR 0017 PR-4 (CPM-4) -- THE HEADLINE DELIVERABLE. With CPM-1 (per-track skew) + CPM-2 (open-bus Read) +
+    // CPM-3 (run-loop yield) all landed, the live triage shows outcome (1) of the plan's Decision-4 hypothesis:
+    // CONOUT already reaches the 40-col screen and the real disk boots to A> with NO further production change
+    // (fixes 1-3 were the complete gating set; no $1010 bridge change needed). The decoded text page is stable
+    // and byte-identical from ~5M cycles through 40M cycles -- well settled before the CpmBootCycles budget --
+    // so the frame is deterministic. This gate is the un-fakeable A> oracle (Decision 5): the decoded console
+    // text MUST carry "A>" (the CCP prompt) + a CP/M sign-on line, the Z80 MUST be the active bus master, and
+    // the rendered 40-col frame MUST match the committed SHA-256.
+    [SoftCardCpmFact]
     public void Cpm_boots_to_the_A_prompt_on_the_interpreter()
     {
-        // Intentionally skipped until CPM-4 wires the full handshake (control-port open-bus + run-loop yield
-        // + the $1010 bridge bring-up). CPM-4 replaces this body with the decoded-`A>` substring assertion
-        // + CoprocessorActive + ActiveIndex==0 (ADR 0017 Decision 5). Kept named so the gate is visible and
-        // un-fakeable when it lands -- never a silent PLACEHOLDER pass.
+        var (systemRomPath, cpmDiskPath) = SoftCardCpmVectors.TryGetAssets()!.Value;
+        byte[] systemRom = Apple2Rom.Load(systemRomPath);
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("the slot-6 disk2.rom is required for the CP/M boot gate");
+        byte[]? charRom = Apple2Rom.TryLoadCharRom();   // null -> Apple2Font.Fallback (still renders A>)
+        IBlockDevice cpm = SoftCardCpm.LoadBlockDevice(cpmDiskPath);
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var drive1 = new DskFluxImage(cpm, SectorOrderKind.Cpm);
+        var disk = new Apple2DiskII(drive1);
+        var iou = new Apple2Iou(state, lc, disk);
+        BoardSpec spec = SoftCardBoard.Spec(systemRom, iou, disk, diskBootRom);
+        Machine machine = BoardMachineFactory.Build(spec);   // interpreter tier (coprocessor is interpreter)
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+
+        machine.Reset();
+        machine.Run(CpmBootCycles);                          // the real $C600 -> tracks -> $CnXX -> CP/M boot
+
+        // --- (1) The un-fakeable content oracle: decode the 40-col text page and assert the CP/M prompt/sign-on.
+        string[] screen = DecodeTextScreen(machine);
+        string joined = string.Join("\n", screen);
+        Assert.Contains("A>", joined);   // the CCP prompt -- the headline target
+
+        // At least one of the disk's known sign-on lines also paints at cold boot (belt-and-braces; the disk's
+        // own ASCII pins these -- ADR 0017 Decision 5 / §1). The cached disk signs on as Microsoft's
+        // "APPLE ][ CP/M 44K VER. 2.20B / (C) 1980 MICROSOFT", so the CP/M arm is what passes here.
+        Assert.True(
+            joined.Contains("CP/M") || joined.Contains("DIGITAL RESEARCH"),
+            $"expected a CP/M sign-on line on the console; decoded screen was:\n{joined}");
+
+        // --- (2) The Z80 ran: it became the bus master during the boot (the $CnXX handoff fired).
+        Assert.True(machine.CoprocessorActive,
+            "expected the Z80 to be the active bus master after the CP/M boot handoff");
+
+        // --- (3) The committed frame hash (a TIGHTENING gate, captured on the first green run -- NOT the primary
+        //         assertion; the text substring above is the oracle). Render + hash the 40-col frame.
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(AsBytes(rgba)));
+        // Captured 2026-06-21 on the first green run, byte-identical across 3 consecutive runs (the interpreter
+        // tier is deterministic and the screen is fully settled well before the CpmBootCycles budget).
+        const string ExpectedBootHash = "89D10D1532F3A1DEA21C8497B774DA40F83B8CBF0C8842AB763B8A22CC3E0952";
+        Assert.Equal(ExpectedBootHash, hash);
     }
 
     /// <summary>Build the real SoftCard machine over the cached CP/M .dsk, run the cold boot, and decode the
@@ -345,6 +393,14 @@ public class SoftCardBoardTests
         machine.Reset();
         machine.Run(CpmBootCycles);                          // the real $C600 -> tracks -> $CnXX boot
 
+        return DecodeTextScreen(machine);
+    }
+
+    /// <summary>Decode the live 24x40 Apple text page ($0400, page 1) of <paramref name="machine"/> to ASCII --
+    /// the same TextRowBase walk BootProbe uses, stripping the normal-video high bit. Non-printable cells become
+    /// spaces. Returns 24 rows of 40 chars.</summary>
+    private static string[] DecodeTextScreen(Machine machine)
+    {
         IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
         var rows = new string[24];
         for (int r = 0; r < 24; r++)
@@ -359,5 +415,12 @@ public class SoftCardBoardTests
             rows[r] = sb.ToString();
         }
         return rows;
+    }
+
+    private static byte[] AsBytes(uint[] rgba)
+    {
+        var bytes = new byte[rgba.Length * 4];
+        Buffer.BlockCopy(rgba, 0, bytes, 0, bytes.Length);
+        return bytes;
     }
 }

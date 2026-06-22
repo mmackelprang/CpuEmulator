@@ -3,6 +3,17 @@ using CpuEmulator.Core;
 using CpuEmulator.Machines;
 using CpuEmulator.Peripherals;
 
+// --- CP/M screenshot mode (the human-visible A> proof for the morning report) ----------------------
+//   tools/BootProbe --cpm-screenshot <out.png> [diskPath]
+// Boots the real SoftCard CP/M board (the SAME wiring as the Cpm_boots_to_the_A_prompt gate), renders
+// the 40-col Apple text frame to RGBA, and writes it to a PNG. Defaults the disk to the cached
+// softcard-cpm.dsk. This is a dev tool, not a gate — the headless test is the arbiter, this is proof.
+if (args.Length >= 2 && args[0] == "--cpm-screenshot")
+{
+    CpmScreenshot.Run(args[1], args.Length >= 3 ? args[2] : null);
+    return;
+}
+
 // Boots the Apple ][+ in BOTH board configurations and dumps the live text-page screen +
 // the exact MonoOn ink-pixel count (the same metric the headless gate asserts on).
 //
@@ -116,3 +127,159 @@ Probe("CONFIG B-long: WEB-SURFACE board, 5M cycles (does '>' settle to ']'?)", w
 // Decode a known reference: what byte does the ROM use for ']' and '>'? The Applesoft prompt is ']'
 // ($DD = 0x5D|0x80) and the Monitor prompt is '*' ($AA). Print the ASCII map for clarity.
 Console.WriteLine("reference: ']' normal-video = $DD (0x5D|0x80);  '>' = $BE;  '*' (Monitor) = $AA;  '@' inverse = $00");
+
+/// <summary>Boots the real SoftCard CP/M board and writes the 40-col A&gt; boot frame to a PNG — the
+/// human-visible proof for the CPM-4 deliverable. Mirrors the Cpm_boots_to_the_A_prompt gate's wiring.</summary>
+internal static class CpmScreenshot
+{
+    public static void Run(string outPath, string? diskPath)
+    {
+        const long CpmBootCycles = 10_000_000;   // the gate's budget — the screen is settled well before this
+
+        string romPath = Apple2Rom.TryGetPath()
+            ?? throw new InvalidOperationException("apple2plus.rom not cached — run tools/get-apple2-roms");
+        byte[] systemRom = Apple2Rom.Load(romPath);
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("disk2.rom (slot-6 boot ROM) not cached");
+        byte[]? charRom = Apple2Rom.TryLoadCharRom();   // null -> Apple2Font.Fallback (still renders A>)
+
+        string disk = diskPath ?? SoftCardCpm.TryGetDiskPath()
+            ?? throw new InvalidOperationException("softcard-cpm.dsk not cached — run tools/get-softcard-cpm");
+        IBlockDevice cpm = SoftCardCpm.LoadBlockDevice(disk);
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var drive1 = new DskFluxImage(cpm, SectorOrderKind.Cpm);
+        var disk2 = new Apple2DiskII(drive1);
+        var iou = new Apple2Iou(state, lc, disk2);
+        BoardSpec spec = SoftCardBoard.Spec(systemRom, iou, disk2, diskBootRom);
+        Machine machine = BoardMachineFactory.Build(spec);   // interpreter tier (the coprocessor is interpreter)
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+
+        machine.Reset();
+        machine.Run(CpmBootCycles);                          // the real $C600 -> tracks -> $CnXX -> CP/M boot
+
+        // Echo the decoded console so the run output proves the A> landed (the same oracle the gate asserts).
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+        Console.WriteLine($"CoprocessorActive = {machine.CoprocessorActive}");
+        Console.WriteLine("decoded 40-col console (high-bit stripped):");
+        bool sawPrompt = false;
+        for (int r = 0; r < 24; r++)
+        {
+            uint rowBase = Apple2HiResAddress.TextRowBase(r, page2: false);
+            var sb = new StringBuilder(40);
+            for (int c = 0; c < 40; c++)
+            {
+                int g = bus.Read8(rowBase + (uint)c) & 0x7F;
+                sb.Append(g is >= 0x20 and <= 0x7E ? (char)g : ' ');
+            }
+            string line = sb.ToString();
+            if (line.Contains("A>")) sawPrompt = true;
+            Console.WriteLine($"  r{r,2} |{line}|");
+        }
+        Console.WriteLine($"\"A>\" present = {sawPrompt}");
+
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+
+        // Upscale 2x so the 280x192 frame is comfortably readable as a PNG.
+        WritePng(outPath, rgba, Apple2Video.Width280, Apple2Video.Height192, scale: 2);
+        Console.WriteLine($"wrote {outPath} ({Apple2Video.Width280 * 2}x{Apple2Video.Height192 * 2})");
+    }
+
+    /// <summary>Minimal RGBA8 PNG encoder (one IDAT, zlib/deflate). rgba is 0xAARRGGBB packed.</summary>
+    private static void WritePng(string path, uint[] rgba, int width, int height, int scale)
+    {
+        int w = width * scale, h = height * scale;
+        // Build raw scanlines: each row prefixed by a 0 filter byte; pixels as R,G,B,A.
+        var raw = new byte[h * (1 + w * 4)];
+        int o = 0;
+        for (int y = 0; y < h; y++)
+        {
+            raw[o++] = 0;   // filter type 0 (None)
+            int srcY = y / scale;
+            for (int x = 0; x < w; x++)
+            {
+                uint p = rgba[srcY * width + (x / scale)];
+                raw[o++] = (byte)(p >> 16);   // R
+                raw[o++] = (byte)(p >> 8);    // G
+                raw[o++] = (byte)p;           // B
+                raw[o++] = (byte)(p >> 24);   // A
+            }
+        }
+
+        using var fs = File.Create(path);
+        fs.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });   // PNG signature
+
+        var ihdr = new byte[13];
+        WriteBe(ihdr, 0, (uint)w);
+        WriteBe(ihdr, 4, (uint)h);
+        ihdr[8] = 8;    // bit depth
+        ihdr[9] = 6;    // colour type 6 = RGBA
+        ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;   // deflate / no filter / no interlace
+        WriteChunk(fs, "IHDR", ihdr);
+
+        WriteChunk(fs, "IDAT", Zlib(raw));
+        WriteChunk(fs, "IEND", Array.Empty<byte>());
+    }
+
+    private static byte[] Zlib(byte[] data)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(0x78); ms.WriteByte(0x01);   // zlib header (CM=8, no preset dict, fastest)
+        using (var df = new System.IO.Compression.DeflateStream(
+                   ms, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+            df.Write(data, 0, data.Length);
+        uint adler = Adler32(data);
+        ms.WriteByte((byte)(adler >> 24)); ms.WriteByte((byte)(adler >> 16));
+        ms.WriteByte((byte)(adler >> 8));  ms.WriteByte((byte)adler);
+        return ms.ToArray();
+    }
+
+    private static uint Adler32(byte[] data)
+    {
+        const uint Mod = 65521;
+        uint a = 1, b = 0;
+        foreach (byte d in data) { a = (a + d) % Mod; b = (b + a) % Mod; }
+        return (b << 16) | a;
+    }
+
+    private static void WriteChunk(Stream s, string type, byte[] data)
+    {
+        var len = new byte[4];
+        WriteBe(len, 0, (uint)data.Length);
+        s.Write(len, 0, 4);
+        byte[] typeBytes = Encoding.ASCII.GetBytes(type);
+        s.Write(typeBytes, 0, 4);
+        s.Write(data, 0, data.Length);
+        uint crc = Crc32(typeBytes, data);
+        var crcb = new byte[4];
+        WriteBe(crcb, 0, crc);
+        s.Write(crcb, 0, 4);
+    }
+
+    private static void WriteBe(byte[] buf, int off, uint v)
+    {
+        buf[off] = (byte)(v >> 24); buf[off + 1] = (byte)(v >> 16);
+        buf[off + 2] = (byte)(v >> 8); buf[off + 3] = (byte)v;
+    }
+
+    private static uint Crc32(byte[] type, byte[] data)
+    {
+        uint crc = 0xFFFFFFFFu;
+        crc = Crc32Update(crc, type);
+        crc = Crc32Update(crc, data);
+        return crc ^ 0xFFFFFFFFu;
+    }
+
+    private static uint Crc32Update(uint crc, byte[] data)
+    {
+        foreach (byte b in data)
+        {
+            crc ^= b;
+            for (int k = 0; k < 8; k++)
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+        return crc;
+    }
+}

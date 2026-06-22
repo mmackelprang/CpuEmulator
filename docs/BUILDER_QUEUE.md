@@ -1,5 +1,33 @@
 # Builder Queue
 
+> **Last updated:** 2026-06-21 (Builder — **CPM-4 SHIPPED — THE HEADLINE: the SoftCard CP/M deliverable now
+> actually boots to `A>`.** The live triage landed in **outcome (1)** of ADR 0017 Decision 4's scoped
+> hypothesis: with CPM-1 (per-track skew) + CPM-2 (open-bus Read) + CPM-3 (run-loop yield) all landed, CONOUT
+> already reaches the 40-col Apple text screen and the real Microsoft SoftCard CP/M 2.2 disk boots to `A>`
+> with **NO further production change** — fixes 1-3 were the complete gating set; **no `$1010` bridge change
+> needed**, exactly as the ADR anticipated. CPM-4 is therefore **test-only**: it un-skips
+> `Cpm_boots_to_the_A_prompt_on_the_interpreter` (was a `[Fact(Skip=…CPM-4…)]`) into the live un-fakeable
+> oracle (ADR 0017 Decision 5) — decode the 40-col text page (`TextRowBase` walk, high-bit-stripped) and
+> assert the **decoded `A>` substring** (the CCP prompt, row 8) + a CP/M sign-on line (`CP/M` — the cached
+> disk signs on as `APPLE ][ CP/M 44K VER. 2.20B / (C) 1980 MICROSOFT`) + `CoprocessorActive==true` (the Z80
+> became bus master) + a **committed real frame hash** (`89D10D…0952`, captured + verified byte-stable; the
+> PLACEHOLDER is gone). Extracted the shared `DecodeTextScreen(Machine)` helper + `AsBytes` (no behavioral
+> drift — the CPM-1/2/3 callers delegate to it). The decoded screen is byte-identical from ~5M through 40M
+> cycles, well-settled before the 10M `CpmBootCycles` budget. **Pre-merge review (`feature-dev:code-reviewer`):
+> 0 HIGH / 0 MEDIUM / 0 LOW — no fixer** (the reviewer confirmed the `A>` oracle is genuinely un-fakeable:
+> CP/M's RAM [TPA/CCP/BIOS] maps via Z80 branch-1 to physical `$1000-$BFFF`, never overlapping the `$0400`
+> text page, so `A>` at the text page can only come from a real CONOUT through the `$CnXX` handshake; the
+> committed hash is a real 64-hex value, not a placeholder; the refactor preserves the exact decode behavior).
+> Full Release suite **7310 passed / 0 failed / 4 skipped**, warning-clean (+1 net — the `A>` gate moved
+> skip→pass). **Human-visible proof:** rendered the live CP/M boot frame to a PNG via a `tools/BootProbe
+> --cpm-screenshot` mode (the same SoftCard wiring as the gate; a minimal RGBA8 PNG encoder, warning-clean) —
+> the `A>` prompt + sign-on visible at `/d/prj/cpm-A-prompt.png`. **Owner UAT (out of band):** the visible
+> `A>` in the browser `SoftCardSurface` (needs a browser + the cached assets). **Next: PR-5** — the Videx
+> 80-col CP/M discovery (ADR 0017 Decision 6/7 / OQ2 — do any of the 5 owner-downloaded masters auto-engage
+> the Videx, or fall back to the 40-col + direct-render re-frame). Prior Builder log:
+> **Last updated:** 2026-06-22 (Builder — **CPM-4 claimed (🔨)** on `feat/apple2-cpm-4-a-prompt` from green
+> main @ `5aa91cb`. THE HEADLINE — live triage to bring the boot to `A>` (decoded-text gate + `$1010` bridge
+> bring-up, may be a no-op).) Prior Builder log:
 > **Last updated:** 2026-06-21 (Builder — **CPM-3 SHIPPED (PR #133).** `RunDualCpu` now drives the active
 > core **one instruction at a time** via `ICpuCore.Step()`, breaking the inner loop the instant a `$CnXX`
 > control-port write sets `_sliceEndRequested` — the bus-master switch lands **at the writing instruction**,
@@ -422,7 +450,7 @@ emit under any new seam (the `Remap` listener, the Z80-under-translation fastmem
 | **CPM-1** | Honest main: per-track CP/M skew (the verified fix) + de-fanged boot gate (no false pass) | ✅ (PR #130) | — | [plan](superpowers/plans/2026-06-21-cpm-boot-to-a-prompt-pr1.md) | **Restores GREEN main** (verified: `main` @ `1d0232c` is **2-failed** on a machine with the CP/M assets cached — the two `[SoftCardCpmFact]` `A>` gates fail at `CoprocessorActive`/`ActiveIndex`; this blocks PR #128's clean merge). Lands **ADR 0017 Decision 1** — per-track CP/M skew: boot interleave `[0,11,6,1,12,7,2,13,8,3,14,9,4,15,10,5]` (`(p×11)%16`) for system tracks 0–2, the existing data table `[0,6,12,3,9,15,14,5,11,2,8,7,13,4,10,1]` for tracks 3+, via a new `Apple2SectorOrder.PhysicalToLogical(kind,track)` overload (DOS/ProDOS ignore `track` — single-skew unaffected, regression-guarded) + `DskFluxImage` resolving the skew per track. **De-fangs both CP/M boot gates** (Decision 5): replaces `onPixels>50` + `PLACEHOLDER` hash with an honest **negative** assertion (boot2 no longer BRKs to the monitor) + a `[Fact(Skip=…)]` named-skip for the `A>` part until CPM-4 (CPM-5 for the Videx gate) — the suite is GREEN, the gate can't lie. **Un-fakeable gate** (asset-free): per-track skew regression test (boot table for track 0, data table for track 3); the negative gate FAILS pre-fix (monitor `*`), PASSES post-fix. PR-1 alone does **not** reach `A>`. |
 | **CPM-2** | `SoftCardControlPort.Read()` open-bus (toggle on write only) | ✅ (PR #131) | CPM-1 | [plan](superpowers/plans/2026-06-21-cpm-boot-to-a-prompt-pr2.md) | **ADR 0017 Decision 2** (amends ADR 0015 D3): `Read()` returns open-bus `0x00` with **no** `Toggle()`; only `Write()` toggles the active CPU. The read-toggle livelocked the SoftCard-detect poll → `CAN'T FIND Z80 SOFTCARD`. **Un-fakeable gate:** a read (even 1000 reads) → 0 toggles; a write → 1 toggle (the `ControlSpy` `Calls`); with CPM-1+CPM-2 the live CP/M screen no longer contains `CAN'T FIND` (decoded-text negative) and the Z80 activates during the detect (slice-and-OR `CoprocessorActive`). One-line production change. Still does not reach `A>` (CPM-3 needed for a stable handshake). |
 | **CPM-3** | `RunDualCpu` yields at the `$CnXX` toggling instruction (Step-based) | ✅ (PR #133) | CPM-2 | [plan](superpowers/plans/2026-06-21-cpm-boot-to-a-prompt-pr3.md) | **ADR 0017 Decision 3** (amends ADR 0015 D1): the active core is driven one instruction at a time via `ICpuCore.Step()`, breaking the instant a `$CnXX` write sets `_sliceEndRequested` — so the switch lands **at the writing instruction**, not after the whole slice budget. Confined to the `_coprocessor is not null` branch; **single-CPU `RunSingleCpu` byte-for-byte unchanged** (full pre-existing suite green = the load-bearing regression gate). **Un-fakeable gate:** a synthetic dual-CPU yield test — CPU-A writes the control port then a sentinel store; the sentinel must NOT execute before the Z80 runs (FAILS pre-fix, PASSES post-fix); the live boot reaches the Z80 BIOS at `$Axxx` **stably** (no late fallback to the `$0000` reset stub). Still may not paint `A>` (CPM-4 bring-up). |
-| **CPM-4** | The live `A>` deliverable: decoded-text gate (Decision 5) + `$1010` bridge bring-up (Decision 4) | 📋 | CPM-3 | [plan](superpowers/plans/2026-06-21-cpm-boot-to-a-prompt-pr4.md) | **THE HEADLINE.** With CPM-1–3 landed, brings the boot to `A>`; closes any residual `$1010` 6502-BIOS↔Z80 bridge item via **live triage against the real disk** (Decision 4 — Builder bring-up, may be a no-op if 1–3 are the complete gating set; not pre-designed). **Un-fakeable gate (Decision 5):** decode the 40-col Apple text page (`TextRowBase` walk, high-bit-stripped) and assert the **decoded `A>` substring** (the CCP prompt) + a CP/M sign-on line (`CP/M`/`DIGITAL RESEARCH`) + `CoprocessorActive==true`; **capture the real frame hash** (replace `PLACEHOLDER` in the SAME PR — the text substring is the primary oracle, the hash a tightening gate). **Asset-gated** (interpreter tier; the coprocessor has no JIT). Owner UAT = the visible `A>` in the browser surface. |
+| **CPM-4** | The live `A>` deliverable: decoded-text gate (Decision 5) + `$1010` bridge bring-up (Decision 4) | ✅ | CPM-3 | [plan](superpowers/plans/2026-06-21-cpm-boot-to-a-prompt-pr4.md) | **THE HEADLINE.** With CPM-1–3 landed, brings the boot to `A>`; closes any residual `$1010` 6502-BIOS↔Z80 bridge item via **live triage against the real disk** (Decision 4 — Builder bring-up, may be a no-op if 1–3 are the complete gating set; not pre-designed). **Un-fakeable gate (Decision 5):** decode the 40-col Apple text page (`TextRowBase` walk, high-bit-stripped) and assert the **decoded `A>` substring** (the CCP prompt) + a CP/M sign-on line (`CP/M`/`DIGITAL RESEARCH`) + `CoprocessorActive==true`; **capture the real frame hash** (replace `PLACEHOLDER` in the SAME PR — the text substring is the primary oracle, the hash a tightening gate). **Asset-gated** (interpreter tier; the coprocessor has no JIT). Owner UAT = the visible `A>` in the browser surface. |
 
 ---
 
