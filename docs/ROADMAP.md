@@ -93,8 +93,11 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > boot). One residual (the Z80 NOP-slides from `$0000` because its entry vector to the loaded loader is absent) is a
 > bounded Builder bring-up against the live disk, the same shape that closed 2.2's `$1010` bridge. apl2cpm3 is the
 > first real CP/M expected to engage the Videx 80-col path (`ActiveIndex==1`) — the owner-sourced 80-col master ADR
-> 0017 OQ2 left open. **PR sequence (planned):** the configurable slot + asset loader + honest skipped gate → CP/M 3.1
-> `A>` in 40-col → CP/M 3.1 `A>` in **80 columns on the Videx**. See **ADR 0018**.
+> 0017 OQ2 left open. **PR sequence (PLANNED 2026-06-22 — queue rows V80-1…V80-3, strictly ordered):** **V80-1**
+> the configurable per-board SoftCard slot (`controlPortBase`; default slot 5 keeps the 2.2 board byte-for-byte
+> unchanged, apl2cpm3 → slot 4) + the `Apl2Cpm3` asset loader + an honest skipped gate → **V80-2** CP/M 3.1 `A>`
+> in 40-col (close the Z80-entry handoff via live triage) → **V80-3** CP/M 3.1 `A>` in **80 columns on the Videx**
+> (`ActiveIndex==1` from a real boot — the headline). See **ADR 0018** + `docs/BUILDER_QUEUE.md`.
 >
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
