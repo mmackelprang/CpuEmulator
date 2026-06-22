@@ -98,6 +98,13 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > unchanged, apl2cpm3 → slot 4) + the `Apl2Cpm3` asset loader + an honest skipped gate → **V80-2** CP/M 3.1 `A>`
 > in 40-col (close the Z80-entry handoff via live triage) → **V80-3** CP/M 3.1 `A>` in **80 columns on the Videx**
 > (`ActiveIndex==1` from a real boot — the headline). See **ADR 0018** + `docs/BUILDER_QUEUE.md`.
+> **V80-1 SHIPPED (2026-06-22, PR #137):** the per-board `controlPortBase` slot (default slot 5, the 2.2 board
+> byte-for-byte unchanged; apl2cpm3 → slot 4) + the `Apl2Cpm3` loader (distinct `cpm/apl2cpm3/` cache path) +
+> `tools/get-apl2cpm3.{sh,ps1}` + the named-skipped boot gate, with the un-fakeable slot-placement gate
+> ($C400 toggles the slot-4 board, $C500 does not). **Live-verified on the real apl2cpm3 Disk 1:** on the
+> slot-4 board the Z80 activates (no error); on the slot-5 default board the boot prints `NO Z80 FOUND` — the
+> gating fix ADR 0018 traced. V80-1 does not yet reach `A>` (the Z80-entry handoff is V80-2). The 2.2
+> no-regression gates (CPM-4 hash, CPM-5 Videx) ran live and passed. **V80-2 + V80-3 remain in flight.**
 >
 > Each item is tagged
 > **[deferred]** (a scoped, named follow-on the M6 arc explicitly left out) or **[candidate]** (a looser
