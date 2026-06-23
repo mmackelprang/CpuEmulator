@@ -272,7 +272,8 @@ A schema mirroring `comparison.json`'s posture (versioned, host-stamped, real-nu
   "host": { "cpu": "...", "os": "...", "dotnet": "..." },
   "system": "apple2-dos33",             // the real machine (or "bench-6502" for a kernel)
   "workload": "boot-to-basic",          // the frozen window
-  "instructionBudget": 50000000,        // FROZEN per system×workload (the re-measure contract, §6.4)
+  "frozenBudget": 50000000,             // FROZEN per system×workload (the re-measure contract, §6.4)
+  "budgetUnit": "cycles",               // "cycles" (real boots) or "instructions" (kernels) — labels frozenBudget
   "tiers": {
     "interpreter": {
       "instructionsRetired": 50000000,

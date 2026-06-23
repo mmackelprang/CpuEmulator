@@ -92,10 +92,12 @@ public sealed record SystemProfile
     /// <summary>The frozen workload window (e.g. "boot-to-basic", "W1-klaus").</summary>
     public string Workload { get; init; } = "";
 
-    /// <summary>The frozen budget the run used; <see cref="BudgetUnit"/> labels cycles vs instructions.</summary>
-    public long InstructionBudget { get; init; }
+    /// <summary>The frozen budget the run used; <see cref="BudgetUnit"/> labels cycles vs instructions.
+    /// (Serializes to JSON key <c>frozenBudget</c> — it is a cycle count for the real-boot profiles, so
+    /// the old name <c>instructionBudget</c> contradicted its value when budgetUnit was "cycles".)</summary>
+    public long FrozenBudget { get; init; }
 
-    /// <summary>"cycles" or "instructions" — which unit <see cref="InstructionBudget"/> is in.</summary>
+    /// <summary>"cycles" or "instructions" — which unit <see cref="FrozenBudget"/> is in.</summary>
     public string BudgetUnit { get; init; } = "cycles";
 
     public TierSet Tiers { get; init; } = new();

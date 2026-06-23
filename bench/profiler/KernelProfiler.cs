@@ -96,19 +96,30 @@ public static class KernelProfiler
             AllocBytesPerWindow = iAlloc,
         };
 
-        // ── JIT tier: same instruction budget via budget-1 Runs; read IJitMetrics counters ──
+        // ── JIT tier: a BULK-Run window (like the real boots + bench Tier1), NOT budget-1 ──
+        // Budget-1 Runs exited the dispatcher after one block before RunChain could follow any chain
+        // edge, so chainEdgesTaken was STRUCTURALLY 0 for every kernel (a harness artifact). Driving the
+        // JIT with a large per-slice cycle budget lets it follow chains, so the chain/dispatch counters
+        // reflect real chaining behavior (the honest ADR-0012 floor signal).
         var (jcpu, jmem, jio) = build(w);
         IJitMetrics jit = NewJit(jcpu, target, jmem, jio);
         long jAllocBefore = GC.GetTotalAllocatedBytes();
         var jsw = Stopwatch.StartNew();
-        long retired = RunJitInstructions((ICpuCore)jit, jcpu, instrBudget);
+        long jStart = jcpu.CycleCount;
+        bool jitWindowCapped = RunJitBulk((ICpuCore)jit, jcpu, jsw);
         jsw.Stop();
         long jAlloc = GC.GetTotalAllocatedBytes() - jAllocBefore;
-        double jCps = jcpu.CycleCount / jsw.Elapsed.TotalSeconds;
+        double jCps = (jcpu.CycleCount - jStart) / jsw.Elapsed.TotalSeconds;
+
+        notes.Add(jitWindowCapped
+            ? $"JIT tier is a bulk-Run window (chaining exercised honestly); window CAPPED at {JitWallCapSeconds}s wall " +
+              "(SMC-thrash floor — Klaus/zexdoc are genuinely slow on the JIT, ADR-0012/0022)."
+            : "JIT tier is a bulk-Run window (chaining exercised honestly, not budget-1); " +
+              "instructionsRetired is left 0 (not attributed for the bulk window — the chain/dispatch/cache counters are the signal).");
 
         var jitProfile = new JitTierProfile
         {
-            InstructionsRetired = retired,
+            InstructionsRetired = 0,   // not attributed for the bulk-Run window (see note)
             CyclesPerSecond = jCps,
             RealtimeRatio = null,
             EmitCoverage = null,
@@ -131,7 +142,7 @@ public static class KernelProfiler
             Host = host,
             System = system,
             Workload = workload,
-            InstructionBudget = instrBudget,
+            FrozenBudget = instrBudget,
             BudgetUnit = "instructions",
             Tiers = new TierSet { Interpreter = interp, Jit = jitProfile },
             PerPeripheralFrameCostNs = null,
@@ -149,21 +160,30 @@ public static class KernelProfiler
         _ => throw new InvalidOperationException($"no JIT construction for {cpu.GetType().Name}"),
     };
 
-    // Drive the JIT budget-1 (== one instruction per Run, the all-fallback/bench invariant) so the
-    // retired-instruction count is exact and the counters accumulate over the same window the cps measures.
-    private static long RunJitInstructions(ICpuCore jit, ICpuCore inner, long instrBudget)
+    // The JIT bulk-Run window. Drive jit.Run(ref budget) with a LARGE per-slice budget (the way the real
+    // boots' RunSlices and the bench Tier1 driver do) so the dispatcher runs many blocks per Run and
+    // RunChain follows chain edges — making chainEdgesTaken/dispatcherEntries HONEST. We bound the window
+    // by a target CYCLE count (≈ the same work as the interpreter's instruction window) AND by a
+    // wall-clock cap, so an SMC-pathological kernel (Klaus / zexdoc — genuinely ~1e6 cyc/s on the JIT)
+    // can't run the profiler for minutes. Returns true if the wall-clock cap stopped the window early.
+    private const double JitWallCapSeconds = 12.0;     // SMC-thrash guard (Klaus/zexdoc are slow on the JIT)
+    private const long JitTargetCycles = 40_000_000;   // ≈ the interpreter instruction window's worth of work
+    private const long JitSliceCycles = 4_000_000;     // bulk slice — many blocks per Run so chains are followed
+
+    private static bool RunJitBulk(ICpuCore jit, ICpuCore inner, Stopwatch wall)
     {
-        long retired = 0;
-        for (long i = 0; i < instrBudget; i++)
+        long start = inner.CycleCount;
+        while (inner.CycleCount - start < JitTargetCycles)
         {
+            if (wall.Elapsed.TotalSeconds >= JitWallCapSeconds)
+                return true;   // SMC-thrash cap — stop the window early (noted)
             long prev = inner.CycleCount;
-            long budget = 1;
+            long budget = JitSliceCycles;
             jit.Run(ref budget);
-            retired++;
             if (inner.CycleCount == prev)
                 break;   // diverged/0-cycle guard — stop the window honestly (never spin)
         }
-        return retired;
+        return false;
     }
 
     // ── per-CPU board construction (mirrors the bench tier drivers) ──

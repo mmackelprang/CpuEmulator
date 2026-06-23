@@ -28,7 +28,7 @@ public class ProfilerFormatSmokeTests
     private static readonly string[] RequiredTopKeys =
     {
         "schemaVersion", "generatedUtc", "commit", "host", "system", "workload",
-        "instructionBudget", "budgetUnit", "tiers", "perPeripheralFrameCostNs", "notes",
+        "frozenBudget", "budgetUnit", "tiers", "perPeripheralFrameCostNs", "notes",
     };
 
     private static readonly string[] RequiredJitKeys =
@@ -69,7 +69,7 @@ public class ProfilerFormatSmokeTests
             host = new { cpu = "test", os = "test", dotnet = "10.0" },
             system = "bench-6502",
             workload = "W3-sieve",
-            instructionBudget = 20_000_000L,
+            frozenBudget = 20_000_000L,
             budgetUnit = "instructions",
             tiers = new
             {
