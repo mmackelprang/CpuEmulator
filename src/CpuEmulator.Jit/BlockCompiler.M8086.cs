@@ -1092,6 +1092,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         }
     }
 
+    /// <summary>ADR 0019 FF-1: project a same-segment near-flow IP target to the linear block key the
+    /// dispatcher will compute for it — (_m8086CodePhysBase + ip) &amp; 0xFFFFF. The base is the baked CS&lt;&lt;4
+    /// (set at the head of Discover/Compile from the live CS), so for a compile-time-constant IP this is a
+    /// compile-time-constant uint key. Used ONLY for the near arm's static chain edges (a near transfer
+    /// cannot change CS, so the successor is in the SAME baked segment). The inverse of the Discover offset
+    /// recovery (entryKey - base): here base + ip rebuilds the linear key from the same-segment IP.</summary>
+    private uint M8086NearChainKey(ushort ip) => (_m8086CodePhysBase + ip) & 0xFFFFFu;
+
     /// <summary>M6 PR-D: emit one 8086 NEAR control-flow instruction (DECISION D-1/D-2). Reached when TargetIsM8086
     /// &amp;&amp; the row is an in-scope flow opcode. STATIC targets (Jcc/JMP/CALL rel, LOOP*) chain via EmitChainOrExit
     /// (the target is the compile-time constant (pc+length) + rel); DYNAMIC targets (RET pop, FF /2 /4 indirect) set
@@ -1125,10 +1133,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 EmitM8086JccTaken(ctx, opcode);                // push taken? (0/1)
                 il.Emit(OpCodes.Brfalse, notTaken);
                 EmitM8086SetIp(ctx, target);                   // IP = target
-                EmitChainOrExit(ctx, target);                  // STATIC taken edge — chainable (self-terminates)
+                EmitChainOrExit(ctx, M8086NearChainKey(target));   // STATIC taken edge — linear key (FF-1)
                 il.MarkLabel(notTaken);
                 EmitM8086SetIp(ctx, fallThrough);              // IP = fall-through
-                EmitChainOrExit(ctx, fallThrough);             // STATIC not-taken edge — chainable (self-terminates)
+                EmitChainOrExit(ctx, M8086NearChainKey(fallThrough));   // STATIC not-taken edge — linear key (FF-1)
                 return;
             }
 
@@ -1138,7 +1146,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 short rel = (sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc));   // sign-extended rel8
                 ushort target = (ushort)(fallThrough + rel);
                 EmitM8086SetIp(ctx, target);
-                EmitChainOrExit(ctx, target);
+                EmitChainOrExit(ctx, M8086NearChainKey(target));   // STATIC JMP rel8 — linear key (FF-1)
                 return;
             }
 
@@ -1149,7 +1157,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                                     | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));   // (short) rel16
                 ushort target = (ushort)(fallThrough + rel);
                 EmitM8086SetIp(ctx, target);
-                EmitChainOrExit(ctx, target);
+                EmitChainOrExit(ctx, M8086NearChainKey(target));   // STATIC JMP rel16 — linear key (FF-1)
                 return;
             }
 
@@ -1161,7 +1169,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 ushort target = (ushort)(fallThrough + rel);
                 EmitM8086PushWord(ctx, () => il.Emit(OpCodes.Ldc_I4, (int)fallThrough));   // PushWord(IP) — the return IP
                 EmitM8086SetIp(ctx, target);
-                EmitChainOrExit(ctx, target);                  // STATIC call entry — chainable (Z80 EmitZ80Call shape)
+                EmitChainOrExit(ctx, M8086NearChainKey(target));   // STATIC call entry — linear key (FF-1)
                 return;
             }
 
@@ -1189,9 +1197,9 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 Label notTaken = il.DefineLabel();
                 EmitM8086LoopTaken(ctx, opcode);               // push taken? (decrements CX for E0-E2; reads ZF/CX)
                 il.Emit(OpCodes.Brfalse, notTaken);
-                EmitM8086SetIp(ctx, target); EmitChainOrExit(ctx, target);
+                EmitM8086SetIp(ctx, target); EmitChainOrExit(ctx, M8086NearChainKey(target));   // LOOP taken — linear key (FF-1)
                 il.MarkLabel(notTaken);
-                EmitM8086SetIp(ctx, fallThrough); EmitChainOrExit(ctx, fallThrough);
+                EmitM8086SetIp(ctx, fallThrough); EmitChainOrExit(ctx, M8086NearChainKey(fallThrough));   // LOOP not-taken — linear key (FF-1)
                 return;
             }
 

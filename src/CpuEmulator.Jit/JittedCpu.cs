@@ -96,6 +96,11 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     /// (the chaining pins read this; 0 with <see cref="JitOptions.DisableChaining"/> or M2-i).</summary>
     internal long ChainStepCount => _chainStepCount;
 
+    /// <summary>Test seam (ADR 0019 FF-1): is a block cached under this exact 32-bit linear key? The
+    /// 8086 near-chain-key pin reads this to prove a near edge keys the successor on the linear
+    /// (CS&lt;&lt;4)+IP, not the bare IP.</summary>
+    internal bool CacheContainsBlockKey(uint key) => _cache.ContainsBlockKey(key);
+
     public string Architecture => _inner.Architecture;
     public long CycleCount => _inner.CycleCount;
     public void Reset() => _inner.Reset();
