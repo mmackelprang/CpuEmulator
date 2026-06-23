@@ -11,7 +11,13 @@ namespace CpuEmulator.Surface.Web;
 /// guest-driven ActiveChanged signal (ADR 0016 Decision 1/2 — CP/M's terminal driver enabling the Videx
 /// switches the host display Apple-40 -> Videx-80, no UI toggle). The MachineHost re-sizes its buffer
 /// 280x192 -> 560x216 on the switch (PR-M). CP/M boots on the Z80 (interpreter tier) translated against
-/// shared RAM and drives the Videx terminal. The Videx ROMs are optional (synthetic fallback).</summary>
+/// shared RAM and drives the Videx terminal. The Videx ROMs are optional (synthetic fallback).
+///
+/// This one surface serves BOTH cached CP/M configurations, selected by the caller via the
+/// <c>sectorOrder</c> + <c>controlPortBase</c> params (defaults preserve the shipped 2.2 rig byte-for-byte):
+/// the 40-col CP/M 2.2 master (<see cref="SectorOrderKind.Cpm"/> per-track skew, slot-5 $C500 control port —
+/// the defaults) AND the 80-col apl2cpm3 CP/M 3.1 master (<see cref="SectorOrderKind.Cpm3"/> raw-DOS33
+/// skew, slot-4 $C400 control port — see <see cref="CreateApl2Cpm3"/>; ADR 0018-A / V80-1).</summary>
 public sealed record SoftCardVidexSurface(
     Machine Machine, Apple2Video Video, VidexVideoterm Videx, DisplayMultiplexer Display,
     Apple2Keyboard Keyboard, Apple2Speaker Speaker, MachineHost Host,
@@ -20,12 +26,20 @@ public sealed record SoftCardVidexSurface(
     private const int AppleIndex = 0;
     private const int VidexIndex = 1;
 
+    /// <param name="sectorOrder">The Disk II nibblization skew for drive 1 (ADR 0018-A). Defaults to
+    /// <see cref="SectorOrderKind.Cpm"/> (the 2.2 per-track skew) so the shipped 2.2 callers are unchanged;
+    /// apl2cpm3 passes <see cref="SectorOrderKind.Cpm3"/> (raw DOS33 on every track).</param>
+    /// <param name="controlPortBase">The page the SoftCard control port decodes (ADR 0018 Decision 1).
+    /// Defaults to <see cref="SoftCardBoard.ControlPortBaseSlot5"/> ($C500) so the 2.2 board is byte-for-byte
+    /// unchanged; apl2cpm3 passes <see cref="SoftCardBoard.ControlPortBaseSlot4"/> ($C400, slot 4).</param>
     public static SoftCardVidexSurface Create(byte[] systemRom, byte[] diskBootRom, byte[]? charRom,
                                               byte[]? videxCharRom, byte[]? videxFirmware,
                                               IBlockDevice cpmDisk,
                                               Action<byte[]> frameSink, Action<byte[]> audioSink,
                                               ExecutionTier tier = ExecutionTier.Interpreter,
-                                              string drive1Label = "CP/M")
+                                              string drive1Label = "CP/M",
+                                              SectorOrderKind sectorOrder = SectorOrderKind.Cpm,
+                                              uint controlPortBase = SoftCardBoard.ControlPortBaseSlot5)
     {
         ArgumentNullException.ThrowIfNull(systemRom);
         ArgumentNullException.ThrowIfNull(diskBootRom);
@@ -39,12 +53,14 @@ public sealed record SoftCardVidexSurface(
         var speaker = new Apple2Speaker(state);
         var lc = new Apple2LanguageCard(systemRom);
         var videx = new VidexVideoterm(videxCharRom, videxFirmware);
-        // Drive 1 = the CP/M .dsk, re-nibblized with the CP/M data-track skew onto the unchanged Disk II head.
-        var drive1 = new DskFluxImage(cpmDisk, SectorOrderKind.Cpm);
+        // Drive 1 = the CP/M .dsk, re-nibblized with the caller's data-track skew onto the unchanged Disk II
+        // head (Cpm per-track for 2.2; Cpm3 raw-DOS33-on-every-track for apl2cpm3 — ADR 0018-A).
+        var drive1 = new DskFluxImage(cpmDisk, sectorOrder);
         var disk = new Apple2DiskII(drive1);
         var iou = new Apple2Iou(state, lc, disk, videx);   // PR-N's 4-arg ctor (the Videx $C0Bx delegate)
 
-        BoardSpec spec = SoftCardVidexBoard.Spec(systemRom, iou, disk, diskBootRom, videx);
+        BoardSpec spec = SoftCardVidexBoard.Spec(systemRom, iou, disk, diskBootRom, videx,
+            controlPortBase: controlPortBase);
         Machine machine = BoardMachineFactory.Build(spec, tier);
 
         video.Realize(machine);
@@ -65,6 +81,21 @@ public sealed record SoftCardVidexSurface(
         surface._labels.Set(1, drive1Label);   // drive 1 starts at the ctor label ("CP/M")
         return surface;
     }
+
+    /// <summary>The apl2cpm3 80-col CP/M 3.1 rig: a thin <see cref="Create"/> forwarder that selects the
+    /// apl2cpm3 configuration — <see cref="SectorOrderKind.Cpm3"/> (raw-DOS33-on-every-track skew, ADR 0018-A)
+    /// + <see cref="SoftCardBoard.ControlPortBaseSlot4"/> ($C400, slot 4 — apl2cpm3 hard-codes STA $C400 to
+    /// start the Z80) + the "CP/M 3.1" drive-1 label (V80-1). The shipped 2.2 path keeps <see cref="Create"/>
+    /// with its defaults (Cpm skew, slot-5 $C500) untouched.</summary>
+    public static SoftCardVidexSurface CreateApl2Cpm3(byte[] systemRom, byte[] diskBootRom, byte[]? charRom,
+                                                      byte[]? videxCharRom, byte[]? videxFirmware,
+                                                      IBlockDevice cpmDisk,
+                                                      Action<byte[]> frameSink, Action<byte[]> audioSink,
+                                                      ExecutionTier tier = ExecutionTier.Interpreter) =>
+        Create(systemRom, diskBootRom, charRom, videxCharRom, videxFirmware, cpmDisk, frameSink, audioSink,
+               tier, drive1Label: "CP/M 3.1",
+               sectorOrder: SectorOrderKind.Cpm3,
+               controlPortBase: SoftCardBoard.ControlPortBaseSlot4);
 
     // Mutable per-drive labels for the ST frame (design D9/D14): the immutable record can't hold runtime
     // label state, so a tiny holder tracks each drive's current image label, updated on insert/eject.
