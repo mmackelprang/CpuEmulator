@@ -73,4 +73,35 @@ public static class Pascal
     /// <summary>The flux-image wrapper for a Pascal `.dsk` at <paramref name="path"/>, re-nibblized with the
     /// correct <see cref="Order"/> (DOS&#160;3.3 on-disk order) onto the unchanged Disk II head.</summary>
     public static DskFluxImage LoadFluxImage(string path) => new(LoadBlockDevice(path), Order);
+
+    /// <summary>The fully-wired Apple ][+ Pascal board (PR #153): system ROM + Language Card + the real slot-6
+    /// Disk II boot ROM at $C600, APPLE1 (boot, SYSTEM.APPLE + SYSTEM.PASCAL) re-nibblized at <see cref="Order"/>
+    /// in drive 1, APPLE0 (program/compiler) in drive 2 when supplied. The single source of truth for the Pascal
+    /// board — PascalBootTests, BootProbe, and the web surface all build it here. Returns the built Machine plus
+    /// the shared video state + Disk II + Language Card so callers can wire video/keyboard/audio over it. Does
+    /// NOT call <see cref="Machine.Reset"/> — the caller resets (PascalBootTests resets then runs; the web
+    /// surface Realizes video/speaker BEFORE reset, matching Apple2Surface.Create's order). <paramref
+    /// name="order"/> defaults to <see cref="Order"/> when null (the BootProbe override seam).</summary>
+    public static PascalBoard CreateBoard(byte[] systemRom, byte[] diskBootRom,
+                                          string bootDiskPath, string? programDiskPath,
+                                          SectorOrderKind? order = null)
+    {
+        SectorOrderKind ord = order ?? Order;
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var bootDrive = new DskFluxImage(LoadBlockDevice(bootDiskPath), ord);
+        var disk2 = new Apple2DiskII(bootDrive);
+        if (programDiskPath is not null)
+            disk2.Insert(2, new DskFluxImage(LoadBlockDevice(programDiskPath), ord));
+        var iou = new Apple2Iou(state, lc, disk2);
+        BoardSpec spec = Apple2Board.SpecWithSystem(systemRom, iou, disk2, diskBootRom);
+        Machine machine = BoardMachineFactory.Build(spec);
+        return new PascalBoard(machine, state, disk2, lc);
+    }
 }
+
+/// <summary>The built Apple ][+ Pascal board plus the shared peripherals callers wire video/keyboard/audio
+/// over: the <see cref="Machine"/>, the shared <see cref="Apple2VideoState"/>, the slot-6 <see
+/// cref="Apple2DiskII"/> (drive 1 = APPLE1, drive 2 = APPLE0 when staged), and the <see
+/// cref="Apple2LanguageCard"/>. Produced by <see cref="Pascal.CreateBoard"/> — the single source of truth.</summary>
+public sealed record PascalBoard(Machine Machine, Apple2VideoState State, Apple2DiskII Disk, Apple2LanguageCard LanguageCard);

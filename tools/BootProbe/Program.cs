@@ -378,18 +378,13 @@ internal static class PascalBoot
         Console.WriteLine($"drive 2 = {program ?? "(absent)"}");
         Console.WriteLine($"\n=== boot APPLE1 (drive 1) + APPLE0 (drive 2), SectorOrderKind.{order}, {bootCycles:N0} cycles ===");
 
-        var state = new Apple2VideoState();
-        var lc = new Apple2LanguageCard(systemRom);
-        var disk2 = new Apple2DiskII(new DskFluxImage(Pascal.LoadBlockDevice(boot), order));
-        if (program is not null)
-            disk2.Insert(2, new DskFluxImage(Pascal.LoadBlockDevice(program), order));
-        var iou = new Apple2Iou(state, lc, disk2);
         // The plain ][+ board with the LC (rides the IOU) + the real slot-6 boot ROM at $C600. The cold
         // Autostart scan finds the slot-6 signature in the REAL disk2.rom and JMP ($C600)s into it -> the
-        // P5/P6 boot reads track 0 sector 0 into $0800 and runs the Pascal boot block.
-        BoardSpec spec = Apple2Board.SpecWithSystem(systemRom, iou, disk2, diskBootRom);
-        Machine machine = BoardMachineFactory.Build(spec);
-        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+        // P5/P6 boot reads track 0 sector 0 into $0800 and runs the Pascal boot block. Built ONCE in
+        // Pascal.CreateBoard (the single source of truth); the --order override flows through.
+        PascalBoard board = Pascal.CreateBoard(systemRom, diskBootRom, boot, program, order);
+        Machine machine = board.Machine;
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), board.State, charRom);
 
         machine.Reset();
         machine.Run(bootCycles);
