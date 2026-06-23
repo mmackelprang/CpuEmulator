@@ -74,6 +74,29 @@ internal static class DemoSession
     private const long AppleSliceCycles = 17_030;
     private static readonly TimeSpan ApplePeriod = TimeSpan.FromMilliseconds(16);
 
+    /// <summary>Which system the web server boots, in precedence order. The asset-probe order in
+    /// <see cref="RunAsync"/> mirrors this; <see cref="SelectSystem"/> is the pure decision.</summary>
+    internal enum WebSystem { Apl2Cpm3Videx, SoftCardCpm22, Apple2, Spectrum, Demo }
+
+    /// <summary>The pure precedence decision (no I/O) — the single source of truth for which system the web
+    /// server boots, given which assets are present. apl2cpm3 (80-col CP/M 3.1) takes priority over the 2.2
+    /// (40-col) disk when its assets are present; 2.2 stays the fallback. Mirrors the asset-probe order in
+    /// <see cref="RunAsync"/>.</summary>
+    /// <param name="videxFirmware">Whether the REAL Videx $C800 firmware is cached. It gates the apl2cpm3
+    /// branch because the apl2cpm3 CRT80 console JMPs into that firmware window to paint the 80-col VRAM —
+    /// without the real firmware the 80-col screen renders NOTHING (see Apl2Cpm3Vectors.TryGetVidexAssets /
+    /// the Apl2Cpm3VidexFact doc). Requiring it avoids selecting a blank-screen apl2cpm3 boot; absent it we
+    /// correctly fall through to the 2.2 (40-col) branch.</param>
+    internal static WebSystem SelectSystem(bool appleRom, bool apl2cpm3Disk, bool videxFirmware,
+                                           bool cpm22Disk, bool spectrumRom)
+    {
+        if (appleRom && apl2cpm3Disk && videxFirmware) return WebSystem.Apl2Cpm3Videx;
+        if (appleRom && cpm22Disk) return WebSystem.SoftCardCpm22;
+        if (appleRom) return WebSystem.Apple2;
+        if (spectrumRom) return WebSystem.Spectrum;
+        return WebSystem.Demo;
+    }
+
     public static async Task RunAsync(WebSocket socket, CancellationToken ct)
     {
         Channel<byte[]> frames = Channel.CreateBounded<byte[]>(
@@ -81,14 +104,30 @@ internal static class DemoSession
         Channel<byte[]> audio = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
 
-        // Boot the SoftCard (CP/M) when BOTH the Apple system ROM and the CP/M .dsk are cached; else fall
-        // back to the Apple ][+ when its system ROM is cached; else the Spectrum, else the demo. (Each
-        // subsequent asset is only probed when the earlier branch isn't taken — no file-stat in the common
-        // boot path.)
+        // Boot order (precedence in SelectSystem): the apl2cpm3 80-col CP/M 3.1 SoftCard+Videx when its
+        // assets (Apple ROM + apl2cpm3 Disk 1 + REAL Videx firmware) are cached; else the 2.2 40-col SoftCard
+        // (Apple ROM + the 2.2 .dsk); else the Apple ][+ (system ROM only); else the Spectrum; else the demo.
+        // Assets are probed lazily/short-circuit: the CP/M discs + Videx firmware are only stat'd when the
+        // Apple system ROM is present (a missing Apple ROM means no SoftCard boot regardless), so the
+        // Spectrum/demo paths take no Apple-asset file-stat.
         string? appleRom = CpuEmulator.Machines.Apple2Rom.TryGetPath();
-        // Only stat the CP/M .dsk when the Apple system ROM is present — the SoftCard needs both, so a
-        // missing Apple ROM means no SoftCard boot regardless, and the Spectrum/demo paths take no file-stat.
-        string? cpmDisk = appleRom is not null ? CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath() : null;
+        string? apl2cpm3DiskPath = null;
+        byte[]? videxFirmware = null;   // the REAL $C800 firmware (load-bearing for the apl2cpm3 80-col console)
+        string? cpmDisk = null;         // the 2.2 40-col .dsk
+        if (appleRom is not null)
+        {
+            apl2cpm3DiskPath = CpuEmulator.Machines.Apl2Cpm3.TryGetBootDiskPath();
+            videxFirmware = CpuEmulator.Machines.VidexRom.TryLoadFirmware();   // non-null == the real firmware is cached
+            cpmDisk = CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath();
+        }
+
+        WebSystem system = SelectSystem(
+            appleRom: appleRom is not null,
+            apl2cpm3Disk: apl2cpm3DiskPath is not null,
+            videxFirmware: videxFirmware is not null,
+            cpm22Disk: cpmDisk is not null,
+            spectrumRom: CpuEmulator.Machines.SpectrumRom.TryGetPath() is not null);
+
         // Hoisted per-branch state: each branch sets the host + slice/period (the pump is built ONCE after
         // the branch, with the optional status pusher) and either the Apple status provider (the live ST
         // frame) or leaves it null (Spectrum/demo keep the legacy one-shot "ST <assetState>" text frame).
@@ -99,18 +138,38 @@ internal static class DemoSession
         Action<int, byte[], DiskFormat, string>? insertDisk = null;   // library/upload insert (R/S)
         Action<int>? ejectDisk = null;                                // library eject (R)
         string assetState;   // surfaced to the client banner / status line
-        if (appleRom is not null && cpmDisk is not null)
+        if (system == WebSystem.Apl2Cpm3Videx)
         {
-            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom);
+            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom!);
+            byte[] bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom()
+                ?? throw new InvalidOperationException(
+                    "apl2cpm3 CP/M 3.1 needs the slot-6 Disk II boot ROM (disk2.rom) — run tools/get-apple2-roms.");
+            byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
+            byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();        // optional (synthetic fallback)
+            byte[]? videxFw = videxFirmware;                                           // already probed (REAL firmware)
+            CpuEmulator.Core.IBlockDevice cpm3 = CpuEmulator.Machines.Apl2Cpm3.LoadBootDisk(apl2cpm3DiskPath);
+            SoftCardVidexSurface softcard = SoftCardVidexSurface.CreateApl2Cpm3(sys, bootRom, charRom,
+                videxChar, videxFw, cpm3,
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+            host = softcard.Host; slice = AppleSliceCycles; period = ApplePeriod;
+            assetState = "apl2cpm3-cpm3-videx";
+            string asset = assetState;                                     // capture for the provider
+            statusProvider = () => softcard.Status() with { Asset = asset };
+            insertDisk = (drive, bytes, format, label) => softcard.InsertDisk(drive, bytes, format, label);
+            ejectDisk = drive => softcard.EjectDisk(drive);
+        }
+        else if (system == WebSystem.SoftCardCpm22)
+        {
+            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom!);
             byte[] bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom()
                 ?? throw new InvalidOperationException(
                     "SoftCard CP/M needs the slot-6 Disk II boot ROM (disk2.rom) — run tools/get-apple2-roms.");
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
             byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();      // optional (synthetic fallback)
-            byte[]? videxFirmware = CpuEmulator.Machines.VidexRom.TryLoadFirmware(); // optional
+            byte[]? videxFw = videxFirmware;                                         // optional (already probed)
             CpuEmulator.Core.IBlockDevice cpm = CpuEmulator.Machines.SoftCardCpm.LoadBlockDevice(cpmDisk);
             SoftCardVidexSurface softcard = SoftCardVidexSurface.Create(sys, bootRom, charRom,
-                videxChar, videxFirmware, cpm,
+                videxChar, videxFw, cpm,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
             host = softcard.Host; slice = AppleSliceCycles; period = ApplePeriod;
             assetState = "softcard-cpm-videx";
@@ -119,9 +178,9 @@ internal static class DemoSession
             insertDisk = (drive, bytes, format, label) => softcard.InsertDisk(drive, bytes, format, label);
             ejectDisk = drive => softcard.EjectDisk(drive);
         }
-        else if (appleRom is not null)
+        else if (system == WebSystem.Apple2)
         {
-            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom);
+            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom!);
             byte[]? bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom();
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
             Apple2Surface apple = Apple2Surface.Create(sys, bootRom, charRom,
@@ -133,8 +192,11 @@ internal static class DemoSession
             insertDisk = (drive, bytes, format, label) => apple.InsertDisk(drive, bytes, format, label);
             ejectDisk = drive => apple.EjectDisk(drive);
         }
-        else if (CpuEmulator.Machines.SpectrumRom.TryGetPath() is { } romPath)
+        else if (system == WebSystem.Spectrum)
         {
+            // Re-probe the path here (only reached with no Apple ROM and the Spectrum ROM present) — a single
+            // file-stat on the Spectrum path, byte-for-byte the same boot the old re-probe branch did.
+            string romPath = CpuEmulator.Machines.SpectrumRom.TryGetPath()!;
             byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
             SpectrumSurface spectrum = SpectrumSurface.Create(rom,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
