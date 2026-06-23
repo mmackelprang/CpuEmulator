@@ -26,6 +26,64 @@ public class VidexVideotermTests
         Assert.Equal(8, VidexFont.GlyphRows);   // 8 active glyph rows (the char ROM is 256x8)
     }
 
+    // Independent letterform oracle (closes the "decode-against-itself" gap): the expected Videx-packed
+    // bitmaps below are derived BY HAND from the canonical font8x8_basic shapes (bit 0 = leftmost in font8x8;
+    // re-packed to the Videx cell where bit 6 = leftmost via dst|=(0x40>>col)) — NOT read back from
+    // VidexFont. If Build()'s glyphs ever scramble (e.g. a reversed bit map, or a regression back to the old
+    // box-outline stipple), these exact-byte assertions fail even though an OCR-against-itself gate would
+    // still pass. 'A' visibly reads .XX.. / XXXX. / XX..XX / XX..XX / XXXXXX / XX..XX / XX..XX.
+    [Fact]
+    public void VidexFont_renders_real_legible_letterforms_not_box_outlines()
+    {
+        AssertGlyph('A', [0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00]);
+        AssertGlyph('C', [0x1E, 0x33, 0x60, 0x60, 0x60, 0x33, 0x1E, 0x00]);
+        AssertGlyph('>', [0x30, 0x18, 0x0C, 0x06, 0x0C, 0x18, 0x30, 0x00]);   // the CCP prompt's bracket
+        AssertGlyph(' ', [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);   // space stays all-black
+
+        static void AssertGlyph(char ch, byte[] expected)
+        {
+            int @base = (ch & 0x7F) * VidexFont.GlyphRows;
+            for (int row = 0; row < VidexFont.GlyphRows; row++)
+                Assert.Equal(expected[row], VidexFont.Fallback[@base + row]);
+        }
+    }
+
+    [Fact]
+    public void LooksLikeFont_accepts_the_synthetic_font_and_rejects_a_non_font_dump()
+    {
+        // The synthetic font is, by construction, a valid font.
+        Assert.True(VidexFont.LooksLikeFont(VidexFont.Fallback));
+
+        // A firmware/garbage 2 KiB image (non-blank space glyph, no real letterforms) is rejected — the
+        // exact failure that put a stipple field in the browser. A deterministic pseudo-random fill stands
+        // in for the mis-placed firmware dump.
+        var garbage = new byte[256 * VidexFont.GlyphRows];
+        for (int i = 0; i < garbage.Length; i++) garbage[i] = (byte)((i * 37 + 11) & 0xFF);
+        Assert.False(VidexFont.LooksLikeFont(garbage));
+
+        // A blank image (all-zero) is rejected — the A-Z letters carry no ink.
+        Assert.False(VidexFont.LooksLikeFont(new byte[256 * VidexFont.GlyphRows]));
+
+        // Wrong length and null are rejected.
+        Assert.False(VidexFont.LooksLikeFont(new byte[100]));
+        Assert.False(VidexFont.LooksLikeFont(null));
+    }
+
+    [Fact]
+    public void A_non_font_char_rom_falls_back_to_the_synthetic_font_and_flags_it()
+    {
+        // Null -> synthetic (flagged).
+        Assert.True(new VidexVideoterm().UsingSyntheticFont);
+
+        // A valid-length-but-not-a-font image -> synthetic (flagged), NOT used as glyphs (no throw).
+        var garbage = new byte[256 * VidexFont.GlyphRows];
+        for (int i = 0; i < garbage.Length; i++) garbage[i] = (byte)((i * 37 + 11) & 0xFF);
+        Assert.True(new VidexVideoterm(garbage).UsingSyntheticFont);
+
+        // A real font image -> used as-is (NOT flagged synthetic).
+        Assert.False(new VidexVideoterm(VidexFont.Fallback).UsingSyntheticFont);
+    }
+
     // Program the standard Videx 80x24 init (research §8 / ADR 0016): R1=$50 (80 cols), R6=$18 (24 rows),
     // R9=$08 (9 lines/char). Writes go reg#->$C0B0 (offset 0), value->$C0B1 (offset 1).
     private static void Program80x24(VidexVideoterm videx)
