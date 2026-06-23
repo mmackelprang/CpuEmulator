@@ -31,9 +31,9 @@ public class DiskCatalogTests
             DiskCatalogEntry last = entries[^1];
             Assert.True(last.Cpm);
             Assert.Equal("dsk", last.Format);
-            // .woz is listed but unsupported (no WozFluxImage yet).
+            // .woz is now supported (WozFluxImage parses WOZ2 — backlog row W shipped).
             DiskCatalogEntry woz = entries.Single(e => e.Format == "woz");
-            Assert.False(woz.Supported);
+            Assert.True(woz.Supported);
             // .dsk/.po are supported.
             Assert.True(entries.Single(e => e.Format == "dsk" && !e.Cpm).Supported);
             Assert.True(entries.Single(e => e.Format == "po").Supported);

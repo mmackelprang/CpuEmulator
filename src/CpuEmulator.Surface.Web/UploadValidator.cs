@@ -7,9 +7,9 @@ public readonly record struct UploadResult(bool Ok, string Message);
 
 /// <summary>Server-side re-validation of a decoded <see cref="UploadFrame"/> (design D12 / T-B). Never
 /// trust the client: re-check length (.dsk/.po exact <see cref="DiskImageFactory.DskBytes"/>) and the .woz
-/// magic. The .woz path validates its magic but then returns the honest "not yet supported" reject — no
-/// WozFluxImage parser ships (the runtime DiskImageFactory.FromBytes throws NotSupportedException for raw
-/// .woz bytes). The end-to-end-loadable formats are .dsk and .po.</summary>
+/// magic. The .woz path validates its magic and accepts — WozFluxImage parses WOZ2 (backlog row W shipped);
+/// a malformed body is caught at construction (DiskImageFactory.FromBytes throws InvalidDataException). The
+/// end-to-end-loadable formats are .dsk, .po, and .woz.</summary>
 public static class UploadValidator
 {
     // The .woz file magic (research / WOZ spec): "WOZ1" or "WOZ2" then a 0xFF byte. We check the 4-byte
@@ -33,8 +33,9 @@ public static class UploadValidator
             case DiskFormat.Woz:
                 if (!HasWozMagic(bytes))
                     return new UploadResult(false, "That image looks corrupt");
-                // Magic is good, but no parser ships yet — the honest reject (the WozFluxImage follow-on).
-                return new UploadResult(false, ".woz upload isn't supported yet — use .dsk or .po");
+                // WozFluxImage parses WOZ2 (backlog row W). A malformed body is caught at construction
+                // (DiskImageFactory.FromBytes throws InvalidDataException), surfaced as the generic error.
+                return new UploadResult(true, "");
             default:
                 return new UploadResult(false, "That image looks corrupt");
         }

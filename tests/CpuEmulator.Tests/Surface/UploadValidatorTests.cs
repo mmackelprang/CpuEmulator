@@ -46,13 +46,15 @@ public class UploadValidatorTests
     }
 
     [Fact]
-    public void A_woz_with_good_magic_is_rejected_as_not_yet_supported()
+    public void A_woz_with_good_magic_validates()
     {
-        // WOZ2 magic + the 0xFF byte, padded to a plausible header length.
+        // WOZ2 magic + the 0xFF byte, padded to a plausible header length. WozFluxImage parses WOZ2 now
+        // (backlog row W shipped), so a good-magic .woz validates; a malformed body is caught later at
+        // construction (DiskImageFactory.FromBytes throws InvalidDataException), not here.
         var woz = new byte[16];
         woz[0] = 0x57; woz[1] = 0x4F; woz[2] = 0x5A; woz[3] = 0x32; woz[4] = 0xFF;   // "WOZ2"+FF
         UploadResult r = UploadValidator.Validate(new UploadFrame(1, DiskFormat.Woz, woz));
-        Assert.False(r.Ok);
-        Assert.Equal(".woz upload isn't supported yet — use .dsk or .po", r.Message);
+        Assert.True(r.Ok);
+        Assert.Equal("", r.Message);
     }
 }

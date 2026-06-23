@@ -287,8 +287,8 @@
     driveErrorTimers[drive] = setTimeout(() => { el.textContent = ""; }, 6000);
   }
 
-  // The 2 MB client cap + the extension allow-list (design §4.4). .dsk/.po load end-to-end; .woz is
-  // validated client-side but the server returns the not-yet-supported reject (no WozFluxImage yet).
+  // The 2 MB client cap + the extension allow-list (design §4.4). .dsk/.po load end-to-end; .woz now
+  // loads end-to-end via WozFluxImage.
   const UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
   const FORMAT_BYTE = { woz: 0, dsk: 1, po: 2 };
 
@@ -406,7 +406,8 @@
 
   // Populate a drive's [ Library ▾] from window.diskCatalog (read-only — the server lists the real cache).
   // The placeholder option is first; an empty catalog disables the select with the named-script hint;
-  // .woz items (supported:false) render disabled-with-note (no WozFluxImage yet — backlog row W).
+  // .woz items now render enabled (supported:true, loaded via WozFluxImage); any supported:false item
+  // still renders disabled-with-note.
   function populateLibrary(drive) {
     const sel = document.getElementById("drive-" + drive + "-library");
     if (!sel) return;
