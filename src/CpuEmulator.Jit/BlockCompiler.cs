@@ -76,6 +76,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// Compile).</summary>
     internal int M8086FlowEmitSelections { get; private set; }
 
+    /// <summary>ADR 0019 FF-2: how many times an 8086 FAR control-flow row was DISPATCHED to <see
+    /// cref="EmitM8086FarFlow"/> and EMITTED (the far analogue of <see cref="M8086FlowEmitSelections"/> — the
+    /// dead-arm-now-live probe). Incremented only when the arm returns true (it handled the op); an FF /reg the
+    /// far arm does not own (returns false, e.g. /2 /4 near) does NOT bump it. A test asserts it is &gt; 0 after a
+    /// far block compiles, so the far (9A/EA/CB/CA + FF /3 /5) parity gate is NON-vacuous (the emit IL actually
+    /// ran). Accumulates across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M8086FarFlowEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -286,6 +294,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// never reaches dispatch — this predicate need only separate near-flow from the (already gated-in) ALU rows.</summary>
     private static bool IsM8086FlowOpcode(OpcodeDescriptor d) =>
         d.Opcode is (>= 0x70 and <= 0x7F) or 0xEB or 0xE9 or 0xE8 or 0xC3 or 0xC2 or 0xE0 or 0xE1 or 0xE2 or 0xE3
+        || (d.Opcode == 0xFF && d.Mnemonic is "CALL" or "JMP");
+
+    /// <summary>ADR 0019 FF-2: the far-transfer opcodes the far arm emits — 9A/EA (far CALL/JMP direct),
+    /// CB/CA (far RETF/RETF imm16), and the 0xFF group's far indirect /3 (CALL)/ /5 (JMP). The 0xFF rows
+    /// carry CALL/JMP mnemonics like the near FF /2 /4; the far arm decodes the ModR/M reg field and routes
+    /// /3 /5 to far, returning false for any other FF /reg so the near arm (dispatched next) handles /2 /4.
+    /// The far branch runs BEFORE the near branch, so a far FF /3 /5 is claimed by the far arm and never
+    /// reaches EmitM8086Flow. INT/INTO/IRET/BOUND are NOT here — they stay fallback (ADR 0019 Decision 3).</summary>
+    private static bool IsM8086FarFlowOpcode(OpcodeDescriptor d) =>
+        d.Opcode is 0x9A or 0xEA or 0xCB or 0xCA
         || (d.Opcode == 0xFF && d.Mnemonic is "CALL" or "JMP");
 
     /// <summary>M6 PR-1: is the compiled CPU the structured Z80? Routes the LD rows to the Z80 emit arm
@@ -661,11 +679,24 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                     EmitM8086Alu(ctx, pc, d, length, x86Seg);   // M6 PR-C (DECISION C-1..C-4)
                     break;
                 }
+                // ADR 0019 FF-2: the FAR control-flow family (9A/EA/CB/CA + FF /3 /5 far indirect). It runs BEFORE
+                // the near arm; for 0xFF it decodes the ModR/M reg field and returns false for /reg ∉ {3,5}, so the
+                // near arm (next) still handles FF /2 /4. The four plain far opcodes always emit (return true). The
+                // ALU check ran first and caught FF /0 /1 INC/DEC (mnemonic "INC"/"DEC"); this catches the far
+                // "CALL"/"JMP" rows. The arm self-terminates (sets CS:IP + EmitChainOrExit/Exit + ret).
+                if (TargetIsM8086 && IsM8086FarFlowOpcode(d))
+                {
+                    if (EmitM8086FarFlow(ctx, pc, d, length, x86Seg))   // returns false ⇒ not a far FF /reg; fall to near
+                    {
+                        M8086FarFlowEmitSelections++;   // FF-2 probe: bumped ONLY when the far arm actually emitted
+                        break;
+                    }
+                }
                 // M6 PR-D: the NEAR control-flow family (Jcc/JMP/CALL/RET/LOOP + FF /2 /4 near indirect). The ALU
                 // check ran FIRST and caught the FF /0 /1 INC/DEC rows (mnemonic "INC"/"DEC"); the flow check below
-                // catches the FF "CALL"/"JMP" rows. The gate (IsEmittableX86Family) admits ONLY the near FF keys
-                // (0x7FA/0x7FC), so a 0xFF "CALL"/"JMP" row reaching here is guaranteed near (far 0x7FB/0x7FD stay
-                // fallback and never reach dispatch). The arm self-terminates (sets IP + EmitChainOrExit/Exit + ret).
+                // catches the FF "CALL"/"JMP" rows. The far branch above already claimed FF /3 /5 (far indirect), so
+                // a 0xFF "CALL"/"JMP" row reaching here is guaranteed near (/2 /4). The arm self-terminates (sets IP +
+                // EmitChainOrExit/Exit + ret).
                 if (TargetIsM8086 && IsM8086FlowOpcode(d))
                 {
                     M8086FlowEmitSelections++;       // M6 PR-D: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)

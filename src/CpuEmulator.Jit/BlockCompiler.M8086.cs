@@ -1249,6 +1249,24 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         }
     }
 
+    /// <summary>ADR 0019 FF-2: the far-transfer arm (9A/EA/CB/CA + FF /3 /5). Returns true if it EMITTED the op;
+    /// false for an FF /reg it does not own (the near arm then handles /2 /4, or interpreter fallback). Reached
+    /// when TargetIsM8086 &amp;&amp; IsM8086FarFlowOpcode(d); runs BEFORE the near arm. Like the near arm it self-
+    /// terminates (sets CS:IP, then EmitChainOrExit for the constant 9A/EA targets / EmitNormalExit for the
+    /// dynamic CB/CA + FF /3 /5) and sets NO flags. <paramref name="length"/> is the walk's exact footprint (the
+    /// far-CALL return IP = pc+length); <paramref name="x86Seg"/> is the captured segment-override prefix byte
+    /// (used only by the FF-group far-indirect memory operand). Filled per-opcode across FF-2 Tasks 3/4/6.</summary>
+    private bool EmitM8086FarFlow(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
+    {
+        byte opcode = d.Opcode;
+        switch (opcode)
+        {
+            // Tasks 3/4/6 fill these. Until then, fall through to false (fallback / near arm).
+            default:
+                return false;
+        }
+    }
+
     /// <summary>M6 PR-D: IP = (ushort)target (a compile-time constant) — the resolved IP field (_fpc, "IP").</summary>
     private void EmitM8086SetIp(EmitContext ctx, ushort target)
     {

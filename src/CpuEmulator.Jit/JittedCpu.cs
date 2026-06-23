@@ -101,6 +101,11 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     /// (CS&lt;&lt;4)+IP, not the bare IP.</summary>
     internal bool CacheContainsBlockKey(uint key) => _cache.ContainsBlockKey(key);
 
+    /// <summary>Test seam (ADR 0019 FF-2): how many far-flow rows the JIT EMITTED through the dispatcher
+    /// (9A/EA/CB/CA + FF /3 /5). The far-emit parity pins read this to prove the far op was EMITTED, not
+    /// fallback (&gt; 0 ⇒ the far arm dispatched + emitted real IL).</summary>
+    internal int M8086FarFlowEmitSelections => _compiler.M8086FarFlowEmitSelections;
+
     public string Architecture => _inner.Architecture;
     public long CycleCount => _inner.CycleCount;
     public void Reset() => _inner.Reset();
