@@ -3,9 +3,8 @@ namespace CpuEmulator.Machines;
 /// <summary>One entry in the cached disk library exposed by <c>GET /disks</c> (design D11 / T-C). The
 /// <see cref="Id"/> is the opaque key the client echoes back on a library insert; <see cref="Format"/> is
 /// one of "dsk"/"po"/"woz"; <see cref="Cpm"/> groups the SoftCard CP/M disk last; <see cref="Supported"/>
-/// is false for ".woz" until a thin WozFluxImage parser ships (a separable IFluxImage follow-on — the
-/// runtime <see cref="CpuEmulator.Surface.Web"/> DiskImageFactory.FromBytes throws NotSupportedException for
-/// raw .woz bytes today). The UI lists .woz disabled-with-note; it never inserts one.</summary>
+/// is true for every cached format — WozFluxImage parses WOZ2 (backlog row W shipped), so .woz now inserts
+/// through the same DiskImageFactory path as .dsk/.po.</summary>
 public sealed record DiskCatalogEntry(string Id, string Name, string Format, bool Cpm, bool Supported);
 
 /// <summary>Lists the cached disk-library images for the surface's per-drive [ Library ▾] select (design
@@ -43,7 +42,7 @@ public static class DiskCatalog
                     Name: Path.GetFileNameWithoutExtension(file),
                     Format: format,
                     Cpm: false,
-                    Supported: format != "woz"));
+                    Supported: true));   // .woz now parses via WozFluxImage (backlog row W)
             }
         }
 

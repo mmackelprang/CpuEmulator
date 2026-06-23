@@ -62,4 +62,14 @@ public class WozFluxImageTests
         var ex = Assert.Throws<System.IO.InvalidDataException>(() => new WozFluxImage(file));
         Assert.Contains("5.25", ex.Message);
     }
+
+    [Fact]
+    public void DiskImageFactory_builds_a_WozFluxImage_from_woz_bytes()
+    {
+        byte[] file = OneTrackWoz([0xFF, 0xD5, 0xAA, 0xAD], track0BitLen: 32);
+        IFluxImage flux = CpuEmulator.Surface.Web.DiskImageFactory.FromBytes(
+            file, CpuEmulator.Surface.Web.DiskFormat.Woz);
+        Assert.IsType<WozFluxImage>(flux);
+        Assert.Equal(32, flux.TrackBitLength(0));
+    }
 }
