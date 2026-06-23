@@ -7,6 +7,7 @@ Welcome to the CpuEmulator user guide. Use these pages to get the emulator runni
 | Document | What it covers |
 |---|---|
 | [Getting Started](getting-started.md) | Prerequisites, clone, build, first session with the Breadboard6502 |
+| [Running the Machines](running-the-machines.md) | How to run every system we ship — console boards (6502/z80/68000/8086) + the web-surface systems (Spectrum, Apple ][+, SoftCard CP/M, CP/M 3.1 + Videx), plus the asset-setup scripts |
 | [Monitor Reference](monitor-reference.md) | Every REPL command with syntax, examples, and output formats |
 | [Breadboard6502](breadboard6502.md) | Memory map, UART register reference, demo ROM listing |
 | [Building Machines](building-machines.md) | Composing your own machine with MachineBuilder |
