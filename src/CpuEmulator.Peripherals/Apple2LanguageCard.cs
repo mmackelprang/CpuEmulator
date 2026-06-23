@@ -75,9 +75,39 @@ public sealed class Apple2LanguageCard : IPeripheral
         // Power-on state = read-ROM: the board already mapped $D000-$FFFF to ROM, so no remap needed yet.
     }
 
-    // The card maps no page of its own (the IOU owns $C000); these are unreachable.
-    public uint Read(uint offset, AccessWidth width) => 0x00;
-    public void Write(uint offset, AccessWidth width, uint value) { }
+    // The card normally maps no page of its own (the IOU owns $C000; $D000-$FFFF is a memory backing). These
+    // are reached ONLY while $D000-$FFFF is RemapPeripheral'd to the LC in the read-ROM / write-RAM
+    // write-through mode: reads come from the read SOURCE (ROM or the off-bank RAM), writes land in the
+    // write-enabled LC RAM. offset is relative to $D000.
+    public uint Read(uint offset, AccessWidth width) => ReadByteThrough((uint)(DBank + offset));
+    public void Write(uint offset, AccessWidth width, uint value) => WriteByteThrough((uint)(DBank + offset), (byte)value);
+    public bool TryPeek(uint offset, out byte value)
+    {
+        value = ReadByteThrough((uint)(DBank + offset));   // side-effect-free: a plain array read
+        return true;
+    }
+
+    /// <summary>The read source for $D000-$FFFF in write-through mode: the system ROM slice (read-ROM modes
+    /// $C081/$C089), since write-through is only entered when the read source is ROM. (A read-RAM mode is a
+    /// single-backing fast path — never routed here.)</summary>
+    private byte ReadByteThrough(uint address)
+    {
+        if (address < EShared)
+            return _romD[(int)(address - DBank)];          // $D000-$DFFF: system ROM
+        return _romE[(int)(address - EShared)];            // $E000-$FFFF: system ROM
+    }
+
+    /// <summary>The write target for $D000-$FFFF in write-through mode: the write-enabled LC RAM (the
+    /// bank-selected $D000 array + the shared $E000 array). Writes while NOT write-enabled are dropped
+    /// (authentic — a write-protected LC ignores writes). $D000-$DFFF honors the selected bank.</summary>
+    private void WriteByteThrough(uint address, byte value)
+    {
+        if (!_writeEnabled) return;                        // write-protected: ignore (authentic)
+        if (address < EShared)
+            (_bank == 1 ? _bankD1 : _bankD2)[(int)(address - DBank)] = value;
+        else
+            _sharedE[(int)(address - EShared)] = value;
+    }
 
     /// <summary>Called by the IOU for every $C080-$C08F access (offset 0x80-0x8F, isRead = it was a
     /// Read). Decodes the bank / read-source / write-enable per the standard LC truth table (Sather),
@@ -132,10 +162,24 @@ public sealed class Apple2LanguageCard : IPeripheral
     /// page is out of scope and not needed for the target software — noted for the JIT-tier follow-on.)</summary>
     private void ApplyMapping()
     {
+        // Four LC modes (Sather). The single-backing page table handles three of them as a fast-path memory
+        // Remap (read source == write target, or read-only). The FOURTH — "read ROM, write LC RAM"
+        // ($C081/$C089, the mode Apple Pascal's SYSTEM.APPLE loader uses to fill the banked $D000-$FFFF while
+        // executing from the Monitor/Applesoft ROM) — needs read source != write target, which a single
+        // backing cannot express. For THAT mode the LC takes over $D000-$FFFF as an MMIO write-through device
+        // (the same RemapPeripheral seam the Videx $C800 window uses): reads return the ROM byte, writes land
+        // in the write-enabled LC RAM. When the loader later flips to read-RAM ($C080/$C083), we Remap the now-
+        // populated RAM back as a fast-path readable/executable backing. Both Remap and RemapPeripheral fire
+        // the JIT invalidation listener, so a code page that changes source/target is correctly re-classified.
         if (_readRam)
         {
             _bus.Remap(DBank, _bank == 1 ? _bankD1 : _bankD2, writable: _writeEnabled);
             _bus.Remap(EShared, _sharedE, writable: _writeEnabled);
+        }
+        else if (_writeEnabled)
+        {
+            // read ROM, write RAM: the write-through MMIO mode (read source != write target).
+            _bus.RemapPeripheral(DBank, DBankLen + ESharedLen, this);   // $D000-$FFFF -> the LC handler
         }
         else
         {

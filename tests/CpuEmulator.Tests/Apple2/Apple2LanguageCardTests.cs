@@ -202,4 +202,57 @@ public class Apple2LanguageCardTests
         // The routine, fetched + run FROM the remapped LC RAM page, wrote $42 to $0400.
         Assert.Equal(0x42, bus.Read8(0x0400));
     }
+
+    [Fact]
+    public void C081_reads_ROM_while_writing_LC_RAM_then_C083_reads_back_the_written_RAM()
+    {
+        // The "read ROM, write RAM" Language-Card mode ($C081 read-twice, the third standard mode beyond
+        // read-RAM/read-ROM): an OS/interpreter loader fills the banked $D000-$FFFF from code EXECUTING out of
+        // the Monitor/Applesoft ROM, then flips to read-RAM to run it. read SOURCE (ROM) != write TARGET (LC
+        // RAM) -- a split the single-backing page table could not express, so the writes were silently dropped
+        // (a write to the ROM-mapped page is ignored) and Apple Pascal's SYSTEM.APPLE interpreter never landed,
+        // faulting the boot via `JMP ($0000)`. The write-through MMIO fix (ApplyMapping) lets the writes reach
+        // LC RAM while reads still return ROM. This is the asset-free red->green proof of that fix.
+        var (_, bus, _) = BuildWithLc();
+
+        // $C081 read-twice: read ROM, write-enable LC RAM bank 1. Reads must STILL return the ROM markers.
+        _ = bus.Read8(0xC081); _ = bus.Read8(0xC081);
+        Assert.Equal(0xA5, bus.Read8(0xD000));            // read source is ROM (the $D000 marker)
+        Assert.Equal(0x5C, bus.Read8(0xE000));            // read source is ROM (the $E000 marker)
+
+        // Write to $D000 + $E000 + the very top of the address space ($FFF8/$FFF9 -- the Pascal interpreter's
+        // JMP-indirect vector that read $00/$00 before the fix). These land in LC RAM, NOT the ROM.
+        bus.Write8(0xD000, 0x11);
+        bus.Write8(0xE000, 0x22);
+        bus.Write8(0xFFF8, 0xE9);
+        bus.Write8(0xFFF9, 0xFE);
+
+        // Reads are STILL ROM (write-through does not change the read source).
+        Assert.Equal(0xA5, bus.Read8(0xD000));
+        Assert.Equal(0x5C, bus.Read8(0xE000));
+
+        // Flip to read-RAM bank 1 ($C083 once selects read-RAM immediately). The written bytes are now visible.
+        _ = bus.Read8(0xC083);
+        Assert.Equal(0x11, bus.Read8(0xD000));            // the $D000 write landed in LC RAM bank 1
+        Assert.Equal(0x22, bus.Read8(0xE000));            // the $E000 write landed in shared LC RAM
+        Assert.Equal(0xE9, bus.Read8(0xFFF8));            // the interpreter's JMP-indirect vector landed
+        Assert.Equal(0xFE, bus.Read8(0xFFF9));
+    }
+
+    [Fact]
+    public void Read_ROM_write_protected_drops_writes_to_D000_FFFF()
+    {
+        // The read-ROM, NOT-write-enabled mode ($C082 / power-on): writes to $D000-$FFFF are ignored (a real
+        // write-protected LC drops them) and reads return ROM. Guards that the write-through path is entered
+        // ONLY when write-enable is set -- a write-protected read-ROM page stays a plain read-only ROM mapping.
+        var (_, bus, _) = BuildWithLc();
+        _ = bus.Read8(0xC082);                            // read ROM, write-protected (no arming read)
+        bus.Write8(0xD000, 0x77);                         // dropped (write-protected)
+        bus.Write8(0xFFF8, 0x77);
+        Assert.Equal(0xA5, bus.Read8(0xD000));            // still the ROM marker
+
+        // Even after flipping to read-RAM bank 1, the dropped write is absent (it never reached RAM).
+        _ = bus.Read8(0xC083);
+        Assert.NotEqual(0x77, bus.Read8(0xD000));
+    }
 }
