@@ -9,7 +9,8 @@ namespace CpuEmulator.Tests.Jit;
 /// indirect FF /3 /5) is LIVE (not all-fallback) and DISPATCHES, and the emitted CS:IP + the far stack frame +
 /// SP are BYTE-IDENTICAL to the interpreter oracle (M8086Cpu.Control.cs + Stack.cs). The far direct forms
 /// (9A/EA) carry a compile-time-constant (newCS,newIP) and CHAIN to the projected linear key ((newCS&lt;&lt;4)+newIP);
-/// the far RETF (CB/CA) + far indirect (FF /3 /5) are dynamic and EXIT. INT/INTO/IRET/BOUND stay fallback.
+/// the far RETF (CB/CA) + far indirect (FF /3 /5) are dynamic and EXIT. BOUND stays fallback; INT/INT3/INTO/IRET
+/// now EMIT via Row II (see M8086InterruptEmitTests).
 /// The headline byte-identity gate is the full 8088 TomHarte JIT sweep (M8088JitTom over 9A/EA/CA/CB/FF.3/FF.5);
 /// this file pins the non-vacuity (M8086FarFlowEmitSelections &gt; 0) + the densest correctness pockets (the far
 /// frame push/pop order, the CS write, the imm16 SP adjust), comparing a JIT run against a fresh interpreter
