@@ -145,6 +145,10 @@ at 0.51×/0.60× — the established block-JIT-vs-tight-switch case), so its W2 
 delta. SMC-heavy W1/W3 are excluded from the emit-signal comparison (they're dominated by per-dispatch
 JIT overhead — see the caveat above — not by emit quality).
 
-> **Known benchmark-harness caveats (not core correctness):** a 68000 W2 bench-harness cycle off-by-2
-> and the 68000 W3 workload's absence from the hot-op profiler arm are tracked backlog items (see the
-> [Roadmap](../ROADMAP.md)); they affect the bench harness, not the interpreter/JIT parity.
+> **Benchmark-harness notes (resolved; not core correctness):** the 68000 W3 hot-op profiler arm **shipped**
+> (`bc68ee7` — the profiler now covers all three 68000 workloads: the `## 68000 — W3 sieve-kernel` hot-op
+> ranking is in `bench/hotop-profiler/hotop-profile-results.txt`, and `bench/results/REPORT.md` carries the
+> `m68k-W3 sieve-kernel` throughput rows), and the
+> 68000 W2 cycle off-by-2 is the **expected coarse-cycle slack** (DECISION T2: the JIT charges coarse
+> `BaseCycles + 1` fetch vs the interpreter's exact prefetch; gated within a `<= 16` tolerance in
+> `BenchHarnessSmokeTests`), **not** a harness defect — the data axis is byte-identical.
