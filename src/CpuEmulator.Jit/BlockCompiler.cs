@@ -98,6 +98,12 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// which resets per Compile).</summary>
     internal int M8086StringEmitSelections { get; private set; }
 
+    /// <summary>Row II: how many times an 8086 INT/INT3/INTO/IRET row (CD/CC/CE/CF) was DISPATCHED to
+    /// <see cref="EmitM8086Interrupt"/> and EMITTED (the non-vacuity probe — asserted &gt; 0 in the gate; the
+    /// discriminator the parity sweep, which already passes via fallback, cannot false-pass on). Accumulates
+    /// across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M8086InterruptEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -721,6 +727,17 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 {
                     M8086StringEmitSelections++;     // Row STR: the dead-arm-now-live probe (asserted > 0 in the gate)
                     EmitM8086String(ctx, pc, d, length, x86Seg);   // Row STR (DECISION STR-1/STR-2)
+                    break;
+                }
+                // Row II (ROADMAP #4): the soft-interrupt family (CD INT imm8, CC INT3, CE INTO, CF IRET). Runs
+                // AFTER the string check, BEFORE far-flow. Every form changes CS:IP → the arm self-terminates
+                // (DECISION II-1: each path EmitNormalExit's). INT n/INT3/INTO-taken push the IVT frame via the
+                // shared EmitM8086RaiseInterrupt (DECISION MD-2); IRET pops IP:CS:FLAGS. BOUND (62/63) stays
+                // fallback (out of #4 scope). The predicate keys on the OPCODE byte (CD/CC/CE/CF).
+                if (TargetIsM8086 && IsM8086InterruptOpcode(d))
+                {
+                    M8086InterruptEmitSelections++;   // Row II: the dead-arm-now-live probe (asserted > 0 in the gate)
+                    EmitM8086Interrupt(ctx, pc, d, length, x86Seg);   // Row II (DECISION II-1 / MD-2 shared helper)
                     break;
                 }
                 // ADR 0019 FF-2: the FAR control-flow family (9A/EA/CB/CA + FF /3 /5 far indirect). It runs BEFORE
