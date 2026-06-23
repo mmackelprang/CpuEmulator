@@ -3689,11 +3689,28 @@ internal static class CpuEmitter
         // and returns its FixedLength. For the 6502 every opcode is LengthRule.Fixed, so this is the
         // exact value the old ModeLength(mode) switch produced — byte-identical behavior.
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1.");
-        sb.AppendLine("    /// Routes through the decode walk's DescriptorFor(key)/FixedLength — the one length");
-        sb.AppendLine("    /// source (Ground truth E).</summary>");
-        sb.AppendLine("    public static int InstructionLength(byte opcode)");
-        sb.AppendLine("        => DescriptorFor(opcode).FixedLength;");
+        if (model.FieldGrammar is not null)
+        {
+            // A FieldGrammar CPU (the 68000) is word-granular: the byte `opcode` is only the HIGH byte of
+            // the 16-bit opword, so DescriptorFor(byte) cannot resolve the structured operation key (it would
+            // always fall to Undefined → length 1, mis-aligning the monitor's multi-instruction walk onto the
+            // opword's low byte). The 3-byte IMonitorSupport contract can't carry the extension-word count
+            // (D68-3, deliberately not widened), so return the 2-byte opword MINIMUM — the monitor advances by
+            // a whole opword (display-only; the real execution length comes from Decode(IFetchStream), not here).
+            sb.AppendLine("    /// <summary>Minimum instruction length in bytes for the word-granular field-grammar");
+            sb.AppendLine("    /// CPU: the 2-byte opword. Extension words aren't expressible through the byte-keyed");
+            sb.AppendLine("    /// IMonitorSupport contract (D68-3); the monitor advances by the opword minimum so a");
+            sb.AppendLine("    /// multi-instruction walk stays opword-aligned (display-only).</summary>");
+            sb.AppendLine("    public static int InstructionLength(byte opcode) => 2;");
+        }
+        else
+        {
+            sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1.");
+            sb.AppendLine("    /// Routes through the decode walk's DescriptorFor(key)/FixedLength — the one length");
+            sb.AppendLine("    /// source (Ground truth E).</summary>");
+            sb.AppendLine("    public static int InstructionLength(byte opcode)");
+            sb.AppendLine("        => DescriptorFor(opcode).FixedLength;");
+        }
 
         // ── TryAssemble — the single-instruction assembler (generated artifact ⑤) ──
         sb.AppendLine();
@@ -3891,8 +3908,20 @@ internal static class CpuEmitter
 
         // ── Explicit interface implementations ──
         sb.AppendLine();
-        sb.AppendLine("    string CpuEmulator.Core.IMonitorSupport.Disassemble(byte opcode, byte operandLo, byte operandHi)");
-        sb.AppendLine("        => Disassemble(opcode, operandLo, operandHi);");
+        if (model.FieldGrammar is not null)
+        {
+            // A FieldGrammar CPU (the 68000) is big-endian word-granular: the monitor reads the high opword
+            // byte as `opcode` and the low byte as `operandLo` (the next two memory bytes). The static
+            // Disassemble takes the full 16-bit opword as its first arg, so reconstruct it here; operandHi is
+            // the first real extension-word byte. (DECISION R: gated on FieldGrammar — 6502/Z80/8086 unchanged.)
+            sb.AppendLine("    string CpuEmulator.Core.IMonitorSupport.Disassemble(byte opcode, byte operandLo, byte operandHi)");
+            sb.AppendLine("        => Disassemble((uint)((opcode << 8) | operandLo), operandHi, 0);");
+        }
+        else
+        {
+            sb.AppendLine("    string CpuEmulator.Core.IMonitorSupport.Disassemble(byte opcode, byte operandLo, byte operandHi)");
+            sb.AppendLine("        => Disassemble(opcode, operandLo, operandHi);");
+        }
         sb.AppendLine("    int CpuEmulator.Core.IMonitorSupport.InstructionLength(byte opcode)");
         sb.AppendLine("        => InstructionLength(opcode);");
         sb.AppendLine("    bool CpuEmulator.Core.IMonitorSupport.TryAssemble(string mnemonic, string operandText, out byte[] bytes, out string? error)");
@@ -3935,6 +3964,18 @@ internal static class CpuEmitter
         // stays stable (its explicit impl widens the byte to the key).
         string opParam = (model.Decode is not null || model.FieldGrammar is not null || model.X86Decode is not null)
             ? "uint opcode" : "byte opcode";
+
+        // A FieldGrammar CPU (the 68000) carries NO Instructions rows, so the generic switch below would
+        // emit a ???-only stub. Emit a field-grammar-walking disassembler instead (roadmap #6 / D68): it
+        // walks the SAME Decode68k.Ops table the decoder walks, deriving mnemonic + size + cc + EA operands
+        // from the 16-bit opword. Gated on FieldGrammar so the 6502/Z80/8086 (byte/decode/x86) paths are
+        // byte-for-byte unchanged (DECISION R — the other three have FieldGrammar == null).
+        if (model.FieldGrammar is not null)
+        {
+            EmitM68kDisassembler(sb, model.FieldGrammar);
+            return;
+        }
+
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Disassemble one instruction. Returns a human-readable string.</summary>");
         sb.AppendLine($"    public static string Disassemble({opParam}, byte operandLo, byte operandHi)");
@@ -4100,6 +4141,386 @@ internal static class CpuEmitter
             EmitM68kFlowFamilyRows(sb, model.FieldGrammar);    // M6 PR-6: the control-flow rows (M68000Flow)
         }
         sb.AppendLine("    };");
+    }
+
+    /// <summary>Emit the 68000 field-grammar disassembler (roadmap #6 / D68). Walks the grammar Ops in order
+    /// (first (opword &amp; Mask) == Match wins — exactly like the decoder), then renders mnemonic + size suffix +
+    /// cc suffix + EA operand(s) from the 16-bit opword. Operands that live in extension words render honest
+    /// placeholders (#&lt;imm&gt;/&lt;abs&gt;/&lt;d16&gt;): the IMonitorSupport 3-byte disassembly contract cannot
+    /// carry them (D68-3). Monitor-display-only — no IL, no execution-path change. Gated on FieldGrammar by the
+    /// caller, so the 6502/Z80/8086 disassemblers are byte-for-byte unchanged (DECISION R).</summary>
+    private static void EmitM68kDisassembler(StringBuilder sb, FieldGrammarModel grammar)
+    {
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Disassemble one 68000 instruction (field-grammar walk). Returns a");
+        sb.AppendLine("    /// human-readable string; \"???\" for an undefined opword. The first arg is the 16-bit");
+        sb.AppendLine("    /// OPWORD. Extension-word operands render placeholders (#&lt;imm&gt;/&lt;abs&gt;/&lt;d16&gt;)");
+        sb.AppendLine("    /// — the monitor's 3-byte disassembly contract cannot carry them; the byte column shows");
+        sb.AppendLine("    /// the raw hex. Monitor-display-only; no IL (D68).</summary>");
+        sb.AppendLine("    public static string Disassemble(uint opcode, byte operandLo, byte operandHi)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        _ = operandLo; _ = operandHi;                         // extension-word bytes — placeholders here (D68-3)");
+        sb.AppendLine("        ushort opword = (ushort)opcode;");
+        foreach (var op in grammar.Ops)
+        {
+            string render = M68kDisasmRender(op);
+            sb.AppendLine($"        if ((opword & 0x{op.Mask:X4}) == 0x{op.Match:X4}) return {render};");
+        }
+        sb.AppendLine("        return \"???\";");
+        sb.AppendLine("    }");
+
+        EmitM68kDisasmHelpers(sb);
+    }
+
+    /// <summary>The render expression (C# string interpolation) for one field op, evaluated at disassembly
+    /// time with `opword` in scope plus the shared Cc()/Sz()/Ea() statics. Grouped by render shape: implied,
+    /// EA-single, Dn/EA bidirectional, the A-family, MOVE/MOVEA, MOVEQ, Bcc/DBcc/Scc, ADDQ/SUBQ, the shifts,
+    /// TRAP/LINK/UNLK, the static bit ops, the ANDI/ORI/EORI-to-CCR/SR system forms, MOVEM/MOVEP/EXG/CHK, the
+    /// muldiv ops, the BCD ops, and the MOVE-SR/CCR/USP forms. The placeholder spelling (#&lt;imm&gt;/&lt;abs&gt;/
+    /// &lt;d16&gt;/&lt;d8&gt;) matches the curated corpus (D68-2). Un-fakeable: the decoder-agreement sweep forces
+    /// every grammar family to render non-"???".</summary>
+    private static string M68kDisasmRender(FieldOpModel op)
+    {
+        // The size-suffix interpolation hole for the family's own (shift,width,enc) — already wrapped in {…}
+        // so it can be dropped straight after the mnemonic inside a generated $"…". EA at bits 5-0.
+        string sz = $"{{Sz(opword, {op.SizeShift}, {op.SizeWidth}, {(int)op.SizeEncoding})}}";
+        const string ea = "{Ea(opword)}";                              // EA = opword bits 5-0
+        const string dn = "{(opword >> 9) & 7}";                       // the Dn / dst-register field (bits 11-9)
+        const string an = "{(opword >> 9) & 7}";                       // the An field for the A-family / dst
+
+        return op.Operation switch
+        {
+            // ── Implied (no operands; an immediate, if any, lives in an extension word) ──
+            "NOP"     => "\"NOP\"",
+            "RTS"     => "\"RTS\"",
+            "RTE"     => "\"RTE\"",
+            "RTR"     => "\"RTR\"",
+            "RESET"   => "\"RESET\"",
+            "TRAPV"   => "\"TRAPV\"",
+            "ILLEGAL" => "\"ILLEGAL\"",
+            "STOP"    => "\"STOP #<imm>\"",
+
+            // ── EA-single (MNEMONIC[.size] <ea>) ──
+            "CLR"  => $"$\"CLR{sz} {ea}\"",
+            "NEG"  => $"$\"NEG{sz} {ea}\"",
+            "NEGX" => $"$\"NEGX{sz} {ea}\"",
+            "NOT"  => $"$\"NOT{sz} {ea}\"",
+            "TST"  => $"$\"TST{sz} {ea}\"",
+            "TAS"  => $"$\"TAS {ea}\"",
+            "NBCD" => $"$\"NBCD {ea}\"",
+            "JMP"  => $"$\"JMP {ea}\"",
+            "JSR"  => $"$\"JSR {ea}\"",
+            "PEA"  => $"$\"PEA {ea}\"",
+            "MOVE_FROM_SR" => $"$\"MOVE SR,{ea}\"",
+            "MOVE_TO_CCR"  => $"$\"MOVE {ea},CCR\"",
+            "MOVE_TO_SR"   => $"$\"MOVE {ea},SR\"",
+
+            // ── EXT / SWAP (register-direct, opmode-encoded size for EXT) ──
+            "SWAP" => "$\"SWAP D{opword & 7}\"",
+            "EXT"  => "$\"EXT{ExtSz(opword)} D{opword & 7}\"",
+
+            // ── Bit ops (dynamic: B<op> Dn,<ea>; static: B<op> #<imm>,<ea>) ──
+            "BTST" => $"$\"BTST D{dn},{ea}\"",
+            "BCHG" => $"$\"BCHG D{dn},{ea}\"",
+            "BCLR" => $"$\"BCLR D{dn},{ea}\"",
+            "BSET" => $"$\"BSET D{dn},{ea}\"",
+            "BTST_STATIC" => $"$\"BTST #<imm>,{ea}\"",
+            "BCHG_STATIC" => $"$\"BCHG #<imm>,{ea}\"",
+            "BCLR_STATIC" => $"$\"BCLR #<imm>,{ea}\"",
+            "BSET_STATIC" => $"$\"BSET #<imm>,{ea}\"",
+
+            // ── Immediate ALU (#<imm> in extension word(s); MNEMONIC[.size] #<imm>,<ea>) ──
+            "ADDI" => $"$\"ADDI{sz} #<imm>,{ea}\"",
+            "SUBI" => $"$\"SUBI{sz} #<imm>,{ea}\"",
+            "ANDI" => $"$\"ANDI{sz} #<imm>,{ea}\"",
+            "ORI"  => $"$\"ORI{sz} #<imm>,{ea}\"",
+            "EORI" => $"$\"EORI{sz} #<imm>,{ea}\"",
+            "CMPI" => $"$\"CMPI{sz} #<imm>,{ea}\"",
+
+            // ── Immediate to CCR / SR (system byte/word forms) ──
+            "ANDI_CCR" => "\"ANDI #<imm>,CCR\"",
+            "ANDI_SR"  => "\"ANDI #<imm>,SR\"",
+            "ORI_CCR"  => "\"ORI #<imm>,CCR\"",
+            "ORI_SR"   => "\"ORI #<imm>,SR\"",
+            "EORI_CCR" => "\"EORI #<imm>,CCR\"",
+            "EORI_SR"  => "\"EORI #<imm>,SR\"",
+
+            // ── MOVE / MOVEA (src EA bits 5-0; dst reg bits 11-9 + mode bits 8-6 — SWAPPED; Move-encoded size) ──
+            "MOVE"  => $"$\"MOVE{sz} {ea},{{EaDst(opword)}}\"",
+            "MOVEA" => $"$\"MOVEA{sz} {ea},A{an}\"",
+
+            // ── MOVEQ (the 8-bit immediate IS in the opword low byte → render as a signed literal) ──
+            "MOVEQ" => $"$\"MOVEQ #{{(sbyte)opword}},D{dn}\"",
+
+            // ── Bcc / BSR / BRA (cc in bits 11-8; cc 0 = BRA, cc 1 = BSR; disp byte = bits 7-0) ──
+            "Bcc"  => "$\"{BccMnem(opword)} *+<d16>\"",
+
+            // ── DBcc (DB<cc> Dn,*+<d16>) ──
+            "DBcc" => "$\"DB{Cc((opword >> 8) & 0xF)} D{opword & 7},*+<d16>\"",
+
+            // ── Scc (S<cc> <ea>) ──
+            "Scc"  => $"$\"S{{Cc((opword >> 8) & 0xF)}} {ea}\"",
+
+            // ── ADDQ / SUBQ (quick #data: 0 means 8; MNEMONIC[.size] #q,<ea>) ──
+            "ADDQ" => $"$\"ADDQ{sz} #{{Quick(opword)}},{ea}\"",
+            "SUBQ" => $"$\"SUBQ{sz} #{{Quick(opword)}},{ea}\"",
+
+            // ── Dn/EA bidirectional (direction bit 8 selects operand order; opmode bits 7-6 = size) ──
+            "ADD" => M68kDnEa(op, "ADD"),
+            "SUB" => M68kDnEa(op, "SUB"),
+            "AND" => M68kDnEa(op, "AND"),
+            "OR"  => M68kDnEa(op, "OR"),
+            "EOR" => M68kDnEa(op, "EOR"),
+            "CMP" => M68kDnEa(op, "CMP"),
+
+            // ── A-family (ADDA/SUBA/CMPA: size from bit 8; LEA: fixed .L; all dst An) ──
+            "ADDA" => $"$\"ADDA{{AszW(opword)}} {ea},A{an}\"",
+            "SUBA" => $"$\"SUBA{{AszW(opword)}} {ea},A{an}\"",
+            "CMPA" => $"$\"CMPA{{AszW(opword)}} {ea},A{an}\"",
+            "LEA"  => $"$\"LEA {ea},A{an}\"",
+
+            // ── CHK (<ea>,Dn — word operand) ──
+            "CHK"  => $"$\"CHK {ea},D{dn}\"",
+
+            // ── Muldiv (<ea>,Dn — word source) ──
+            "MULU" => $"$\"MULU {ea},D{dn}\"",
+            "MULS" => $"$\"MULS {ea},D{dn}\"",
+            "DIVU" => $"$\"DIVU {ea},D{dn}\"",
+            "DIVS" => $"$\"DIVS {ea},D{dn}\"",
+
+            // ── ADDX / SUBX (R/M bit 3: 0 = Dy,Dx ; 1 = -(Ay),-(Ax)) ──
+            "ADDX" => $"$\"ADDX{sz} {{XOperands(opword)}}\"",
+            "SUBX" => $"$\"SUBX{sz} {{XOperands(opword)}}\"",
+
+            // ── BCD (ABCD/SBCD: R/M bit 3: 0 = Dy,Dx ; 1 = -(Ay),-(Ax); byte-only) ──
+            // ABCD/SBCD are byte-only — the canonical Motorola mnemonic carries NO size qualifier (unlike ADDX/SUBX).
+            "ABCD" => "$\"ABCD {XOperands(opword)}\"",
+            "SBCD" => "$\"SBCD {XOperands(opword)}\"",
+
+            // ── CMPM ((Ay)+,(Ax)+) ──
+            "CMPM" => $"$\"CMPM{sz} (A{{opword & 7}})+,(A{an})+\"",
+
+            // ── EXG (mode bits 7-3 select the register pair flavor; Rx bits 11-9, Ry bits 2-0) ──
+            "EXG"  => "$\"EXG {EXGl(opword)},{EXGr(opword)}\"",
+
+            // ── Shifts: register form (<base><L|R>[.size] {#count|Dx},Dy); memory form (<mnem> <ea>) ──
+            "ASLR_REG"  => M68kShiftReg("AS", op),
+            "LSLR_REG"  => M68kShiftReg("LS", op),
+            "ROXLR_REG" => M68kShiftReg("ROX", op),
+            "ROLR_REG"  => M68kShiftReg("RO", op),
+            "SHIFT_MEM" => "$\"{ShiftMemMnem(opword)} {Ea(opword)}\"",
+
+            // ── TRAP / LINK / UNLK ──
+            "TRAP" => "$\"TRAP #{opword & 0xF}\"",
+            "LINK" => "$\"LINK A{opword & 7},#<d16>\"",
+            "UNLK" => "$\"UNLK A{opword & 7}\"",
+
+            // ── MOVE USP (direction bit 3: 0 = An,USP ; 1 = USP,An) ──
+            "MOVE_USP" => "MoveUsp(opword)",
+
+            // ── MOVEM (register-list mask in an extension word; direction bit 10: 0 = regs->mem, 1 = mem->regs) ──
+            "MOVEM" => "MoveM(opword)",
+
+            // ── MOVEP (Dn,d16(An) or d16(An),Dn — the d16 is an extension word) ──
+            "MOVEP" => "MoveP(opword)",
+
+            _ => "\"???\"",
+        };
+    }
+
+    /// <summary>The Dn/EA bidirectional ALU render (ADD/SUB/AND/OR/CMP). Direction bit 8: 0 = &lt;ea&gt;,Dn ;
+    /// 1 = Dn,&lt;ea&gt;. opmode bits 7-6 = size. EOR's grammar row (mask 0xF100, match 0xB100) only covers
+    /// the bit-8-set encodings (the bit-8-clear half is CMP), so EOR is always Dn,&lt;ea&gt;.</summary>
+    private static string M68kDnEa(FieldOpModel op, string m)
+    {
+        string sz = $"{{Sz(opword, {op.SizeShift}, {op.SizeWidth}, {(int)op.SizeEncoding})}}";
+        if (m == "EOR")
+            return $"$\"EOR{sz} D{{(opword >> 9) & 7}},{{Ea(opword)}}\"";
+        return $"$\"{m}{sz} {{DnEaOperands(opword)}}\"";
+    }
+
+    /// <summary>The register-form shift/rotate render (ASL/ASR/LSL/LSR/ROL/ROR/ROXL/ROXR). Direction bit 8
+    /// (1 = left, 0 = right) selects L/R; the i/r bit (bit 5) selects an immediate count (#1-8, 0 means 8) or a
+    /// register count (Dx). Shift target is Dy (bits 2-0). opmode bits 7-6 = size.</summary>
+    private static string M68kShiftReg(string baseM, FieldOpModel op)
+    {
+        string sz = $"{{Sz(opword, {op.SizeShift}, {op.SizeWidth}, {(int)op.SizeEncoding})}}";
+        // dir: bit 8 → "L"/"R" via the generated ShiftDir helper (avoids nested quotes in the interpolation hole).
+        return $"$\"{baseM}{{ShiftDir(opword)}}{sz} {{ShiftCount(opword)}},D{{opword & 7}}\"";
+    }
+
+    /// <summary>Emit the shared generated statics the disassembler render expressions call: Cc (the 16
+    /// condition-code names), Sz (size suffix per SizeEncoding), Ea (EA bits 5-0 → operand text), EaDst (the
+    /// MOVE dst's SWAPPED reg/mode), EXGl/EXGr (the EXG register pair), and ShiftMemMnem (the memory-shift
+    /// mnemonic). All static, self-contained — no spec-assembly dependency at runtime (DECISION: AOT-clean).</summary>
+    private static void EmitM68kDisasmHelpers(StringBuilder sb)
+    {
+        // ── Cc: the 16 condition-code names (cc field = bits 11-8). T/F are the DBcc/Scc always/never. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The 16 condition-code names (the cc field, bits 11-8).</summary>");
+        sb.AppendLine("    private static string Cc(int cc) => cc switch");
+        sb.AppendLine("    {");
+        sb.AppendLine("        0 => \"T\",  1 => \"F\",  2 => \"HI\", 3 => \"LS\", 4 => \"CC\", 5 => \"CS\", 6 => \"NE\", 7 => \"EQ\",");
+        sb.AppendLine("        8 => \"VC\", 9 => \"VS\", 10 => \"PL\", 11 => \"MI\", 12 => \"GE\", 13 => \"LT\", 14 => \"GT\", _ => \"LE\",");
+        sb.AppendLine("    };");
+
+        // ── Sz: size suffix. Standard (enc 0): 00=.B,01=.W,10=.L. Move (enc 1): 01=.B,11=.W,10=.L. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The size suffix (.B/.W/.L) for a field op's size bits. Standard (enc 0):");
+        sb.AppendLine("    /// 00=.B,01=.W,10=.L. Move (enc 1, the MOVE outlier): 01=.B,11=.W,10=.L. Mirrors MapSize.</summary>");
+        sb.AppendLine("    private static string Sz(ushort opword, int shift, int width, int enc)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int bits = (opword >> shift) & ((1 << width) - 1);");
+        sb.AppendLine("        if (enc == 1) return bits switch { 1 => \".B\", 3 => \".W\", 2 => \".L\", _ => \"\" };");
+        sb.AppendLine("        return bits switch { 0 => \".B\", 1 => \".W\", 2 => \".L\", _ => \"\" };");
+        sb.AppendLine("    }");
+
+        // ── Ea: the 6-bit EA field (bits 5-0) → operand text. mode = bits 5-3, reg = bits 2-0. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Render the effective-address operand (opword bits 5-0). mode = bits 5-3, reg =");
+        sb.AppendLine("    /// bits 2-0. Modes consuming an extension word render a placeholder (&lt;d16&gt;/&lt;d8&gt;/");
+        sb.AppendLine("    /// &lt;abs&gt;/#&lt;imm&gt;) — the 3-byte disassembly contract cannot carry the real value.</summary>");
+        sb.AppendLine("    private static string Ea(ushort opword) => Ea6(opword & 0x3F);");
+        sb.AppendLine();
+        sb.AppendLine("    private static string Ea6(int ea)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int mode = (ea >> 3) & 7, reg = ea & 7;");
+        sb.AppendLine("        return mode switch");
+        sb.AppendLine("        {");
+        sb.AppendLine("            0 => $\"D{reg}\",");
+        sb.AppendLine("            1 => $\"A{reg}\",");
+        sb.AppendLine("            2 => $\"(A{reg})\",");
+        sb.AppendLine("            3 => $\"(A{reg})+\",");
+        sb.AppendLine("            4 => $\"-(A{reg})\",");
+        sb.AppendLine("            5 => $\"<d16>(A{reg})\",");
+        sb.AppendLine("            6 => $\"<d8>(A{reg},Xn)\",");
+        sb.AppendLine("            _ => reg switch                                   // mode 7: the register sub-field selects the form");
+        sb.AppendLine("            {");
+        sb.AppendLine("                0 => \"<abs>.W\",");
+        sb.AppendLine("                1 => \"<abs>.L\",");
+        sb.AppendLine("                2 => \"<d16>(PC)\",");
+        sb.AppendLine("                3 => \"<d8>(PC,Xn)\",");
+        sb.AppendLine("                4 => \"#<imm>\",");
+        sb.AppendLine("                _ => \"<ea?>\",                                // illegal mode-7 register");
+        sb.AppendLine("            },");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+
+        // ── EaDst: the MOVE dst EA — reg bits 11-9, mode bits 8-6 (the SWAPPED field, M68000Cpu.Move.cs). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The MOVE dst EA: register = bits 11-9, mode = bits 8-6 (the SWAPPED field order,");
+        sb.AppendLine("    /// M68000Cpu.Move). Reassembles a 6-bit (mode:reg) field and renders it via Ea6.</summary>");
+        sb.AppendLine("    private static string EaDst(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int reg = (opword >> 9) & 7, mode = (opword >> 6) & 7;");
+        sb.AppendLine("        return Ea6((mode << 3) | reg);");
+        sb.AppendLine("    }");
+
+        // ── EXG: the register pair. mode (bits 7-3): 0x08 = Dx,Dy ; 0x09 = Ax,Ay ; 0x11 = Dx,Ay. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The EXG left/right register operands. The opmode sub-field (bits 7-3) selects the");
+        sb.AppendLine("    /// flavor: 0b01000 = Dx,Dy ; 0b01001 = Ax,Ay ; 0b10001 = Dx,Ay. Rx = bits 11-9, Ry = bits 2-0.</summary>");
+        sb.AppendLine("    private static string EXGl(ushort opword) => (((opword >> 3) & 0x1F) == 0x09) ? $\"A{(opword >> 9) & 7}\" : $\"D{(opword >> 9) & 7}\";");
+        sb.AppendLine("    private static string EXGr(ushort opword) => (((opword >> 3) & 0x1F) == 0x08) ? $\"D{opword & 7}\" : $\"A{opword & 7}\";");
+
+        // ── ShiftMemMnem: the memory-shift mnemonic. bits 10-9 = type, bit 8 = direction (1=L, 0=R). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The memory-shift mnemonic (one-word, size .W). bits 10-9 = type (AS/LS/ROX/RO),");
+        sb.AppendLine("    /// bit 8 = direction (1 = left, 0 = right). The size is implicitly .W for a memory shift.</summary>");
+        sb.AppendLine("    private static string ShiftMemMnem(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        string b = ((opword >> 9) & 3) switch { 0 => \"AS\", 1 => \"LS\", 2 => \"ROX\", _ => \"RO\" };");
+        sb.AppendLine("        return b + (((opword >> 8) & 1) == 1 ? \"L\" : \"R\") + \".W\";");
+        sb.AppendLine("    }");
+
+        // ── BccMnem: cc 0 = BRA, cc 1 = BSR, else B<cc> (the conditional branch). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The Bcc mnemonic: cc (bits 11-8) 0 = BRA, 1 = BSR, else B&lt;cc&gt;.</summary>");
+        sb.AppendLine("    private static string BccMnem(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int cc = (opword >> 8) & 0xF;");
+        sb.AppendLine("        return cc switch { 0 => \"BRA\", 1 => \"BSR\", _ => \"B\" + Cc(cc) };");
+        sb.AppendLine("    }");
+
+        // ── Quick: the ADDQ/SUBQ quick immediate (bits 11-9; 0 means 8). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The ADDQ/SUBQ quick immediate (bits 11-9): 1-7 literal, 0 means 8.</summary>");
+        sb.AppendLine("    private static int Quick(ushort opword) { int q = (opword >> 9) & 7; return q == 0 ? 8 : q; }");
+
+        // ── AszW: the A-family (ADDA/SUBA/CMPA) size from bit 8 (0 = .W, 1 = .L). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The address-register-variant size suffix (ADDA/SUBA/CMPA): bit 8, 0 = .W, 1 = .L.</summary>");
+        sb.AppendLine("    private static string AszW(ushort opword) => ((opword >> 8) & 1) == 1 ? \".L\" : \".W\";");
+
+        // ── ExtSz: the EXT size suffix from the opmode field (bits 8-6): 3 = .L, else .W. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The EXT size suffix: opmode (bits 8-6) 3 = .L (word→long), else .W (byte→word).</summary>");
+        sb.AppendLine("    private static string ExtSz(ushort opword) => ((opword >> 6) & 7) == 3 ? \".L\" : \".W\";");
+
+        // ── ShiftDir: the register-form shift direction (bit 8: 1 = L, 0 = R). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The register-form shift direction letter: bit 8, 1 = L (left), 0 = R (right).</summary>");
+        sb.AppendLine("    private static string ShiftDir(ushort opword) => ((opword >> 8) & 1) == 1 ? \"L\" : \"R\";");
+
+        // ── DnEaOperands: the bit-8 direction order for ADD/SUB/AND/OR/CMP. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The Dn/EA operand order (direction bit 8): 0 = &lt;ea&gt;,Dn ; 1 = Dn,&lt;ea&gt;.</summary>");
+        sb.AppendLine("    private static string DnEaOperands(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int dn = (opword >> 9) & 7;");
+        sb.AppendLine("        return ((opword >> 8) & 1) == 0 ? $\"{Ea(opword)},D{dn}\" : $\"D{dn},{Ea(opword)}\";");
+        sb.AppendLine("    }");
+
+        // ── XOperands: ADDX/SUBX/ABCD/SBCD — R/M bit 3 selects Dy,Dx (0) or -(Ay),-(Ax) (1). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The ADDX/SUBX/ABCD/SBCD operand pair: R/M bit 3 selects Dy,Dx (0) or");
+        sb.AppendLine("    /// -(Ay),-(Ax) (1). Rx = bits 11-9, Ry = bits 2-0.</summary>");
+        sb.AppendLine("    private static string XOperands(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int rx = (opword >> 9) & 7, ry = opword & 7;");
+        sb.AppendLine("        return ((opword >> 3) & 1) == 0 ? $\"D{ry},D{rx}\" : $\"-(A{ry}),-(A{rx})\";");
+        sb.AppendLine("    }");
+
+        // ── ShiftCount: the register-form shift count — #imm (bit 5 = 0, 0 means 8) or Dx (bit 5 = 1). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>The register-form shift count: i/r bit 5 = 0 → #imm (bits 11-9, 0 means 8);");
+        sb.AppendLine("    /// bit 5 = 1 → register Dx (bits 11-9).</summary>");
+        sb.AppendLine("    private static string ShiftCount(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int n = (opword >> 9) & 7;");
+        sb.AppendLine("        return ((opword >> 5) & 1) == 1 ? $\"D{n}\" : $\"#{(n == 0 ? 8 : n)}\";");
+        sb.AppendLine("    }");
+
+        // ── MoveUsp: direction bit 3 selects An,USP (0) or USP,An (1). ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>MOVE USP: direction bit 3 = 0 → MOVE An,USP ; 1 → MOVE USP,An. An = bits 2-0.</summary>");
+        sb.AppendLine("    private static string MoveUsp(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        int an = opword & 7;");
+        sb.AppendLine("        return ((opword >> 3) & 1) == 0 ? $\"MOVE A{an},USP\" : $\"MOVE USP,A{an}\";");
+        sb.AppendLine("    }");
+
+        // ── MoveM: size bit 6 (0=.W, 1=.L); direction bit 10 (0 = regs->mem, 1 = mem->regs); list in ext word. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>MOVEM: size bit 6 (0 = .W, 1 = .L); direction bit 10 (0 = regs→mem so");
+        sb.AppendLine("    /// &lt;list&gt;,&lt;ea&gt; ; 1 = mem→regs so &lt;ea&gt;,&lt;list&gt;). The register-list");
+        sb.AppendLine("    /// mask lives in an extension word → render the placeholder &lt;list&gt;.</summary>");
+        sb.AppendLine("    private static string MoveM(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        string sz = ((opword >> 6) & 1) == 1 ? \".L\" : \".W\";");
+        sb.AppendLine("        return ((opword >> 10) & 1) == 0 ? $\"MOVEM{sz} <list>,{Ea(opword)}\" : $\"MOVEM{sz} {Ea(opword)},<list>\";");
+        sb.AppendLine("    }");
+
+        // ── MoveP: size bit 6 (0=.W,1=.L); direction bit 7 (0 = mem->reg, 1 = reg->mem); d16 in ext word. ──
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>MOVEP: size bit 6 (0 = .W, 1 = .L); direction bit 7 (0 = d16(An)→Dn ; 1 =");
+        sb.AppendLine("    /// Dn→d16(An)). Dn = bits 11-9, An = bits 2-0; the d16 displacement is an extension word.</summary>");
+        sb.AppendLine("    private static string MoveP(ushort opword)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        string sz = ((opword >> 6) & 1) == 1 ? \".L\" : \".W\";");
+        sb.AppendLine("        int dn = (opword >> 9) & 7, an = opword & 7;");
+        sb.AppendLine("        return ((opword >> 7) & 1) == 0 ? $\"MOVEP{sz} <d16>(A{an}),D{dn}\" : $\"MOVEP{sz} D{dn},<d16>(A{an})\";");
+        sb.AppendLine("    }");
     }
 
     /// <summary>M6 PR-4 (DECISION P3): synthesize the 68000 MOVE/MOVEA/MOVEQ keyed descriptor rows for a

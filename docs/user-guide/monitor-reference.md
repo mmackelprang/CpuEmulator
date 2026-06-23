@@ -21,15 +21,17 @@ CpuEmulator.Host --board <name>
 `--board list` prints the catalog. With no `--board`, the host boots `6502`. The monitor renders
 each CPU's own registers and address width automatically.
 
-**Known limitation — 68000 disassembly.** The `d` (disassemble) command renders `???` for 68000
-instructions: the 68000 uses the field-grammar decoder and has no flat per-opcode disassembly table
-yet, so the mnemonic text is unavailable. The byte dump (`m`), register rendering, and step/run
-(`s`/`g`) are all correct on the 68000 — step/run execute the real interpreter, not the disasm path.
-But the `d` walk's per-line address advance is **1 byte** per instruction on the 68000, because the
-monitor's byte-walk length lookup can't index the field-grammar descriptor table by raw opcode byte
-(that table is keyed by a compound operation key, so the lookup falls back to 1). A single-instruction
-`d <addr>` correctly shows `???`; a multi-instruction `d` mis-aligns its displayed addresses on the
-68000. (6502/Z80/8086 disassemble normally.)
+**68000 disassembly.** The `d` (disassemble) command renders real 68000 mnemonics — a field-grammar
+walk over the decoder's own op table produces mnemonic family + size suffix (`.B`/`.W`/`.L`) +
+condition code + EA operand (e.g. `MOVE.W D0,D1`, `BNE *+<d16>`, `JSR (A0)`, `RTS`). Operands that
+live in **extension words** render placeholders (`#<imm>`, `<abs>`, `<d16>`) because the monitor's
+disassembly contract carries only the opword's first three bytes; the byte column (`m`) shows the raw
+hex. The `d` walk advances by a whole **2-byte opword** per line (the 68000 minimum), so a
+multi-instruction `d <addr> <count>` stays opword-aligned. (Because the per-instruction length comes
+from the opword minimum, a line whose instruction has extension words shows the next line starting one
+opword later than the true next instruction — the displayed mnemonic is correct; only the trailing
+extension-word bytes fold into the following line's byte column.) 6502/Z80/8086 disassemble with exact
+per-instruction lengths as before.
 
 ## Argument conventions
 

@@ -127,13 +127,13 @@ public class HostBoardSmokeTests
         string dump = engine.ReadMemory(0x000008, 1);
         Assert.StartsWith("000008:", dump);
 
-        // KNOWN LIMITATION (piece #3): the generated 68000 disassembler is a '???' stub
-        // (the field-grammar CPU has no flat per-opcode disasm table). The monitor renders
-        // '???' honestly; the InstructionLength byte-walk + step/run are still correct. This
-        // assertion guards the limitation: when a real 68000 disassembler lands, it flips,
-        // signalling this test (and the docs/roadmap note) to update.
+        // The generated 68000 disassembler now walks the field grammar (roadmap #6 / D68):
+        // it renders a real mnemonic for any opword the decoder recognizes, not '???'. The
+        // boot ROM at $000008 holds a real instruction (the boot program), so the monitor
+        // renders its mnemonic. (Extension-word operands render placeholders — the 3-byte
+        // disassembly contract cannot carry them — but the mnemonic + size + cc + EA are real.)
         string dis = engine.Disassemble(0x000008, 1);
-        Assert.Contains("???", dis);
+        Assert.DoesNotContain("???", dis);
 
         // Step still advances PC (length comes from the real DescriptorFor, not the disasm).
         uint pcBefore = engine.ProgramCounter;
