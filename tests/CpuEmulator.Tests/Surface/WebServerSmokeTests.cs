@@ -27,6 +27,27 @@ public class WebServerSmokeTests : IClassFixture<WebApplicationFactory<WebProgra
         Assert.Contains("<canvas", html, StringComparison.OrdinalIgnoreCase);
     }
 
+    // Regression for the live `dotnet run` launch bug: the Web project pins
+    // ContentRootPath = AppContext.BaseDirectory, so the static client must physically land in the
+    // BUILD-OUTPUT dir (bin), not just the publish dir. WebApplicationFactory uses the project dir as
+    // its content root, so the smoke test above is BLIND to a missing build-output wwwroot — under a
+    // real `dotnet run` that gap is a "WebRootPath was not found" warning + a 404 at "/".
+    //
+    // This test is un-fakeable: it runs from a bin output dir and the Web project's wwwroot reaches
+    // that dir ONLY via the csproj's <Content Update ... CopyToOutputDirectory>. Without that copy it
+    // is missing (red on main); with it, present (green) — exactly the `dotnet run` path the smoke
+    // test could not exercise.
+    [Fact]
+    public void Static_client_is_copied_to_the_build_output_dir()
+    {
+        string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        Assert.True(File.Exists(Path.Combine(wwwroot, "index.html")),
+            $"wwwroot/index.html is missing from the build output ({wwwroot}); under `dotnet run` "
+            + "ContentRootPath = AppContext.BaseDirectory finds no wwwroot → 404 at \"/\".");
+        Assert.True(File.Exists(Path.Combine(wwwroot, "app.js")),
+            $"wwwroot/app.js is missing from the build output ({wwwroot}).");
+    }
+
     [Fact]
     public async Task WebSocket_streams_a_binary_FB_frame()
     {
