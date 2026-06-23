@@ -52,6 +52,11 @@ public class M8086FarFlowEmitTests
         return new BlockCompiler<M8086Cpu>(cpu, M8086Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
     }
 
+    /// <summary>The LINEAR block key Compile() expects after FF-1: (CS&lt;&lt;4)+IP wrapped to 20 bits — NOT the bare IP.
+    /// The MakeCompiler-based compile-only probes seed CS non-zero, so the block must be keyed under the linear
+    /// address, matching the dispatcher's keying (RunJitOne goes through JittedCpu.Run, which already keys here).</summary>
+    private static uint LinearKey(ushort cs, ushort ip) => (uint)(((cs << 4) + ip) & 0xFFFFF);
+
     /// <summary>Step ONE far-flow instruction through a fresh interpreter (the oracle) from the SAME seeds; return
     /// the resulting CS/IP.</summary>
     private static (ushort Cs, ushort Ip) RunInterpOne(
@@ -362,7 +367,7 @@ public class M8086FarFlowEmitTests
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
         var c = MakeCompiler(0x2000, 0x0000, code);
-        _ = c.Compile(0x0000);
+        _ = c.Compile(LinearKey(0x2000, 0x0000));        // FF-1: Compile takes the LINEAR key (CS<<4)+IP, not the bare IP
         Assert.Equal(0, c.FallbackEmitCount);            // the far op EMITTED real IL — NOTHING fell back
         Assert.True(c.M8086FarFlowEmitSelections > 0,    // ... and the FAR arm actually dispatched (non-vacuous)
             "the far arm was not selected — the far gate-flip / dispatch route is not wired.");
@@ -383,7 +388,7 @@ public class M8086FarFlowEmitTests
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
         var c = MakeCompiler(0x2000, 0x0000, code);
-        _ = c.Compile(0x0000);
+        _ = c.Compile(LinearKey(0x2000, 0x0000));        // FF-1: Compile takes the LINEAR key (CS<<4)+IP, not the bare IP
         Assert.Equal(1, c.FallbackEmitCount);            // it fell back (the interpreter is the oracle)
         Assert.Equal(0, c.M8086FarFlowEmitSelections);   // the far arm NEVER claimed it (Decision 3)
     }
