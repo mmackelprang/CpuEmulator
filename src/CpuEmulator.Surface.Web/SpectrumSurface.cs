@@ -13,9 +13,12 @@ namespace CpuEmulator.Surface.Web;
 /// </summary>
 public sealed record SpectrumSurface(Machine Machine, SpectrumUla Ula, MachineHost Host)
 {
-    public static SpectrumSurface Create(byte[] rom, Action<byte[]> frameSink, Action<byte[]> audioSink)
+    public static SpectrumSurface Create(byte[] rom, Action<byte[]> frameSink, Action<byte[]> audioSink,
+                                         ExecutionTier tier = ExecutionTier.Interpreter)
     {
-        Machine machine = SpectrumMachine.Build(rom, out SpectrumUla ula);
+        // Thread the build-time execution tier to the Z80 via SpectrumMachine.Build (interpreter by default,
+        // JIT when the web server resolves --tier jit / ?tier=jit). The Spectrum has no coprocessor.
+        Machine machine = SpectrumMachine.Build(rom, out SpectrumUla ula, tier);
         machine.Reset();
         var host = new MachineHost(machine, ula, ula, frameSink, ula, audioSink);
         return new SpectrumSurface(machine, ula, host);
