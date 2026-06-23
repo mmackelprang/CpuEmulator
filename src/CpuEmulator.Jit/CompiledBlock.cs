@@ -60,14 +60,14 @@ public delegate void BlockDelegate<TCpu>(
 /// dispatcher round-trip, threading budget + exit. Implemented stack-safely as a LOOP in
 /// <see cref="JittedCpu"/> (not emitted recursion — see the stack-safety note in
 /// <c>BlockCompiler.EmitChainOrExit</c>), so a 96M-cycle Klaus chain does not blow the host stack.</summary>
-public delegate void ChainDispatch(ushort targetPc, ref long budget, out BlockExit exit);
+public delegate void ChainDispatch(uint targetPc, ref long budget, out BlockExit exit);
 
 /// <summary>A compiled block: the emitted delegate, the PC it is keyed on, and the set of
 /// 256-byte pages its instruction bytes span (for dirty-page invalidation).</summary>
 internal sealed class CompiledBlock<TCpu>(
-    ushort entryPc, BlockDelegate<TCpu> del, IReadOnlyCollection<int> spannedPages) where TCpu : class
+    uint entryPc, BlockDelegate<TCpu> del, IReadOnlyCollection<int> spannedPages) where TCpu : class
 {
-    public ushort EntryPc { get; } = entryPc;
+    public uint EntryPc { get; } = entryPc;
     public IReadOnlyCollection<int> SpannedPages { get; } = spannedPages;
 
     /// <summary>Run the block. <paramref name="ioBus"/> (M3.2) is the Io-bus IAddressSpace the Port
