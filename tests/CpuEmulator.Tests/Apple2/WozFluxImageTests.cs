@@ -38,4 +38,28 @@ public class WozFluxImageTests
         Assert.Equal(0, woz.TrackBitLength(1));
         Assert.True(woz.TrackBits(1).IsEmpty);
     }
+
+    [Fact]
+    public void Rejects_a_woz_with_a_wrong_crc32()
+    {
+        byte[] file = OneTrackWoz([0xFF, 0xD5, 0xAA], track0BitLen: 24, corruptCrc: true);
+        var ex = Assert.Throws<System.IO.InvalidDataException>(() => new WozFluxImage(file));
+        Assert.Contains("CRC32", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_woz1_magic()
+    {
+        byte[] file = OneTrackWoz([0xFF], track0BitLen: 8, wrongMagic: true);   // "WOZ1"
+        var ex = Assert.Throws<System.IO.InvalidDataException>(() => new WozFluxImage(file));
+        Assert.Contains("WOZ1", ex.Message);
+    }
+
+    [Fact]
+    public void Rejects_a_non_525_disk_type()
+    {
+        byte[] file = OneTrackWoz([0xFF], track0BitLen: 8, diskType: 2);   // 2 = 3.5"
+        var ex = Assert.Throws<System.IO.InvalidDataException>(() => new WozFluxImage(file));
+        Assert.Contains("5.25", ex.Message);
+    }
 }
