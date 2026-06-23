@@ -56,17 +56,22 @@ public class M8086FlowEmitTests
             "EmitM8086Flow was never selected — the flow gate-flip / dispatch route is not wired.");
     }
 
-    /// <summary>The NEGATIVE control — a block of only a fallback op (a far JMP, 0xEA, which stays interpreter) selects
-    /// the flow arm zero times, so the positive case is meaningful (the counter is not always-tripping).</summary>
+    /// <summary>The NEGATIVE control for the NEAR arm — a far JMP (0xEA) selects the NEAR flow arm zero times, so the
+    /// positive near-flow case is meaningful (the counter is not always-tripping). As of ADR 0019 FF-2 the far op is
+    /// claimed by the FAR arm (EmitM8086FarFlow), NOT the near arm: it EMITS (no fallback) and chains across the
+    /// segment change. So M8086FlowEmitSelections stays 0 (the near arm is untouched), but FallbackEmitCount is now 0
+    /// and M8086FarFlowEmitSelections &gt; 0 (the far arm emitted it) — the far-emit complement of the near probe.</summary>
     [Fact]
-    public void Far_jump_block_selects_the_flow_arm_zero_times()
+    public void Far_jump_block_selects_the_near_flow_arm_zero_times_and_emits_via_the_far_arm()
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
-        // EA 00 00 00 20 = JMP 0x2000:0x0000 (far direct) — DECISION D-1 keeps it fallback (CS-changing).
+        // EA 00 00 00 20 = JMP 0x2000:0x0000 (far direct) — FF-2 emits it through the FAR arm (CS-changing, chainable).
         var (c, _, _) = Make(0x1000, 0x0020, 0xEA, 0x00, 0x00, 0x00, 0x20);
         _ = c.Compile(0x0020);
-        Assert.Equal(0, c.M8086FlowEmitSelections);    // a far flow op never reaches EmitM8086Flow (gate excludes it)
-        Assert.Equal(1, c.FallbackEmitCount);          // it fell back (the far op is the oracle via inner.Step)
+        Assert.Equal(0, c.M8086FlowEmitSelections);    // the NEAR arm never sees a far op (the far arm claims it first)
+        Assert.Equal(0, c.FallbackEmitCount);          // FF-2: the far JMP EMITS now (it is no longer interpreter-fallback)
+        Assert.True(c.M8086FarFlowEmitSelections > 0,  // ... and the FAR arm dispatched + emitted it
+            "the far JMP EA was not emitted by the far arm.");
     }
 
     // ─────────────────────────── parity vs the interpreter oracle ───────────────────────────

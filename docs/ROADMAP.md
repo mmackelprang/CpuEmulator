@@ -203,7 +203,7 @@ always the oracle and the byte-exact fallback, so partial emit is a pure perform
 | **6502** | the full ISA + the decimal arms; plus the **SMC/recompile-cost lever** (recompiles collapsed ~6.8× on Klaus) | BRK/RTI, undefined |
 | **Z80** | LD, ALU + flags (Q/MEMPTR, X/Y), ED 16-bit (`ADC`/`SBC HL,rr`, `INC`/`DEC rr`), branch/call/stack — the Z80 JIT now **exceeds its own interpreter** on the W2 kernel | the prefix-plane long tail (block ops, ED/DD/FD/CB rarities) |
 | **68000** | MOVE (the only net-new descriptor generation; needed a word-granular `Discover` fetch-stream fix), ALU + CCR (the X-bit), shifts, branch/DBcc — data-axis-exact (coarse-cycle by design) | TRAP/TRAPV/CHK/÷0/MOVEM/MUL/DIV/RTE/LINK/UNLK, address-error, privilege |
-| **8086** | MOV (+ the `(CS<<4)+IP` seam), ALU + FLAGS, **near** branch/call/return | **far flow** (CS-invariant block key), MUL/DIV, string-REP, INT/INTO/IRET/BOUND, IN/OUT |
+| **8086** | MOV (+ the `(CS<<4)+IP` seam), ALU + FLAGS, **near** branch/call/return, **far flow** (`JMP`/`CALL`/`RET`, the linear `(CS<<4)+IP` block key — ADR 0019 ✅) | MUL/DIV, string-REP, INT/INTO/IRET/BOUND, IN/OUT |
 
 See [The JIT Tier](user-guide/jit.md) for the emit arms and the accuracy contract, and ADR 0011 for the
 design rationale (the emit-vs-fallback boundary, the rollout order, the profiling-ranked ROI).
@@ -228,19 +228,18 @@ design rationale (the emit-vs-fallback boundary, the rollout order, the profilin
 These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set priority order**
 (2026-06-19) — the intended next-up sequence, not a schedule.
 
-1. **[planned] 8086 far-flow emit.** Far `JMP`/`CALL`/`RET` (and far interrupts) stay fallback because
-   the block-cache key is `(IP)`, CS-invariant. Emitting them requires **widening the cache key to
-   `(CS,IP)`** so a far transfer to the same offset under a different segment is a distinct block. The
-   most-named M6 gap — it unblocks real-mode 8086 programs. **Designed in [ADR 0019](architecture/0019-8086-far-flow-emit-and-the-cs-ip-block-key.md)**
-   (Proposed, 2026-06-22): widen the shared block-cache key to the **generic 32-bit linear `(CS<<4)+IP`**
-   (the physical the decode/fetch already compute), projected per-CPU via `IJitTarget.ProjectBlockKey` — the
-   non-segmented 6502/Z80/68000 project the identity `(uint)PC`, so they are **byte-for-byte unchanged**
-   (classified **SAFE**, gated by a key-projection identity regression). Emit far `JMP`/`CALL`/`RET`;
-   `INT`/`INTO`/`IRET`/`BOUND` stay fallback (ADR 0011 §2/OQ5). A short arc — **FF-1** (the linear key + the
-   SAFE identity gate) **→ FF-2** (the far arms + the un-fakeable aliasing regression: two segments, same
-   offset, distinct blocks — fails on the old `(IP)` key, passes on the linear key). **Planner-decomposed
-   2026-06-22 into queue rows FF-1 → FF-2** (`docs/BUILDER_QUEUE.md`; plans under `docs/superpowers/plans/2026-06-22-ff{1,2}-*.md`)
-   — **strictly ordered, FF-2 not co-merged with FF-1**. Builder clears them after W → D68 → B68-DOC.
+1. **[resolved] 8086 far-flow emit.** ✅ **SHIPPED 2026-06-23 — the ADR 0019 far-flow arc is COMPLETE (FF-1 PR #146,
+   FF-2 PR #147).** The 8086 JIT now emits the far transfers — far `JMP` (`EA`/`FF /5`), far `CALL` (`9A`/`FF /3`),
+   far `RET` (`CB`/`CA`) — byte-identical to the interpreter; the direct forms chain across the segment change.
+   **FF-1 (PR #146):** widened the shared block-cache key `ushort → uint` to the generic linear `(CS<<4)+IP`,
+   projected per-CPU via `IJitTarget.ProjectBlockKey` (the non-segmented 6502/Z80/68000 project the identity
+   `(uint)PC`, **byte-for-byte unchanged** — classified SAFE, gated by the byte-for-byte key-projection identity
+   regression). **FF-2 (PR #147):** the far arms + the un-fakeable aliasing regression (two segments at the same
+   offset → distinct blocks; fails on the old `(IP)` key, passes on the linear key — proven red→green). `INT`/`INTO`/
+   `IRET`/`BOUND` stay fallback (ADR 0011 §2/OQ5; Decision 3). **Strictly ordered, FF-2 never co-merged with FF-1**
+   (the aliasing bug only arms once an emitted op changes CS mid-chain, so the key landed + was proven SAFE first).
+   Designed in [ADR 0019](architecture/0019-8086-far-flow-emit-and-the-cs-ip-block-key.md); the most-named M6 gap —
+   it unblocks real-mode 8086 programs through the fast tier.
 
 2. **[deferred] Cycle-exact emitted 68000 timing (the prefetch-queue model).** The 68000 is
    data-axis-exact but charges **coarse cycles** today; the cycle-exact axis (ADR 0008 §6 / ADR 0011 OQ4)

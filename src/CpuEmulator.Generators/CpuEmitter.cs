@@ -4903,7 +4903,10 @@ internal static class CpuEmitter
         // terminates via EmitChainOrExit/EmitNormalExit). The gate-flip above un-forced their fallback (so they emit
         // real IL); here we RE-FORCE endsBlock=true (WITHOUT re-forcing fallback) so the block correctly ends at the
         // branch. Mirrors the Z80/68000 flow rows, which carry endsBlock=true from their dedicated flow classes.
-        if (isX86 && IsEmittableX86NearFlow(insn))
+        // ADR 0019 FF-2: the far-flow rows (9A/EA/CB/CA + FF /3 /5) also ride JitOpClass.Register and must END the
+        // block (the EmitM8086FarFlow arm self-terminates via EmitChainOrExit/EmitNormalExit) — re-force endsBlock
+        // for them too, the same way as the near family above (WITHOUT re-forcing fallback).
+        if (isX86 && (IsEmittableX86NearFlow(insn) || IsEmittableX86FarFlow(insn)))
             endsBlock = true;
 
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
@@ -5100,6 +5103,13 @@ internal static class CpuEmitter
         // wrongly drop endsBlock too — the re-force keeps the block-ending property the self-terminating arm needs).
         if (IsEmittableX86NearFlow(insn)) return true;
 
+        // ADR 0019 FF-2: the FAR control-flow family (9A/EA far CALL/JMP direct, CB/CA far RETF, FF /3 /5 far
+        // indirect). Admitted via the dedicated predicate below; like the near family these END the block, so
+        // KeyedDescriptorLiteral RE-FORCES endsBlock=true for them (the 8086 far ops are JitOpClass.Register,
+        // which ClassifyForJit classes endsBlock=FALSE — un-forcing fallback here without the re-force would
+        // wrongly drop endsBlock). INT/INTO/IRET/BOUND are NOT here — they stay fallback (ADR 0019 Decision 3).
+        if (IsEmittableX86FarFlow(insn)) return true;
+
         // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is
         // MOVE/MOVEA/MOVEQ, the Z80 LD, the 6502 LDA/STA), so "MOV" is unambiguously the 8086.
         if (insn.Mnemonic != "MOV") return false;
@@ -5141,8 +5151,31 @@ internal static class CpuEmitter
         return insn.Opcode switch
         {
             (>= 0x70 and <= 0x7F) or 0xEB or 0xE9 or 0xE8 or 0xC3 or 0xC2 or 0xE0 or 0xE1 or 0xE2 or 0xE3 => true,
-            _ => false,   // 9A/EA (far direct), CB/CA (far return) stay fallback
+            _ => false,   // 9A/EA (far direct), CB/CA (far return) are FAR flow (IsEmittableX86FarFlow), not near
         };
+    }
+
+    /// <summary>ADR 0019 FF-2: is this a FAR 8086 control-flow row the far emit arm (EmitM8086FarFlow) handles?
+    /// 9A/EA (far CALL/JMP direct, ptr16:16), CB/CA (far RETF / RETF imm16), and the 0xFF group's far indirect
+    /// /3 (CALL m16:16)/ /5 (JMP m16:16). Un-forced here so the runtime EmitM8086FarFlow arm is reachable (the
+    /// descriptor must NOT be forced-fallback). Like the near family these END the block (endsBlock=true is
+    /// re-forced at KeyedDescriptorLiteral). The far forms WRITE CS (not just IP) before exiting, so the next
+    /// dispatch keys/decodes the successor under the new segment (the FF-1 linear-key payoff).
+    ///
+    /// <para>KEY DISCRIMINATOR (same as the near gate): <c>insn.Opcode</c> is the BYTE — so EVERY FF-group row
+    /// reads 0xFF here. The near/far split for the FF rows is by the reg-extension <c>insn.SubField</c>: /2 /4
+    /// are near (IsEmittableX86NearFlow); /3 /5 — same byte 0xFF, same CALL/JMP mnemonic — are far. The plain
+    /// far 9A/EA/CB/CA are matched on the byte directly. INT/INTO/IRET (CD/CC/CE/CF) + BOUND (62/63) carry other
+    /// mnemonics (INT/INTO/IRET/BOUND), so they fail this gate and stay fallback (ADR 0019 Decision 3).</para></summary>
+    private static bool IsEmittableX86FarFlow(InstructionModel insn)
+    {
+        if (insn.Opcode is 0x9A or 0xEA or 0xCB or 0xCA) return true;
+        // The FF-group far indirect (opcode byte 0xFF): admit ONLY the far reg-extensions /3 (CALL)/ /5 (JMP).
+        // The runtime EmitM8086FarFlow arm OWNS /3 /5 (FF-2 Task 6); admitting them here keeps the gate↔arm in
+        // lockstep — a /3 /5 row un-forced here is claimed by the far arm BEFORE the near arm (which would throw).
+        if (insn.Opcode == 0xFF && insn.Mnemonic is "CALL" or "JMP")
+            return insn.SubField is 3 or 5;
+        return false;
     }
 
     /// <summary>Map the interpreter's <see cref="InstructionClass"/> to the JIT
