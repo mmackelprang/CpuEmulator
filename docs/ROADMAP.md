@@ -161,6 +161,30 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > end-to-end — the headline the M6 / ADR 0016/0017 arc set out to reach. ADR 0017 OQ2/D6 (`ActiveIndex==1` from a
 > real CP/M boot) is CLOSED.**
 >
+> **🎉 APPLE PASCAL IS NOW BROWSER-REACHABLE + A `--system` OVERRIDE LANDED (2026-06-23, PR #155).** Apple Pascal
+> (UCSD p-System) was boot-proven only headless (PR #153 — `PascalBootTests`, `tools/BootProbe --apple-pascal`);
+> the web server had no Pascal path and no way to force a system. Now: (1) a new **`--system <name>` override**
+> for `CpuEmulator.Surface.Web` forces a specific boot branch and bypasses the asset auto-probe — names
+> `cpm3`, `cpm22`, `apple2`, `pascal`, `spectrum`, `demo` (`--system list` enumerates; an unknown name errors
+> with exit 2). When `--system` is **absent the auto-probe is byte-for-byte unchanged.** (2) A **Pascal web boot
+> path**: `Apple2Surface.CreatePascal` boots the **PR-#153 board reused via the new `Pascal.CreateBoard`** (the
+> single source of truth — `PascalBootTests` + `BootProbe` now consume it too: system ROM + Language Card +
+> slot-6 Disk II boot ROM, **APPLE1 in drive 1 + APPLE0 in drive 2** at `SectorOrderKind.Dos33`) → **interactive
+> UCSD p-System `COMMAND:` in the browser** (the `Apple2Surface` keyboard makes it live). The Pascal branch is
+> added to the auto-probe order too (after the CP/M branches, before the bare ][+ — it needs the Pascal disks
+> the CP/M rigs don't stage). (3) A **`tools/start-apple-pascal.{sh,ps1}`** one-command launcher — stages the
+> Pascal disks (`get-apple-pascal`), confirms the Apple ROMs are cached, and launches the server with
+> `--system pascal` (deterministic regardless of what else is cached). **Gates:** the asset-free
+> `WebSystemSelectionTests` extended with the Pascal probe order + the `--system` name mapping (un-fakeable —
+> fails if the branch were missing or mis-ordered) + a `[PascalBootFact]`-gated `WebPascalRenderTests` that
+> drives the **production** `CreatePascal` factory to the decoded `COMMAND:` / `E(DIT` / `APPLE II PASCAL` off
+> the live 40-col text page. **Live UAT (Builder):** `--system list` prints the six names (exit 0); `--system
+> bogus` errors (exit 2); `--system pascal` starts the real ASP.NET server clean (the Pascal surface builds, no
+> exceptions); the full suite is green + warning-clean and the render gate ran **live** (not skipped, assets
+> cached) decoding the real `COMMAND:` line. Reach the interactive in-browser session with
+> `tools/start-apple-pascal` (owner UAT to drive it live). The auto-probe + the CP/M-3 / 2.2 / Apple / Spectrum
+> / demo paths are unchanged.
+>
 > **🎉 THE 80-COLUMN CP/M 3.1 HEADLINE IS NOW BROWSER-REACHABLE (2026-06-23, PR #154).** The V80 headline above
 > shipped its 80-col `A>` only through the test suite + `tools/BootProbe --apl2cpm3-videx`; the web server's CP/M
 > branch still loaded only the 40-col 2.2 disk (the gap PR #152's investigation pinned — `Program.cs` never
