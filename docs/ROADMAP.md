@@ -161,7 +161,7 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > end-to-end — the headline the M6 / ADR 0016/0017 arc set out to reach. ADR 0017 OQ2/D6 (`ActiveIndex==1` from a
 > real CP/M boot) is CLOSED.**
 >
-> **🎉 THE 80-COLUMN CP/M 3.1 HEADLINE IS NOW BROWSER-REACHABLE (2026-06-23, PR #__).** The V80 headline above
+> **🎉 THE 80-COLUMN CP/M 3.1 HEADLINE IS NOW BROWSER-REACHABLE (2026-06-23, PR #154).** The V80 headline above
 > shipped its 80-col `A>` only through the test suite + `tools/BootProbe --apl2cpm3-videx`; the web server's CP/M
 > branch still loaded only the 40-col 2.2 disk (the gap PR #152's investigation pinned — `Program.cs` never
 > referenced the apl2cpm3 loader). Now `DemoSession.RunAsync` probes the apl2cpm3 rig (Apple ROM + the
