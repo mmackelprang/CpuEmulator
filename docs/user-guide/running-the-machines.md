@@ -225,26 +225,35 @@ status line reflects the live video mode and the disk-drive state. If you cached
 disk image via the in-page disk library / upload (a `.dsk`, `.po`, or `.woz`); see
 [Sample disks (WOZ)](#sample-disks-woz) below.
 
-#### Apple Pascal (UCSD p-System) — should work, not yet UAT-verified
+#### Apple Pascal (UCSD p-System) — ✅ verified (PR #153)
 
 Apple Pascal (the UCSD p-System) runs on the **native Apple ][+ 6502 plus the Language Card — there is no
 SoftCard involved.** (The Microsoft SoftCard is a Z80 coprocessor card for CP/M only; UCSD Pascal is a 6502
-p-code interpreter and does not use it.)
+p-code interpreter and does not use it.) **Verified end-to-end:** the real Apple II Pascal 1.1 (UCSD p-System
+II.1) distribution boots to the p-System `COMMAND:` line on the emulator — the `Apple2/PascalBootTests` gate
+decodes the live screen and asserts the sign-on + the `COMMAND:` menu; `tools/BootProbe --apple-pascal`
+captures the screenshot.
 
-The pieces are present in the emulator today:
+Two findings from the bring-up (**ADR 0021**):
 
-- an accurate 6502 (the interpreter is the correctness oracle);
-- the **Apple Language Card** (`src/CpuEmulator.Peripherals/Apple2LanguageCard.cs`) — Pascal relies on the
-  Language Card to bank its runtime into `$D000–$FFFF`. The ADR 0018-C two-latch write-enable fix (the
-  74LS175 pre-write count and the write-enable latch are independent) improved Language-Card fidelity;
-- the **Disk II controller** with `.dsk`/`.po`/`.woz` loaders.
+- **No new disk sector order was needed.** Apple Pascal `.dsk` images are in **DOS 3.3 on-disk sector order**
+  (carrying a UCSD filesystem), so the existing `SectorOrderKind.Dos33` read path is correct — the
+  ProDOS/Pascal physical interleave, composed through the Disk II BIOS, resolves to the DOS 3.3 table.
+- **The real fix was a Language-Card mode.** `SYSTEM.APPLE` write-enables LC RAM while *running from the
+  Monitor/Applesoft ROM*, copies the p-code interpreter into the banked `$D000–$FFFF`, then jumps into it —
+  a "read ROM, write RAM" mode our single-backing page table couldn't express. `Apple2LanguageCard` now
+  routes that window as an MMIO write-through device in that mode (on the existing LC seam — no core change,
+  JIT-coherent; the apl2cpm3 CP/M-3 boot and all LC tests stayed green). This is the second real Language-Card
+  fidelity gain from running real software (after ADR 0018-C's two-latch fix).
 
-So the building blocks for booting a UCSD p-System disk are in place. **This is framed honestly: it *should*
-work, but it has not yet been UAT-verified end-to-end.** To try it you supply your **own p-System boot disk
-image** (owner-supplied — not fetched), cache the Apple ROMs (including `disk2.rom`), and boot the disk via
-the in-page library/upload. 80-column Pascal is *possible* via the Videx given the right p-System 80-column
-driver, but that too is unverified here. Treat Apple Pascal as a promising-but-unconfirmed path, not a shipped
-guarantee.
+**Boot topology** (authentic, two-drive): **`APPLE1` in drive 1** (it carries `SYSTEM.APPLE` + `SYSTEM.PASCAL`)
+and **`APPLE0` in drive 2** (the program/compiler volume). Booting `APPLE0` alone reaches the genuine
+`NO FILE SYSTEM.APPLE` halt — the boot loader works; the interpreter just isn't on that volume.
+
+**To run it:** stage your owner-supplied Pascal disks with `tools/get-apple-pascal.ps1` (or `sh
+tools/get-apple-pascal.sh`) — never vendored — then boot headless via `tools/BootProbe --apple-pascal`.
+80-column Pascal via the Videx (given the right p-System 80-column driver) is plausible but **not yet
+verified**; the 40-column boot above is confirmed.
 
 ---
 
@@ -376,7 +385,7 @@ The demo board has no audio device.
 | Apple ][+ | `apple2plus.rom` (12 KiB); `disk2.rom` (256 B) to boot a disk; `char.rom` (2 KiB) optional | `apple2/` | Apple copyright; owner-supplied (placeholder URLs) |
 | SoftCard CP/M 2.2 (40-col) | Apple ROMs + `softcard-cpm.dsk` (143,360 B) | `apple2/`, `cpm/softcard-cpm.dsk` | Apple ROMs (copyright); CP/M `.dsk` owner-supplied / fetch-on-demand |
 | CP/M 3.1 + Videx (80-col) | Apple ROMs + `CPM3.1_Disk_1.dsk` + (real Videx firmware for the screenshot) | `apple2/`, `cpm/apl2cpm3/`, `videx/` | Apple ROMs (copyright); CP/M 3.1 disk + Videx ROMs owner-supplied (Videx ROMs optional) |
-| Apple Pascal (UCSD p-System) | Apple ROMs + **your** p-System boot disk | `apple2/`, plus your disk image | Apple ROMs (copyright); p-System disk owner-supplied. **Not yet UAT-verified.** |
+| Apple Pascal (UCSD p-System) | Apple ROMs + **your** p-System boot disks | `apple2/`, plus your disk images | Apple ROMs (copyright); p-System disks owner-supplied. **✅ Verified (PR #153) — boots to `COMMAND:`.** |
 | SP0 demo board | *none* | — | Built-in |
 
 **Setup scripts:**
