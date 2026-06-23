@@ -1261,7 +1261,29 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         byte opcode = d.Opcode;
         switch (opcode)
         {
-            // Tasks 3/4/6 fill these. Until then, fall through to false (fallback / near arm).
+            // ── CB RETF / CA RETF imm16: pop IP (lower addr), then pop CS; CA also adds imm16 to SP. The popped
+            //    (CS:IP) is a DYNAMIC target → EmitNormalExit (not chainable). Mirrors the near C3/C2 RET arm with
+            //    the extra CS pop before the SP adjust (the far frame: IP at the lower address, CS just above). ──
+            case 0xCB:
+            case 0xCA:
+            {
+                ILGenerator il = ctx.Il;
+                EmitM8086PopWord(ctx); EmitM8086SetIpFromStack(ctx);   // IP = PopWord()  (the lower word)
+                EmitM8086PopWord(ctx); EmitM8086SetCsFromStack(ctx);   // CS = PopWord()  (the upper word)
+                if (opcode == 0xCA)                                    // SP += imm16
+                {
+                    int operandPc = pc + 1;
+                    ushort imm16 = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                            | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("SP")); il.Emit(OpCodes.Ldc_I4, (int)imm16); il.Emit(OpCodes.Add);
+                    il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("SP"));
+                }
+                EmitNormalExit(ctx);                                   // DYNAMIC popped (CS:IP) target — NOT chainable
+                return true;
+            }
+
+            // Tasks 4/6 fill 9A/EA/FF. Until then, fall through to false (fallback / near arm).
             default:
                 return false;
         }
