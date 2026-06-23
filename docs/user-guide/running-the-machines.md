@@ -125,18 +125,27 @@ The server decides which machine to boot by **probing the asset cache in a fixed
 *first* set of assets it finds wins. This is the actual logic in
 `src/CpuEmulator.Surface.Web/Program.cs` (`DemoSession.RunAsync`), and it is checked once per connection:
 
-1. **SoftCard CP/M** — boots if **both** the Apple ][+ system ROM (`apple2/apple2plus.rom`) **and** the
-   CP/M disk (`cpm/softcard-cpm.dsk`) are cached. (The CP/M `.dsk` is only stat-checked when the Apple ROM
-   is present.) This runs on the Videx-capable `SoftCardVidexSurface`.
-2. **Apple ][+** — else, boots if the Apple ][+ system ROM (`apple2/apple2plus.rom`) is cached.
-3. **ZX Spectrum 48K** — else, boots if the Spectrum ROM (`spectrum/48.rom`) is cached.
-4. **SP0 demo board** — else, the built-in fallback (no assets required).
+1. **CP/M 3.1 + Videx (80-column)** — boots if the Apple ][+ system ROM (`apple2/apple2plus.rom`), the
+   apl2cpm3 disk (`cpm/apl2cpm3/CPM3.1_Disk_1.dsk`) **and** the real Videx firmware (`videx/videx-firmware.rom`)
+   are all cached. This is the **80-column** headline: CP/M 3.1 boots to `A>` on the Videx 80×24 console (the
+   display auto-switches to the Videx). It runs on `SoftCardVidexSurface` configured for apl2cpm3 (the slot-4
+   SoftCard + the `Cpm3` raw-DOS33 disk skew). The real Videx firmware is required — the apl2cpm3 CRT80 console
+   JMPs into the `$C800` firmware window, so without it the 80-col screen would be blank and the server falls
+   through to the 2.2 disk instead.
+2. **SoftCard CP/M 2.2 (40-column)** — else, boots if **both** the Apple ][+ system ROM (`apple2/apple2plus.rom`)
+   **and** the 2.2 CP/M disk (`cpm/softcard-cpm.dsk`) are cached. (The CP/M discs + Videx firmware are only
+   stat-checked when the Apple ROM is present.) This runs on the same Videx-capable `SoftCardVidexSurface`, but
+   the 2.2 master is a 40-column console that never engages the Videx, so you get 40 columns.
+3. **Apple ][+** — else, boots if the Apple ][+ system ROM (`apple2/apple2plus.rom`) is cached.
+4. **ZX Spectrum 48K** — else, boots if the Spectrum ROM (`spectrum/48.rom`) is cached.
+5. **SP0 demo board** — else, the built-in fallback (no assets required).
 
 Each later probe only runs when the earlier branch was *not* taken, so the common boot path does no extra
 file-stat work. **The priority is asset-driven, not a preference you set** — e.g. if you have the Apple ROM
-cached, you get the Apple ][+ (or SoftCard, if the CP/M disk is also there) and *not* the Spectrum, even if
-the Spectrum ROM is also cached. To switch the web surface back to the Spectrum or the demo, the Apple/CP/M
-assets must not be present in the cache.
+cached, you get the Apple ][+ (or one of the SoftCard CP/M rigs, if a CP/M disk is also there) and *not* the
+Spectrum, even if the Spectrum ROM is also cached. When **both** CP/M disks are cached, the 80-column CP/M 3.1
+rig wins over the 40-column 2.2 disk (the 2.2 disk is the fallback). To switch the web surface back to the
+Spectrum or the demo, the Apple/CP/M assets must not be present in the cache.
 
 > **Accuracy note vs. Getting Started.** The "Running the web surface" section of
 > [Getting Started](getting-started.md) describes only the Spectrum-or-demo behavior — it predates the
@@ -289,7 +298,8 @@ tools/get-softcard-cpm.ps1
 > the single CP/M disk). The combined script is reserved for the 80-column CP/M 3.1 rig, which has a genuinely
 > larger asset set (see below). Run the two lines above, or reuse `tools/setup-apple2` for the ROM half.
 
-Run it (Apple ROMs **and** `cpm/softcard-cpm.dsk` both cached → the SoftCard branch wins):
+Run it (Apple ROMs **and** `cpm/softcard-cpm.dsk` cached, and the apl2cpm3 80-column rig *not* cached → the
+2.2 SoftCard branch wins):
 
 ```
 dotnet run --project src/CpuEmulator.Surface.Web
@@ -313,16 +323,24 @@ CP/M **3.1 "Plus"** for the SoftCard, whose BIOS drives the **Videx Videoterm 80
 genuine 80-column CP/M console: CP/M 3.1's `icrt` routine programs the Videx CRTC, the display multiplexer
 auto-switches to the Videx 80×24 source, and `A>` renders in 80 columns.
 
-**Important — where 80-column CP/M 3.1 runs today.** The 80-column CP/M 3.1 end-to-end is currently
-demonstrated through the **test suite and the `tools/BootProbe` screenshot tool**, **not** through the web
-server's automatic boot path. Concretely:
+**The 80-column CP/M 3.1 boot is now reachable in the browser.** When the apl2cpm3 assets are cached, the web
+server boots CP/M 3.1 on the Videx 80-column console automatically — it is the **first** branch in the
+selection order above (ahead of the 40-column 2.2 disk). Cache the rig with `tools/setup-cpm-videx` (below),
+run the server, and your browser shows CP/M 3.1 booting to `A>` in 80 columns:
 
-- The web server's CP/M branch only loads `cpm/softcard-cpm.dsk` (the **2.2** disk) via
-  `CpuEmulator.Machines.SoftCardCpm`. It does **not** probe for the apl2cpm3 CP/M 3.1 images, which a separate
-  loader (`CpuEmulator.Machines.Apl2Cpm3`) reads from a **different** cache subdirectory
-  (`cpm/apl2cpm3/CPM3.1_Disk_1.dsk`).
-- The verified 80-column `A>`-on-the-Videx render is produced headlessly by the boot gate and captured to a
-  PNG by `tools/BootProbe`:
+```
+sh tools/setup-cpm-videx.sh         # apl2cpm3 Disk 1 + the real Videx firmware (supply Apple ROMs separately)
+dotnet run --project src/CpuEmulator.Surface.Web
+```
+
+Concretely:
+
+- The web server's CP/M branch probes the apl2cpm3 CP/M 3.1 images first, via
+  `CpuEmulator.Machines.Apl2Cpm3` (the `cpm/apl2cpm3/CPM3.1_Disk_1.dsk` subdirectory — distinct from the 2.2
+  `cpm/softcard-cpm.dsk`), and builds `SoftCardVidexSurface` for apl2cpm3 (slot-4 SoftCard + the `Cpm3` disk
+  skew). The 2.2 disk is the **fallback** — selected only when the apl2cpm3 rig is not cached.
+- The same 80-column `A>`-on-the-Videx render can also be produced headlessly and captured to a PNG by
+  `tools/BootProbe` (the owner-UAT artifact, no browser required):
 
   ```
   dotnet run --project tools/BootProbe -- --apl2cpm3-videx out.png
@@ -338,7 +356,7 @@ server's automatic boot path. Concretely:
 | Apple ][+ system ROM | `apple2/apple2plus.rom` | Required (`tools/get-apple2-roms`). Apple's copyright, owner-supplied. |
 | Disk II boot ROM | `apple2/disk2.rom` | Required to boot a disk. |
 | CP/M 3.1 Disk 1 | `cpm/apl2cpm3/CPM3.1_Disk_1.dsk` | The bootable disk (`tools/get-apl2cpm3`). Owner-supplied / fetch-on-demand (placeholder URL, guarded). Disks 2–7 are optional data/tool/help disks. |
-| Videx firmware ROM | `videx/videx-firmware.rom` (1 KiB) | **Optional** for the boot gate (a synthetic all-zero image covers it), **but the `BootProbe --apl2cpm3-videx` screenshot requires the real firmware**. `tools/get-videx-roms`. |
+| Videx firmware ROM | `videx/videx-firmware.rom` (1 KiB) | **Optional** for the boot gate (a synthetic all-zero image covers it), **but the real firmware is required for the browser path and the `BootProbe --apl2cpm3-videx` screenshot** — the CRT80 console JMPs into the `$C800` firmware. Without it the web server falls through to the 2.2 40-column disk. `tools/get-videx-roms`. |
 | Videx char ROM | `videx/videx-char.rom` (2 KiB) | **Optional** — a synthetic fallback font covers it; the real ROM sharpens glyphs. |
 
 The CP/M 3.1 disk is **owner-supplied / fetch-on-demand**; the Videx ROMs are **owner-supplied and optional**.
@@ -357,8 +375,12 @@ tools/setup-cpm-videx.ps1
 It chains `get-apl2cpm3` (the CP/M 3.1 Disk 1) and `get-videx-roms` (the Videx firmware + char ROMs). You
 still need the Apple ][+ ROMs — run `tools/setup-apple2` or `tools/get-apple2-roms` for those.
 
-**What you see (via `BootProbe`):** CP/M 3.1's sign-on and the `A>` CCP prompt rendered on the Videx 80×24
-console (an 80-column text screen, not the Apple 40-column page).
+**What you see (in the browser, or via `BootProbe`):** CP/M 3.1's sign-on and the `A>` CCP prompt rendered on
+the Videx 80×24 console (an 80-column text screen, not the Apple 40-column page). With the rig cached, the web
+server picks this path automatically and the display auto-switches from the Apple 40-column page to the Videx
+80×24 source as CP/M 3.1's console driver brings the Videx online. (Note: the real Videx firmware is required
+for the **browser** path too — the apl2cpm3 CRT80 console JMPs into the `$C800` firmware; without it the server
+falls through to the 2.2 40-column disk.)
 
 ---
 
@@ -384,7 +406,7 @@ The demo board has no audio device.
 | ZX Spectrum 48K | `48.rom` (16 KiB) | `spectrum/48.rom` | Amstrad copyright; fetch-on-demand, never vendored |
 | Apple ][+ | `apple2plus.rom` (12 KiB); `disk2.rom` (256 B) to boot a disk; `char.rom` (2 KiB) optional | `apple2/` | Apple copyright; owner-supplied (placeholder URLs) |
 | SoftCard CP/M 2.2 (40-col) | Apple ROMs + `softcard-cpm.dsk` (143,360 B) | `apple2/`, `cpm/softcard-cpm.dsk` | Apple ROMs (copyright); CP/M `.dsk` owner-supplied / fetch-on-demand |
-| CP/M 3.1 + Videx (80-col) | Apple ROMs + `CPM3.1_Disk_1.dsk` + (real Videx firmware for the screenshot) | `apple2/`, `cpm/apl2cpm3/`, `videx/` | Apple ROMs (copyright); CP/M 3.1 disk + Videx ROMs owner-supplied (Videx ROMs optional) |
+| CP/M 3.1 + Videx (80-col) | Apple ROMs + `CPM3.1_Disk_1.dsk` + real Videx firmware (`videx-firmware.rom`) | `apple2/`, `cpm/apl2cpm3/`, `videx/` | Apple ROMs (copyright); CP/M 3.1 disk + Videx ROMs owner-supplied. The web server boots this 80-col path automatically when all three are cached (the real firmware is load-bearing — without it the server falls through to the 2.2 disk). |
 | Apple Pascal (UCSD p-System) | Apple ROMs + **your** p-System boot disks | `apple2/`, plus your disk images | Apple ROMs (copyright); p-System disks owner-supplied. **✅ Verified (PR #153) — boots to `COMMAND:`.** |
 | SP0 demo board | *none* | — | Built-in |
 

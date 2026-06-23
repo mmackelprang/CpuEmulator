@@ -20,4 +20,10 @@
     <ProjectReference Include="..\CpuEmulator.Machines\CpuEmulator.Machines.csproj" />
   </ItemGroup>
 
+  <!-- The test assembly drives the internal DemoSession.SelectSystem / WebSystem precedence helper directly
+       (the asset-free proof that apl2cpm3 outranks the 2.2 disk) without booting or touching env vars. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CpuEmulator.Tests" />
+  </ItemGroup>
+
 </Project>
