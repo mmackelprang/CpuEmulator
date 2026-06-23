@@ -203,7 +203,7 @@ always the oracle and the byte-exact fallback, so partial emit is a pure perform
 | **6502** | the full ISA + the decimal arms; plus the **SMC/recompile-cost lever** (recompiles collapsed ~6.8× on Klaus) | BRK/RTI, undefined |
 | **Z80** | LD, ALU + flags (Q/MEMPTR, X/Y), ED 16-bit (`ADC`/`SBC HL,rr`, `INC`/`DEC rr`), branch/call/stack — the Z80 JIT now **exceeds its own interpreter** on the W2 kernel | the prefix-plane long tail (block ops, ED/DD/FD/CB rarities) |
 | **68000** | MOVE (the only net-new descriptor generation; needed a word-granular `Discover` fetch-stream fix), ALU + CCR (the X-bit), shifts, branch/DBcc — data-axis-exact (coarse-cycle by design) | TRAP/TRAPV/CHK/÷0/MOVEM/MUL/DIV/RTE/LINK/UNLK, address-error, privilege |
-| **8086** | MOV (+ the `(CS<<4)+IP` seam), ALU + FLAGS, **near** branch/call/return, **far flow** (`JMP`/`CALL`/`RET`, the linear `(CS<<4)+IP` block key — ADR 0019 ✅), **MUL/IMUL/DIV/IDIV** (`F6`/`F7` /4../7 — ROADMAP #4 row MD ✅; DIV/IDIV vector INT0 → end the block) | string-REP, INT/INTO/IRET/BOUND, IN/OUT |
+| **8086** | MOV (+ the `(CS<<4)+IP` seam), ALU + FLAGS, **near** branch/call/return, **far flow** (`JMP`/`CALL`/`RET`, the linear `(CS<<4)+IP` block key — ADR 0019 ✅), **MUL/IMUL/DIV/IDIV** (`F6`/`F7` /4../7 — ROADMAP #4 row MD ✅; DIV/IDIV vector INT0 → end the block), **string/REP** (MOVS/CMPS/STOS/LODS/SCAS `A4`-`A7`/`AA`-`AF` + REP/REPE/REPNE — ROADMAP #4 row STR ✅; the CX-loop + DF-direction + ZF early-exit, straight-line) | INT/INTO/IRET/BOUND, IN/OUT |
 
 See [The JIT Tier](user-guide/jit.md) for the emit arms and the accuracy contract, and ADR 0011 for the
 design rationale (the emit-vs-fallback boundary, the rollout order, the profiling-ranked ROI).
@@ -230,8 +230,8 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 
 > **2026-06-23 — autonomous roadmap clear-out (owner-directed).** Shipped: #1 (8086 far-flow, FF-1/FF-2) ✅, #3
 > (68000 bench) ✅, #6 (68000 disassembler, D68) ✅, and Apple row **W** (`WozFluxImage`) ✅. **In-flight finale:**
-> **#4** (8086 MUL/DIV + string/REP + INT/IRET emit) — **row MD (MUL/IMUL/DIV/IDIV emit) SHIPPED 2026-06-23 (PR
-> #149)**; rows STR (string/REP) + II (INT/IRET) remain. **PARKED by owner decision:** **#2** (cycle-exact 68000
+> **#4** (8086 MUL/DIV + string/REP + INT/IRET emit) — **rows MD (MUL/IMUL/DIV/IDIV emit) SHIPPED 2026-06-23 (PR
+> #149) + STR (string/REP emit) SHIPPED 2026-06-23 (PR #150)**; only row II (INT/IRET) remains. **PARKED by owner decision:** **#2** (cycle-exact 68000
 > timing — see ADR 0020), **#5** (per-bank specialization + the generic emitter), and **L** (JIT-under-translation)
 > — each a poor-value grind or a reversal of a deliberate design decision with no forcing function today; revisit
 > any on a concrete consumer. The autonomous run ends after #4 merges.
@@ -271,16 +271,17 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
    (`The_two_68000_tiers_run_and_agree_on_the_W2_cycle_count`) — forcing exact equality would contradict
    DECISION T2.
 
-4. **[in-flight 2026-06-23 — the autonomous-run finale; row MD ✅ shipped] 8086 MUL/DIV + string/REP + INT/IRET emit.** The
+4. **[in-flight 2026-06-23 — the autonomous-run finale; rows MD ✅ + STR ✅ shipped, only II remains] 8086 MUL/DIV + string/REP + INT/IRET emit.** The
    microcoded multiply/divide, the `REP MOVS/STOS/CMPS/SCAS` CX-counted string loops, and the INT/IRET
    vectoring machinery were fallback by design (rare, high-emit-cost). The owner chose to **ship #4** (and
    park #2/#5/L). Decomposed into three bite-sized TDD rows in owner-priority order (independent — disjoint
    opcode sets): **MD ✅ (PR #149, 2026-06-23)** (`F6`/`F7` /4../7 MUL/IMUL/DIV/IDIV — MUL/IMUL straight-line; DIV/IDIV vector INT0 →
    end the block; owns the shared `EmitM8086RaiseInterrupt` IVT-push helper — the full-UAT `M8088JitTom` sweep
    283/283 byte-identical through the JIT, now via emitted IL, + the `M8086MulDivEmitSelections > 0` /
-   `FallbackEmitCount == 0` discriminator), **STR** (`A4`-`A7`/`AA`-`AF`
+   `FallbackEmitCount == 0` discriminator), **STR ✅ (PR #150, 2026-06-23)** (`A4`-`A7`/`AA`-`AF`
    MOVS/CMPS/STOS/LODS/SCAS + REP/REPE/REPNE — the CX-loop + DF-direction + ZF early-exit, an in-op back-edge;
-   straight-line), **II** (`CD`/`CC`/`CE`/`CF` INT/INT3/INTO/IRET — the IVT push/vector + IRET pop). Each row
+   straight-line; the `M8088JitTom` sweep 283/283 byte-identical via emitted IL + the `M8086StringEmitSelections > 0` /
+   `FallbackEmitCount == 0` discriminator + the DifferentialFuzz JIT-vs-interp sweep 33/33), **II** (`CD`/`CC`/`CE`/`CF` INT/INT3/INTO/IRET — the IVT push/vector + IRET pop). Each row
    honors **ADR 0011 §2/§5/OQ5** (the interpreter is the oracle + byte-exact fallback; emit is a pure perf
    dial), gated by the `M8088JitTom` corpus byte-identical through the JIT **plus** an emits-not-fallback
    discriminator (`M8086{MulDiv|String|Interrupt}EmitSelections > 0` + `FallbackEmitCount == 0`). **Stays
