@@ -43,6 +43,14 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
     private bool _active;                            // the $C800-window enable (the active-display state)
 
     public string Name => "videx";
+
+    /// <summary>True when the render is using the legible synthetic <see cref="VidexFont.Fallback"/> because no
+    /// VALID real character ROM was supplied — either none was injected, or the injected image failed
+    /// <see cref="VidexFont.LooksLikeFont"/> (a firmware/garbage dump mis-placed at the char-ROM path). Exposed
+    /// as an observable diagnostic so a caller/surface can see WHY the exact-fidelity char ROM is not in use
+    /// (the peripheral layer has no logging dependency by design — this property is the substitution signal).</summary>
+    public bool UsingSyntheticFont { get; }
+
     public event Action? FrameReady;
     /// <summary>The guest-driven active-display signal (ADR 0016 Decision 2): true when the Videx becomes
     /// the live terminal (its $C800 window enabled), false when the Apple video is re-selected. The host
@@ -66,7 +74,9 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
             throw new ArgumentException("Videx char ROM must be 256x8 = 2048 bytes.", nameof(charRom));
         // Use the supplied char ROM ONLY when it is a real font; otherwise (null, or a firmware/garbage dump
         // landed at the char-ROM path) use the legible synthetic font so the streamed console stays readable.
-        _charRom = VidexFont.LooksLikeFont(charRom) ? charRom! : VidexFont.Fallback;
+        bool realFont = VidexFont.LooksLikeFont(charRom);
+        _charRom = realFont ? charRom! : VidexFont.Fallback;
+        UsingSyntheticFont = !realFont;
         _firmwareRom = firmwareRom ?? new byte[(int)FirmwareWindowLength];
         if (_firmwareRom.Length != (int)FirmwareWindowLength)
             throw new ArgumentException("Videx firmware ROM must be 1 KiB ($C800-$CBFF).", nameof(firmwareRom));
