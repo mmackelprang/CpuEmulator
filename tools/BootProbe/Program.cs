@@ -14,6 +14,24 @@ if (args.Length >= 2 && args[0] == "--cpm-screenshot")
     return;
 }
 
+// --- Apple Pascal boot screenshot (the Pascal bring-up, the human-visible owner-UAT proof) ---------
+//   tools/BootProbe --apple-pascal [out.png] [drive1Disk] [orderName] [cycles]
+// Boots the Apple II Pascal (UCSD p-System) distribution on the plain Apple ][+ board (system ROM + the
+// Language Card + the REAL slot-6 Disk II boot ROM): APPLE1 (the boot volume -- SYSTEM.APPLE interpreter +
+// SYSTEM.PASCAL) in drive 1, APPLE0 (the program/compiler volume) in drive 2. Runs to the p-System sign-on
+// + the outer COMMAND line, decodes the 40-col text screen, and (optionally) writes a PNG. orderName
+// overrides the sector order (default Dos33 -- the Pascal .dsk is DOS-3.3 on-disk order with a Pascal
+// filesystem; NOT ProDOS). The headless arbiter is PascalBootTests; this is the owner-UAT artifact.
+if (args.Length >= 1 && args[0] == "--apple-pascal")
+{
+    PascalBoot.Run(
+        outPng:    args.Length >= 2 ? args[1] : null,
+        diskPath:  args.Length >= 3 ? args[2] : null,
+        orderName: args.Length >= 4 ? args[3] : null,
+        cycles:    args.Length >= 5 ? long.Parse(args[4]) : 0);
+    return;
+}
+
 // --- Videx 80-col CP/M discovery (ADR 0017 Decision 6/7 / OQ2) -------------------------------------
 //   tools/BootProbe --videx-discover <diskPath> [out.png]
 // Boots the given CP/M master on the SoftCard + Videx board (Videx in the slot) and reports whether the
@@ -325,6 +343,117 @@ internal static class CpmScreenshot
     // Exposed so VidexDiscover reuses the exact PNG path.
     internal static void WritePngScaled(string path, uint[] rgba, int width, int height, int scale)
         => WritePng(path, rgba, width, height, scale);
+}
+
+/// <summary>The Apple Pascal bring-up screenshot — the human-visible owner-UAT proof. Boots the Apple II
+/// Pascal (UCSD p-System) distribution on the PLAIN Apple ][+ board (system ROM + Language Card + the REAL
+/// slot-6 Disk II boot ROM): APPLE1 (the boot volume — SYSTEM.APPLE interpreter + SYSTEM.PASCAL) in drive 1,
+/// APPLE0 (the program/compiler volume) in drive 2. Runs to the p-System sign-on + the outer COMMAND line,
+/// decodes the 40-col text screen, and optionally writes a PNG. The Apple Pascal .dsk is in DOS-3.3 on-disk
+/// sector order containing a UCSD Pascal filesystem, so DskFluxImage uses SectorOrderKind.Dos33 (NOT ProDOS)
+/// — see CpuEmulator.Machines.Pascal. The headless gate (PascalBootTests) is the arbiter; this is the proof.</summary>
+internal static class PascalBoot
+{
+    public static void Run(string? outPng, string? diskPath, string? orderName, long cycles)
+    {
+        long bootCycles = cycles > 0 ? cycles : 90_000_000L;   // ample for the Pascal loader chain to sign on
+
+        byte[] systemRom = Apple2Rom.Load(Apple2Rom.TryGetPath()
+            ?? throw new InvalidOperationException("apple2plus.rom not cached -- run tools/get-apple2-roms"));
+        byte[] diskBootRom = Apple2Rom.TryLoadDiskRom()
+            ?? throw new InvalidOperationException("disk2.rom (slot-6 boot ROM) not cached -- run tools/get-apple2-roms");
+        byte[]? charRom = Apple2Rom.TryLoadCharRom();
+
+        SectorOrderKind order = orderName is null
+            ? Pascal.Order                                       // DOS-3.3 on-disk order (the root-caused answer)
+            : Enum.Parse<SectorOrderKind>(orderName, ignoreCase: true);
+
+        // APPLE1 is the BOOT volume (SYSTEM.APPLE interpreter + SYSTEM.PASCAL); APPLE0 is the program disk.
+        // The authentic two-drive distribution boots APPLE1 in drive 1 and APPLE0 in drive 2. An explicit
+        // diskPath overrides drive 1.
+        string boot = diskPath ?? Pascal.TryGetBootDiskPath()
+            ?? throw new InvalidOperationException("APPLE1.dsk not cached -- run tools/get-apple-pascal");
+        string? program = Pascal.TryGetProgramDiskPath();
+        Console.WriteLine($"drive 1 = {boot}");
+        Console.WriteLine($"drive 2 = {program ?? "(absent)"}");
+        Console.WriteLine($"\n=== boot APPLE1 (drive 1) + APPLE0 (drive 2), SectorOrderKind.{order}, {bootCycles:N0} cycles ===");
+
+        var state = new Apple2VideoState();
+        var lc = new Apple2LanguageCard(systemRom);
+        var disk2 = new Apple2DiskII(new DskFluxImage(Pascal.LoadBlockDevice(boot), order));
+        if (program is not null)
+            disk2.Insert(2, new DskFluxImage(Pascal.LoadBlockDevice(program), order));
+        var iou = new Apple2Iou(state, lc, disk2);
+        // The plain ][+ board with the LC (rides the IOU) + the real slot-6 boot ROM at $C600. The cold
+        // Autostart scan finds the slot-6 signature in the REAL disk2.rom and JMP ($C600)s into it -> the
+        // P5/P6 boot reads track 0 sector 0 into $0800 and runs the Pascal boot block.
+        BoardSpec spec = Apple2Board.SpecWithSystem(systemRom, iou, disk2, diskBootRom);
+        Machine machine = BoardMachineFactory.Build(spec);
+        var video = new Apple2Video(machine.Space(AddressSpaceKind.Program), state, charRom);
+
+        machine.Reset();
+        machine.Run(bootCycles);
+
+        IAddressSpace bus = machine.Space(AddressSpaceKind.Program);
+        string console = DecodeText40(bus, out bool sawCommand, out bool sawPascalSignon);
+        Console.WriteLine(console);
+        Console.WriteLine($"  saw 'COMMAND:' line   = {sawCommand}");
+        Console.WriteLine($"  saw a Pascal sign-on  = {sawPascalSignon}");
+
+        var rgba = new uint[Apple2Video.Width280 * Apple2Video.Height192];
+        video.RenderInto(rgba);
+        int on = 0;
+        foreach (uint p in rgba) if (p == Apple2Palette.MonoOn) on++;
+        Console.WriteLine($"  MonoOn ink pixels     = {on}");
+
+        string verdict = sawCommand ? "P-SYSTEM COMMAND LINE REACHED" :
+                         sawPascalSignon ? "Pascal sign-on (no COMMAND: yet)" :
+                         on > 100 ? "live text, no Pascal yet" : "no live boot";
+        Console.WriteLine($"  VERDICT ({order}): {verdict}");
+
+        if (outPng is not null)
+        {
+            CpmScreenshot.WritePngScaled(outPng, rgba, Apple2Video.Width280, Apple2Video.Height192, scale: 2);
+            Console.WriteLine($"  wrote {outPng} ({Apple2Video.Width280 * 2}x{Apple2Video.Height192 * 2}, order {order})");
+        }
+    }
+
+    /// <summary>Decode the 40-col text page ($0400 page 1) to ASCII. Sets <paramref name="sawCommand"/> if
+    /// the p-System outer COMMAND line ("COMMAND: E(DIT, R(UN, ...") is present and <paramref
+    /// name="sawPascalSignon"/> if the "APPLE II PASCAL" / "UCSD PASCAL" sign-on shows.</summary>
+    private static string DecodeText40(IAddressSpace bus, out bool sawCommand, out bool sawPascalSignon)
+    {
+        var sb = new StringBuilder();
+        sawCommand = false;
+        sawPascalSignon = false;
+        for (int r = 0; r < 24; r++)
+        {
+            uint rowBase = Apple2HiResAddress.TextRowBase(r, page2: false);
+            var line = new StringBuilder(40);
+            for (int c = 0; c < 40; c++)
+                line.Append(DecodeScreenCode(bus.Read8(rowBase + (uint)c)));
+            string s = line.ToString();
+            if (s.Contains("COMMAND:", StringComparison.OrdinalIgnoreCase)
+                && s.Contains("E(DIT", StringComparison.OrdinalIgnoreCase))
+                sawCommand = true;
+            if (s.Contains("APPLE II PASCAL", StringComparison.OrdinalIgnoreCase)
+                || s.Contains("UCSD PASCAL", StringComparison.OrdinalIgnoreCase))
+                sawPascalSignon = true;
+            sb.Append($"  r{r,2} |{s}|\n");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Decode one Apple II 40-col text screen code to ASCII. The character ROM maps four bands:
+    /// $00-$3F inverse, $40-$7F flashing, $80-$BF + $C0-$FF normal — all carrying the SAME 6-bit glyph set
+    /// (uppercase letters, digits, punctuation; the ][+ has no lowercase). Mask to the low 6 bits and fold
+    /// to printable ASCII: $00-$1F -> '@'..'_' (add $40), $20-$3F -> ' '..'?' (as-is).</summary>
+    private static char DecodeScreenCode(byte code)
+    {
+        int g = code & 0x3F;                   // the 6-bit glyph index (band-independent)
+        int ascii = g < 0x20 ? g + 0x40 : g;   // $00-$1F -> $40-$5F (@A-Z[\]^_), $20-$3F -> $20-$3F
+        return ascii is >= 0x20 and <= 0x7E ? (char)ascii : ' ';
+    }
 }
 
 /// <summary>ADR 0017 Decision 6/7 / OQ2 discovery: boots a CP/M master on the SoftCard + Videx board and
