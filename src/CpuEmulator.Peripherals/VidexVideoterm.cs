@@ -52,15 +52,21 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
     /// (ADR 0018-C OQ1 / V80-3 -- the auto-engage trigger). The transition no-op guard means it fires once.</summary>
     public event Action<bool>? ActiveChanged;
 
-    /// <param name="charRom">Optional 256x8 char-gen ROM; null uses the synthetic VidexFont.Fallback (the
-    /// PR-N render gate is asset-free; the real char ROM is the PR-O asset).</param>
+    /// <param name="charRom">Optional 256x8 char-gen ROM. A null OR a STRUCTURALLY-INVALID image (one that is
+    /// not actually a font — e.g. a firmware-ROM dump mis-placed at the char-ROM cache path, which decodes to a
+    /// stipple field in the browser) falls back to the legible synthetic <see cref="VidexFont.Fallback"/>. Only
+    /// a real character ROM that passes <see cref="VidexFont.LooksLikeFont"/> (a blank space glyph + distinct,
+    /// inked A-Z letterforms) is used as-is — giving exact fidelity when present, and a cleanly-legible console
+    /// otherwise. A valid-length-but-wrong-shape ROM is silently rejected; only a wrong-LENGTH image throws.</param>
     /// <param name="firmwareRom">Optional 1 KiB $C800 firmware ROM; null uses an all-zero synthetic image
     /// (the PR-N gate does not execute the firmware; the real firmware is the PR-O asset).</param>
     public VidexVideoterm(byte[]? charRom = null, byte[]? firmwareRom = null)
     {
-        _charRom = charRom ?? VidexFont.Fallback;
-        if (_charRom.Length != 256 * VidexFont.GlyphRows)
+        if (charRom is not null && charRom.Length != 256 * VidexFont.GlyphRows)
             throw new ArgumentException("Videx char ROM must be 256x8 = 2048 bytes.", nameof(charRom));
+        // Use the supplied char ROM ONLY when it is a real font; otherwise (null, or a firmware/garbage dump
+        // landed at the char-ROM path) use the legible synthetic font so the streamed console stays readable.
+        _charRom = VidexFont.LooksLikeFont(charRom) ? charRom! : VidexFont.Fallback;
         _firmwareRom = firmwareRom ?? new byte[(int)FirmwareWindowLength];
         if (_firmwareRom.Length != (int)FirmwareWindowLength)
             throw new ArgumentException("Videx firmware ROM must be 1 KiB ($C800-$CBFF).", nameof(firmwareRom));
@@ -186,7 +192,11 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
             {
                 int lin = (startAddr + r * cols + c) % VramSize;   // wrap within the 2 KiB scanout space
                 byte code = _vramBanks[lin / BankSize][lin % BankSize];
-                int glyphBase = (code & 0xFF) * VidexFont.GlyphRows;
+                // Mask to 7-bit ASCII: the firmware pads cells with $A0 (space | high bit) and writes text
+                // with the high "normal-video" bit set; the char ROM is a 128-glyph set, so the high bit is
+                // not a glyph index. Stripping it renders $A0 padding as a black space and $C1 ('A'|$80) as
+                // the 'A' glyph — the difference between a clean console and a stipple field.
+                int glyphBase = (code & 0x7F) * VidexFont.GlyphRows;
                 for (int gy = 0; gy < cellLines; gy++)
                 {
                     // 8 active glyph rows + (cellLines-8) blank descender lines.
