@@ -97,6 +97,32 @@ public class M68kDisassembleTests
         Assert.Contains("RTS", rts);
         Assert.DoesNotContain("???", nop + moveq + add + rts);
     }
+
+    [Fact]
+    public void The_m68000_monitor_walks_multiple_instructions_opword_aligned()
+    {
+        // The MULTI-instruction walk (count > 1): MonitorEngine.Disassemble advances by InstructionLength(byte)
+        // between instructions. For the word-granular 68000 that length must be the 2-byte opword MINIMUM — if it
+        // were 1 (the byte-keyed DescriptorFor(byte) → Undefined fall-through), every disassembly after the first
+        // would land on the PREVIOUS opword's low byte and render a wrong mnemonic or "???". Same board path as
+        // the per-instruction gate above (BoardRegistry.TryBoot → NewMonitor → WriteMemory → Disassemble), but
+        // here we issue ONE count:4 walk so the inter-instruction advance is exercised.
+        //   NOP (4E71); MOVEQ #1,D0 (7001); ADD.W D0,D1 (D240); RTS (4E75).
+        byte[] program = [0x4E, 0x71, 0x70, 0x01, 0xD2, 0x40, 0x4E, 0x75];
+
+        Assert.True(CpuEmulator.Host.BoardRegistry.TryBoot("68000",
+            CpuEmulator.Machines.ExecutionTier.Interpreter, out var board, out var error), error);
+        var engine = board!.NewMonitor();
+        engine.WriteMemory(0x020000, program);        // the 68000 board's RAM base (ROM spans $0-$00FFFF)
+
+        string walk = engine.Disassemble(0x020000, 4); // the MULTI-instruction walk (count:4), NOT per-instruction
+
+        Assert.Contains("NOP", walk);
+        Assert.Contains("MOVEQ", walk);
+        Assert.Contains("ADD.W", walk);
+        Assert.Contains("RTS", walk);
+        Assert.DoesNotContain("???", walk);
+    }
 }
 
 /// <summary>Walks the SHIPPED 68000 field grammar (M68000Spec.Decode68k.Ops) and reports whether any op

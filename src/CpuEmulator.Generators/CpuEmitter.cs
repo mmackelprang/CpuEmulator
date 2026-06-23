@@ -3689,11 +3689,28 @@ internal static class CpuEmitter
         // and returns its FixedLength. For the 6502 every opcode is LengthRule.Fixed, so this is the
         // exact value the old ModeLength(mode) switch produced — byte-identical behavior.
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1.");
-        sb.AppendLine("    /// Routes through the decode walk's DescriptorFor(key)/FixedLength — the one length");
-        sb.AppendLine("    /// source (Ground truth E).</summary>");
-        sb.AppendLine("    public static int InstructionLength(byte opcode)");
-        sb.AppendLine("        => DescriptorFor(opcode).FixedLength;");
+        if (model.FieldGrammar is not null)
+        {
+            // A FieldGrammar CPU (the 68000) is word-granular: the byte `opcode` is only the HIGH byte of
+            // the 16-bit opword, so DescriptorFor(byte) cannot resolve the structured operation key (it would
+            // always fall to Undefined → length 1, mis-aligning the monitor's multi-instruction walk onto the
+            // opword's low byte). The 3-byte IMonitorSupport contract can't carry the extension-word count
+            // (D68-3, deliberately not widened), so return the 2-byte opword MINIMUM — the monitor advances by
+            // a whole opword (display-only; the real execution length comes from Decode(IFetchStream), not here).
+            sb.AppendLine("    /// <summary>Minimum instruction length in bytes for the word-granular field-grammar");
+            sb.AppendLine("    /// CPU: the 2-byte opword. Extension words aren't expressible through the byte-keyed");
+            sb.AppendLine("    /// IMonitorSupport contract (D68-3); the monitor advances by the opword minimum so a");
+            sb.AppendLine("    /// multi-instruction walk stays opword-aligned (display-only).</summary>");
+            sb.AppendLine("    public static int InstructionLength(byte opcode) => 2;");
+        }
+        else
+        {
+            sb.AppendLine("    /// <summary>Total instruction length in bytes (1–3). Undefined opcodes return 1.");
+            sb.AppendLine("    /// Routes through the decode walk's DescriptorFor(key)/FixedLength — the one length");
+            sb.AppendLine("    /// source (Ground truth E).</summary>");
+            sb.AppendLine("    public static int InstructionLength(byte opcode)");
+            sb.AppendLine("        => DescriptorFor(opcode).FixedLength;");
+        }
 
         // ── TryAssemble — the single-instruction assembler (generated artifact ⑤) ──
         sb.AppendLine();
@@ -4276,6 +4293,7 @@ internal static class CpuEmitter
             "SUBX" => $"$\"SUBX{sz} {{XOperands(opword)}}\"",
 
             // ── BCD (ABCD/SBCD: R/M bit 3: 0 = Dy,Dx ; 1 = -(Ay),-(Ax); byte-only) ──
+            // ABCD/SBCD are byte-only — the canonical Motorola mnemonic carries NO size qualifier (unlike ADDX/SUBX).
             "ABCD" => "$\"ABCD {XOperands(opword)}\"",
             "SBCD" => "$\"SBCD {XOperands(opword)}\"",
 
