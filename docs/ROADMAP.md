@@ -270,9 +270,23 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
    (`The_two_68000_tiers_run_and_agree_on_the_W2_cycle_count`) — forcing exact equality would contradict
    DECISION T2.
 
-4. **[deferred] 8086 MUL/DIV + string/REP + INT/IRET emit.** The microcoded multiply/divide, the
-   `REP MOVS/STOS/CMPS/SCAS` CX-counted string loops, and the INT/IRET vectoring machinery are fallback by
-   design (rare, high-emit-cost). A future profile could justify emitting any of them.
+4. **[planned 2026-06-23 — the autonomous-run finale] 8086 MUL/DIV + string/REP + INT/IRET emit.** The
+   microcoded multiply/divide, the `REP MOVS/STOS/CMPS/SCAS` CX-counted string loops, and the INT/IRET
+   vectoring machinery were fallback by design (rare, high-emit-cost). The owner chose to **ship #4** (and
+   park #2/#5/L). Decomposed into three bite-sized TDD rows in owner-priority order (independent — disjoint
+   opcode sets): **MD** (`F6`/`F7` /4../7 MUL/IMUL/DIV/IDIV — MUL/IMUL straight-line; DIV/IDIV vector INT0 →
+   end the block; owns the shared `EmitM8086RaiseInterrupt` IVT-push helper), **STR** (`A4`-`A7`/`AA`-`AF`
+   MOVS/CMPS/STOS/LODS/SCAS + REP/REPE/REPNE — the CX-loop + DF-direction + ZF early-exit, an in-op back-edge;
+   straight-line), **II** (`CD`/`CC`/`CE`/`CF` INT/INT3/INTO/IRET — the IVT push/vector + IRET pop). Each row
+   honors **ADR 0011 §2/§5/OQ5** (the interpreter is the oracle + byte-exact fallback; emit is a pure perf
+   dial), gated by the `M8088JitTom` corpus byte-identical through the JIT **plus** an emits-not-fallback
+   discriminator (`M8086{MulDiv|String|Interrupt}EmitSelections > 0` + `FallbackEmitCount == 0`). **Stays
+   fallback by design (noted, not forced):** BOUND (`62`/`63`), AAM/AAD (`D4`/`D5`) — out of #4 scope — and
+   the divide-error UNDEFINED arithmetic-flag fallout (DD6) — emit reproduces the interpreter's *modeled*
+   behavior exactly, so the existing corpus classifiers keep deferring the same cases. Plans:
+   `superpowers/plans/2026-06-23-8086-{muldiv-emit,string-rep-emit,int-iret-emit}.md`; spec
+   `superpowers/specs/2026-06-23-8086-muldiv-string-int-emit-design.md`. **The autonomous run ends after II
+   merges.**
 
 5. **[parked 2026-06-23 — owner decision] Per-bank specialization + the generic emitter.** *(Parked — no forcing
    function today: (a) the per-bank `(PC,bankState)` keying is a perf optimization with no current measured
