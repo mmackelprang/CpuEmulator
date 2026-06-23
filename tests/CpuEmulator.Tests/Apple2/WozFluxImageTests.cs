@@ -72,4 +72,31 @@ public class WozFluxImageTests
         Assert.IsType<WozFluxImage>(flux);
         Assert.Equal(32, flux.TrackBitLength(0));
     }
+
+    [WozDiskFact]
+    public void A_real_woz_boots_through_the_live_disk_ii_head()
+    {
+        // The un-fakeable gate: a REAL fetch-on-demand (never-vendored) .woz is parsed, its CRC32 verified on
+        // the real bytes (the WozFluxImage ctor throws on mismatch), and its track-0 bitstream is read by the
+        // LIVE Apple2DiskII head — the controller finds a real address-field prologue D5 AA 96 in the nibble
+        // stream it shifts out (the same proof DskFluxImageTests uses, but over real .woz bytes).
+        byte[] file = CpuEmulator.Machines.WozAsset.Load();
+        var woz = new WozFluxImage(file);
+
+        var disk = new CpuEmulator.Peripherals.Apple2DiskII(woz);
+        disk.MotorOnForTest();
+
+        var stream = new System.Collections.Generic.List<byte>();
+        for (int i = 0; i < 60_000; i++)
+        {
+            byte b = disk.ReadDataLatch();
+            if ((b & 0x80) != 0) stream.Add(b);
+        }
+        // A real Apple disk has an address-field prologue D5 AA 96 on track 0 (every RWTS-readable disk does).
+        bool foundAddrPrologue = false;
+        for (int i = 0; i + 2 < stream.Count; i++)
+            if (stream[i] == 0xD5 && stream[i + 1] == 0xAA && stream[i + 2] == 0x96) { foundAddrPrologue = true; break; }
+        Assert.True(foundAddrPrologue,
+            "the live Disk II head must find a D5 AA 96 address prologue in the real .woz track-0 bitstream");
+    }
 }
