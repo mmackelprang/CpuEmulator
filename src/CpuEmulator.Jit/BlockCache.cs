@@ -41,6 +41,12 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
     public long TotalEvictions { get; private set; }
     public int SmcHotPcCount => _everHotPcs.Count;
     private readonly System.Collections.Generic.HashSet<uint> _everHotPcs = new();
+    // ADR 0022 C: FREE run-lifetime block-cache counters. BlockCacheHits is every GetOrCompile that found
+    // the block already compiled (line 73 TryGetValue true); BlockCacheMisses is every miss that had to
+    // Compile — first-compiles + recompiles (TotalRecompiles is the recompile subset). Incremented on
+    // paths that already run; no new per-instruction work (§8 invariant 4).
+    public long BlockCacheHits { get; private set; }
+    public long BlockCacheMisses { get; private set; }
 
     /// <summary>The chain link/unlink table (M2-ii): successor PC -> the predecessors that chain
     /// into it, so invalidation can sever every inbound link (Ground truth A).</summary>
@@ -70,9 +76,11 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
 
     public CompiledBlock<TCpu> GetOrCompile(uint pc, BlockCompiler<TCpu> compiler)
     {
-        if (_blocks.TryGetValue(pc, out var hit)) return hit;
-        // A miss here is either a first compile or a recompile (the block was evicted). Count the
-        // recompile + arm the cooldown if this PC has now thrashed past the cap.
+        if (_blocks.TryGetValue(pc, out var hit)) { BlockCacheHits++; return hit; }  // ADR 0022 C: FREE hit
+        // A miss here is either a first compile or a recompile (the block was evicted). Count the miss
+        // (ADR 0022 C — first-compiles + recompiles), then the recompile subset + arm the cooldown if this
+        // PC has now thrashed past the cap.
+        BlockCacheMisses++;
         if (_recompiles.TryGetValue(pc, out int prior))
         {
             int now = prior + 1;
@@ -164,6 +172,7 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
         _cooldown.Clear();
         // TotalRecompiles / TotalEvictions / _everHotPcs are run-lifetime instrumentation — NOT reset
         // by FlushAll (a reuse boundary), so a per-worker reuse run still accumulates honest totals.
+        // BlockCacheHits / BlockCacheMisses are the same honest run-lifetime totals (ADR 0022 C) — NOT reset.
     }
 
     /// <summary>Remove a block from the PC map + the per-page index, and sever its chain links:
