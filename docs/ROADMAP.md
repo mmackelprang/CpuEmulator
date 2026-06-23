@@ -296,6 +296,18 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 
 **Further candidates (unprioritized):**
 
+- **[candidate] 8086 intra-block SMC guard page-index is IP-space, not physical-space (pre-existing, surfaced by the FF-1 review).**
+  In `BlockCompiler.PagesSpanned`, a block's spanned-page set is computed from the 16-bit IP offset
+  (`((ip + b) & 0xFFFF) >> 8`), but the emitted SMC dirty-mark for an 8086 data store uses the **20-bit physical**
+  effective address (`phys >> 8`). For a non-zero `CS` these page indices live in different address spaces, so the
+  8086 intra-block self-modification guard can never fire for a write that hits a code page while `CS != 0` (it only
+  coincides when `CS == 0`). This **predates FF-1** (it was already broken when the run cursor was the bare IP) and
+  is **harmless until an 8086 program self-modifies code with a non-zero CS** — none of the shipped 8086 workloads do,
+  and the TomHarte corpus is single-step. The flat 6502/Z80/68000 are unaffected (their PC IS the physical for SMC
+  purposes). A fix would make `PagesSpanned` fold the 8086 spanned pages through the same `(CS<<4)` physical base the
+  dirty-mark uses; it's a scoped, separately-gated follow-on (needs an 8086-self-modifying-code-under-nonzero-CS
+  regression that fails pre-fix). Logged by the Builder per the FF-1 pre-merge review; Planner to scope.
+
 - **[investigated → refuted + shelved] Per-dispatch JIT-overhead (#42).** Hypothesis (from #40): the
   `InvalidateIfDirty` 256-page scan was the SMC-heavy per-dispatch floor (the 6502 Klaus JIT runs ~140×
   slower than the interpreter even with PR-S engaged). **Measurement refuted it** — the scan is ~1.3% of

@@ -151,8 +151,9 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
     /// <summary>Evict EVERY block and reset all derived state — the per-worker REUSE reset (lever 4). After this
     /// the cache is byte-equivalent to a freshly constructed BlockCache(pageCount): no compiled blocks, no
     /// per-page index, no inbound chain links, no dirty marks. The next GetOrCompile recompiles from the CURRENT
-    /// bus bytes — which is the whole point: the dispatch key is (ushort)PC and the SAME PC carries different bytes
-    /// across reused cases, so a stale block would silently run the wrong case's code.</summary>
+    /// bus bytes — which is the whole point: the dispatch key is the uint ProjectBlockKey projection (ADR 0019 FF-1)
+    /// and the SAME key carries different bytes across reused cases, so a stale block would silently run the wrong
+    /// case's code.</summary>
     public void FlushAll()
     {
         _blocks.Clear();
