@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:32:29.2639577Z",
+  "commit": "65f787e",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "bench-6502",
+  "workload": "W2-arithmetic",
+  "instructionBudget": 20000000,
+  "budgetUnit": "instructions",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 20000000,
+      "cyclesPerSecond": 47052541.57605261,
+      "realtimeRatio": null,
+      "hotOps": [
+        {
+          "mnemonic": "ADC",
+          "count": 4432826,
+          "pct": 22.1641,
+          "cumPct": 22.1641
+        },
+        {
+          "mnemonic": "BNE",
+          "count": 2233727,
+          "pct": 11.1686,
+          "cumPct": 33.3328
+        },
+        {
+          "mnemonic": "STA",
+          "count": 2216481,
+          "pct": 11.0824,
+          "cumPct": 44.4152
+        },
+        {
+          "mnemonic": "CLC",
+          "count": 2216413,
+          "pct": 11.0821,
+          "cumPct": 55.4972
+        },
+        {
+          "mnemonic": "SEC",
+          "count": 2216413,
+          "pct": 11.0821,
+          "cumPct": 66.5793
+        },
+        {
+          "mnemonic": "SBC",
+          "count": 2216413,
+          "pct": 11.0821,
+          "cumPct": 77.6614
+        },
+        {
+          "mnemonic": "EOR",
+          "count": 2216413,
+          "pct": 11.0821,
+          "cumPct": 88.7434
+        },
+        {
+          "mnemonic": "DEY",
+          "count": 2216412,
+          "pct": 11.0821,
+          "cumPct": 99.8255
+        },
+        {
+          "mnemonic": "LDY",
+          "count": 17316,
+          "pct": 0.0866,
+          "cumPct": 99.9121
+        },
+        {
+          "mnemonic": "INX",
+          "count": 17315,
+          "pct": 0.0866,
+          "cumPct": 99.9986
+        },
+        {
+          "mnemonic": "CLD",
+          "count": 68,
+          "pct": 0.0003,
+          "cumPct": 99.999
+        },
+        {
+          "mnemonic": "LDA",
+          "count": 68,
+          "pct": 0.0003,
+          "cumPct": 99.9993
+        },
+        {
+          "mnemonic": "LDX",
+          "count": 68,
+          "pct": 0.0003,
+          "cumPct": 99.9997
+        },
+        {
+          "mnemonic": "JMP",
+          "count": 67,
+          "pct": 0.0003,
+          "cumPct": 100
+        }
+      ],
+      "allocBytesPerWindow": 2560033392
+    },
+    "jit": {
+      "instructionsRetired": 20000000,
+      "cyclesPerSecond": 59413697.16878377,
+      "realtimeRatio": null,
+      "emitCoverage": null,
+      "fallbackByOpcode": [],
+      "compileCount": 17,
+      "totalRecompiles": 0,
+      "totalEvictions": 0,
+      "smcHotPcCount": 0,
+      "chainEdgesTaken": 0,
+      "dispatcherEntries": 20000000,
+      "blockCacheHits": 19999983,
+      "blockCacheMisses": 17,
+      "allocBytesPerWindow": 385432
+    }
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "kernel hot-op histogram is interpreter-tier, stepped per-instruction (OFFLINE).",
+    "fallbackByOpcode is empty \u002B emitCoverage null \u2014 full execution-weighted per-opcode attribution is ADR 0022 item D (deferred).",
+    "kernels declare no nominal clock, so realtimeRatio is null."
+  ]
+}

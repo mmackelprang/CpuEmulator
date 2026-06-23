@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:45:59.8060689Z",
+  "commit": "65f787e",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "spectrum-48k",
+  "workload": "boot-to-copyright",
+  "instructionBudget": 20000000,
+  "budgetUnit": "cycles",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 2106196,
+      "cyclesPerSecond": 103202058.67343122,
+      "realtimeRatio": 29.486302478123203,
+      "hotOps": [
+        {
+          "mnemonic": "JR",
+          "count": 323684,
+          "pct": 15.3682,
+          "cumPct": 15.3682
+        },
+        {
+          "mnemonic": "LD",
+          "count": 240488,
+          "pct": 11.4181,
+          "cumPct": 26.7863
+        },
+        {
+          "mnemonic": "INC",
+          "count": 239382,
+          "pct": 11.3656,
+          "cumPct": 38.1519
+        },
+        {
+          "mnemonic": "RET",
+          "count": 189551,
+          "pct": 8.9997,
+          "cumPct": 47.1516
+        },
+        {
+          "mnemonic": "CALL",
+          "count": 189514,
+          "pct": 8.9979,
+          "cumPct": 56.1495
+        },
+        {
+          "mnemonic": "DEC",
+          "count": 147862,
+          "pct": 7.0203,
+          "cumPct": 63.1699
+        },
+        {
+          "mnemonic": "BIT",
+          "count": 126465,
+          "pct": 6.0044,
+          "cumPct": 69.1743
+        },
+        {
+          "mnemonic": "EXX",
+          "count": 126325,
+          "pct": 5.9978,
+          "cumPct": 75.1721
+        },
+        {
+          "mnemonic": "AND",
+          "count": 112683,
+          "pct": 5.3501,
+          "cumPct": 80.5221
+        },
+        {
+          "mnemonic": "EX",
+          "count": 63703,
+          "pct": 3.0246,
+          "cumPct": 83.5467
+        },
+        {
+          "mnemonic": "PUSH",
+          "count": 63318,
+          "pct": 3.0063,
+          "cumPct": 86.553
+        },
+        {
+          "mnemonic": "POP",
+          "count": 63314,
+          "pct": 3.0061,
+          "cumPct": 89.559
+        },
+        {
+          "mnemonic": "JP",
+          "count": 63206,
+          "pct": 3.001,
+          "cumPct": 92.56
+        },
+        {
+          "mnemonic": "ADD",
+          "count": 49360,
+          "pct": 2.3436,
+          "cumPct": 94.9036
+        },
+        {
+          "mnemonic": "CP",
+          "count": 49274,
+          "pct": 2.3395,
+          "cumPct": 97.243
+        }
+      ],
+      "allocBytesPerWindow": 353844096
+    },
+    "jit": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 79090221.36558738,
+      "realtimeRatio": 22.597206104453537,
+      "emitCoverage": null,
+      "fallbackByOpcode": [],
+      "compileCount": 265,
+      "totalRecompiles": 0,
+      "totalEvictions": 0,
+      "smcHotPcCount": 0,
+      "chainEdgesTaken": 241261,
+      "dispatcherEntries": 850022,
+      "blockCacheHits": 1091018,
+      "blockCacheMisses": 265,
+      "allocBytesPerWindow": 18104800
+    }
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "ZX Spectrum 48K ROM boot to the copyright screen.",
+    "interpreter hot-op histogram is a per-instruction PC walk (OFFLINE); JIT tier captures throughput \u002B IJitMetrics counters via machine.Run.",
+    "fallbackByOpcode empty \u002B emitCoverage null \u2014 ADR 0022 item D (deferred)."
+  ]
+}

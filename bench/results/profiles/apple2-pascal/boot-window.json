@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:46:01.9286162Z",
+  "commit": "65f787e",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "apple2-pascal",
+  "workload": "boot-window",
+  "instructionBudget": 30000000,
+  "budgetUnit": "cycles",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 9427532,
+      "cyclesPerSecond": 65522700.77574507,
+      "realtimeRatio": 64.20747486069853,
+      "hotOps": [
+        {
+          "mnemonic": "BNE",
+          "count": 1280731,
+          "pct": 13.585,
+          "cumPct": 13.585
+        },
+        {
+          "mnemonic": "LDA",
+          "count": 844763,
+          "pct": 8.9606,
+          "cumPct": 22.5456
+        },
+        {
+          "mnemonic": "CMP",
+          "count": 635688,
+          "pct": 6.7429,
+          "cumPct": 29.2885
+        },
+        {
+          "mnemonic": "BEQ",
+          "count": 556868,
+          "pct": 5.9068,
+          "cumPct": 35.1953
+        },
+        {
+          "mnemonic": "PLA",
+          "count": 473905,
+          "pct": 5.0268,
+          "cumPct": 40.2221
+        },
+        {
+          "mnemonic": "PHA",
+          "count": 473288,
+          "pct": 5.0203,
+          "cumPct": 45.2424
+        },
+        {
+          "mnemonic": "BPL",
+          "count": 468049,
+          "pct": 4.9647,
+          "cumPct": 50.2071
+        },
+        {
+          "mnemonic": "SBC",
+          "count": 371235,
+          "pct": 3.9378,
+          "cumPct": 54.1449
+        },
+        {
+          "mnemonic": "STA",
+          "count": 330151,
+          "pct": 3.502,
+          "cumPct": 57.6469
+        },
+        {
+          "mnemonic": "DEX",
+          "count": 328761,
+          "pct": 3.4872,
+          "cumPct": 61.1341
+        },
+        {
+          "mnemonic": "JSR",
+          "count": 291162,
+          "pct": 3.0884,
+          "cumPct": 64.2225
+        },
+        {
+          "mnemonic": "RTS",
+          "count": 290691,
+          "pct": 3.0834,
+          "cumPct": 67.306
+        },
+        {
+          "mnemonic": "LDY",
+          "count": 258553,
+          "pct": 2.7425,
+          "cumPct": 70.0485
+        },
+        {
+          "mnemonic": "INY",
+          "count": 228483,
+          "pct": 2.4236,
+          "cumPct": 72.4721
+        },
+        {
+          "mnemonic": "LDX",
+          "count": 226302,
+          "pct": 2.4004,
+          "cumPct": 74.8725
+        }
+      ],
+      "allocBytesPerWindow": 1207561984
+    },
+    "jit": null
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "Apple Pascal (UCSD p-System, 6502): Pascal.CreateBoard takes NO ExecutionTier, so this arm is INTERPRETER-ONLY \u2014 JIT tier is null (not applicable).",
+    "the full boot to COMMAND: is ~75-90M cycles; this is a SHORTER representative steady window (representative metrics, not a reached-prompt run).",
+    "interpreter hot-op histogram is a per-instruction PC walk (OFFLINE)."
+  ]
+}

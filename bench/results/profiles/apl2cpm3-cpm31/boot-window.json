@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:46:01.4688682Z",
+  "commit": "65f787e",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "apl2cpm3-cpm31",
+  "workload": "boot-window",
+  "instructionBudget": 60000000,
+  "budgetUnit": "cycles",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 54118782.186660804,
+      "realtimeRatio": 53.03246517011615,
+      "hotOps": [],
+      "allocBytesPerWindow": 196781920
+    },
+    "jit": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 49307482.62150285,
+      "realtimeRatio": 48.31774199448776,
+      "emitCoverage": null,
+      "fallbackByOpcode": [],
+      "compileCount": 0,
+      "totalRecompiles": 0,
+      "totalEvictions": 0,
+      "smcHotPcCount": 0,
+      "chainEdgesTaken": 0,
+      "dispatcherEntries": 0,
+      "blockCacheHits": 0,
+      "blockCacheMisses": 0,
+      "allocBytesPerWindow": 196786024
+    }
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "apl2cpm3 CP/M 3.1 (SoftCard\u002BVidex, slot 4): 6502 primary (JIT-capable) \u002B Z80 coprocessor (interpreter).",
+    "the full boot to A\u003E is long (~tens of M cycles); this is a FIXED representative steady window, NOT a reached-prompt run.",
+    "dual-CPU boot driven via machine.Run slices; hot-op histogram SKIPPED for dual-CPU boots \u2014 coprocessor hot-ops deferred.",
+    "JIT counters are 0 by design here: the dual-CPU scheduler steps the primary via Cpu.Step() (JittedCpu.Step() runs the inner interpreter, never the block compiler) \u2014 the JIT does not engage under the dual-CPU run loop (an ADR-0022 finding, not a profiler bug).",
+    "fallbackByOpcode empty \u002B emitCoverage null \u2014 ADR 0022 item D (deferred).",
+    "instructionsRetired left 0 for the bulk-Run path."
+  ]
+}

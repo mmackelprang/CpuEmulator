@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:46:00.1027452Z",
+  "commit": "65f787e",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "softcard-cpm22",
+  "workload": "boot-to-A",
+  "instructionBudget": 8000000,
+  "budgetUnit": "cycles",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 23681894.519326318,
+      "realtimeRatio": 23.206531919487535,
+      "hotOps": [],
+      "allocBytesPerWindow": 41109512
+    },
+    "jit": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 19417025.403961256,
+      "realtimeRatio": 19.027270789116983,
+      "emitCoverage": null,
+      "fallbackByOpcode": [],
+      "compileCount": 0,
+      "totalRecompiles": 0,
+      "totalEvictions": 0,
+      "smcHotPcCount": 0,
+      "chainEdgesTaken": 0,
+      "dispatcherEntries": 0,
+      "blockCacheHits": 0,
+      "blockCacheMisses": 0,
+      "allocBytesPerWindow": 41107056
+    }
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "CP/M 2.2 SoftCard: 6502 primary (JIT-capable) \u002B Z80 coprocessor (always interpreter, ADR 0015).",
+    "dual-CPU boot driven via machine.Run slices; hot-op histogram is SKIPPED for dual-CPU boots (stepping the primary directly bypasses coprocessor arbitration) \u2014 coprocessor hot-ops deferred.",
+    "JIT counters are 0 by design here: the dual-CPU scheduler (Machine.RunDualCpu) drives the primary via Cpu.Step() one instruction at a time, and JittedCpu.Step() runs the inner interpreter (never the block compiler) \u2014 so the JIT tier provides no JIT benefit during a SoftCard boot. This is the measured truth, not a profiler bug (it is itself an ADR-0022 finding: the JIT does not engage under the dual-CPU run loop).",
+    "fallbackByOpcode empty \u002B emitCoverage null \u2014 ADR 0022 item D (deferred).",
+    "instructionsRetired left 0 for the bulk-Run path (no per-instruction count)."
+  ]
+}
