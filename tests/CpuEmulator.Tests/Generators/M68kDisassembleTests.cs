@@ -19,7 +19,8 @@ public class M68kDisassembleTests
     public static System.Collections.Generic.IEnumerable<object[]> Corpus()
     {
         yield return new object[] { (ushort)0x3200, "MOVE.W D0,D1" };    // MOVE.W D0 -> D1 (src ea=D0; dst reg=1 mode=0)
-        yield return new object[] { (ushort)0x7000, "MOVEQ #<imm>,D0" }; // MOVEQ imm in opword low byte
+        yield return new object[] { (ushort)0x7000, "MOVEQ #0,D0" };    // MOVEQ imm IS in the opword low byte (signed) -> decoded
+        yield return new object[] { (ushort)0x7AFF, "MOVEQ #-1,D5" };    // MOVEQ #-1,D5 (imm 0xFF sign-extends; Dn=5)
         yield return new object[] { (ushort)0xD441, "ADD.W D1,D2" };     // ADD.W D1 -> D2 (Dn=2 dest, ea=D1)
         yield return new object[] { (ushort)0x9201, "SUB.B D1,D1" };     // SUB.B D1,D1 (ea=D1, Dn=1, dir=0 -> Dn dest)
         yield return new object[] { (ushort)0x4E71, "NOP" };
