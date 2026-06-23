@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges" role="img" aria-label="CpuEmulator chip">
+  <title>CpuEmulator</title>
+  <!--
+    A stylized QFP microchip, authored on a 32x32 grid so every edge lands on a
+    pixel boundary (crispEdges) and the silhouette survives a 16x16 downscale.
+    Palette: dark-slate body (#1c2128), amber die (#d8a657, the UI --drive-active
+    token) on a near-black core, a phosphor-green pin-1 dot (#a9dc76). Bold + few:
+    three thick pins per side, a single inset die — nothing that smears when tiny.
+  -->
+
+  <!-- Pins: three bold legs per side, in a muted metal grey so the body reads first. Kept long
+       (length 5) and wide (3.5) so they still poke past the body when the whole icon is 16px. -->
+  <g fill="#8a939e">
+    <!-- top -->
+    <rect x="7.5"  y="1" width="3.5" height="5"/>
+    <rect x="14.25" y="1" width="3.5" height="5"/>
+    <rect x="21" y="1" width="3.5" height="5"/>
+    <!-- bottom -->
+    <rect x="7.5"  y="26" width="3.5" height="5"/>
+    <rect x="14.25" y="26" width="3.5" height="5"/>
+    <rect x="21" y="26" width="3.5" height="5"/>
+    <!-- left -->
+    <rect x="1" y="7.5"  width="5" height="3.5"/>
+    <rect x="1" y="14.25" width="5" height="3.5"/>
+    <rect x="1" y="21" width="5" height="3.5"/>
+    <!-- right -->
+    <rect x="26" y="7.5"  width="5" height="3.5"/>
+    <rect x="26" y="14.25" width="5" height="3.5"/>
+    <rect x="26" y="21" width="5" height="3.5"/>
+  </g>
+
+  <!-- Chip body: a rounded dark-slate square with a faint amber edge for definition. -->
+  <rect x="5" y="5" width="22" height="22" rx="3" fill="#1c2128" stroke="#3a3320" stroke-width="1"/>
+
+  <!-- Die well: a near-black inset that frames the accent core. -->
+  <rect x="8.5" y="8.5" width="15" height="15" rx="1.5" fill="#0d0f12"/>
+
+  <!-- Die / core: the amber accent rendered as four bold quadrant pads — a tiny 2x2 trace grid that
+       stays legible at 16px (a thin cross would smear; distinct pads read as a chip die). -->
+  <g fill="#d8a657">
+    <rect x="10.5" y="10.5" width="5" height="5" rx="0.8"/>
+    <rect x="16.5" y="10.5" width="5" height="5" rx="0.8"/>
+    <rect x="10.5" y="16.5" width="5" height="5" rx="0.8"/>
+    <rect x="16.5" y="16.5" width="5" height="5" rx="0.8"/>
+  </g>
+
+  <!-- Pin-1 marker: a small phosphor-green dot in the top-left of the body, set clearly inside the
+       body interior (away from the die-well edge) so it reads as a corner marker, not die noise. -->
+  <circle cx="7.5" cy="7.5" r="1.5" fill="#a9dc76"/>
+</svg>
