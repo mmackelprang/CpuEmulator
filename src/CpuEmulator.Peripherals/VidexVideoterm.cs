@@ -24,6 +24,7 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
     public const uint VramWindowLength = 0x0200;     // 512 bytes = one bank
     public const int BankSize = 512;
     public const int BankCount = 4;                  // 4 x 512 B = 2 KiB on-card VRAM
+    public const int VramSize = BankSize * BankCount; // 2 KiB linear VRAM (the 6845 scanout space)
 
     private const long CyclesPerFrame = 17030;       // ~60 Hz present cadence (the Apple2Video value)
 
@@ -169,19 +170,22 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
                 nameof(rgba));
 
         int cols = Cols, rows = Rows, cellLines = CellLines;
-        // The scanout base address (R12 high / R13 low) selects which VRAM the screen starts at; for the
-        // gate (R12/R13 = 0) the scanout is the active bank from offset 0. We read characters linearly from
-        // the active bank (the 80x24 = 1920-char screen the CP/M terminal drives; a full multi-bank scanout
-        // is a build-time refinement — the active bank holds the gate's row of characters).
-        byte[] scanout = _vramBanks[_bank];
-        int startAddr = (_crtc[12] << 8) | _crtc[13];
+        // The 6845 scans the FULL 2 KiB on-card VRAM as one linear character space (the four 512-byte banks
+        // concatenated: bank b, offset o == linear b*512 + o), starting at the CRTC scanout base address
+        // (R12 high / R13 low) and wrapping within the 2 KiB as the 6845's address counter does (it is a
+        // 14-bit counter masked to the on-card VRAM). A CRT80 build (apl2cpm3) programs a non-zero start
+        // (e.g. 960) and paints the 80x24 = 1920-char console linearly across the wrap; an in-range,
+        // start-at-0 config (the PR-N render gate) is the same code path with no wrap. Sourcing only one
+        // 512-byte bank — the prior bug — left every cell >= 512 reading $00, tiling one glyph (the bug the
+        // rendered-output gate now catches).
+        int startAddr = ((_crtc[12] << 8) | _crtc[13]) % VramSize;
 
         for (int r = 0; r < rows; r++)
         {
             for (int c = 0; c < cols; c++)
             {
-                int cell = startAddr + r * cols + c;
-                byte code = cell < scanout.Length ? scanout[cell] : (byte)0x00;
+                int lin = (startAddr + r * cols + c) % VramSize;   // wrap within the 2 KiB scanout space
+                byte code = _vramBanks[lin / BankSize][lin % BankSize];
                 int glyphBase = (code & 0xFF) * VidexFont.GlyphRows;
                 for (int gy = 0; gy < cellLines; gy++)
                 {
