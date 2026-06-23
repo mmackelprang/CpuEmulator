@@ -5118,6 +5118,19 @@ internal static class CpuEmitter
         // wrongly drop endsBlock). INT/INTO/IRET/BOUND are NOT here — they stay fallback (ADR 0019 Decision 3).
         if (IsEmittableX86FarFlow(insn)) return true;
 
+        // Row STR (ROADMAP #4): the string family (MOVS/CMPS/STOS/LODS/SCAS, A4-A7/AA-AF, byte+word, REP-prefixed
+        // or not) now EMITS (the EmitM8086String arm — the CX-loop + DF-direction + REPE/REPNE ZF early-exit). The
+        // string ops do NOT change CS and the REP loop terminates in-op → straight-line (NO endsBlock re-force,
+        // unlike DIV/IDIV/flow — these rows are JitOpClass.Register, which ClassifyForJit classes endsBlock=FALSE,
+        // and that is exactly what STR-1 wants). Admitted by mnemonic (8086-unique). VERIFIED against the generated
+        // M8086Cpu.g.cs: the table names these rows ONLY by the byte-suffixed mnemonic (MOVSB/MOVSW/CMPSB/…), never
+        // the base MOVS/CMPS — so the clause is trimmed to that real set. (The routing predicate
+        // IsM8086StringOpcode keys on the OPCODE byte, not the mnemonic, so the arm dispatch is unaffected either
+        // way — only this gate's mnemonic list must match the table.)
+        if (insn.Mnemonic is "MOVSB" or "MOVSW" or "CMPSB" or "CMPSW" or "STOSB" or "STOSW"
+            or "LODSB" or "LODSW" or "SCASB" or "SCASW")
+            return true;
+
         // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is
         // MOVE/MOVEA/MOVEQ, the Z80 LD, the 6502 LDA/STA), so "MOV" is unambiguously the 8086.
         if (insn.Mnemonic != "MOV") return false;

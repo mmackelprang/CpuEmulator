@@ -44,6 +44,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private const int M8086FlagIF = 1 << 9;    // interrupt-enable (cleared on interrupt entry)
     private const int M8086FlagTF = 1 << 8;    // trap / single-step (cleared on interrupt entry)
 
+    // Row STR (ROADMAP #4): the direction flag the string ops read to pick the SI/DI step sign (FlagDF =
+    // 1<<10 at M8086Cpu.Misc.cs:19 — the M8086Spec `D` member; DF=0 ⇒ increment, DF=1 ⇒ decrement).
+    private const int M8086FlagDF = 1 << 10;   // direction (string ops; CLD/STD)
+
     // The BitOperations.PopCount(uint) handle for the parity bit (resolved once; CPU-agnostic static — the
     // 8086 PF is the even-parity of the LOW 8 bits of the result, ParityEven, M8086Cpu.Alu.cs:44).
     private static readonly MethodInfo MPopCount =
@@ -1755,5 +1759,231 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.MarkLabel(done);
         EmitM8086SetIp(ctx, returnIp);              // valid path: IP at the successor
         EmitNormalExit(ctx);                         // end the block (DECISION MD-1); ends with ret
+    }
+
+    // ── Row STR (ROADMAP #4): the 8086 string/REP emit arm. ─────────────────────────────────────────────────
+
+    /// <summary>Row STR: is this an in-scope 8086 string row? The MOVS/CMPS/STOS/LODS/SCAS opcodes A4-A7,
+    /// AA-AF (each byte+word). d.Opcode is the BYTE; the REP prefix (if any) rides in the code stream and is
+    /// re-scanned in the arm (M8086ScanStringPrefixes). Mirrors IsM8086FlowOpcode (the by-opcode discriminator).</summary>
+    private static bool IsM8086StringOpcode(OpcodeDescriptor d) => d.Opcode is
+        0xA4 or 0xA5 or 0xA6 or 0xA7 or 0xAA or 0xAB or 0xAC or 0xAD or 0xAE or 0xAF;
+
+    /// <summary>Row STR: scan the instruction's prefix bytes at the SEGMENTED code stream to recover BOTH the
+    /// opcode position AND the rep prefix byte (F3 REP/REPE, F2 REPNE; 0 ⇒ none) — the same scan EmitM8086Alu/
+    /// EmitM8086MulDiv use to find the opcode, extended to also capture the LAST repeat byte (matching the
+    /// generated Decode, g.cs:1751-1756). The segment-override byte rides x86Seg already (captured at discovery);
+    /// the rep byte is NOT on the run-tuple, so the arm re-reads it here (a code-stream constant).</summary>
+    private byte M8086ScanStringPrefixes(ushort pc, out byte opcode)
+    {
+        int opcodePc = pc;
+        byte rep = 0;
+        for (byte b = _bus.Read8(M8086CodePhys((ushort)opcodePc)); M8086IsPrefixByte(b);
+             b = _bus.Read8(M8086CodePhys((ushort)opcodePc)))
+        {
+            if (b is 0xF2 or 0xF3) rep = b;   // the LAST repeat byte wins (matches the generated walk)
+            opcodePc++;
+        }
+        opcode = _bus.Read8(M8086CodePhys((ushort)opcodePc));
+        return rep;
+    }
+
+    /// <summary>Row STR: emit one 8086 string instruction (optionally REP-prefixed). Re-scans the rep/override
+    /// prefixes at emit time (compile-time constants). Resolves the source as DS:SI (DS override-replaced) and
+    /// the destination as ES:DI (ES NON-overridable). The single-iteration body (EmitStringBody) + the SI/DI
+    /// step (EmitStringStep) mirror StringExecute.DoOnce + StringStep (String.cs:51/29). A REP prefix wraps the
+    /// body in a runtime CX-loop (EmitStringRepLoop). The string ops do NOT change CS and the loop terminates
+    /// within the op → straight-line: advance IP by length-1 (DECISION STR-1, the MOV/ALU tail).</summary>
+    private void EmitM8086String(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
+    {
+        M8086Cpu_Override over = M8086OverrideFromByte(x86Seg);
+        byte repPrefix = M8086ScanStringPrefixes(pc, out byte opcode);
+        bool word = (opcode & 1) != 0;            // odd opcodes are the word forms (A5/A7/AB/AD/AF)
+        bool isCompare = opcode is 0xA6 or 0xA7 or 0xAE or 0xAF;   // CMPS/SCAS — the ZF-conditioned repeat
+
+        if (repPrefix == 0)
+            EmitStringBody(ctx, opcode, word, over);                            // one iteration; CX untouched
+        else
+            EmitStringRepLoop(ctx, opcode, word, isCompare, repPrefix, over);   // the CX-counted loop
+
+        int tail = length - 1;                    // DECISION STR-1: straight-line tail (the MOV/ALU discipline)
+        if (tail > 0) EmitIncrementPC(ctx, tail);
+    }
+
+    /// <summary>Row STR: emit ONE string iteration for <paramref name="opcode"/> (StringExecute.DoOnce,
+    /// String.cs:51), then step SI/DI (EmitStringStep). Source = DS:SI (DS override-replaced); dest = ES:DI (ES
+    /// non-overridable). For the compare ops (A6/A7/AE/AF) the ZF the SubFlags sets is the loop's early-exit
+    /// signal (read by EmitStringRepLoop after this returns); the body itself just sets flags. The step is LAST
+    /// in each body (after the memory access is done with DataLocal) so EmitStringStep's DataLocal clobber is safe
+    /// (LODSB stores AL before stepping).</summary>
+    private void EmitStringBody(EmitContext ctx, byte opcode, bool word, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        string srcSeg = M8086SegName(over, "DS");   // DS default, override-replaced (the source segment)
+        switch (opcode)
+        {
+            case 0xA4: case 0xA5:   // MOVS: ES:DI <- DS:SI
+                EmitStringStore(ctx, "ES", "DI", word, () => EmitStringLoad(ctx, srcSeg, "SI", word));
+                EmitStringStep(ctx, word, stepSi: true, stepDi: true);
+                break;
+            case 0xAA: case 0xAB:   // STOS: ES:DI <- AL/AX
+                EmitStringStore(ctx, "ES", "DI", word, () =>
+                {
+                    if (!word) { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AL")); }
+                    else EmitLoadReg16(ctx, "AX");
+                });
+                EmitStringStep(ctx, word, stepSi: false, stepDi: true);
+                break;
+            case 0xAC: case 0xAD:   // LODS: AL/AX <- DS:SI
+                EmitStringLoad(ctx, srcSeg, "SI", word);
+                if (!word)
+                {
+                    il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stloc, ctx.DataLocal);   // stash AL before the step
+                    il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Stfld, RegField("AL"));
+                }
+                else EmitStoreReg16(ctx, "AX");
+                EmitStringStep(ctx, word, stepSi: true, stepDi: false);
+                break;
+            case 0xA6: case 0xA7:   // CMPS: compare DS:SI - ES:DI (flags only)
+            case 0xAE: case 0xAF:   // SCAS: compare AL/AX - ES:DI (flags only)
+                EmitStringCompareBody(ctx, opcode, word, srcSeg);
+                break;
+        }
+    }
+
+    /// <summary>Row STR: the compare ops (CMPS A6/A7, SCAS AE/AF) — flags-only SubFlags (String.cs:69/109).
+    /// CMPS: a = DS:SI, b = ES:DI. SCAS: a = AL/AX, b = ES:DI. Sets flags exactly like CMP (EmitM8086SubFlags,
+    /// borrow-in 0), discards the result. Steps SI+DI for CMPS, DI only for SCAS. Leaves ZF in FLAGS for the
+    /// REP-loop early-exit read. NOTE: EmitStringLoad clobbers DataLocal (its word read uses it), so `a` is
+    /// stashed in M8086ALocal BEFORE the `b` load overwrites DataLocal.</summary>
+    private void EmitStringCompareBody(EmitContext ctx, byte opcode, bool word, string srcSeg)
+    {
+        ILGenerator il = ctx.Il;
+        bool isScas = opcode is 0xAE or 0xAF;
+        // a -> M8086ALocal
+        if (isScas)
+        {
+            if (!word) { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AL")); }
+            else EmitLoadReg16(ctx, "AX");
+        }
+        else EmitStringLoad(ctx, srcSeg, "SI", word);   // DS:SI value on stack
+        il.Emit(OpCodes.Stloc, ctx.M8086ALocal);
+        // b = ES:DI -> M8086BLocal
+        EmitStringLoad(ctx, "ES", "DI", word);
+        il.Emit(OpCodes.Stloc, ctx.M8086BLocal);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086CarryInLocal);   // borrow-in 0
+        EmitM8086SubFlags(ctx, word);   // sets CF/AF/OF/SF/ZF/PF; leaves the result on the stack
+        il.Emit(OpCodes.Pop);           // compare discards the result
+        EmitStringStep(ctx, word, stepSi: !isScas, stepDi: true);   // CMPS steps both; SCAS steps DI only
+    }
+
+    /// <summary>Row STR: step SI and/or DI by the DF-directed delta (StringStep, String.cs:29). ±1 byte / ±2
+    /// word; DF=0 ⇒ +, DF=1 ⇒ -. Reads FLAGS&amp;DF at runtime to pick the sign; the step amount + which index
+    /// advances are compile-time constants. Clobbers DataLocal (the staged delta) — callers step LAST.</summary>
+    private void EmitStringStep(EmitContext ctx, bool word, bool stepSi, bool stepDi)
+    {
+        ILGenerator il = ctx.Il;
+        int amt = word ? 2 : 1;
+        // delta = (FLAGS & DF) != 0 ? -amt : amt  -> DataLocal
+        Label neg = il.DefineLabel(), have = il.DefineLabel();
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagDF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Brtrue, neg);
+        il.Emit(OpCodes.Ldc_I4, amt); il.Emit(OpCodes.Br, have);
+        il.MarkLabel(neg); il.Emit(OpCodes.Ldc_I4, -amt);
+        il.MarkLabel(have); il.Emit(OpCodes.Stloc, ctx.DataLocal);   // delta
+        if (stepSi)
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("SI")); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("SI"));
+        }
+        if (stepDi)
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("DI")); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, RegField("DI"));
+        }
+    }
+
+    /// <summary>Row STR: the REP/REPE/REPNE CX-loop (StringExecute REP path, String.cs:128-143). Emits a runtime
+    /// back-edge: while (CX != 0) { CX--; EmitStringBody; if (isCompare &amp;&amp; zf != repWhileZfSet) break; }.
+    /// repWhileZfSet = (repPrefix == 0xF3) [REPE: repeat while ZF=1; REPNE F2: repeat while ZF=0] — a compile-time
+    /// constant. With CX==0 going in, zero iterations (the condition-first loop). For non-compare ops the ZF check
+    /// is omitted (the loop runs CX times unconditionally). The body re-resolves the EA from the LIVE SI/DI each
+    /// iteration (DECISION STR-2 — true by construction, EmitStringBody reads Reg16 fresh).</summary>
+    private void EmitStringRepLoop(EmitContext ctx, byte opcode, bool word, bool isCompare, byte repPrefix, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        bool repWhileZfSet = repPrefix == 0xF3;
+        Label loopTop = il.DefineLabel(), loopExit = il.DefineLabel();
+
+        il.MarkLabel(loopTop);
+        // if (CX == 0) goto exit;  (CX is a pair-view CH:CL, NOT a ushort field — go through EmitLoadReg16)
+        EmitLoadReg16(ctx, "CX"); il.Emit(OpCodes.Brfalse, loopExit);
+        // CX = (ushort)(CX - 1);
+        EmitLoadReg16(ctx, "CX"); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Sub); EmitStoreReg16(ctx, "CX");
+        // the iteration body (sets ZF for the compare ops)
+        EmitStringBody(ctx, opcode, word, over);
+        if (isCompare)
+        {
+            // zf = (FLAGS & ZF) != 0;  continue iff zf == repWhileZfSet, else goto exit.
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagZF); il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un);   // zf 0/1
+            il.Emit(OpCodes.Ldc_I4, repWhileZfSet ? 1 : 0);
+            il.Emit(OpCodes.Bne_Un, loopExit);   // zf != repWhileZfSet ⇒ stop
+        }
+        il.Emit(OpCodes.Br, loopTop);
+        il.MarkLabel(loopExit);
+    }
+
+    // ── Row STR: the operand machinery — the survivor-pair (seg, offset) physical with the offset from a LIVE
+    //    index register (SI/DI), the exact shape of the moffs EmitM8086LoadByteAtSegOff/…AtSegOff helpers
+    //    (:518-530) but staging M8086OffsetLocal from EmitLoadReg16(indexReg) instead of a compile-time offset.
+    //    They handle the 16-bit offset-wrap word read/write correctly (each byte re-forms its physical from the
+    //    surviving (seg, offset) pair via EmitM8086PushPhysical). ───────────────────────────────────────────────
+
+    /// <summary>Row STR: push the byte/word at (seg, indexReg) onto the IL stack. Byte: one
+    /// EmitM8086PushPhysical + LoadByteFromBus. Word: the offset-wrap two-byte read (lo at (seg,off), hi at
+    /// (seg,(off+1)&amp;0xFFFF)), composed lo | hi&lt;&lt;8. Clobbers M8086SegLocal/M8086OffsetLocal (the survivor
+    /// pair) and DataLocal (the word low-byte stash).</summary>
+    private void EmitStringLoad(EmitContext ctx, string seg, string indexReg, bool word)
+    {
+        ILGenerator il = ctx.Il;
+        EmitLoadReg16(ctx, seg);      il.Emit(OpCodes.Stloc, ctx.M8086SegLocal);
+        EmitLoadReg16(ctx, indexReg); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+        if (!word)
+        {
+            EmitM8086PushPhysical(ctx, offsetPlusOne: false); LoadByteFromBus(ctx);
+            return;
+        }
+        EmitM8086PushPhysical(ctx, offsetPlusOne: false); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.DataLocal);   // lo
+        EmitM8086PushPhysical(ctx, offsetPlusOne: true);  LoadByteFromBus(ctx);
+        il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);    // hi<<8 | lo
+    }
+
+    /// <summary>Row STR: store the byte/word produced by <paramref name="pushValue"/> to (seg, indexReg). The
+    /// value is staged in AddrLocal FIRST — BEFORE the (seg, offset) destination survivors — because pushValue
+    /// may itself clobber M8086SegLocal/M8086OffsetLocal (the MOVS case runs EmitStringLoad inside pushValue,
+    /// which overwrites the survivor pair to read DS:SI). Staging the value up front, then staging the
+    /// destination (seg, offset) right before each PushPhysical, makes the order clobber-safe. AddrLocal also
+    /// survives EmitStoreByte's DataLocal/EaLocal clobber, so the word high-byte write re-reads the full word.
+    /// Mirrors EmitM8086StoreWordAtSegOff (:526). Clobbers M8086SegLocal/M8086OffsetLocal + AddrLocal +
+    /// DataLocal/EaLocal (via EmitStoreByte).</summary>
+    private void EmitStringStore(EmitContext ctx, string seg, string indexReg, bool word, System.Action pushValue)
+    {
+        ILGenerator il = ctx.Il;
+        pushValue(); il.Emit(OpCodes.Stloc, ctx.AddrLocal);   // value -> AddrLocal FIRST (pushValue may clobber the survivors)
+        EmitLoadReg16(ctx, seg);      il.Emit(OpCodes.Stloc, ctx.M8086SegLocal);
+        EmitLoadReg16(ctx, indexReg); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+        if (!word)
+        {
+            EmitM8086PushPhysical(ctx, offsetPlusOne: false);   // [address]
+            il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx);
+            return;
+        }
+        EmitM8086PushPhysical(ctx, offsetPlusOne: false);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx);   // lo
+        EmitM8086PushPhysical(ctx, offsetPlusOne: true);
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shr_Un); il.Emit(OpCodes.Conv_U1); EmitStoreByte(ctx);   // hi
     }
 }
