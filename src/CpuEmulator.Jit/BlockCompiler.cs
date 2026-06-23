@@ -91,6 +91,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
     internal int M8086MulDivEmitSelections { get; private set; }
 
+    /// <summary>Row STR: how many times an 8086 string row (MOVS/CMPS/STOS/LODS/SCAS, A4-A7/AA-AF, with or
+    /// without a REP prefix) was DISPATCHED to <see cref="EmitM8086String"/> and EMITTED (the non-vacuity
+    /// probe — asserted &gt; 0 in the gate; the discriminator the parity sweep, which already passes via
+    /// fallback, cannot false-pass on). Accumulates across Compiles (unlike <see cref="FallbackEmitCount"/>,
+    /// which resets per Compile).</summary>
+    internal int M8086StringEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -704,6 +711,16 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 {
                     M8086MulDivEmitSelections++;     // Row MD: the dead-arm-now-live probe (asserted > 0 in the gate)
                     EmitM8086MulDiv(ctx, pc, d, length, x86Seg);   // Row MD (DECISION MD-1/MD-2)
+                    break;
+                }
+                // Row STR (ROADMAP #4): the string family (MOVS/CMPS/STOS/LODS/SCAS, A4-A7/AA-AF, byte+word,
+                // REP-prefixed or not). Runs AFTER the MUL/DIV check, BEFORE far-flow. The string ops do NOT
+                // change CS and the REP loop terminates within the op → STRAIGHT-LINE, block-continuing (DECISION
+                // STR-1; NO endsBlock re-force). The rep prefix is re-scanned from the code stream inside the arm.
+                if (TargetIsM8086 && IsM8086StringOpcode(d))
+                {
+                    M8086StringEmitSelections++;     // Row STR: the dead-arm-now-live probe (asserted > 0 in the gate)
+                    EmitM8086String(ctx, pc, d, length, x86Seg);   // Row STR (DECISION STR-1/STR-2)
                     break;
                 }
                 // ADR 0019 FF-2: the FAR control-flow family (9A/EA/CB/CA + FF /3 /5 far indirect). It runs BEFORE
