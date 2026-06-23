@@ -116,6 +116,11 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     /// the op was EMITTED, not fallback (&gt; 0 ⇒ the arm dispatched + emitted real IL).</summary>
     internal int M8086StringEmitSelections => _compiler.M8086StringEmitSelections;
 
+    /// <summary>Test seam (ROADMAP #4 Row II): how many INT/INT3/INTO/IRET rows the JIT EMITTED through the
+    /// dispatcher (CD/CC/CE/CF). The interrupt parity pins read this to prove the op was EMITTED, not fallback
+    /// (&gt; 0 ⇒ the arm dispatched + emitted real IL).</summary>
+    internal int M8086InterruptEmitSelections => _compiler.M8086InterruptEmitSelections;
+
     /// <summary>Test seam: the per-Compile fallback count of the LAST block compiled through this CPU's
     /// compiler (resets each Compile). Row MD reads this to prove a MUL / non-faulting-DIV block emitted real
     /// IL (== 0) rather than falling back to the interpreter (== 1).</summary>

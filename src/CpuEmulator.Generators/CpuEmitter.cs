@@ -4911,8 +4911,12 @@ internal static class CpuEmitter
         // endsBlock=false (straight-line). The reg-extension subfield (/6 /7) is the DIV/IDIV discriminator; the
         // descriptor's Mnemonic is "DIV"/"IDIV" for the /6 /7 rows (verified against the generated table), so the
         // mnemonic carries it.
+        // Row II (ROADMAP #4): the soft-interrupt family (CD INT, CC INT3, CE INTO, CF IRET) changes CS:IP on
+        // every form (the EmitM8086Interrupt arm self-terminates via EmitNormalExit — including the not-taken
+        // INTO, which exits under the unchanged CS:IP), so they must END the block like the flow + DIV/IDIV rows.
         if (isX86 && (IsEmittableX86NearFlow(insn) || IsEmittableX86FarFlow(insn)
-                      || insn.Mnemonic is "DIV" or "IDIV"))
+                      || insn.Mnemonic is "DIV" or "IDIV"
+                      || insn.Mnemonic is "INT" or "INT3" or "INTO" or "IRET"))
             endsBlock = true;
 
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
@@ -5129,6 +5133,16 @@ internal static class CpuEmitter
         // way — only this gate's mnemonic list must match the table.)
         if (insn.Mnemonic is "MOVSB" or "MOVSW" or "CMPSB" or "CMPSW" or "STOSB" or "STOSW"
             or "LODSB" or "LODSW" or "SCASB" or "SCASW")
+            return true;
+
+        // Row II (ROADMAP #4): the soft-interrupt family (CD INT, CC INT3, CE INTO, CF IRET) now EMITS (the
+        // EmitM8086Interrupt arm — the IVT push/vector + IRET pop). BOUND (62/63) is NOT here — it stays fallback
+        // (out of #4 scope; ADR 0019 Decision 3 grouped it with INT but #4 emits only INT/INTO/IRET). Every form
+        // changes CS:IP → endsBlock re-forced above (like the flow + DIV/IDIV rows). VERIFIED against the
+        // generated M8086Cpu.g.cs: the table names these rows INT3/INT/INTO/IRET (CC/CD/CE/CF). (The routing
+        // predicate IsM8086InterruptOpcode keys on the OPCODE byte, so the arm dispatch is robust either way —
+        // only this gate's mnemonic list must match the table.)
+        if (insn.Mnemonic is "INT" or "INT3" or "INTO" or "IRET")
             return true;
 
         // Self-gate on the 8086 architecture: only an X86Decode CPU has the MOV mnemonic (the 68000 is

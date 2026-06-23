@@ -48,6 +48,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     // 1<<10 at M8086Cpu.Misc.cs:19 — the M8086Spec `D` member; DF=0 ⇒ increment, DF=1 ⇒ decrement).
     private const int M8086FlagDF = 1 << 10;   // direction (string ops; CLD/STD)
 
+    // Row II (ROADMAP #4): the 8086 reserved-bit forcing IRET/POPF apply to the popped FLAGS word. Only the
+    // nine DEFINED bits take the popped value (mask 0x0FD5); the reserved bits force (bits 12-15 + bit 1 → 1,
+    // bits 3 & 5 → 0 ⇒ 0xF002). Mirrors M8086Cpu.Stack.cs FlagsDefinedMask (0x0FD5) / FlagsForcedBits (0xF002),
+    // the same machinery the CF corpus pins (popped 0x28CF → 0xF8C7).
+    private const int M8086FlagsDefinedMask = 0x0FD5;
+    private const int M8086FlagsForcedBits  = 0xF002;
+
     // The BitOperations.PopCount(uint) handle for the parity bit (resolved once; CPU-agnostic static — the
     // 8086 PF is the even-parity of the LOW 8 bits of the result, ParityEven, M8086Cpu.Alu.cs:44).
     private static readonly MethodInfo MPopCount =
@@ -1759,6 +1766,93 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.MarkLabel(done);
         EmitM8086SetIp(ctx, returnIp);              // valid path: IP at the successor
         EmitNormalExit(ctx);                         // end the block (DECISION MD-1); ends with ret
+    }
+
+    // ── Row II (ROADMAP #4): the 8086 soft-interrupt emit arm (CD INT imm8, CC INT3, CE INTO, CF IRET). ─────────
+
+    /// <summary>Row II: is this an in-scope 8086 soft-interrupt row? CD INT imm8, CC INT3, CE INTO, CF IRET.
+    /// BOUND (62/63) is NOT here — it stays fallback (out of #4 scope). d.Opcode is the byte. Mirrors the
+    /// by-opcode discriminators (IsM8086StringOpcode/IsM8086FarFlowOpcode), so the arm dispatch is robust
+    /// regardless of the generated mnemonic spelling (only the generator gate keys on the mnemonic string).</summary>
+    private static bool IsM8086InterruptOpcode(OpcodeDescriptor d) =>
+        d.Opcode is 0xCD or 0xCC or 0xCE or 0xCF;
+
+    /// <summary>Row II: emit one 8086 soft-interrupt instruction (CD/CC/CE/CF). Transcribes InterruptExecute
+    /// (Interrupt.cs:54) one-for-one. INT n / INT3 advance IP to the return point (IP += length) THEN raise via
+    /// the shared EmitM8086RaiseInterrupt (the pushed IP must be the return ip — Interrupt.cs:58-59). INTO raises
+    /// vector 4 ONLY when OF is set. IRET pops IP:CS:FLAGS (the reverse of the entry push), forcing the 8086
+    /// reserved bits. Every form changes CS:IP → ENDS the block (DECISION II-1): each path exits via
+    /// EmitNormalExit. The default throws (the gate↔arm lockstep tripwire).</summary>
+    private void EmitM8086Interrupt(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
+    {
+        int opcodePc = pc;
+        while (M8086IsPrefixByte(_bus.Read8(M8086CodePhys((ushort)opcodePc)))) opcodePc++;
+        byte opcode = _bus.Read8(M8086CodePhys((ushort)opcodePc));
+        int operandPc = opcodePc + 1;
+        ushort returnIp = (ushort)(pc + length);
+
+        switch (opcode)
+        {
+            case 0xCD:   // INT imm8 — vector = the imm8 (a compile-time constant from the code stream).
+            {
+                byte vector = _bus.Read8(M8086CodePhys((ushort)operandPc));
+                EmitM8086SetIp(ctx, returnIp);                 // IP = return point (the pushed IP)
+                EmitM8086RaiseInterrupt(ctx, vector);          // PushWord FLAGS:CS:IP, clear IF/TF, vector
+                EmitNormalExit(ctx);                            // DYNAMIC vectored CS:IP — ends the block
+                return;
+            }
+            case 0xCC:   // INT3 — vector 3 (fixed).
+            {
+                EmitM8086SetIp(ctx, returnIp);
+                EmitM8086RaiseInterrupt(ctx, 3);
+                EmitNormalExit(ctx);
+                return;
+            }
+            case 0xCE: EmitM8086Into(ctx, returnIp); return;   // INTO — conditional on OF
+            case 0xCF: EmitM8086Iret(ctx); return;             // IRET — pop IP:CS:FLAGS
+            default:
+                throw new EmulationException(
+                    $"BlockCompiler: no 8086 interrupt emit branch for opcode 0x{opcode:X2}; "
+                  + "the gate (IsEmittableX86Family) admitted a form the arm does not handle — a lockstep bug.");
+        }
+    }
+
+    /// <summary>Row II: CE INTO — interrupt-on-overflow (Interrupt.cs:71). Raises vector 4 ONLY when OF is set;
+    /// otherwise a no-op (IP already at the return point). Both paths END the block (DECISION II-1): the taken
+    /// path vectors + exits; the not-taken path sets IP to the return point + exits under the unchanged CS:IP.</summary>
+    private void EmitM8086Into(EmitContext ctx, ushort returnIp)
+    {
+        ILGenerator il = ctx.Il;
+        Label noVector = il.DefineLabel();
+        // if ((FLAGS & OF) == 0) goto noVector;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); il.Emit(OpCodes.Ldc_I4, M8086FlagOF); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Brfalse, noVector);
+        // OF set: vector 4 (the pushed IP is the return point).
+        EmitM8086SetIp(ctx, returnIp);
+        EmitM8086RaiseInterrupt(ctx, 4);
+        EmitNormalExit(ctx);
+        // not taken: IP = return point, end the block.
+        il.MarkLabel(noVector);
+        EmitM8086SetIp(ctx, returnIp);
+        EmitNormalExit(ctx);
+    }
+
+    /// <summary>Row II: CF IRET — pop IP, then CS, then FLAGS (the reverse of the entry push; Interrupt.cs:80).
+    /// FLAGS applies the 8086 reserved-bit forcing (the same as POPF): only the nine DEFINED bits take the
+    /// popped value; the reserved bits force to 1/0 — FLAGS = (popped &amp; FlagsDefinedMask) | FlagsForcedBits.
+    /// The popped CS:IP is DYNAMIC → ends the block via EmitNormalExit.</summary>
+    private void EmitM8086Iret(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        EmitM8086PopWord(ctx); EmitM8086SetIpFromStack(ctx);   // IP = PopWord()
+        EmitM8086PopWord(ctx); EmitM8086SetCsFromStack(ctx);   // CS = PopWord()
+        // FLAGS = (PopWord() & FlagsDefinedMask) | FlagsForcedBits.
+        EmitM8086PopWord(ctx);                                  // popped FLAGS on the stack
+        il.Emit(OpCodes.Ldc_I4, M8086FlagsDefinedMask); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Ldc_I4, M8086FlagsForcedBits);  il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Stfld, _m8086FLAGS!);
+        EmitNormalExit(ctx);                                   // DYNAMIC popped CS:IP — ends the block
     }
 
     // ── Row STR (ROADMAP #4): the 8086 string/REP emit arm. ─────────────────────────────────────────────────

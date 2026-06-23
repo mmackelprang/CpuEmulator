@@ -13,7 +13,10 @@ namespace CpuEmulator.Tests.TomHarte;
 /// fallback-passthrough. Row MD (ROADMAP #4) added the F6/F7 /4../7 MUL/IMUL/DIV/IDIV rows; Row STR (ROADMAP #4)
 /// added the string family (MOVS/CMPS/STOS/LODS/SCAS, A4-A7/AA-AF, REP-prefixed or not) — so the A4-AF files in
 /// this sweep now prove genuine EMIT parity (the CX-loop + DF-direction + REPE/REPNE ZF early-exit), not
-/// fallback-passthrough. The remaining still-fallback ops are the control/stack tail not in #4's scope, where the
+/// fallback-passthrough. Row II (ROADMAP #4) added the soft-interrupt family (CD INT imm8, CC INT3, CE INTO,
+/// CF IRET) — so the CD/CC/CE/CF files now prove genuine EMIT parity (the IVT FLAGS:CS:IP push + IF/TF clear +
+/// vector, INTO's OF gate, IRET's pop + reserved-bit forcing), not fallback-passthrough. BOUND (62/63) stays
+/// fallback (out of #4 scope). The remaining still-fallback ops are the control/stack tail not in #4's scope, where the
 /// JIT final state equals the interpreter's (which already passes these vectors — M5.5a–d). A green sweep proves the GENERIC COMPILER (the discovery walk, the keyed DescriptorFor,
 /// the per-CPU BlockDelegate, the data-driven register map, the cycle/budget/dispatch machinery) runs the
 /// complete 8086 faithfully — the same proof M4.6 delivered for the 68000, now on the 16-bit-register /
