@@ -250,7 +250,8 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 3. **[resolved] 68000 bench-harness cleanups (small, bench-only).** Both items are closed. (a) the **W3
    profiler arm** **shipped in `bc68ee7`** — the hot-op profiler now covers 68000 W1/W2/**W3**
    (`bench/hotop-profiler/Profiler.cs` calls `Run68000("W3 sieve-kernel", …)`; the `## 68000 — W3
-   sieve-kernel` block is in `bench/results/REPORT.md`). (b) the **W2 cycle off-by-2** is **not a bug** — it
+   sieve-kernel` hot-op block is in `bench/hotop-profiler/hotop-profile-results.txt`, and the
+   `m68k-W3 sieve-kernel` throughput rows are in `bench/results/REPORT.md`). (b) the **W2 cycle off-by-2** is **not a bug** — it
    is the **accepted coarse-cycle slack** of the data-axis-exact / coarse-cycle 68000 stance (**DECISION T2**,
    ADR 0011 §4): the JIT charges each descriptor's coarse `BaseCycles + 1` opcode-fetch vs the interpreter's
    exact per-word prefetch, so the tiers round to different instruction boundaries (the observed gap is 2).

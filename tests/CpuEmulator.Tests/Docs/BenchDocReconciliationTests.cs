@@ -40,6 +40,14 @@ public class BenchDocReconciliationTests
         string profiler = Read("bench/hotop-profiler/Profiler.cs");
         Assert.Contains("Run68000(\"W3 sieve-kernel\"", profiler);
 
+        // Pin the citation precisely (pre-merge review): the "## 68000 — W3 sieve-kernel" hot-op block lives in
+        // hotop-profile-results.txt (NOT REPORT.md, which carries the m68k-W3 throughput rows) — so the doc's
+        // file attribution can't silently drift back to the wrong artifact.
+        string hotop = Read("bench/hotop-profiler/hotop-profile-results.txt");
+        Assert.Contains("## 68000 — W3 sieve-kernel", hotop);
+        string report = Read("bench/results/REPORT.md");
+        Assert.Contains("m68k-W3 sieve-kernel", report);
+
         string benchSmoke = Read("tests/CpuEmulator.Tests/Jit/BenchHarnessSmokeTests.cs");
         Assert.Contains("DECISION T2", benchSmoke);
         Assert.Contains("<= 16", benchSmoke);
