@@ -18,6 +18,10 @@ public static class SpectrumBoard
     public const uint RamBase = 0x4000;
     public const uint RamLength = 0xC000;   // 48 KiB ($4000-$FFFF)
 
+    /// <summary>The ZX Spectrum 48K Z80 nominal clock: 3.5 MHz. Surfaced as Machine.NominalClockHz for the
+    /// perf-overlay HUD's real-time ratio.</summary>
+    public const double NominalClockHz = 3_500_000.0;
+
     public static BoardSpec Spec(byte[] rom, SpectrumUla ula)
     {
         ArgumentNullException.ThrowIfNull(rom);
@@ -40,6 +44,7 @@ public static class SpectrumBoard
             ],
             Irq: new IrqWiring([new PeripheralIrq("ula", CpuInterrupt.Irq)]),
             Reset: ResetConfig.None, // the Z80 resets to PC=0 (ROM)
-            IoAddressBits: 16);
+            IoAddressBits: 16,
+            NominalClockHz: NominalClockHz);
     }
 }

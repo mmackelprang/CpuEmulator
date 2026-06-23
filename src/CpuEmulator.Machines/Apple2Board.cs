@@ -26,6 +26,11 @@ public static class Apple2Board
     public const uint DiskBootRomBase = 0xC600;
     public const uint DiskBootRomLength = 0x0100;   // slot 6: $C600-$C6FF (the P5/P6 boot ROM)
 
+    /// <summary>The Apple ][+ 6502 nominal clock: ~1.0205 MHz (the NTSC 14.31818 MHz colorburst ÷ 14, with
+    /// the long-cycle stretch averaging ~1,020,484 Hz). Surfaced as Machine.NominalClockHz for the
+    /// perf-overlay HUD's real-time ratio. The SoftCard board reuses this (its 6502 is bus master).</summary>
+    public const double NominalClockHz = 1_020_484.0;
+
     public static BoardSpec Spec(byte[] systemRom, Apple2Iou iou)
     {
         ArgumentNullException.ThrowIfNull(systemRom);
@@ -47,7 +52,8 @@ public static class Apple2Board
                 new PeripheralSlot("iou", iou, IouBase, IouLength),        // the $C000 page decoder
             ],
             Irq: IrqWiring.None,        // the bare ][+ has no interrupt source (Disk II is polled)
-            Reset: ResetConfig.None);   // the system ROM carries its own $FFFC/$FFFD vector
+            Reset: ResetConfig.None,    // the system ROM carries its own $FFFC/$FFFD vector
+            NominalClockHz: NominalClockHz);
         // IoAddressBits defaults to 0: memory-mapped I/O only (no port space).
     }
 
@@ -120,7 +126,8 @@ public static class Apple2Board
                 new PeripheralSlot("iou", iou, IouBase, IouLength),   // the $C000 page decoder (unchanged)
             ],
             Irq: IrqWiring.None,
-            Reset: ResetConfig.None);
+            Reset: ResetConfig.None,
+            NominalClockHz: NominalClockHz);
     }
 
     public const uint VidexFirmwareBase = 0xC800;
@@ -167,6 +174,7 @@ public static class Apple2Board
                 new PeripheralSlot("videx", videx, VidexFirmwareBase, VidexFirmwareLength), // the $C800 firmware slot
             ],
             Irq: IrqWiring.None,
-            Reset: ResetConfig.None);
+            Reset: ResetConfig.None,
+            NominalClockHz: NominalClockHz);
     }
 }

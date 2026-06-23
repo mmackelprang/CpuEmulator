@@ -53,6 +53,9 @@ public static class BoardMachineFactory
 
         builder.WithCpu(CpuCoreFactory.ForKind(spec.Cpu, AddressSpaceKind.Program, tier));
 
+        if (spec.NominalClockHz is { } hz)
+            builder.WithNominalClock(hz);
+
         if (spec.Coprocessor is { } copro)
         {
             // The coprocessor is built on the INTERPRETER tier (ADR 0015 Decision 4): it runs over a

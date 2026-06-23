@@ -45,16 +45,63 @@
     }
     /* Reduced motion: the upload spinner is a static glyph (interactions §8). */
     @media (prefers-reduced-motion: reduce) { .drive-light.uploading { animation: none; } }
+
+    /* --- Perf-overlay HUD (NEW region; design handoff 2026-06-23-perf-overlay §5). A floating, semi-
+       transparent, top-right overlay over the canvas — off by default, backtick toggles it. Built only
+       from the shipped tokens plus two new CSS properties (the 0.7-alpha black + backdrop blur). --- */
+    /* The canvas gets a positioned wrapper so the HUD can anchor to the DISPLAY corner, not the page. The
+       wrapper is sized by the canvas (inline-block shrink-wrap); the HUD is an absolutely-positioned sibling. */
+    #screen-wrap { position: relative; display: inline-block; line-height: 0; }
+    #perf-hud {
+      position: absolute; top: 16px; right: 16px;             /* --pad inset from the display's top-right */
+      background: rgba(0, 0, 0, 0.7);                          /* a 70%-opaque form of --canvas-bg #000 */
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+      border: 1px solid #444;                                 /* --kbd-border */
+      border-radius: 3px;                                     /* --kbd-radius */
+      padding: 8px 10px;
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;  /* system mono, no web font */
+      font-size: 12px;                                        /* --muted-size */
+      line-height: 1.5;
+      color: #ccc;                                            /* --fg (value color) */
+      pointer-events: none;                                   /* never intercept canvas pointer/keys */
+      user-select: none;
+      text-align: left;
+      white-space: nowrap;
+    }
+    #perf-hud[hidden] { display: none; }                       /* off by default = not painted */
+    /* Each row: a fixed-width label column (muted) + a value column (fg). */
+    #perf-hud .perf-row { display: flex; gap: 10px; }
+    #perf-hud .perf-label { color: #888; width: 5ch; }         /* --muted, lowercase, left-aligned */
+    #perf-hud .perf-value { color: #ccc; }                     /* --fg */
+    #perf-hud .perf-value.accent { color: var(--drive-active); } /* amber: active tier word + throughput headline */
+    #perf-hud .perf-disconnected { color: #888; margin-top: 2px; }  /* the frozen "· disconnected" line */
   </style>
 </head>
 <body>
   <h1>CpuEmulator — Apple ][+</h1>
-  <canvas id="screen" width="280" height="192"></canvas>
+  <!-- The canvas + its perf-HUD overlay share a positioned wrapper so the HUD anchors to the DISPLAY's
+       top-right corner (clear of the boot text / CP/M A> prompt at the top-left), not the page. -->
+  <div id="screen-wrap">
+    <canvas id="screen" width="280" height="192"></canvas>
+    <!-- The perf-overlay HUD (design handoff 2026-06-23-perf-overlay). Off by default (hidden); the backtick
+         ` key toggles it. app.js (repaintHud) fills the value cells from window.perfStats (PF frame) + the
+         client-measured FPS; the jit/cpu2 rows are shown only when they apply. Pure output — no controls. -->
+    <div id="perf-hud" role="group" aria-label="performance overlay" hidden>
+      <div class="perf-row"><span class="perf-label">board</span><span class="perf-value" id="perf-board">—</span></div>
+      <div class="perf-row"><span class="perf-label">fps</span><span class="perf-value" id="perf-fps">—</span></div>
+      <div class="perf-row"><span class="perf-label">guest</span><span class="perf-value accent" id="perf-guest">—</span></div>
+      <div class="perf-row"><span class="perf-label">mem</span><span class="perf-value" id="perf-mem">—</span></div>
+      <div class="perf-row"><span class="perf-label">tier</span><span class="perf-value" id="perf-tier">—</span></div>
+      <div class="perf-row" id="perf-jit-row" hidden><span class="perf-label">jit</span><span class="perf-value" id="perf-jit">—</span></div>
+      <div class="perf-row" id="perf-cpu2-row" hidden><span class="perf-label">cpu2</span><span class="perf-value" id="perf-cpu2">—</span></div>
+      <div class="perf-disconnected" id="perf-disconnected" hidden>· disconnected</div>
+    </div>
+  </div>
   <div id="mode-label"></div>
   <div id="status" aria-live="polite">connecting…</div>
   <div id="asset-banner" hidden></div>
   <button id="enable-sound" type="button">click to enable sound</button>
-  <div id="hint">Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET.</div>
+  <div id="hint">Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET. <kbd>`</kbd> = perf HUD</div>
 
   <!-- The control strip (PR-T). app.js (renderControlStrip) fills each panel's top line (light +
        label + eject) and controls line (library select + Insert… + the hidden file input) from the

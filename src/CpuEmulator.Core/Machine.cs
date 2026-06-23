@@ -13,6 +13,7 @@ public sealed class Machine : IMachineContext, ICoprocessorControl
     private readonly LateBoundLine _nmiTarget = new();
     private readonly ICpuCore? _coprocessor;
     private readonly double _coprocessorRatio;
+    private readonly double? _nominalClockHz;
     private bool _z80Active;                       // false at reset: the primary runs (ADR 0015 Decision 1)
     private long _coprocessorCyclesContributed;    // coprocessor cycles run so far (for the virtual clock)
     private bool _sliceEndRequested;               // set by SetCoprocessorActive to end the running slice
@@ -30,6 +31,28 @@ public sealed class Machine : IMachineContext, ICoprocessorControl
     /// <summary>The optional coprocessor core (null on every single-CPU machine). Test/host introspection.</summary>
     public ICpuCore? Coprocessor => _coprocessor;
 
+    /// <summary>True when the primary CPU is the IL-JIT tier (it exposes <see cref="IJitMetrics"/>), false
+    /// for the interpreter. The locked display-only tier the perf-overlay HUD reports (handoff §7 item 1);
+    /// it is observed (the built tier), never set — there is no toggle.</summary>
+    public bool IsJitted => Cpu is IJitMetrics;
+
+    /// <summary>The IL-JIT run-lifetime stats when the primary runs on the JIT tier, else null. A pure
+    /// type-test forward of the primary CPU's <see cref="IJitMetrics"/> seam (handoff §7 item 2): the host
+    /// reads compiled/recompiled/evicted/SMC-hot counts for the HUD's <c>jit</c> row without naming any
+    /// concrete <c>JittedCpu&lt;T&gt;</c>. Null on the interpreter tier (the HUD then omits the jit rows).</summary>
+    public IJitMetrics? JitMetrics => Cpu as IJitMetrics;
+
+    /// <summary>The board's documented nominal guest clock in Hz (e.g. ~1,020,500 for the Apple ][+,
+    /// 3,500,000 for the ZX Spectrum), or null when the board declares none. Drives the HUD's real-time
+    /// ratio (cycles/sec ÷ nominal Hz); a null clock omits the ratio rather than faking it (handoff §3.1 /
+    /// §7 item 5). Static per machine — set at construction from the board spec.</summary>
+    public double? NominalClockHz => _nominalClockHz;
+
+    /// <summary>The size, in bytes, of the primary program address space the board exposes (the emulated
+    /// RAM-map extent, e.g. 65,536 for a 16-bit bus). A small, stable, honest number — the guest's memory,
+    /// not the host's (handoff §3.3 / §7 item 6). Read once from the Program space's address width.</summary>
+    public long AddressSpaceBytes => 1L << GetSpace(AddressSpaceKind.Program).AddressBits;
+
     public static MachineBuilder Create(string name) => new(name);
 
     internal Machine(
@@ -38,9 +61,11 @@ public sealed class Machine : IMachineContext, ICoprocessorControl
         List<(AddressSpaceKind Kind, uint Start, byte[] Backing, bool Writable)> memoryDefs,
         List<(AddressSpaceKind Kind, uint Start, uint Length, IPeripheral Peripheral)> peripheralDefs,
         Func<IMachineContext, ICpuCore> cpuFactory,
-        CoprocessorBuild? coprocessor = null)
+        CoprocessorBuild? coprocessor = null,
+        double? nominalClockHz = null)
     {
         Name = name;
+        _nominalClockHz = nominalClockHz;
         _scheduler = new CycleScheduler();
         IrqLine = new InterruptLine(_irqTarget.Set);
         NmiLine = new InterruptLine(_nmiTarget.Set);

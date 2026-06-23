@@ -90,6 +90,44 @@ public static class FrameCodec
         return Encoding.UTF8.GetBytes("ST " + json);
     }
 
+    /// <summary>Encode a performance/telemetry snapshot as the <c>PF</c> text frame: the literal prefix
+    /// <c>"PF "</c> followed by a compact JSON body (design handoff 2026-06-23-perf-overlay §6.2). A SIBLING
+    /// of the <c>ST</c> frame, NOT an extension of it: <c>ST</c> is on-change machine state; <c>PF</c> is
+    /// telemetry pushed unconditionally at ~3 Hz (its rates always move, which would defeat StatusPusher's
+    /// byte-equal dedupe). The client routes by the <c>"PF "</c> prefix (handlePerfText → window.perfStats).
+    /// Lower-case keys, stable order. Null-valued keys are OMITTED entirely (not serialized as <c>null</c>):
+    /// <c>hz</c> when the board declares no nominal clock, <c>jit</c> on the interpreter tier, <c>cpu2</c> on
+    /// single-CPU boards — so the client's "omit the row when the key is absent" path stays simple. <c>fps</c>
+    /// and <c>ips</c> are intentionally never present (fps is client-only; ips is a deferred follow-on).</summary>
+    public static byte[] EncodePerf(PerfStats stats)
+    {
+        ArgumentNullException.ThrowIfNull(stats);
+        // Build an ordered dictionary so null fields can be omitted (rather than emitted as `null`).
+        var body = new Dictionary<string, object>
+        {
+            ["board"] = stats.Board,
+            ["cps"] = stats.CyclesPerSecond,
+        };
+        if (stats.NominalClockHz is { } hz)
+            body["hz"] = hz;
+        body["ramBytes"] = stats.RamBytes;
+        body["hostBytes"] = stats.HostWorkingSetBytes;
+        body["tier"] = stats.IsJitted ? "jit" : "interpreter";
+        if (stats.Jit is { } jit)
+            body["jit"] = new
+            {
+                compiled = jit.Compiled,
+                recompiled = jit.Recompiled,
+                evicted = jit.Evicted,
+                smcHot = jit.SmcHot,
+            };
+        if (stats.Coprocessor is { } cpu2)
+            body["cpu2"] = new { name = cpu2.Name, active = cpu2.Active };
+
+        string json = JsonSerializer.Serialize(body);
+        return Encoding.UTF8.GetBytes("PF " + json);
+    }
+
     /// <summary>Encode the upload-result ack as an <c>ST</c> text frame (design D12 UPLOADING -> INSERTED /
     /// error). The wire reuses the "ST " prefix (the client routes all text to handleStatusText); the
     /// distinguishing <c>upload</c> key tells the client this is an upload result, not a status snapshot.
