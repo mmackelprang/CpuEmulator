@@ -10,9 +10,11 @@ namespace CpuEmulator.Tests.TomHarte;
 /// JittedCpu&lt;M8086Cpu&gt;. In M5.6 this was all-fallback (every 8086 op deferred to inner.Step via the empty-Ops
 /// NeedsFallback descriptors). As of M6 PR-B/PR-C the ALU + MOV families now EMIT real IL through the JIT — so for
 /// those rows the sweep proves genuine EMIT parity (the compiled IL's final state == the oracle), not just
-/// fallback-passthrough. The remaining families (MUL/IMUL/DIV/IDIV and the string/control/stack ops not yet
-/// emitted) STILL fall back to inner.Step, where the JIT final state equals the interpreter's (which already passes
-/// these vectors — M5.5a–d). A green sweep proves the GENERIC COMPILER (the discovery walk, the keyed DescriptorFor,
+/// fallback-passthrough. Row MD (ROADMAP #4) added the F6/F7 /4../7 MUL/IMUL/DIV/IDIV rows; Row STR (ROADMAP #4)
+/// added the string family (MOVS/CMPS/STOS/LODS/SCAS, A4-A7/AA-AF, REP-prefixed or not) — so the A4-AF files in
+/// this sweep now prove genuine EMIT parity (the CX-loop + DF-direction + REPE/REPNE ZF early-exit), not
+/// fallback-passthrough. The remaining still-fallback ops are the control/stack tail not in #4's scope, where the
+/// JIT final state equals the interpreter's (which already passes these vectors — M5.5a–d). A green sweep proves the GENERIC COMPILER (the discovery walk, the keyed DescriptorFor,
 /// the per-CPU BlockDelegate, the data-driven register map, the cycle/budget/dispatch machinery) runs the
 /// complete 8086 faithfully — the same proof M4.6 delivered for the 68000, now on the 16-bit-register /
 /// 20-bit-segmented-address / little-endian / byte-variable-length-decode CPU. The data axis is the 14 registers
