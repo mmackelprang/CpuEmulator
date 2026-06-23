@@ -91,6 +91,9 @@ public static class SoftCardVidexBoard
             ],
             Irq: IrqWiring.None,
             Reset: ResetConfig.None,
-            Coprocessor: coprocessor);
+            Coprocessor: coprocessor,
+            // The 6502 is bus master; the scheduler clock is the primary (virtual 6502) domain, so the
+            // real-time ratio is against the Apple clock (the Z80's faster rate folds in via the ratio).
+            NominalClockHz: Apple2Board.NominalClockHz);
     }
 }

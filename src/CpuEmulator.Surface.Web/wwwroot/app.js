@@ -17,8 +17,13 @@
       if (!firstFrameSeen) status.textContent = "connected · waiting for first frame…";
     }, 3000);
   };
-  ws.onclose = () => { clearFirstFrameTimer(); status.textContent = "disconnected — reload to reconnect"; };
-  ws.onerror = () => { clearFirstFrameTimer(); status.textContent = "connection error — is the server running?"; };
+  ws.onclose = () => { clearFirstFrameTimer(); status.textContent = "disconnected — reload to reconnect"; markPerfDisconnected(); };
+  ws.onerror = () => { clearFirstFrameTimer(); status.textContent = "connection error — is the server running?"; markPerfDisconnected(); };
+
+  // Perf HUD §8 disconnected: freeze on the last PF values and append a muted "· disconnected" line (the
+  // HUD does not blank — frozen-but-labeled beats blank). Defined here; the function body lives in the HUD
+  // block below (hoisted), so the handlers above can reference it.
+  function markPerfDisconnected() { perfDisconnected = true; if (window.hudOn) repaintHud(); }
 
   // M4: the first-frame diagnostic timer (started on open, cleared by the first FB frame or a disconnect).
   let firstFrameTimer = null;
@@ -29,7 +34,7 @@
 
   // H3: the keyboard-hint copy (copy.md §4) lives in two states the asset drives. The booted form is the
   // server-rendered #hint markup; the demo form omits the RESET/BASIC chords (there is no Apple to reset).
-  const HINT_BOOTED = "Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET.";
+  const HINT_BOOTED = "Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET. <kbd>`</kbd> = perf HUD";
   const HINT_DEMO = "Fetch the ROMs to boot a real Apple ][+: <kbd>tools/get-apple2-roms.sh</kbd>";
   function setHint(booted) {
     const hint = document.getElementById("hint");
@@ -180,15 +185,171 @@
     if (l2) l2.textContent = "fetching the Apple ROMs.";
   }
 
+  // --- Perf-overlay HUD (design handoff 2026-06-23-perf-overlay) ---
+  // State: window.perfStats holds the latest PF frame (server telemetry); window.hudOn is the toggle; the
+  // FPS ring measures display frames client-side (the ONLY client-computed metric — §4). Off by default.
+  window.perfStats = null;          // the latest PF frame body, or null before the first one ("initializing")
+  window.hudOn = false;             // backtick toggles; default off (an instrument you reach for)
+  let perfDisconnected = false;     // frozen-but-labeled on ws close/error (§8 disconnected)
+  let lastPerfAt = 0;               // performance.now() of the last PF frame (for the >2 s stale dim — §8)
+  const fpsRing = [];               // FB-arrival timestamps within the last 1 s (the FPS measurement window)
+
+  // Push a frame-arrival timestamp and drop any older than 1 s. FPS = ring length. Called from the FB branch.
+  function noteFrameForFps(now) {
+    fpsRing.push(now);
+    const cutoff = now - 1000;
+    while (fpsRing.length && fpsRing[0] < cutoff) fpsRing.shift();
+  }
+  function measuredFps(now) {
+    const cutoff = now - 1000;
+    while (fpsRing.length && fpsRing[0] < cutoff) fpsRing.shift();
+    return fpsRing.length;   // integer count of frames painted in the last second
+  }
+
+  // Route a "PF " text frame: parse the JSON body into window.perfStats and repaint the HUD. Read-only —
+  // the client never fabricates these; every field is real machine/host telemetry the server pushed.
+  function handlePerfText(s) {
+    const body = s.slice(3);
+    let pf;
+    try { pf = JSON.parse(body); } catch { return; }
+    window.perfStats = pf;
+    lastPerfAt = performance.now();
+    perfDisconnected = false;       // a fresh PF proves the socket is live again
+    repaintHud();
+  }
+
+  // --- HUD formatting (the wire stays locale-neutral raw numbers; formatting lives here, §6.2) ---
+  function fmtHz(hz) {
+    // cycles/sec or nominal Hz → "1.02 MHz" / "850 kHz" / "0.00 MHz" near zero.
+    if (hz >= 1e6) return (hz / 1e6).toFixed(2) + " MHz";
+    if (hz >= 1e3) return (hz / 1e3).toFixed(0) + " kHz";
+    return (hz / 1e6).toFixed(2) + " MHz";   // sub-kHz (incl. ~0 at boot) reads as "0.00 MHz" — truthful
+  }
+  function fmtGuest(pf) {
+    // "1.02 MHz · 1.0×" — the ratio (cps/hz) is appended ONLY when hz is known; never "· NaN×".
+    let s = fmtHz(pf.cps || 0);
+    if (typeof pf.hz === "number" && pf.hz > 0) {
+      const ratio = (pf.cps || 0) / pf.hz;
+      s += " · " + ratio.toFixed(1) + "×";
+    }
+    return s;
+  }
+  // The guest value is amber when keeping real-time (ratio ≥ 0.95×) OR when the nominal clock is unknown
+  // (the rate alone is the headline); otherwise calm --fg (a slow ratio is information, never alarm-colored).
+  function guestIsAccent(pf) {
+    if (typeof pf.hz !== "number" || pf.hz <= 0) return true;
+    return (pf.cps || 0) / pf.hz >= 0.95;
+  }
+  function fmtBytesKb(b) { return Math.round(b / 1024) + " KB"; }       // emulated RAM-map size
+  function fmtBytesMb(b) { return Math.round(b / (1024 * 1024)) + " MB"; } // host working-set
+  function fmtJit(j) {
+    return "c" + j.compiled + " r" + j.recompiled + " e" + j.evicted + " smc" + j.smcHot;
+  }
+  function jitTitle(j) {
+    return "compiled " + j.compiled + ", recompiled " + j.recompiled +
+           ", evicted " + j.evicted + ", smc hot PCs " + j.smcHot;
+  }
+  function fmtCpu2(c) {
+    const name = c.name || "coproc";
+    return name + (c.active ? " active" : " idle");
+  }
+
+  // Repaint the HUD from window.perfStats + the client FPS. Called on each PF arrival and on the FPS beat.
+  // Never blanks a row to 0/NaN: an absent metric stays the em-dash placeholder (§8 calm-degenerate matrix).
+  const EM = "—";   // em dash — "not measured yet" (never "0", which reads as broken)
+  function setRow(id, text, accent) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("accent", !!accent);
+  }
+  function repaintHud() {
+    const hud = document.getElementById("perf-hud");
+    if (!hud) return;
+    hud.hidden = !window.hudOn;
+    if (!window.hudOn) return;   // off = not painted (cheap; the toggle re-paints on open)
+
+    const pf = window.perfStats;
+    const now = performance.now();
+    // Stale: connected but no PF for >2 s — dim the server values to --muted, keep showing them (§8 stale).
+    const stale = !perfDisconnected && pf && (now - lastPerfAt) > 2000;
+    hud.style.opacity = stale ? "0.6" : "";
+
+    // fps is client-measured and updates even when PF is absent/stale/disconnected (it's local).
+    const fps = fpsRing.length ? String(measuredFps(now)) : EM;
+    setRow("perf-fps", fps, false);
+
+    const jitRow = document.getElementById("perf-jit-row");
+    const cpu2Row = document.getElementById("perf-cpu2-row");
+    const jitEl = document.getElementById("perf-jit");
+
+    if (!pf) {
+      // Initializing: HUD open, before the first PF frame. board from ST if known, else "—"; server rows "—".
+      const board = (window.machineStatus && window.machineStatus.board) || EM;
+      setRow("perf-board", board, false);
+      setRow("perf-guest", EM, false);
+      setRow("perf-mem", EM, false);
+      setRow("perf-tier", EM, false);
+      if (jitRow) jitRow.hidden = true;
+      if (cpu2Row) cpu2Row.hidden = true;
+    } else {
+      setRow("perf-board", pf.board || EM, false);
+      setRow("perf-guest", fmtGuest(pf), guestIsAccent(pf));
+      setRow("perf-mem",
+        (typeof pf.ramBytes === "number" ? fmtBytesKb(pf.ramBytes) : EM) + " · " +
+        (typeof pf.hostBytes === "number" ? fmtBytesMb(pf.hostBytes) : EM), false);
+      // tier: the active word only — "JIT" (amber) or "interpreter" (muted). Never both.
+      const isJit = pf.tier === "jit";
+      setRow("perf-tier", isJit ? "JIT" : "interpreter", isJit);
+      // jit row: only when tier=JIT and the stats are present; the full words live in the row title.
+      if (jitRow) {
+        if (isJit && pf.jit) {
+          jitRow.hidden = false;
+          if (jitEl) { jitEl.textContent = fmtJit(pf.jit); jitEl.title = jitTitle(pf.jit); }
+        } else {
+          jitRow.hidden = true;
+        }
+      }
+      // cpu2 row: only when the board has a coprocessor (the PF frame carries cpu2).
+      if (cpu2Row) {
+        if (pf.cpu2) { cpu2Row.hidden = false; setRow("perf-cpu2", fmtCpu2(pf.cpu2), false); }
+        else cpu2Row.hidden = true;
+      }
+    }
+
+    // The frozen "· disconnected" line (§8): shown on socket close/error; the values freeze on their last PF.
+    const disc = document.getElementById("perf-disconnected");
+    if (disc) disc.hidden = !perfDisconnected;
+  }
+
+  // The HUD's own light repaint beat (~250 ms): folds in the latest client FPS without a per-frame layout
+  // thrash (§4). Server rows repaint event-driven off PF; this timer keeps fps/stale/disconnected current.
+  setInterval(function () { if (window.hudOn) repaintHud(); }, 250);
+
+  // Toggle the HUD on/off (backtick). Session-only state (no persistence in v1). Repaints immediately.
+  function toggleHud() {
+    window.hudOn = !window.hudOn;
+    repaintHud();
+  }
+
   // Decode a binary FB frame: 'F','B', version, reserved, u16 width LE, u16 height LE, then RGBA u32 LE.
   ws.onmessage = (ev) => {
-    if (typeof ev.data === "string") { handleStatusText(ev.data); return; }
+    if (typeof ev.data === "string") {
+      // Route by prefix: PF (perf telemetry → the HUD) vs ST (machine state → the drive/mode UI). Separate
+      // channels, same socket — exactly as ST has always been the text discriminator.
+      if (ev.data.startsWith("PF ")) { handlePerfText(ev.data); return; }
+      handleStatusText(ev.data);
+      return;
+    }
     const data = new DataView(ev.data);
     const m0 = data.getUint8(0), m1 = data.getUint8(1);
     if (m0 === 0x41 && m1 === 0x55) { handleAudioFrame(data); return; } // 'A','U'
     if (m0 !== 0x46 || m1 !== 0x42) return;                             // not 'F','B'
     // M4: the first real frame cancels the "waiting" diagnostic; from here the ST-driven status owns the line.
     if (!firstFrameSeen) { firstFrameSeen = true; clearFirstFrameTimer(); }
+    // Perf HUD: record this display-frame arrival for the client-measured FPS ring (§4 — the only
+    // client-computed metric). The HUD's own ~250 ms timer reads the ring; we don't repaint per-frame.
+    noteFrameForFps(performance.now());
     const width = data.getUint16(4, true);
     const height = data.getUint16(6, true);
     if (canvas.width !== width || canvas.height !== height) {
@@ -210,6 +371,13 @@
   };
 
   function sendKey(action, ev) {
+    // Perf HUD toggle (§6.4): the backtick ` is intercepted AHEAD of the wire. It is a confirmed guest
+    // no-op (MapDomCode has no Backquote arm → KeyCode.None), so swallowing it costs nothing — the keydown
+    // toggles the HUD and the key (down AND up) never reaches the machine.
+    if (ev.code === "Backquote") {
+      if (action === "down") toggleHud();
+      return;
+    }
     if (ws.readyState !== WebSocket.OPEN) return;
     // A single printable character (length-1 key) is the typed char; otherwise empty.
     const ch = ev.key && ev.key.length === 1 ? ev.key : "";

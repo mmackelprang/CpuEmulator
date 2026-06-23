@@ -157,6 +157,20 @@ internal static class DemoSession
         return WebSystem.Demo;
     }
 
+    /// <summary>The HUD's <c>board</c> row name for the PF frame. Reuses the Apple status provider's live
+    /// board string when present (so the HUD matches the ST snapshot); otherwise a per-system descriptor for
+    /// the boards that ride the legacy one-shot ST text frame (Spectrum/demo).</summary>
+    private static string PerfBoardName(WebSystem system, Func<MachineStatus>? statusProvider)
+    {
+        if (statusProvider is not null)
+            return statusProvider().Board;   // the Apple surfaces' live board name
+        return system switch
+        {
+            WebSystem.Spectrum => "ZX Spectrum 48K",
+            _ => "demo board",
+        };
+    }
+
     public static async Task RunAsync(WebSocket socket, CancellationToken ct)
     {
         Channel<byte[]> frames = Channel.CreateBounded<byte[]>(
@@ -324,9 +338,18 @@ internal static class DemoSession
             await socket.SendAsync(Encoding.UTF8.GetBytes($"ST {assetState}"),
                 WebSocketMessageType.Text, endOfMessage: true, ct);
 
+        // The PF perf/telemetry frame (perf-overlay HUD): pushed unconditionally at ~3 Hz through the SAME
+        // text channel the ST frame uses (the client routes by the "PF "/"ST " prefix). Built for EVERY
+        // system — the HUD works on the Spectrum/demo too. The board name is the Apple status provider's
+        // when present, else a per-system descriptor (the HUD's `board` row). Separate from the ST pusher:
+        // the perf frame never touches the drive/mode UI's ST dedupe.
+        string perfBoardName = PerfBoardName(system, statusProvider);
+        var perfPusher = new PerfPusher(host.Machine, () => perfBoardName,
+            f => statusFrames.Writer.TryWrite(f));
+
         // The pump is built once, post-branch, with the optional status pusher (null for Spectrum/demo —
-        // their tick stays byte-for-byte unchanged).
-        ISurfacePump pump = new SurfacePump(host, slice, period, statusPusher);
+        // their tick stays byte-for-byte unchanged) and the always-on perf pusher.
+        ISurfacePump pump = new SurfacePump(host, slice, period, statusPusher, perfPusher);
 
         Task drive = pump.RunAsync(ct);
         Task sendFrames = SendBinaryAsync(socket, frames.Reader, ct);
@@ -523,25 +546,42 @@ internal static class DemoSession
 
     private sealed class SurfacePump : ISurfacePump
     {
+        // The PF perf frame cadence (~3 Hz / 333 ms): smooth enough that rates don't visibly jitter, slow
+        // enough to be negligible load and NOT per-frame (handoff §6.3). Decoupled from the frame _period
+        // (~16-20 ms) by accumulating wall-time across pump ticks.
+        private static readonly TimeSpan PerfPeriod = TimeSpan.FromMilliseconds(333);
+
         private readonly MachineHost _host;
         private readonly long _slice;
         private readonly TimeSpan _period;
         private readonly StatusPusher? _statusPusher;
-        public SurfacePump(MachineHost host, long slice, TimeSpan period, StatusPusher? statusPusher = null)
+        private readonly PerfPusher? _perfPusher;
+        public SurfacePump(MachineHost host, long slice, TimeSpan period, StatusPusher? statusPusher = null,
+                           PerfPusher? perfPusher = null)
         {
             _host = host;
             _slice = slice;
             _period = period;
             _statusPusher = statusPusher;
+            _perfPusher = perfPusher;
         }
 
         public async Task RunAsync(CancellationToken ct)
         {
             using var timer = new PeriodicTimer(_period);
+            var perfClock = System.Diagnostics.Stopwatch.StartNew();
+            TimeSpan nextPerf = TimeSpan.Zero;   // push the first PF frame on the first tick (HUD primes fast)
             while (await timer.WaitForNextTickAsync(ct))
             {
                 _host.Step(_slice);
                 _statusPusher?.Tick();        // push ST only when the real snapshot changed
+                // Push the PF perf frame on its own ~3 Hz beat (unconditional — no on-change gate), throttled
+                // independently of the ~60 Hz frame pump so the telemetry stays cheap.
+                if (_perfPusher is not null && perfClock.Elapsed >= nextPerf)
+                {
+                    _perfPusher.Tick();
+                    nextPerf = perfClock.Elapsed + PerfPeriod;
+                }
             }
         }
 

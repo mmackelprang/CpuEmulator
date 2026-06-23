@@ -10,7 +10,7 @@ namespace CpuEmulator.Jit;
 /// TomHarte runner drive it identically to the interpreter. The CPU-specific reflection + decode is
 /// resolved through the injected <see cref="IJitTarget"/> (the per-CPU seam) — the JIT assembly no
 /// longer references any concrete CPU assembly (a structural genericity proof).</summary>
-public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidationListener
+public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidationListener, IJitMetrics
     where TCpu : class, ICpuCore, IMonitorSupport
 {
     /// <summary>The gate message — extracted to a const so the gate test references it directly
@@ -91,6 +91,14 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     internal long TotalRecompiles => _cache.TotalRecompiles;
     internal long TotalEvictions => _cache.TotalEvictions;
     internal int SmcHotPcCount => _cache.SmcHotPcCount;
+
+    // IJitMetrics — the public, NON-generic forwarding seam the perf-overlay HUD reads (handoff §7 item 2).
+    // Each forwards the matching internal test seam above; no new state, a pure forward. The interpreter
+    // cores don't implement IJitMetrics, so `cpu is IJitMetrics` is the host's one-test JIT-tier detector.
+    int IJitMetrics.CompileCount => CompileCount;
+    long IJitMetrics.TotalRecompiles => TotalRecompiles;
+    long IJitMetrics.TotalEvictions => TotalEvictions;
+    int IJitMetrics.SmcHotPcCount => SmcHotPcCount;
 
     /// <summary>Test seam: how many chain edges have been taken without a dispatcher round-trip
     /// (the chaining pins read this; 0 with <see cref="JitOptions.DisableChaining"/> or M2-i).</summary>

@@ -52,6 +52,11 @@ public sealed class MachineHost
         }
     }
 
+    /// <summary>The driven machine, exposed read-only so the perf producer can read its additive telemetry
+    /// accessors (IsJitted / JitMetrics / Cpu.CycleCount / NominalClockHz / AddressSpaceBytes /
+    /// CoprocessorActive). Introspection only — the host owns stepping; nothing here mutates the machine.</summary>
+    public Machine Machine => _machine;
+
     /// <summary>Push a key into the machine's keyboard.</summary>
     public void PostKey(in KeyEvent e) => _keyboard.PostKey(e);
 

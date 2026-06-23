@@ -11,7 +11,9 @@ namespace CpuEmulator.Machines;
 /// bus reads — the reset vectors and the fetched instruction stream — are byte-ordered correctly.
 /// IoAddressBits, when &gt; 0, declares a separate I/O PORT space of that width (the Z80 IN/OUT range
 /// = 16) into which IoMmio regions + Io peripheral slots are mapped; 0 (the default) means the board
-/// has no I/O space (every pre-Spectrum board).</summary>
+/// has no I/O space (every pre-Spectrum board). NominalClockHz, when set, is the board's documented guest
+/// clock in Hz (e.g. ~1,020,500 for the Apple ][+, 3,500,000 for the ZX Spectrum); it is surfaced read-only
+/// as Machine.NominalClockHz for the perf-overlay HUD's real-time ratio (null = the HUD omits the ratio).</summary>
 public sealed record BoardSpec(
     string Name,
     CpuKind Cpu,
@@ -22,4 +24,5 @@ public sealed record BoardSpec(
     ResetConfig Reset,
     Endianness Endianness = Endianness.LittleEndian,
     int IoAddressBits = 0,
-    CoprocessorSpec? Coprocessor = null);
+    CoprocessorSpec? Coprocessor = null,
+    double? NominalClockHz = null);

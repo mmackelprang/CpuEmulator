@@ -43,3 +43,6 @@ Thumbs.db
 # Local test-vector caches (e.g. SingleStepTests JSON corpora)
 /tests/vectors/
 progress.md
+
+# Claude Code local workspace (agent worktrees, local settings) — never committed
+/.claude/

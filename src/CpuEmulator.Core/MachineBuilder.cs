@@ -11,6 +11,7 @@ public sealed class MachineBuilder
     private Func<IMachineContext, ICpuCore>? _coprocessorFactory;
     private IAddressTranslation? _coprocessorTranslation;
     private double _coprocessorClockRatio;
+    private double? _nominalClockHz;
     private bool _built;
 
     internal MachineBuilder(string name) => _name = name;
@@ -72,6 +73,18 @@ public sealed class MachineBuilder
         return this;
     }
 
+    /// <summary>Declare the board's documented nominal guest clock in Hz (e.g. ~1,020,500 for the Apple
+    /// ][+). Surfaced read-only as <see cref="Machine.NominalClockHz"/> for the perf-overlay HUD's real-time
+    /// ratio (handoff §7 item 5). Optional: a board that doesn't declare one leaves it null and the HUD omits
+    /// the ratio. Must be positive when supplied.</summary>
+    public MachineBuilder WithNominalClock(double hz)
+    {
+        if (hz <= 0)
+            throw new MachineConfigurationException($"Nominal clock must be positive; got {hz}.");
+        _nominalClockHz = hz;
+        return this;
+    }
+
     /// <summary>Construct the machine. May only be called once; a Build() that throws still consumes the builder.</summary>
     public Machine Build()
     {
@@ -88,7 +101,8 @@ public sealed class MachineBuilder
             ? null
             : new CoprocessorBuild(_coprocessorFactory, _coprocessorTranslation!, _coprocessorClockRatio);
 
-        return new Machine(_name, _spaceDefs, _memoryDefs, _peripheralDefs, _cpuFactory, coprocessor);
+        return new Machine(_name, _spaceDefs, _memoryDefs, _peripheralDefs, _cpuFactory, coprocessor,
+            _nominalClockHz);
     }
 }
 
