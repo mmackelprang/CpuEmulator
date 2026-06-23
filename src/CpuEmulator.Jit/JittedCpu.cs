@@ -150,22 +150,25 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
                 continue;
             }
             _cache.InvalidateIfDirty();          // SMC: discard cache if a code page was written
-            var pc = (ushort)_inner.GetRegister(_pcName);
+            // ADR 0019 FF-1: the block-cache key is the per-CPU linear projection (the flat CPUs' is
+            // (uint)PC — identical to the old ushort read; the 8086's folds (CS<<4)+IP). Read once per
+            // block dispatch (chaining stays inside the emitted block).
+            uint key = _target.ProjectBlockKey(_inner);
             // M6 PR-S: the SMC/recompile-cost lever. A PC that thrashed past the recompile cap runs
             // via the interpreter oracle (the same inner.Step the fallback valve uses) for its cooldown
             // window — eliminating the per-dispatch Compile() that makes SMC-heavy W1 (Klaus) ~0.00×.
             // This is a PERFORMANCE policy: inner.Step is byte-exact (the differential fuzzer proves it),
             // so the lever never changes the result, only the tier. The interpreter's own WriteBus still
             // dirty-marks any SMC store it makes, so SMC observation is unchanged (DECISION S-4).
-            if (_cache.ShouldInterpret(pc))
+            if (_cache.ShouldInterpret(key))
             {
                 long before = _inner.CycleCount;
                 _inner.Step();                   // one instruction via the oracle
                 cycleBudget -= _inner.CycleCount - before;
-                _cache.NoteInterpretedDispatch(pc);
+                _cache.NoteInterpretedDispatch(key);
                 continue;                         // re-tops to InterruptPending/Halted/InvalidateIfDirty
             }
-            CompiledBlock<TCpu> block = _cache.GetOrCompile(pc, _compiler);
+            CompiledBlock<TCpu> block = _cache.GetOrCompile(key, _compiler);
             RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
             // Normal/Budget/Recompile all return here for a dispatcher round-trip: the loop tops
             // back to InvalidateIfDirty (flushing a self-modified block on a Recompile/dirty exit)
@@ -207,7 +210,7 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     /// it links the predecessor and resolves the successor BY PC (compiling on first reach), unless
     /// chaining is disabled, in which case it leaves _chainNext null so RunChain rounds back to the
     /// dispatcher. exit = Normal: a chain edge is a clean block end (the gates already passed).</summary>
-    private void ChainEdge(ushort targetPc, ref long budget, out BlockExit exit)
+    private void ChainEdge(uint targetPc, ref long budget, out BlockExit exit)
     {
         exit = BlockExit.Normal;
         if (_opts.DisableChaining) return;          // flag -> no chaining; round-trip
