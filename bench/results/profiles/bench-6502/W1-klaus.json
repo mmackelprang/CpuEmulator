@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedUtc": "2026-06-23T23:32:27.4560555Z",
-  "commit": "65f787e",
+  "generatedUtc": "2026-06-23T23:54:58.3330152Z",
+  "commit": "e29a196",
   "host": {
     "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
     "os": "Microsoft Windows 10.0.26220",
@@ -9,12 +9,12 @@
   },
   "system": "bench-6502",
   "workload": "W1-klaus",
-  "instructionBudget": 20000000,
+  "frozenBudget": 20000000,
   "budgetUnit": "instructions",
   "tiers": {
     "interpreter": {
       "instructionsRetired": 20000000,
-      "cyclesPerSecond": 56167397.45563212,
+      "cyclesPerSecond": 54852865.94849229,
       "realtimeRatio": null,
       "hotOps": [
         {
@@ -111,26 +111,27 @@
       "allocBytesPerWindow": 2560002488
     },
     "jit": {
-      "instructionsRetired": 20000000,
-      "cyclesPerSecond": 1316368.4890384437,
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 1273524.409132343,
       "realtimeRatio": null,
       "emitCoverage": null,
       "fallbackByOpcode": [],
-      "compileCount": 35825,
-      "totalRecompiles": 27089,
-      "totalEvictions": 28588,
-      "smcHotPcCount": 159,
-      "chainEdgesTaken": 0,
-      "dispatcherEntries": 19621441,
-      "blockCacheHits": 19585616,
-      "blockCacheMisses": 35825,
-      "allocBytesPerWindow": 677905552
+      "compileCount": 8647,
+      "totalRecompiles": 6550,
+      "totalEvictions": 7084,
+      "smcHotPcCount": 32,
+      "chainEdgesTaken": 412592,
+      "dispatcherEntries": 554876,
+      "blockCacheHits": 958821,
+      "blockCacheMisses": 8647,
+      "allocBytesPerWindow": 154794832
     }
   },
   "perPeripheralFrameCostNs": null,
   "notes": [
     "kernel hot-op histogram is interpreter-tier, stepped per-instruction (OFFLINE).",
     "fallbackByOpcode is empty \u002B emitCoverage null \u2014 full execution-weighted per-opcode attribution is ADR 0022 item D (deferred).",
-    "kernels declare no nominal clock, so realtimeRatio is null."
+    "kernels declare no nominal clock, so realtimeRatio is null.",
+    "JIT tier is a bulk-Run window (chaining exercised honestly); window CAPPED at 12s wall (SMC-thrash floor \u2014 Klaus/zexdoc are genuinely slow on the JIT, ADR-0012/0022)."
   ]
 }

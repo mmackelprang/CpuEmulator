@@ -1,7 +1,7 @@
 # Performance profiles — INDEX (ADR 0022 item A)
 
-- Generated: 2026-06-23T23:46:01.9297104Z
-- Commit: `65f787e`
+- Generated: 2026-06-23T23:56:33.4978058Z
+- Commit: `e29a196`
 - Host: Microsoft Windows 10.0.26220 / .NET 10.0.9
 - Profiles: 17
 
@@ -15,39 +15,39 @@ path). `recmp/evic` = recompile/eviction churn (SMC/bank thrash). `hit/miss` = b
 
 | system / workload | tier | cyc/s | rtRatio | compiles | recmp/evic | smcHot | chainEdges | dispEntries | chain:disp | hit/miss |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| bench-6502 / W1-klaus | interp | 5.62e+7 | — | — | — | — | — | — | — | — |
-| bench-6502 / W1-klaus | jit | 1.32e+6 | — | 35825 | 27089/28588 | 159 | 0 | 19,621,441 | 0.0 | 19,585,616/35,825 |
-| bench-6502 / W2-arithmetic | interp | 4.71e+7 | — | — | — | — | — | — | — | — |
-| bench-6502 / W2-arithmetic | jit | 5.94e+7 | — | 17 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,983/17 |
-| bench-6502 / W3-sieve | interp | 4.50e+7 | — | — | — | — | — | — | — | — |
-| bench-6502 / W3-sieve | jit | 3.99e+7 | — | 90 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,910/90 |
-| bench-z80 / W1-zexdoc-prefix | interp | 9.59e+7 | — | — | — | — | — | — | — | — |
-| bench-z80 / W1-zexdoc-prefix | jit | 2.40e+5 | — | 812274 | 767333/812200 | 219 | 0 | 8,460,093 | 0.0 | 7,647,819/812,274 |
-| bench-z80 / W2-arithmetic | interp | 9.76e+7 | — | — | — | — | — | — | — | — |
-| bench-z80 / W2-arithmetic | jit | 2.54e+8 | — | 8 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,992/8 |
-| bench-z80 / W3-sieve | interp | 1.33e+8 | — | — | — | — | — | — | — | — |
-| bench-z80 / W3-sieve | jit | 1.86e+8 | — | 48 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,952/48 |
-| bench-68000 / W1-mixed | interp | 4.64e+7 | — | — | — | — | — | — | — | — |
-| bench-68000 / W1-mixed | jit | 2.86e+6 | — | 12 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,988/12 |
-| bench-68000 / W2-arithmetic | interp | 3.54e+7 | — | — | — | — | — | — | — | — |
-| bench-68000 / W2-arithmetic | jit | 1.99e+8 | — | 8 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,992/8 |
-| bench-68000 / W3-sieve | interp | 5.88e+7 | — | — | — | — | — | — | — | — |
-| bench-68000 / W3-sieve | jit | 5.54e+6 | — | 25 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,975/25 |
-| bench-8086 / W1-mixed | interp | 2.25e+7 | — | — | — | — | — | — | — | — |
-| bench-8086 / W1-mixed | jit | 8.99e+6 | — | 16 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,984/16 |
-| bench-8086 / W2-arithmetic | interp | 2.21e+7 | — | — | — | — | — | — | — | — |
-| bench-8086 / W2-arithmetic | jit | 3.24e+7 | — | 7 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,993/7 |
-| bench-8086 / W3-sieve | interp | 2.07e+7 | — | — | — | — | — | — | — | — |
-| bench-8086 / W3-sieve | jit | 3.97e+6 | — | 14 | 0/0 | 0 | 0 | 20,000,000 | 0.0 | 19,999,986/14 |
-| apple2-dos33 / boot-to-basic | interp | 6.21e+7 | 60.834x | — | — | — | — | — | — | — |
-| apple2-dos33 / boot-to-basic | jit | 2.37e+7 | 23.198x | 107 | 0/0 | 0 | 339,658 | 329,217 | 1.0 | 668,768/107 |
-| spectrum-48k / boot-to-copyright | interp | 1.03e+8 | 29.486x | — | — | — | — | — | — | — |
-| spectrum-48k / boot-to-copyright | jit | 7.91e+7 | 22.597x | 265 | 0/0 | 0 | 241,261 | 850,022 | 0.3 | 1,091,018/265 |
-| softcard-cpm22 / boot-to-A | interp | 2.37e+7 | 23.207x | — | — | — | — | — | — | — |
-| softcard-cpm22 / boot-to-A | jit | 1.94e+7 | 19.027x | 0 | 0/0 | 0 | 0 | 0 | — | 0/0 |
-| apl2cpm3-cpm31 / boot-window | interp | 5.41e+7 | 53.032x | — | — | — | — | — | — | — |
-| apl2cpm3-cpm31 / boot-window | jit | 4.93e+7 | 48.318x | 0 | 0/0 | 0 | 0 | 0 | — | 0/0 |
-| apple2-pascal / boot-window | interp | 6.55e+7 | 64.207x | — | — | — | — | — | — | — |
+| bench-6502 / W1-klaus | interp | 5.49e+7 | — | — | — | — | — | — | — | — |
+| bench-6502 / W1-klaus | jit | 1.27e+6 | — | 8647 | 6550/7084 | 32 | 412,592 | 554,876 | 0.7 | 958,821/8,647 |
+| bench-6502 / W2-arithmetic | interp | 3.24e+7 | — | — | — | — | — | — | — | — |
+| bench-6502 / W2-arithmetic | jit | 8.51e+7 | — | 12 | 0/0 | 0 | 14,906 | 1,900,496 | 0.0 | 1,915,390/12 |
+| bench-6502 / W3-sieve | interp | 3.90e+7 | — | — | — | — | — | — | — | — |
+| bench-6502 / W3-sieve | jit | 9.49e+7 | — | 27 | 0/0 | 0 | 1,088,578 | 1,365,413 | 0.8 | 2,453,964/27 |
+| bench-z80 / W1-zexdoc-prefix | interp | 6.58e+7 | — | — | — | — | — | — | — | — |
+| bench-z80 / W1-zexdoc-prefix | jit | 2.38e+5 | — | 13407 | 12590/13364 | 189 | 15,082 | 86,750 | 0.2 | 88,425/13,407 |
+| bench-z80 / W2-arithmetic | interp | 6.58e+7 | — | — | — | — | — | — | — | — |
+| bench-z80 / W2-arithmetic | jit | 4.74e+8 | — | 7 | 0/0 | 0 | 1,146,919 | 10 | 114691.9 | 1,146,922/7 |
+| bench-z80 / W3-sieve | interp | 8.26e+7 | — | — | — | — | — | — | — | — |
+| bench-z80 / W3-sieve | jit | 1.92e+8 | — | 19 | 0/0 | 0 | 98,287 | 640,170 | 0.2 | 738,438/19 |
+| bench-68000 / W1-mixed | interp | 3.28e+7 | — | — | — | — | — | — | — | — |
+| bench-68000 / W1-mixed | jit | 2.04e+6 | — | 7 | 0/0 | 0 | 329,863 | 658,451 | 0.5 | 988,307/7 |
+| bench-68000 / W2-arithmetic | interp | 2.42e+7 | — | — | — | — | — | — | — | — |
+| bench-68000 / W2-arithmetic | jit | 5.49e+8 | — | 7 | 0/0 | 0 | 1,291,292 | 10 | 129129.2 | 1,291,295/7 |
+| bench-68000 / W3-sieve | interp | 4.13e+7 | — | — | — | — | — | — | — | — |
+| bench-68000 / W3-sieve | jit | 3.98e+6 | — | 16 | 0/0 | 0 | 1,405,697 | 683,557 | 2.1 | 2,089,238/16 |
+| bench-8086 / W1-mixed | interp | 1.61e+7 | — | — | — | — | — | — | — | — |
+| bench-8086 / W1-mixed | jit | 7.37e+6 | — | 7 | 0/0 | 0 | 2,499,990 | 7,500,010 | 0.3 | 9,999,993/7 |
+| bench-8086 / W2-arithmetic | interp | 1.43e+7 | — | — | — | — | — | — | — | — |
+| bench-8086 / W2-arithmetic | jit | 5.70e+7 | — | 6 | 0/0 | 0 | 10,009,733 | 10 | 1000973.3 | 10,009,737/6 |
+| bench-8086 / W3-sieve | interp | 1.39e+7 | — | — | — | — | — | — | — | — |
+| bench-8086 / W3-sieve | jit | 3.38e+6 | — | 6 | 0/0 | 0 | 304,182 | 4,847,911 | 0.1 | 5,152,087/6 |
+| apple2-dos33 / boot-to-basic | interp | 5.15e+7 | 50.435x | — | — | — | — | — | — | — |
+| apple2-dos33 / boot-to-basic | jit | 2.01e+7 | 19.723x | 107 | 0/0 | 0 | 339,658 | 329,217 | 1.0 | 668,768/107 |
+| spectrum-48k / boot-to-copyright | interp | 8.03e+7 | 22.930x | — | — | — | — | — | — | — |
+| spectrum-48k / boot-to-copyright | jit | 6.77e+7 | 19.333x | 265 | 0/0 | 0 | 241,261 | 850,022 | 0.3 | 1,091,018/265 |
+| softcard-cpm22 / boot-to-A | interp | 1.79e+7 | 17.512x | — | — | — | — | — | — | — |
+| softcard-cpm22 / boot-to-A | jit | 1.74e+7 | 17.067x | 0 | 0/0 | 0 | 0 | 0 | — | 0/0 |
+| apl2cpm3-cpm31 / boot-window | interp | 4.04e+7 | 39.555x | — | — | — | — | — | — | — |
+| apl2cpm3-cpm31 / boot-window | jit | 3.60e+7 | 35.305x | 0 | 0/0 | 0 | 0 | 0 | — | 0/0 |
+| apple2-pascal / boot-window | interp | 4.98e+7 | 48.780x | — | — | — | — | — | — | — |
 
 ## Top hot-ops (interpreter tier)
 

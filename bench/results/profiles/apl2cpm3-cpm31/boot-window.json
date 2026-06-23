@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedUtc": "2026-06-23T23:46:01.4688682Z",
-  "commit": "65f787e",
+  "generatedUtc": "2026-06-23T23:56:32.8914216Z",
+  "commit": "e29a196",
   "host": {
     "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
     "os": "Microsoft Windows 10.0.26220",
@@ -9,20 +9,20 @@
   },
   "system": "apl2cpm3-cpm31",
   "workload": "boot-window",
-  "instructionBudget": 60000000,
+  "frozenBudget": 60000000,
   "budgetUnit": "cycles",
   "tiers": {
     "interpreter": {
       "instructionsRetired": 0,
-      "cyclesPerSecond": 54118782.186660804,
-      "realtimeRatio": 53.03246517011615,
+      "cyclesPerSecond": 40365253.09054652,
+      "realtimeRatio": 39.55500830051869,
       "hotOps": [],
-      "allocBytesPerWindow": 196781920
+      "allocBytesPerWindow": 196782064
     },
     "jit": {
       "instructionsRetired": 0,
-      "cyclesPerSecond": 49307482.62150285,
-      "realtimeRatio": 48.31774199448776,
+      "cyclesPerSecond": 36028608.15699729,
+      "realtimeRatio": 35.3054120956304,
       "emitCoverage": null,
       "fallbackByOpcode": [],
       "compileCount": 0,
@@ -33,7 +33,7 @@
       "dispatcherEntries": 0,
       "blockCacheHits": 0,
       "blockCacheMisses": 0,
-      "allocBytesPerWindow": 196786024
+      "allocBytesPerWindow": 196786504
     }
   },
   "perPeripheralFrameCostNs": null,
