@@ -23,7 +23,7 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
 {
     private readonly int _pageCount = pageCount;
     private readonly JitOptions _opts = opts;
-    private readonly System.Collections.Generic.Dictionary<ushort, CompiledBlock<TCpu>> _blocks = new();
+    private readonly System.Collections.Generic.Dictionary<uint, CompiledBlock<TCpu>> _blocks = new();
     private readonly System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<CompiledBlock<TCpu>>> _blocksByPage = new();
     public DirtyMap Dirty { get; } = new(pageCount);
 
@@ -31,8 +31,8 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
     // pc has been EVICTED-then-recompiled (a first compile is not a recompile). When it exceeds the
     // cap, the PC is SMC-hot: _cooldown[pc] is set to the cooldown window and ShouldInterpret(pc)
     // returns true until the window drains (the dispatcher runs inner.Step for it instead of compiling).
-    private readonly System.Collections.Generic.Dictionary<ushort, int> _recompiles = new();
-    private readonly System.Collections.Generic.Dictionary<ushort, int> _cooldown = new();
+    private readonly System.Collections.Generic.Dictionary<uint, int> _recompiles = new();
+    private readonly System.Collections.Generic.Dictionary<uint, int> _cooldown = new();
     // M6 PR-S: committed instrumentation (the §3.4 "quantify first" asserted artifact). TotalRecompiles
     // is every evict-then-recompile across the run; TotalEvictions is every block drop; SmcHotPcCount is
     // how many distinct PCs ever tripped the cap. A test asserts the lever drops TotalRecompiles sharply
@@ -40,21 +40,26 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
     public long TotalRecompiles { get; private set; }
     public long TotalEvictions { get; private set; }
     public int SmcHotPcCount => _everHotPcs.Count;
-    private readonly System.Collections.Generic.HashSet<ushort> _everHotPcs = new();
+    private readonly System.Collections.Generic.HashSet<uint> _everHotPcs = new();
 
     /// <summary>The chain link/unlink table (M2-ii): successor PC -> the predecessors that chain
     /// into it, so invalidation can sever every inbound link (Ground truth A).</summary>
     public ChainTable<TCpu> Chains { get; } = new();
 
+    /// <summary>Test seam (ADR 0019 FF-1): is a block cached under this exact 32-bit linear key? The
+    /// near-chain-key pin reads this to prove an 8086 near edge keys the successor on (CS&lt;&lt;4)+IP, not
+    /// the bare IP.</summary>
+    internal bool ContainsBlockKey(uint key) => _blocks.ContainsKey(key);
+
     /// <summary>M6 PR-S: should the dispatcher run this PC through the interpreter (because it is
     /// SMC-hot and in its cooldown window) instead of compiling it? False when the lever is disabled.</summary>
-    public bool ShouldInterpret(ushort pc) =>
+    public bool ShouldInterpret(uint pc) =>
         !_opts.DisableSmcLever && _cooldown.TryGetValue(pc, out int n) && n > 0;
 
     /// <summary>M6 PR-S: account one interpreter-dispatch of an SMC-hot PC — decrement its cooldown.
     /// When the window drains the entry is removed, so the next dispatch retries the JIT (self-healing:
     /// a PC that stopped being hot returns to full JIT speed; a still-hot PC re-trips the cap cheaply).</summary>
-    public void NoteInterpretedDispatch(ushort pc)
+    public void NoteInterpretedDispatch(uint pc)
     {
         if (_cooldown.TryGetValue(pc, out int n))
         {
@@ -63,7 +68,7 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
         }
     }
 
-    public CompiledBlock<TCpu> GetOrCompile(ushort pc, BlockCompiler<TCpu> compiler)
+    public CompiledBlock<TCpu> GetOrCompile(uint pc, BlockCompiler<TCpu> compiler)
     {
         if (_blocks.TryGetValue(pc, out var hit)) return hit;
         // A miss here is either a first compile or a recompile (the block was evicted). Count the
@@ -96,7 +101,7 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
     /// (budget / Dirty.Any / InterruptPending — Ground truth A steps 2-4). Resolves BY PC through
     /// the live cache on every edge, so a severed (evicted) successor recompiles here on the next
     /// reach — no baked delegate, no IL patching.</summary>
-    public CompiledBlock<TCpu> ResolveChain(ushort targetPc, CompiledBlock<TCpu> predecessor, BlockCompiler<TCpu> compiler)
+    public CompiledBlock<TCpu> ResolveChain(uint targetPc, CompiledBlock<TCpu> predecessor, BlockCompiler<TCpu> compiler)
     {
         CompiledBlock<TCpu> target = GetOrCompile(targetPc, compiler);
         Chains.Link(targetPc, predecessor);
@@ -146,8 +151,9 @@ internal sealed class BlockCache<TCpu>(int pageCount, JitOptions opts) where TCp
     /// <summary>Evict EVERY block and reset all derived state — the per-worker REUSE reset (lever 4). After this
     /// the cache is byte-equivalent to a freshly constructed BlockCache(pageCount): no compiled blocks, no
     /// per-page index, no inbound chain links, no dirty marks. The next GetOrCompile recompiles from the CURRENT
-    /// bus bytes — which is the whole point: the dispatch key is (ushort)PC and the SAME PC carries different bytes
-    /// across reused cases, so a stale block would silently run the wrong case's code.</summary>
+    /// bus bytes — which is the whole point: the dispatch key is the uint ProjectBlockKey projection (ADR 0019 FF-1)
+    /// and the SAME key carries different bytes across reused cases, so a stale block would silently run the wrong
+    /// case's code.</summary>
     public void FlushAll()
     {
         _blocks.Clear();

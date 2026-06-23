@@ -49,6 +49,13 @@ public class SyntheticWideRegisterByteIdentityTests
         Assert.Empty(result.AllErrors);
         Assert.Contains("public byte A;", result.GeneratedText);
         Assert.Contains("public ushort PC;", result.GeneratedText);
-        Assert.DoesNotContain("public uint ", result.GeneratedText);
+        // The width-relaxation additivity guard is about register STORAGE FIELDS: an 8/16-only spec must not
+        // widen a register field to uint. Assert no `uint`-typed FIELD is emitted (a field ends in `;`), rather
+        // than no `uint` token at all — the ADR 0019 FF-1 `public uint ProjectBlockKey(ICpuCore)` JIT-seam METHOD
+        // legitimately returns uint (the linear block key) and is not a register field. Match a field decl:
+        // `public uint <identifier>;` with no `(` before the semicolon.
+        Assert.DoesNotMatch(
+            new System.Text.RegularExpressions.Regex(@"public uint [A-Za-z_][A-Za-z0-9_]*\s*;"),
+            result.GeneratedText);
     }
 }

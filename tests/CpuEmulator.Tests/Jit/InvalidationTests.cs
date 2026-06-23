@@ -31,7 +31,7 @@ public class InvalidationTests
     /// dirty map after one block, not chaining). The block's emitted chain edge calls this when it
     /// reaches a chainable exit; setting exit = Normal mirrors the dispatcher routing to itself.</summary>
     private static readonly ChainDispatch NoChain =
-        (ushort _, ref long _, out BlockExit e) => e = BlockExit.Normal;
+        (uint _, ref long _, out BlockExit e) => e = BlockExit.Normal;
 
     /// <summary>Run the same program through a fresh interpreter and a JIT-wrapped interpreter
     /// (cache ON), then assert identical final registers, cycle count, and full RAM image.</summary>

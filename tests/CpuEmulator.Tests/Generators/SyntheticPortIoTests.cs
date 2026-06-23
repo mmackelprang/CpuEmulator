@@ -215,7 +215,7 @@ public class SyntheticPortIoTests
 
         long budget = 100;
         probe(inner, program, fastmem, new DirtyMap(program.PageCount),
-            (ushort _, ref long _, out BlockExit e) => e = BlockExit.Normal,
+            (uint _, ref long _, out BlockExit e) => e = BlockExit.Normal,
             ref budget, out _, io);
 
         // A holds the Io byte (0x42) — the emitted arm called ioBus.Read8, NOT a fastmem/LoadByteFromBus
@@ -245,7 +245,7 @@ public class SyntheticPortIoTests
 
         long budget = 100;
         probe(inner, program, fastmem, new DirtyMap(program.PageCount),
-            (ushort _, ref long _, out BlockExit e) => e = BlockExit.Normal,
+            (uint _, ref long _, out BlockExit e) => e = BlockExit.Normal,
             ref budget, out _, io);
 
         Assert.Equal(0x42, io.Read8(0x0010));        // the Io bus received the write

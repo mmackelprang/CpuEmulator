@@ -370,7 +370,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// returned length and SeekTo's the next instruction. The discovered run is a list of
     /// (pc, descriptor, computed-length) tuples — the length is the walk's output, the only length
     /// source the rest of Compile/PagesSpanned reads.</summary>
-    public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length, byte X86Seg)> Discover(ushort pc)
+    public System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length, byte X86Seg)> Discover(uint entryKey)
     {
         var run = new System.Collections.Generic.List<(ushort, OpcodeDescriptor, int, byte)>();
         // M6 PR-B (DECISION B-0): the 8086 fetches code from (CS<<4)+IP 20-bit physical, NOT flat 16-bit IP.
@@ -380,6 +380,14 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         _m8086CodePhysBase = TargetIsM8086 && _m8086CS is not null
             ? ((uint)(ushort)_m8086CS.GetValue(_cpu)! << 4) & 0xFFFFFu
             : 0u;
+        // ADR 0019 FF-1: the caller hands the uint linear block KEY (the dispatch-time ProjectBlockKey). The
+        // decode walk steps the 16-bit IP/PC OFFSET. For a flat CPU the key IS the offset. For the 8086 the
+        // key is (CS<<4)+IP; recover the IP by subtracting the just-baked CS<<4 base (& 0xFFFF for the 16-bit
+        // IP wrap). The base is set from the SAME live CS, so this recovers the live IP exactly. The walk
+        // cursor below (`pc`) is then the 16-bit offset M8086CodePhys/BusFetchStream consume — unchanged body.
+        ushort pc = TargetIsM8086
+            ? (ushort)((entryKey - _m8086CodePhysBase) & 0xFFFF)
+            : (ushort)entryKey;
         // M6 PR-4a: the decode-walk fetch stream is per-target GRANULAR. The 6502/Z80/8086 generated Decode()
         // walks are BYTE-granular (BusFetchStream, UnitBytes==1, Read8) — authored against a byte stream. The
         // 68000's generated Decode() is WORD-granular (M68000FetchStream, UnitBytes==2, big-endian — it reads
@@ -440,7 +448,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         return run;
     }
 
-    public CompiledBlock<TCpu> Compile(ushort entryPc)
+    public CompiledBlock<TCpu> Compile(uint entryPc)
     {
         CompileCount++;
         FallbackEmitCount = 0;   // reset the per-Compile fallback seam (Task 6 emit-not-fallback probe)
@@ -468,7 +476,18 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // to here is a straight-line run capped at BlockLengthCap (no EndsBlock opcode): its successor
         // PC is the (compile-time-constant) continuation, so it is a chainable fall-through edge.
         if (!lastD.EndsBlock)
-            EmitChainOrExit(ctx, (ushort)(lastPc + lastLen));
+        {
+            // ADR 0019 FF-1: the chain edge must push the SAME 32-bit linear key the dispatcher will
+            // compute (ProjectBlockKey) for this fall-through successor. The flat CPUs' key IS the 16-bit
+            // continuation offset (identity). The 8086's is the same-segment linear physical
+            // (CS<<4)+(lastPc+lastLen) — this is a same-CS fall-through (no far flow), so the baked
+            // _m8086CodePhysBase carries the CS<<4 half (same as M8086NearChainKey for the near arm).
+            ushort fallThroughOffset = (ushort)(lastPc + lastLen);
+            uint fallThroughKey = TargetIsM8086
+                ? (_m8086CodePhysBase + fallThroughOffset) & 0xFFFFFu
+                : fallThroughOffset;
+            EmitChainOrExit(ctx, fallThroughKey);
+        }
         else
             EmitNormalExit(ctx);   // safety net (unreachable for self-terminating ending arms)
         var del = (BlockDelegate<TCpu>)dm.CreateDelegate(typeof(BlockDelegate<TCpu>));
@@ -1388,7 +1407,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// dispatcher resumes at PC). A Recompile exit never reaches here — the SMC guard returns from
     /// the MIDDLE of the block (a chainable exit is only at a block-ending opcode), so a
     /// self-modifying block always routes to the dispatcher (Ground truth B).</summary>
-    private void EmitChainOrExit(EmitContext ctx, ushort staticTargetPc)
+    private void EmitChainOrExit(EmitContext ctx, uint staticTargetKey)
     {
         ILGenerator il = ctx.Il;
         Label toDispatcher = il.DefineLabel();
@@ -1409,10 +1428,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Callvirt, _mInterruptPending);
         il.Emit(OpCodes.Brtrue, toDispatcher);
 
-        // (5)-(7) chain.Invoke(targetPc, ref budget, out exit); ret
+        // (5)-(7) chain.Invoke(targetKey, ref budget, out exit); ret
         il.Emit(OpCodes.Ldarg_S, ArgChain);             // ChainDispatch chain
-        il.Emit(OpCodes.Ldc_I4, (int)staticTargetPc);
-        il.Emit(OpCodes.Conv_U2);
+        il.Emit(OpCodes.Ldc_I4, unchecked((int)staticTargetKey));
+        // No Conv_U2 — the chain target is now the full uint linear key (ADR 0019 FF-1). The chain
+        // callback (ChainDispatch) takes uint; pushing the 32-bit constant as-is matches the stack type.
         il.Emit(OpCodes.Ldarg_S, ArgBudget);            // ref long budget
         il.Emit(OpCodes.Ldarg_S, ArgExit);              // out BlockExit exit
         il.Emit(OpCodes.Callvirt, MChainInvoke);

@@ -7,11 +7,11 @@ namespace CpuEmulator.Jit;
 /// the successor from the cache — no emitted IL is patched.</summary>
 internal sealed class ChainTable<TCpu> where TCpu : class
 {
-    private readonly System.Collections.Generic.Dictionary<ushort, System.Collections.Generic.HashSet<CompiledBlock<TCpu>>> _inbound = new();
+    private readonly System.Collections.Generic.Dictionary<uint, System.Collections.Generic.HashSet<CompiledBlock<TCpu>>> _inbound = new();
 
     /// <summary>Record that <paramref name="predecessor"/> chains into the block at
     /// <paramref name="successorPc"/>. Idempotent (a set).</summary>
-    public void Link(ushort successorPc, CompiledBlock<TCpu> predecessor)
+    public void Link(uint successorPc, CompiledBlock<TCpu> predecessor)
     {
         if (!_inbound.TryGetValue(successorPc, out var set))
             _inbound[successorPc] = set = [];
@@ -19,7 +19,7 @@ internal sealed class ChainTable<TCpu> where TCpu : class
     }
 
     /// <summary>The predecessors that chain into <paramref name="successorPc"/> (empty if none).</summary>
-    public System.Collections.Generic.IReadOnlyCollection<CompiledBlock<TCpu>> InboundTo(ushort successorPc)
+    public System.Collections.Generic.IReadOnlyCollection<CompiledBlock<TCpu>> InboundTo(uint successorPc)
         => _inbound.TryGetValue(successorPc, out var set)
             ? set
             : System.Array.Empty<CompiledBlock<TCpu>>();
@@ -27,7 +27,7 @@ internal sealed class ChainTable<TCpu> where TCpu : class
     /// <summary>Sever all inbound links to <paramref name="successorPc"/> (called when that block is
     /// evicted). The predecessors are NOT touched — they resolve-by-PC and will recompile the
     /// successor on their next chain edge.</summary>
-    public void Sever(ushort successorPc) => _inbound.Remove(successorPc);
+    public void Sever(uint successorPc) => _inbound.Remove(successorPc);
 
     /// <summary>Drop a predecessor from every inbound set it appears in (called when the
     /// PREDECESSOR is evicted — so a later Sever of a successor does not retain a dead block).</summary>
