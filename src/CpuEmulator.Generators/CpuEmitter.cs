@@ -183,6 +183,11 @@ internal static class CpuEmitter
         string acc = model.Registers.Any(r => r.Name == "A") ? "A" : status;
         string cpuType = model.CpuName;
 
+        // ADR 0019 FF-1: the block-key projection. A spec that declares a "CS" register (the 8086)
+        // folds the segmented origin ((CS<<4)+IP)&0xFFFFF — the linear physical the decode/fetch use.
+        // A flat-PC CPU projects the identity (uint)PC (byte-identical to the old ushort key).
+        bool hasCodeSegment = model.Registers.Any(r => r.Name == "CS");
+
         sb.AppendLine();
         sb.AppendLine("    /// <summary>The generated per-CPU JIT seam (J1) — the data-driven replacement for the");
         sb.AppendLine("    /// 6502's baked FA/FP/FPC/MStep handles. Resolves the status/PC/accumulator fields by the");
@@ -203,6 +208,16 @@ internal static class CpuEmitter
         sb.AppendLine($"        public CpuEmulator.Core.Jit.DecodeResult Decode(CpuEmulator.Core.Jit.IFetchStream stream) => {cpuType}.Decode(stream);");
         sb.AppendLine($"        public CpuEmulator.Core.Jit.OpcodeDescriptor DescriptorFor(uint operationKey) => {cpuType}.DescriptorFor(operationKey);");
         sb.AppendLine($"        public System.Collections.Generic.IReadOnlyList<string> RegisterNames => s_registerNames;");
+        // ADR 0019 FF-1: the per-CPU block-key projection. The 8086 (a spec with a CS register) folds
+        // ((CS<<4)+IP)&0xFFFFF; a flat-PC CPU projects the identity (uint)PC (the old ushort key, widened).
+        if (hasCodeSegment)
+            sb.AppendLine(
+                $"        public uint ProjectBlockKey(CpuEmulator.Core.ICpuCore cpu) => " +
+                $"(uint)(((cpu.GetRegister(\"CS\") << 4) + cpu.GetRegister(\"{pc}\")) & 0xFFFFF);");
+        else
+            sb.AppendLine(
+                $"        public uint ProjectBlockKey(CpuEmulator.Core.ICpuCore cpu) => " +
+                $"(uint)cpu.GetRegister(\"{pc}\");");
         sb.AppendLine("    }");
     }
 

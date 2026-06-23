@@ -48,4 +48,12 @@ public interface IJitTarget
     /// <summary>The CPU's declared register names — the operand register map (<c>_regFields</c>) is built
     /// from these (J2). The 6502 names A/X/Y/S/P/PC; the Z80 names its full 36-entry file.</summary>
     System.Collections.Generic.IReadOnlyList<string> RegisterNames { get; }
+
+    /// <summary>Project the CPU's current execution point to the 32-bit block-cache key (ADR 0019).
+    /// For a flat-PC CPU this is <c>(uint)PC</c> — the identity, byte-identical to the old ushort key.
+    /// For the 8086 it folds the segmented origin: <c>((CS&lt;&lt;4)+IP)&amp;0xFFFFF</c> — the same physical
+    /// the decode/fetch already compute (the linear entry, ADR 0019 Decision 1). Read once per block
+    /// dispatch (NOT per instruction — chaining stays inside the emitted block). Reads the CPU through
+    /// <see cref="ICpuCore.GetRegister(string)"/> — interface-only, AOT-clean, no per-dispatch reflection.</summary>
+    uint ProjectBlockKey(CpuEmulator.Core.ICpuCore cpu);
 }
