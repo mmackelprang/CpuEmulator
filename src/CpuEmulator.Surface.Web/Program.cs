@@ -284,26 +284,23 @@ internal static class DemoSession
                         "woz" => DiskFormat.Woz,
                         _ => DiskFormat.Dsk,
                     };
-                    // .woz library items are listed-disabled in the UI; never reach here. Guard anyway —
-                    // DiskImageFactory.FromBytes throws NotSupportedException for .woz, so skip it.
-                    if (format != DiskFormat.Woz)
+                    // A vanished/truncated/unreadable/malformed library file is a normal user condition (the
+                    // cache is owner-managed), NOT a server fault: ReadAllBytes (TOCTOU after TryResolve), the
+                    // DiskImage ctor (a non-256-multiple .dsk/.po length), and WozFluxImage (a malformed .woz —
+                    // throws InvalidDataException) can throw. Swallow so a bad disk never tears down the live WS
+                    // session — the insert simply doesn't happen. (All three formats — incl. .woz — load here.)
+                    try
                     {
-                        // A vanished/truncated/unreadable library file is a normal user condition (the cache
-                        // is owner-managed), NOT a server fault: ReadAllBytes (TOCTOU after TryResolve) and
-                        // the DiskImage ctor (a non-256-multiple length) can throw. Swallow so a bad disk
-                        // never tears down the live WS session — the insert simply doesn't happen.
-                        try
-                        {
-                            byte[] bytes = File.ReadAllBytes(path);
-                            insertDisk(cmd.Drive, bytes, format, Path.GetFileNameWithoutExtension(path));
-                        }
-                        catch (Exception ex) when (ex is IOException
-                                                   or UnauthorizedAccessException
-                                                   or ArgumentException
-                                                   or NotSupportedException)
-                        {
-                            // Intentionally ignored — the live session keeps streaming; the drive is unchanged.
-                        }
+                        byte[] bytes = File.ReadAllBytes(path);
+                        insertDisk(cmd.Drive, bytes, format, Path.GetFileNameWithoutExtension(path));
+                    }
+                    catch (Exception ex) when (ex is IOException
+                                               or UnauthorizedAccessException
+                                               or ArgumentException
+                                               or NotSupportedException
+                                               or InvalidDataException)
+                    {
+                        // Intentionally ignored — the live session keeps streaming; the drive is unchanged.
                     }
                 }
             }
@@ -341,7 +338,7 @@ internal static class DemoSession
             return;
         }
 
-        // .woz never reaches here (the validator rejects it as not-yet-supported); .dsk/.po load via Q.
+        // All three formats (.dsk/.po via Q, .woz via WozFluxImage) load here; a malformed image throws below.
         // M5 note: this synthetic "upload (dsk|po|woz)" label is the only name the host knows for an uploaded
         // image — the surface shows the real filename optimistically (client-captured). The proper fix
         // (carry the original filename through the DK/ST frame) is a follow-on per copy.md §6.2.

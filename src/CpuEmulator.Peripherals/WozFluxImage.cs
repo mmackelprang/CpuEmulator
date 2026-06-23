@@ -96,6 +96,9 @@ public sealed class WozFluxImage : IFluxImage
         if (track < 0 || track >= WholeTracks) return false;
         byte idx = _tmap[track * QuarterTracksPerTrack];   // whole track t -> quarter-track t*4 (decision W-7)
         if (idx == 0xFF) return false;                     // no track mapped here
+        if (idx >= _trk.Length)
+            throw new InvalidDataException(
+                $"WOZ2 TMAP entry {idx} is out of range (only {_trk.Length} TRKS records).");
         (start, blocks, bitCount) = _trk[idx];
         return blocks > 0 && bitCount > 0;
     }
