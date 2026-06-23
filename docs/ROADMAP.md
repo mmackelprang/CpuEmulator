@@ -161,6 +161,24 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > end-to-end — the headline the M6 / ADR 0016/0017 arc set out to reach. ADR 0017 OQ2/D6 (`ActiveIndex==1` from a
 > real CP/M boot) is CLOSED.**
 >
+> **🎉 THE 80-COLUMN CP/M 3.1 HEADLINE IS NOW BROWSER-REACHABLE (2026-06-23, PR #__).** The V80 headline above
+> shipped its 80-col `A>` only through the test suite + `tools/BootProbe --apl2cpm3-videx`; the web server's CP/M
+> branch still loaded only the 40-col 2.2 disk (the gap PR #152's investigation pinned — `Program.cs` never
+> referenced the apl2cpm3 loader). Now `DemoSession.RunAsync` probes the apl2cpm3 rig (Apple ROM + the
+> `cpm/apl2cpm3/CPM3.1_Disk_1.dsk` disk + the **real** Videx firmware) **ahead of** the 2.2 branch and builds
+> `SoftCardVidexSurface` for apl2cpm3 (new `CreateApl2Cpm3` factory — slot-4 SoftCard + the `Cpm3` raw-DOS33
+> skew, reusing the proven board build), so a browser shows CP/M 3.1 booting to `A>` in 80 columns
+> (`ActiveIndex==1`) when the rig is cached. The real Videx firmware gates the branch (the CRT80 console JMPs
+> into the `$C800` firmware — without it the server falls through to the 2.2 40-col disk, never a blank 80-col
+> screen). The 2.2 disk stays the 40-col fallback; the Apple/Spectrum/demo paths are byte-for-byte unchanged.
+> **Gates:** an asset-free `WebSystemSelectionTests` precedence proof (apl2cpm3 outranks 2.2; the firmware gate;
+> the full table — un-fakeable, fails if the branch were missing or mis-ordered) + a `[Apl2Cpm3VidexFact]`-gated
+> `WebApl2Cpm3RenderTests` that drives the **production** `CreateApl2Cpm3` factory to the decoded 80-col `A>` off
+> the live Videx VRAM. **Live UAT (Builder):** the real ASP.NET server, driven over a WebSocket with **both** CP/M
+> disks cached, reported `asset: "apl2cpm3-cpm3-videx"` (not the 2.2 string) and streamed a 560×216 (Videx
+> 80-col) frame at ~2.6s — the browser path proven end-to-end. Reach it with `tools/setup-cpm-videx` → run the
+> server → 80-col `A>` (owner UAT to see it live in a browser).
+>
 > **🎉 APPLE PASCAL BOOTS TO THE p-SYSTEM COMMAND LINE (2026-06-23, owner-supplied UCSD p-System disks).** A
 > live bring-up booted the real **Apple II Pascal 1.1 (UCSD p-System II.1)** distribution on the plain Apple ][+
 > board (system ROM + the Language Card + the real slot-6 Disk II boot ROM): **APPLE1** (the boot volume —
