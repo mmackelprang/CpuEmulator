@@ -194,6 +194,59 @@ dotnet run --project src/CpuEmulator.Surface.Web -- --system list
 An unknown name prints the valid list and exits non-zero. The one-command **`tools/start-apple-pascal`**
 launcher (below) uses `--system pascal` so it boots Pascal deterministically.
 
+### Running on the JIT tier (`--tier jit` / `?tier=jit`)
+
+Every web system defaults to the **interpreter** execution tier. To run the **JIT** tier instead — the
+IL-recompiling core (`JittedCpu<TCpu>`, Reflection.Emit; non-AOT) — pass **`--tier jit`** to the server:
+
+```
+dotnet run --project src/CpuEmulator.Surface.Web -- --tier jit
+```
+
+`--tier` accepts `interpreter` (the default) or `jit`; an unknown value prints the valid set and exits
+non-zero. It combines with `--system`, e.g. `-- --system spectrum --tier jit`.
+
+You can also pick the tier **per browser connection** — no server restart — with a **`?tier=jit`** query
+param on the page URL:
+
+```
+http://localhost:5000/?tier=jit          # this connection (and its reconnects) runs on the JIT tier
+http://localhost:5000/                    # the server default (interpreter unless --tier jit was passed)
+```
+
+The page carries `?tier=` through to its WebSocket, so the query param wins over the server's `--tier` default
+for that connection. An unrecognized `?tier=` value is harmless — the connection silently falls back to the
+server default tier (it never fails the connect).
+
+**Confirming the tier is live.** Open the **perf overlay** (press the **backtick** `` ` `` key) and read the
+`tier` row: it shows **`JIT`** (amber) on the JIT tier with a live `jit` stats row (`c<N> r<N> e<N> smc<N>` —
+compiled/recompiled/evicted/SMC-hot-PC counts; `compiled` climbs above 0 once real guest code runs), versus
+**`interpreter`** (muted) on the default. The overlay reads the *built* machine's tier — it is observed, never
+a toggle.
+
+> **The SoftCard Z80 coprocessor stays on the interpreter.** On the CP/M boards (`cpm22` / `cpm3`), `--tier
+> jit` applies to the **primary Apple ][+ 6502** only; the Microsoft SoftCard **Z80 coprocessor remains the
+> interpreter** (ADR 0015) so the parity-critical CP/M 2.2 / 3.1 boots are unaffected. The perf overlay's
+> `cpu2` row reflects the coprocessor independently of the `tier` row.
+
+> **Apple Pascal is interpreter-only for now.** The Pascal branch ignores `--tier jit` (it boots on the
+> interpreter regardless) and prints a one-line note to the server console; threading the tier through the
+> Pascal board is a follow-on.
+
+### Reset = reconnect
+
+Each WebSocket connection boots a **fresh machine** (one machine per connection), so the simplest reset is to
+**reconnect**:
+
+- **Reload the page** (browser refresh) — a fresh connection, a fresh machine. The `?tier=` param (if any) is
+  preserved, so a JIT session resets back to JIT.
+- **Press `Ctrl+`` `` `** (Ctrl + backtick) — a HUD-adjacent hotkey that reconnects in place (it reloads the
+  page for you). The backtick is a confirmed guest no-op, so the chord never reaches the running machine.
+
+There is no live in-place tier swap or warm reboot — reconnect is the clean reset, and it re-reads the tier
+from the URL, so reconnecting is also how you switch a single browser tab between tiers (`?tier=jit` vs no
+param).
+
 ---
 
 ### ZX Spectrum 48K

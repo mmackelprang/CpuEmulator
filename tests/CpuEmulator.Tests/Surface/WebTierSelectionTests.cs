@@ -9,7 +9,13 @@ namespace CpuEmulator.Tests.Surface;
 /// and on to <see cref="BoardMachineFactory.Build"/>, so a JIT-selected machine is jitted and an
 /// interpreter-selected one is not. These build via the factories DIRECTLY (no server, no cached assets), so
 /// they run in CI without staging any ROM/disk. <see cref="DemoSession"/> + the surfaces are internal to the
-/// Web assembly, reached here via InternalsVisibleTo("CpuEmulator.Tests").</summary>
+/// Web assembly, reached here via InternalsVisibleTo("CpuEmulator.Tests").
+/// <para><see cref="DemoSession.SelectedTier"/> is a process-wide mutable static (mirroring the existing
+/// <c>ForcedSystem</c> pattern). It is written ONCE in <see cref="Program.Main"/> before any request and read
+/// per-connection without further writes, so production usage is race-free. No test here writes it (the tier
+/// tests pass an <see cref="ExecutionTier"/> straight to the factory <c>Create</c> overloads, bypassing the
+/// static), so <see cref="SelectedTier_defaults_to_interpreter"/> sees the initial value. A FUTURE test that
+/// parses a <c>--tier</c> arg would have to restore the default in a finally to keep that assertion valid.</para></summary>
 public class WebTierSelectionTests
 {
     [Fact]

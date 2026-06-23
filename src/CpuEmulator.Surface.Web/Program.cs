@@ -355,7 +355,12 @@ internal static class DemoSession
             string? programDisk = pascalProgramPath;   // APPLE0 (drive 2); the authentic two-drive boot needs it
             // Pascal stays interpreter-only this PR: CreatePascal has no tier param (Pascal.CreateBoard builds
             // the board on the interpreter), so the resolved `tier` does NOT apply here. Threading a tier through
-            // CreatePascal/Pascal.CreateBoard is a follow-on.
+            // CreatePascal/Pascal.CreateBoard is a follow-on. Surface a one-line operator warning when a JIT tier
+            // was requested so `--tier jit --system pascal` doesn't silently hand back an interpreter machine.
+            if (tier == ExecutionTier.Jit)
+                Console.Error.WriteLine(
+                    "Note: Apple Pascal runs on the interpreter — the --tier/?tier=jit selection is ignored for "
+                    + "this branch in this release (JIT-on-Pascal is a follow-on).");
             Apple2Surface pascal = Apple2Surface.CreatePascal(sys, bootRom, charRom, bootDisk, programDisk,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
             host = pascal.Host; slice = AppleSliceCycles; period = ApplePeriod;
