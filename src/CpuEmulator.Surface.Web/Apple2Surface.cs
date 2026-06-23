@@ -53,6 +53,38 @@ public sealed record Apple2Surface(
         return surface;
     }
 
+    /// <summary>Composes the Apple ][+ running Apple Pascal (UCSD p-System) for the web surface (PR #153 board,
+    /// reused via <see cref="Pascal.CreateBoard"/>): APPLE1 (boot) in drive 1, APPLE0 (program) in drive 2,
+    /// re-nibblized at <see cref="Pascal.Order"/>, the Language Card in read-ROM/write-RAM mode. Boots to the
+    /// interactive UCSD p-System COMMAND: line in the browser. Same video/keyboard/speaker triad as
+    /// <see cref="Create"/>.</summary>
+    public static Apple2Surface CreatePascal(byte[] systemRom, byte[] diskBootRom, byte[]? charRom,
+                                             string bootDiskPath, string? programDiskPath,
+                                             Action<byte[]> frameSink, Action<byte[]> audioSink)
+    {
+        // The canonical Pascal board (single source of truth — PascalBootTests + BootProbe share it). Build it,
+        // then Realize the video/speaker over its machine + Reset, EXACTLY as Create does for the plain ][+.
+        PascalBoard board = Pascal.CreateBoard(systemRom, diskBootRom, bootDiskPath, programDiskPath);
+
+        // The video chip is constructed over a placeholder space; Realize re-binds it to the built machine's
+        // program bus (the Apple2Video Realize contract) — the same placeholder pattern as Create.
+        var placeholder = new AddressSpace(AddressSpaceKind.Program, 16);
+        placeholder.MapMemory(0x0000, new byte[0x10000], writable: true);
+        var video = new Apple2Video(placeholder, board.State, charRom);
+        var keyboard = new Apple2Keyboard(board.State);
+        var speaker = new Apple2Speaker(board.State);
+
+        video.Realize(board.Machine);
+        speaker.Realize(board.Machine);
+        board.Machine.Reset();
+
+        var host = new MachineHost(board.Machine, video, keyboard, frameSink, speaker, audioSink);
+        var surface = new Apple2Surface(board.Machine, video, keyboard, speaker, host, board.Disk, "APPLE1");
+        surface._labels.Set(1, "APPLE1");   // drive 1 = the boot volume
+        surface._labels.Set(2, "APPLE0");   // drive 2 = the program/compiler volume
+        return surface;
+    }
+
     // Mutable per-drive labels for the ST frame (design D9/D14): the immutable record can't hold runtime
     // label state, so a tiny holder tracks each drive's current image label, updated on insert/eject.
     private readonly DriveLabels _labels = new();
