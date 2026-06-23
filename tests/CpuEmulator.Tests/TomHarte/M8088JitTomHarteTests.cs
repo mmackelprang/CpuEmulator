@@ -89,12 +89,14 @@ public abstract class M8088JitSweepBase(ITestOutputHelper output)
 
             // Run ONE instruction through Tier-1 JittedCpu<M8086Cpu>, then classify a failure exactly as the
             // interpreter ALU sweep does. In M6 the ALU + MOV rows emit real IL (the sweep proves EMIT parity for
-            // them); the DIV/IDIV/AAM rows handled by the classifiers below are NOT emitted — they still fall back
-            // to inner.Step, so the JIT result == the interpreter result for them and the classifiers (which re-run
-            // the interpreter to confirm the quirk shape) correctly classify the JIT discrepancy. The DIVIDE-ERROR → INT0 push is
-            // MODELED; the silicon's UNDEFINED arithmetic flags from the aborted division (DD6) and the IDIV
-            // quotient-sign quirk are the documented genuinely-resistant classes — counted-deferred only after the
-            // classifier confirms the discrepancy is PRECISELY that quirk (every other register + RAM byte exact).
+            // them). Row MD (ROADMAP #4) now also EMITS the F6/F7 /4../7 MUL/IMUL/DIV/IDIV rows — so the DIV/IDIV
+            // divide-error + IDIV-sign-quirk classifiers below now classify an EMITTED discrepancy (the emit is
+            // byte-identical to the interpreter, so the classifier's re-run-the-interpreter confirmation still
+            // holds: emit == interpreter, the quirk shape is unchanged). AAM (D4) still falls back (out of #4
+            // scope) — its divide-error deferral is unchanged. The DIVIDE-ERROR → INT0 push is MODELED; the
+            // silicon's UNDEFINED arithmetic flags from the aborted division (DD6) and the IDIV quotient-sign quirk
+            // are the documented genuinely-resistant classes — counted-deferred only after the classifier confirms
+            // the discrepancy is PRECISELY that quirk (every other register + RAM byte exact).
             executed++;
             string? res = M8088TomHarteRunner.RunCaseThroughJit(c, s_metadata, opcodeHex, regField);
             if (res is not null)
