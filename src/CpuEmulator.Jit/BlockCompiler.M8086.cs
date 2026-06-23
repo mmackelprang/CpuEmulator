@@ -1283,7 +1283,46 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 return true;
             }
 
-            // Tasks 4/6 fill 9A/EA/FF. Until then, fall through to false (fallback / near arm).
+            // ── EA far JMP ptr16:16: IP, CS from the immediate (IP_lo IP_hi CS_lo CS_hi); chainable. The
+            //    (newCS,newIP) is a compile-time constant → the projected linear key ((newCS<<4)+newIP)&0xFFFFF is a
+            //    constant uint → EmitChainOrExit chains ACROSS the segment change (the FF-1 widened-key payoff). ──
+            case 0xEA:
+            {
+                int operandPc = pc + 1;
+                ushort newIp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                        | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+                ushort newCs = (ushort)(_bus.Read8(M8086CodePhys((ushort)(operandPc + 2)))
+                                        | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 3))) << 8));
+                EmitM8086SetIp(ctx, newIp);
+                EmitM8086SetCs(ctx, newCs);
+                uint targetKey = (uint)(((newCs << 4) + newIp) & 0xFFFFF);
+                EmitChainOrExit(ctx, targetKey);          // constant (newCS,newIP) → chainable across the segment change
+                return true;
+            }
+
+            // ── 9A far CALL ptr16:16: push CS then IP (the far return frame — IP ends at the lower address, matching
+            //    the far-RET pop order), then set IP,CS from the immediate; chainable. The pushed CS is the CURRENT
+            //    CS (the return segment), the pushed IP is fallThrough (the offset after the 5-byte 9A). ──
+            case 0x9A:
+            {
+                ILGenerator il = ctx.Il;
+                int operandPc = pc + 1;
+                ushort newIp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                        | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+                ushort newCs = (ushort)(_bus.Read8(M8086CodePhys((ushort)(operandPc + 2)))
+                                        | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 3))) << 8));
+                ushort fallThrough = (ushort)(pc + length);   // the return IP (after the 5-byte 9A)
+                EmitM8086PushWord(ctx, () => EmitLoadReg16(ctx, "CS"));                    // PushWord(CS) — return segment
+                EmitM8086PushWord(ctx, () => il.Emit(OpCodes.Ldc_I4, (int)fallThrough));   // PushWord(IP) — return offset
+                EmitM8086SetIp(ctx, newIp);
+                EmitM8086SetCs(ctx, newCs);
+                uint targetKey = (uint)(((newCs << 4) + newIp) & 0xFFFFF);
+                EmitChainOrExit(ctx, targetKey);          // constant entry → chainable
+                return true;
+            }
+
+            // Task 6 fills FF /3 /5. Until then, fall through to false (the FF /3 /5 rows are un-forced in the gate,
+            // so the arm MUST own them by Task 6 — the near arm throws on FF /reg ∉ {2,4}).
             default:
                 return false;
         }

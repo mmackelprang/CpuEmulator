@@ -136,4 +136,72 @@ public class M8086FarFlowEmitTests
         Assert.Equal(interp.GetRegister("SP"), inner.GetRegister("SP"));   // SP += 4 (pops) + 4 (imm) = sp + 8
         Assert.Equal((ushort)(sp + 8), (ushort)inner.GetRegister("SP"));
     }
+
+    // ─────────────────────────── far direct JMP (EA) / CALL (9A) — constant target ───────────────────────────
+
+    /// <summary>EA far JMP ptr16:16: CS:IP land at the immediate's (newCS,newIP). The 4 imm bytes are
+    /// IP_lo IP_hi CS_lo CS_hi (offset first, then segment).</summary>
+    [Fact]
+    public void Far_jmp_ea_sets_cs_and_ip_from_the_immediate()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        const ushort cs = 0x2000, ip = 0x0000;
+        const ushort newIp = 0x0100, newCs = 0x4000;
+        byte[] code = [0xEA, unchecked((byte)newIp), (byte)(newIp >> 8), unchecked((byte)newCs), (byte)(newCs >> 8)];
+
+        var (innerCs, innerIp) = RunJitOne(cs, ip, code, out int farEmit);
+        var (interpCs, interpIp) = RunInterpOne(cs, ip, code);
+
+        Assert.True(farEmit > 0, "far JMP EA was not emitted (the far arm never dispatched).");
+        Assert.Equal(interpIp, innerIp);   // == newIp
+        Assert.Equal(interpCs, innerCs);   // == newCs (the far half)
+        Assert.Equal(newIp, innerIp);
+        Assert.Equal(newCs, innerCs);
+    }
+
+    /// <summary>9A far CALL ptr16:16: CS:IP land at the immediate; the far return frame is pushed CS-then-IP
+    /// (IP at the lower address) onto SS:SP, SP -= 4. Asserts CS:IP + SP + the exact pushed frame vs the oracle.</summary>
+    [Fact]
+    public void Far_call_9a_pushes_far_frame_and_sets_cs_ip()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        const ushort cs = 0x2000, ip = 0x0000, ss = 0x3000, sp = 0x0100;
+        const ushort newIp = 0x0100, newCs = 0x4000;
+        byte[] code = [0x9A, unchecked((byte)newIp), (byte)(newIp >> 8), unchecked((byte)newCs), (byte)(newCs >> 8)];
+
+        var jbus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        jbus.MapMemory(0, new byte[0x100000], writable: true);
+        uint cphys = (uint)(((cs << 4) + ip) & 0xFFFFF);
+        for (int i = 0; i < code.Length; i++) jbus.Write8(cphys + (uint)i, code[i]);
+        var inner = new M8086Cpu(jbus);
+        inner.SetRegister("CS", cs); inner.SetRegister("IP", ip);
+        inner.SetRegister("SS", ss); inner.SetRegister("SP", sp);
+        var jit = new JittedCpu<M8086Cpu>(inner, M8086Cpu.JitTarget, jbus);
+        long budget = 1; jit.Run(ref budget);
+
+        var ibus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        ibus.MapMemory(0, new byte[0x100000], writable: true);
+        for (int i = 0; i < code.Length; i++) ibus.Write8(cphys + (uint)i, code[i]);
+        var interp = new M8086Cpu(ibus);
+        interp.SetRegister("CS", cs); interp.SetRegister("IP", ip);
+        interp.SetRegister("SS", ss); interp.SetRegister("SP", sp);
+        interp.Step();
+
+        Assert.True(jit.M8086FarFlowEmitSelections > 0, "far CALL 9A was not emitted.");
+        Assert.Equal(interp.GetRegister("IP"), inner.GetRegister("IP"));   // == newIp
+        Assert.Equal(interp.GetRegister("CS"), inner.GetRegister("CS"));   // == newCs
+        Assert.Equal(interp.GetRegister("SP"), inner.GetRegister("SP"));   // SP -= 4
+        Assert.Equal((ushort)newIp, (ushort)inner.GetRegister("IP"));
+        Assert.Equal((ushort)newCs, (ushort)inner.GetRegister("CS"));
+        Assert.Equal((ushort)(sp - 4), (ushort)inner.GetRegister("SP"));
+        // The pushed far frame: IP at the lower word (the new SP), CS just above (SP+2). Byte-identical to the oracle.
+        uint stackPhys = (uint)(((ss << 4) + interp.GetRegister("SP")) & 0xFFFFF);
+        for (uint k = 0; k < 4; k++)
+            Assert.Equal(ibus.Read8(stackPhys + k), jbus.Read8(stackPhys + k));
+        const ushort retIp = ip + 5;   // fallThrough = pc + length(9A) = $0005
+        Assert.Equal((byte)(retIp & 0xFF), jbus.Read8(stackPhys));               // IP lo (lower address)
+        Assert.Equal((byte)(retIp >> 8), jbus.Read8(stackPhys + 1));             // IP hi
+        Assert.Equal((byte)(cs & 0xFF), jbus.Read8(stackPhys + 2));              // CS lo (upper word)
+        Assert.Equal((byte)(cs >> 8), jbus.Read8(stackPhys + 3));               // CS hi
+    }
 }
