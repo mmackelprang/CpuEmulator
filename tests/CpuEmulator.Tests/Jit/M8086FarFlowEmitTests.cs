@@ -37,6 +37,21 @@ public class M8086FarFlowEmitTests
         return ((ushort)inner.GetRegister("CS"), (ushort)inner.GetRegister("IP"));
     }
 
+    /// <summary>A BlockCompiler over a fully-mapped 1 MB space with the code at (cs&lt;&lt;4)+ip — the compiler-level
+    /// seam for the emit-vs-fallback probes (FallbackEmitCount / M8086FarFlowEmitSelections). Mirrors
+    /// M8086FlowEmitTests.Make.</summary>
+    private static BlockCompiler<M8086Cpu> MakeCompiler(ushort cs, ushort ip, params byte[] code)
+    {
+        var bus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        bus.MapMemory(0, new byte[0x100000], writable: true);
+        uint phys = (uint)(((cs << 4) + ip) & 0xFFFFF);
+        for (int i = 0; i < code.Length; i++) bus.Write8((phys + (uint)i) & 0xFFFFF, code[i]);
+        var cpu = new M8086Cpu(bus);
+        cpu.SetRegister("CS", cs); cpu.SetRegister("IP", ip);
+        var opts = new JitOptions();
+        return new BlockCompiler<M8086Cpu>(cpu, M8086Cpu.JitTarget, bus, new Fastmem(bus, opts), opts);
+    }
+
     /// <summary>Step ONE far-flow instruction through a fresh interpreter (the oracle) from the SAME seeds; return
     /// the resulting CS/IP.</summary>
     private static (ushort Cs, ushort Ip) RunInterpOne(
@@ -328,5 +343,48 @@ public class M8086FarFlowEmitTests
         Assert.True(jit.M8086FarFlowEmitSelections > 0, "far JMP indirect (mod=11) was not emitted.");
         Assert.Equal(interp.GetRegister("IP"), inner.GetRegister("IP"));   // byte-identical EA resolution
         Assert.Equal(interp.GetRegister("CS"), inner.GetRegister("CS"));
+    }
+
+    // ─────────────────────────── emit-not-fallback + the fallback-stays-fallback exclusion ───────────────────────────
+
+    /// <summary>The far opcodes LEFT the fallback path (ADR 0019 FF-2 gate 1, the FallbackEmitCount-drop pin): each
+    /// of 9A/EA/CB/CA/FF /3 /5 compiles to a block whose ONLY op is the far transfer with ZERO fallbacks and the far
+    /// arm dispatched (M8086FarFlowEmitSelections &gt; 0). Before FF-2 every one of these fell back (FallbackEmitCount
+    /// == 1, far selections == 0).</summary>
+    [Theory]
+    [InlineData(new byte[] { 0xEA, 0x00, 0x01, 0x00, 0x40 })]            // EA far JMP 0x4000:0x0100
+    [InlineData(new byte[] { 0x9A, 0x00, 0x01, 0x00, 0x40 })]            // 9A far CALL 0x4000:0x0100
+    [InlineData(new byte[] { 0xCB })]                                    // CB RETF
+    [InlineData(new byte[] { 0xCA, 0x04, 0x00 })]                        // CA RETF imm16
+    [InlineData(new byte[] { 0xFF, 0x2E, 0x00, 0x02 })]                  // FF /5 far JMP [0x0200]
+    [InlineData(new byte[] { 0xFF, 0x1E, 0x00, 0x02 })]                  // FF /3 far CALL [0x0200]
+    public void Far_opcode_emits_with_zero_fallback(byte[] code)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var c = MakeCompiler(0x2000, 0x0000, code);
+        _ = c.Compile(0x0000);
+        Assert.Equal(0, c.FallbackEmitCount);            // the far op EMITTED real IL — NOTHING fell back
+        Assert.True(c.M8086FarFlowEmitSelections > 0,    // ... and the FAR arm actually dispatched (non-vacuous)
+            "the far arm was not selected — the far gate-flip / dispatch route is not wired.");
+        Assert.Equal(0, c.M8086FlowEmitSelections);      // the NEAR arm never sees a far op
+    }
+
+    /// <summary>The NEGATIVE control (ADR 0019 Decision 3): INT3 (CC), INT n (CD), INTO (CE), IRET (CF), and BOUND
+    /// (62) STAY interpreter-fallback — the far arm never claims them (they are not in IsM8086FarFlowOpcode /
+    /// IsEmittableX86FarFlow). Each compiles to a single FALLBACK block (FallbackEmitCount == 1) with the far arm
+    /// dispatched ZERO times.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0xCC })]                    // INT3
+    [InlineData(new byte[] { 0xCD, 0x21 })]              // INT 21h
+    [InlineData(new byte[] { 0xCE })]                    // INTO
+    [InlineData(new byte[] { 0xCF })]                    // IRET
+    [InlineData(new byte[] { 0x62, 0x06, 0x00, 0x02 })]  // BOUND r16, m16&16
+    public void Int_into_iret_bound_stay_fallback(byte[] code)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var c = MakeCompiler(0x2000, 0x0000, code);
+        _ = c.Compile(0x0000);
+        Assert.Equal(1, c.FallbackEmitCount);            // it fell back (the interpreter is the oracle)
+        Assert.Equal(0, c.M8086FarFlowEmitSelections);   // the far arm NEVER claimed it (Decision 3)
     }
 }
