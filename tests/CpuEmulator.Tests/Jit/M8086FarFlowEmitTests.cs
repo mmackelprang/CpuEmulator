@@ -374,22 +374,39 @@ public class M8086FarFlowEmitTests
         Assert.Equal(0, c.M8086FlowEmitSelections);      // the NEAR arm never sees a far op
     }
 
-    /// <summary>The NEGATIVE control (ADR 0019 Decision 3): INT3 (CC), INT n (CD), INTO (CE), IRET (CF), and BOUND
-    /// (62) STAY interpreter-fallback — the far arm never claims them (they are not in IsM8086FarFlowOpcode /
-    /// IsEmittableX86FarFlow). Each compiles to a single FALLBACK block (FallbackEmitCount == 1) with the far arm
-    /// dispatched ZERO times.</summary>
+    /// <summary>The NEGATIVE control (ADR 0019 Decision 3, narrowed by ROADMAP #4 Row II): BOUND (62/63) STAYS
+    /// interpreter-fallback — neither the far arm nor the Row II interrupt arm claims it (it is out of #4 scope).
+    /// It compiles to a single FALLBACK block (FallbackEmitCount == 1) with both arms dispatched ZERO times.
+    /// (INT3/INT/INTO/IRET — CC/CD/CE/CF — used to be here too, but Row II now EMITS them; their emit-not-fallback
+    /// property is pinned in M8086InterruptEmitTests, and the POSITIVE control below.)</summary>
     [Theory]
-    [InlineData(new byte[] { 0xCC })]                    // INT3
-    [InlineData(new byte[] { 0xCD, 0x21 })]              // INT 21h
-    [InlineData(new byte[] { 0xCE })]                    // INTO
-    [InlineData(new byte[] { 0xCF })]                    // IRET
     [InlineData(new byte[] { 0x62, 0x06, 0x00, 0x02 })]  // BOUND r16, m16&16
-    public void Int_into_iret_bound_stay_fallback(byte[] code)
+    public void Bound_stays_fallback(byte[] code)
     {
         if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
         var c = MakeCompiler(0x2000, 0x0000, code);
         _ = c.Compile(LinearKey(0x2000, 0x0000));        // FF-1: Compile takes the LINEAR key (CS<<4)+IP, not the bare IP
         Assert.Equal(1, c.FallbackEmitCount);            // it fell back (the interpreter is the oracle)
         Assert.Equal(0, c.M8086FarFlowEmitSelections);   // the far arm NEVER claimed it (Decision 3)
+        Assert.Equal(0, c.M8086InterruptEmitSelections); // ... and the Row II interrupt arm never claimed it either
+    }
+
+    /// <summary>The POSITIVE control (ROADMAP #4 Row II): INT3 (CC), INT n (CD), INTO (CE), IRET (CF) now LEAVE the
+    /// fallback path — each compiles to a block whose only op is the soft-interrupt with ZERO fallbacks and the
+    /// Row II interrupt arm dispatched (M8086InterruptEmitSelections &gt; 0). The far arm never claims them.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0xCC })]                    // INT3
+    [InlineData(new byte[] { 0xCD, 0x21 })]              // INT 21h
+    [InlineData(new byte[] { 0xCE })]                    // INTO
+    [InlineData(new byte[] { 0xCF })]                    // IRET
+    public void Int_into_iret_emit_with_zero_fallback(byte[] code)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        var c = MakeCompiler(0x2000, 0x0000, code);
+        _ = c.Compile(LinearKey(0x2000, 0x0000));        // FF-1: Compile takes the LINEAR key (CS<<4)+IP, not the bare IP
+        Assert.Equal(0, c.FallbackEmitCount);            // it EMITTED real IL — NOTHING fell back
+        Assert.True(c.M8086InterruptEmitSelections > 0,  // ... and the Row II interrupt arm actually dispatched
+            "the interrupt arm was not selected — the Row II gate-flip / dispatch route is not wired.");
+        Assert.Equal(0, c.M8086FarFlowEmitSelections);   // the far arm never sees a soft-interrupt op
     }
 }
