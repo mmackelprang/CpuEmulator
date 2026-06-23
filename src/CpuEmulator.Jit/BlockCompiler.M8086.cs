@@ -1267,6 +1267,28 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Stfld, _fpc);
     }
 
+    /// <summary>ADR 0019 FF-2: write the CS field to a compile-time-constant segment (the far-direct
+    /// 9A/EA target's CS). Mirrors EmitM8086SetIp but stores _m8086CS. The far arm calls this BEFORE
+    /// EmitChainOrExit/EmitNormalExit so the next dispatch's ProjectBlockKey keys/decodes the successor
+    /// under the new segment (the linear-key payoff). 8086-gated (the caller runs only when TargetIsM8086,
+    /// where _m8086CS is non-null, resolved in the ctor).</summary>
+    private void EmitM8086SetCs(EmitContext ctx, ushort target)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldc_I4, (int)target); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _m8086CS!);
+    }
+
+    /// <summary>ADR 0019 FF-2: write the CS field from the IL-stack top (the far-indirect / far-RET dynamic
+    /// CS — popped off SS:SP or read from memory). Mirrors EmitM8086SetIpFromStack: narrows the stack value
+    /// to ushort, stages it through ctx.DataLocal, then stores _m8086CS.
+    /// <para>CLOBBERS <c>ctx.DataLocal</c> (same discipline as EmitM8086SetIpFromStack).</para></summary>
+    private void EmitM8086SetCsFromStack(EmitContext ctx)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Stfld, _m8086CS!);
+    }
+
     /// <summary>M6 PR-D: push the FF-group r/m16 target word (int) on the IL stack — ReadRmWord (Control.cs:148/157).
     /// For mod==3 the target is the 16-bit register M8086Reg16[rm] (a register operand is valid only for the NEAR
     /// forms, the contract the gate enforces); else resolve the EA + read the word (the PR-B offset-wrap
