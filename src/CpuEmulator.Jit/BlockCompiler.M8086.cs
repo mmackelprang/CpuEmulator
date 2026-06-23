@@ -1618,7 +1618,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// IP must already be the RETURN ip — the CALLER advances IP to the return point before calling this (for DIV
     /// the IP is set to pc+length first; for INT n the arm sets IP += length first). Reused by row II's
     /// EmitM8086Interrupt. Does NOT itself exit — the caller follows with EmitNormalExit (the vectored CS:IP is
-    /// dynamic data → not chainable).</summary>
+    /// dynamic data → not chainable).
+    /// <para>CLOBBERS: DataLocal, AddrLocal, M8086SegLocal, M8086OffsetLocal (the segment-0 IVT word reads stage
+    /// the survivor pair + assemble the words through them). A caller (e.g. row II's EmitM8086Interrupt) must not
+    /// have a live value in any of these locals across this call.</para></summary>
     private void EmitM8086RaiseInterrupt(EmitContext ctx, int vector)
     {
         ILGenerator il = ctx.Il;

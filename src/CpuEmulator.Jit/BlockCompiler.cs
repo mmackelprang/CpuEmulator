@@ -666,6 +666,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // F6/F7 NOT/NEG) writes RAM, so the intra-block SMC guard must arm. The conservative class-level gate
         // (TargetIsM8086 && ALU-mnemonic) is correct: a reg-dest ALU (and CMP/TEST, which never write back) leaves
         // SmcPageLocal at -1, so arming on every ALU row is harmless (a no-store op never trips the guard).
+        // Row MD: MUL/IMUL never write RAM (register-pair results only — no mayWriteRam needed); DIV/IDIV end the
+        // block (DECISION MD-1), so their divide-error fault-path stack writes are backstopped by EmitNormalExit's
+        // clean block-end + the cache's dirty-map (the same exclusion the flow/CALL push rows rely on), not the
+        // intra-block SMC guard — so they are deliberately absent from this predicate.
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
             || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
             || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu or JitOpClass.M68000Shift)
