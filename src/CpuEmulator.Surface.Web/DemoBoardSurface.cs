@@ -14,7 +14,8 @@ namespace CpuEmulator.Surface.Web;
 public sealed record DemoBoardSurface(
     Machine Machine, DemoFramebuffer Framebuffer, DemoKeyboard Keyboard, DemoDisk Disk, MachineHost Host)
 {
-    public static DemoBoardSurface Create(Action<byte[]> frameSink)
+    public static DemoBoardSurface Create(Action<byte[]> frameSink,
+                                          ExecutionTier tier = ExecutionTier.Interpreter)
     {
         var fb = new DemoFramebuffer();
         var kbd = new DemoKeyboard();
@@ -23,7 +24,9 @@ public sealed record DemoBoardSurface(
         var disk = new DemoDisk(new DiskImage(image, sectorSize: 256, isReadOnly: false));
 
         BoardSpec spec = DemoBoard.Spec(DemoBoardRom.Build(), fb, kbd, disk);
-        Machine machine = BoardMachineFactory.Build(spec);
+        // Thread the build-time execution tier to the demo board's CPU (interpreter by default, JIT when the
+        // web server resolves --tier jit / ?tier=jit). The demo board is single-CPU — no coprocessor.
+        Machine machine = BoardMachineFactory.Build(spec, tier);
         machine.Reset();
 
         var host = new MachineHost(machine, fb, kbd, frameSink);

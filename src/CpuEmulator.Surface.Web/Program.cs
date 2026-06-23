@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Threading.Channels;
 using CpuEmulator.Core;
+using CpuEmulator.Machines;   // ExecutionTier
 
 namespace CpuEmulator.Surface.Web;
 
@@ -43,6 +44,27 @@ public class Program
             break;
         }
 
+        // The `--tier <interpreter|jit>` override (the JIT launcher seam): same scan-a-copy-of-args shape as
+        // `--system`. A valid value sets the server-wide default (DemoSession.SelectedTier — a `?tier=` query
+        // param can still override it per-connection); an unknown value errors out (mirrors --system). The
+        // ORIGINAL args still flow to CreateBuilder unchanged — ASP.NET treats `--tier <v>` as inert config.
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (!string.Equals(args[i], "--tier", StringComparison.Ordinal))
+                continue;
+            string name = args[i + 1];
+            if (DemoSession.TryParseTier(name, out ExecutionTier tier))
+            {
+                DemoSession.SelectedTier = tier;
+            }
+            else
+            {
+                Console.Error.WriteLine($"Unknown --tier '{name}'. Valid values: interpreter, jit");
+                Environment.Exit(2);
+            }
+            break;
+        }
+
         // Default the content root to the app's OWN directory (where wwwroot is published), not the
         // process CWD. Without this, launching the published DLL from anywhere but the project dir leaves
         // ASP.NET hunting for wwwroot under the CWD → "WebRootPath not found" → a 404 at "/". An explicit
@@ -67,8 +89,16 @@ public class Program
                 return;
             }
 
+            // Per-connection tier override: `?tier=jit` on the /ws URL wins over the server default
+            // (DemoSession.SelectedTier). An UNPARSEABLE value silently falls back to the default — a bad
+            // query param must never 400 the connect (the surface should still come up, just on the default tier).
+            ExecutionTier connTier = DemoSession.SelectedTier;
+            string? tierQuery = context.Request.Query["tier"];
+            if (!string.IsNullOrEmpty(tierQuery) && DemoSession.TryParseTier(tierQuery, out ExecutionTier qt))
+                connTier = qt;
+
             using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
-            await DemoSession.RunAsync(socket, context.RequestAborted);
+            await DemoSession.RunAsync(socket, connTier, context.RequestAborted);
         });
 
         // The disk-library catalog (design D11 / T-C): the per-drive [ Library ▾] select fetches this.
@@ -112,6 +142,13 @@ internal static class DemoSession
     /// unchanged).</summary>
     internal static WebSystem? ForcedSystem;
 
+    /// <summary>The server-wide execution tier parsed from <c>--tier &lt;interpreter|jit&gt;</c> in
+    /// <see cref="Program.Main"/> (default <see cref="ExecutionTier.Interpreter"/>). It is the fallback when a
+    /// connection does not carry a <c>?tier=</c> query override; the resolved tier flows into
+    /// <see cref="RunAsync"/> and on to every web surface factory (and thence to the PRIMARY CPU only — the
+    /// coprocessor always stays on the interpreter per ADR 0015).</summary>
+    internal static ExecutionTier SelectedTier = ExecutionTier.Interpreter;
+
     /// <summary>The friendly <c>--system</c> names, in the order they map to <see cref="WebSystem"/>. Surfaced
     /// by <c>--system list</c> and the unknown-name error.</summary>
     internal static readonly string[] SystemNames = { "cpm3", "cpm22", "apple2", "pascal", "spectrum", "demo" };
@@ -130,6 +167,20 @@ internal static class DemoSession
             case "spectrum": system = WebSystem.Spectrum; return true;
             case "demo": system = WebSystem.Demo; return true;
             default: system = WebSystem.Demo; return false;
+        }
+    }
+
+    /// <summary>Map a friendly <c>--tier</c> / <c>?tier=</c> value (case-insensitive) to an
+    /// <see cref="ExecutionTier"/>. <c>interpreter</c>/<c>interp</c>→Interpreter, <c>jit</c>→Jit; any other
+    /// value returns false (the caller errors out for <c>--tier</c>, or silently falls back for a query param).</summary>
+    internal static bool TryParseTier(string name, out ExecutionTier tier)
+    {
+        switch (name.ToLowerInvariant())
+        {
+            case "interpreter":
+            case "interp": tier = ExecutionTier.Interpreter; return true;
+            case "jit": tier = ExecutionTier.Jit; return true;
+            default: tier = ExecutionTier.Interpreter; return false;
         }
     }
 
@@ -171,7 +222,7 @@ internal static class DemoSession
         };
     }
 
-    public static async Task RunAsync(WebSocket socket, CancellationToken ct)
+    public static async Task RunAsync(WebSocket socket, ExecutionTier tier, CancellationToken ct)
     {
         Channel<byte[]> frames = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(2) { FullMode = BoundedChannelFullMode.DropOldest });
@@ -236,9 +287,12 @@ internal static class DemoSession
             byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();        // optional (synthetic fallback)
             byte[]? videxFw = videxFirmware;                                           // already probed (REAL firmware)
             CpuEmulator.Core.IBlockDevice cpm3 = CpuEmulator.Machines.Apl2Cpm3.LoadBootDisk(apl2cpm3DiskPath!);
+            // Thread the resolved tier to the PRIMARY 6502; the Z80 SoftCard coprocessor always stays on the
+            // interpreter inside BoardMachineFactory.Build (per ADR 0015), so `--tier jit` runs the 6502 on JIT
+            // and leaves the coprocessor unchanged automatically.
             SoftCardVidexSurface softcard = SoftCardVidexSurface.CreateApl2Cpm3(sys, bootRom, charRom,
                 videxChar, videxFw, cpm3,
-                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a), tier);
             host = softcard.Host; slice = AppleSliceCycles; period = ApplePeriod;
             assetState = "apl2cpm3-cpm3-videx";
             string asset = assetState;                                     // capture for the provider
@@ -256,9 +310,12 @@ internal static class DemoSession
             byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();      // optional (synthetic fallback)
             byte[]? videxFw = videxFirmware;                                         // optional (already probed)
             CpuEmulator.Core.IBlockDevice cpm = CpuEmulator.Machines.SoftCardCpm.LoadBlockDevice(cpmDisk!);
+            // Thread the resolved tier to the PRIMARY 6502; the Z80 SoftCard coprocessor always stays on the
+            // interpreter inside BoardMachineFactory.Build (per ADR 0015). Pass tier by NAME — the call relies
+            // on the trailing optionals (drive1Label/sectorOrder/controlPortBase) staying at their defaults.
             SoftCardVidexSurface softcard = SoftCardVidexSurface.Create(sys, bootRom, charRom,
                 videxChar, videxFw, cpm,
-                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a), tier: tier);
             host = softcard.Host; slice = AppleSliceCycles; period = ApplePeriod;
             assetState = "softcard-cpm-videx";
             string asset = assetState;                                     // capture for the provider
@@ -271,8 +328,10 @@ internal static class DemoSession
             byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom!);
             byte[]? bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom();
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
+            // Thread the resolved tier to the 6502 (the bare ][+ is single-CPU — no coprocessor). Pass tier by
+            // NAME since the call omits the optional drive1Image (and drive1Label) that precede/follow it.
             Apple2Surface apple = Apple2Surface.Create(sys, bootRom, charRom,
-                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a), tier: tier);
             host = apple.Host; slice = AppleSliceCycles; period = ApplePeriod;
             assetState = charRom is null ? "apple-fallback-font" : "apple";
             string asset = assetState;                                     // capture for the provider
@@ -294,6 +353,14 @@ internal static class DemoSession
             string bootDisk = pascalBootPath
                 ?? throw new InvalidOperationException("Apple Pascal needs APPLE1.dsk (boot) — run tools/get-apple-pascal.");
             string? programDisk = pascalProgramPath;   // APPLE0 (drive 2); the authentic two-drive boot needs it
+            // Pascal stays interpreter-only this PR: CreatePascal has no tier param (Pascal.CreateBoard builds
+            // the board on the interpreter), so the resolved `tier` does NOT apply here. Threading a tier through
+            // CreatePascal/Pascal.CreateBoard is a follow-on. Surface a one-line operator warning when a JIT tier
+            // was requested so `--tier jit --system pascal` doesn't silently hand back an interpreter machine.
+            if (tier == ExecutionTier.Jit)
+                Console.Error.WriteLine(
+                    "Note: Apple Pascal runs on the interpreter — the --tier/?tier=jit selection is ignored for "
+                    + "this branch in this release (JIT-on-Pascal is a follow-on).");
             Apple2Surface pascal = Apple2Surface.CreatePascal(sys, bootRom, charRom, bootDisk, programDisk,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
             host = pascal.Host; slice = AppleSliceCycles; period = ApplePeriod;
@@ -309,15 +376,17 @@ internal static class DemoSession
             // by SelectSystem; no fresh stat, so no TOCTOU null-deref.
             string romPath = spectrumRomPath!;
             byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
+            // Thread the resolved tier to the Z80 (the Spectrum is single-CPU — no coprocessor).
             SpectrumSurface spectrum = SpectrumSurface.Create(rom,
-                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a), tier);
             host = spectrum.Host; slice = SpectrumPumpCycles; period = SpectrumPeriod;
             assetState = "spectrum";   // no Apple status -> the legacy one-shot text frame covers it
         }
         else
         {
-            // The demo board has no audio device; the audio channel stays empty.
-            DemoBoardSurface demo = DemoBoardSurface.Create(f => frames.Writer.TryWrite(f));
+            // The demo board has no audio device; the audio channel stays empty. Thread the resolved tier to
+            // the board's single CPU.
+            DemoBoardSurface demo = DemoBoardSurface.Create(f => frames.Writer.TryWrite(f), tier);
             host = demo.Host; slice = SliceCycles; period = SlicePeriod;
             assetState = "demo";       // no Apple status -> the legacy one-shot text frame covers it
         }

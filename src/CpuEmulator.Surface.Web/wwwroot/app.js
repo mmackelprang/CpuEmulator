@@ -4,7 +4,12 @@
   const ctx = canvas.getContext("2d");
   const status = document.getElementById("status");
 
-  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+  // Carry the page's ?tier= through to the /ws URL so a ?tier=jit on the page reconnects on JIT (the server
+  // reads ?tier on /ws per-connection). Only appended when present + non-empty; an unknown value is harmless
+  // (the server silently falls back to its default tier).
+  const tierParam = new URLSearchParams(location.search).get("tier");
+  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" +
+                (tierParam ? "?tier=" + encodeURIComponent(tierParam) : "");
   const ws = new WebSocket(wsUrl);
   ws.binaryType = "arraybuffer";
 
@@ -34,7 +39,7 @@
 
   // H3: the keyboard-hint copy (copy.md §4) lives in two states the asset drives. The booted form is the
   // server-rendered #hint markup; the demo form omits the RESET/BASIC chords (there is no Apple to reset).
-  const HINT_BOOTED = "Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET. <kbd>`</kbd> = perf HUD";
+  const HINT_BOOTED = "Uppercase only. <kbd>Ctrl+B</kbd> = BASIC. <kbd>Ctrl+Backspace</kbd> = RESET. <kbd>`</kbd> = perf HUD. <kbd>Ctrl+`</kbd> = reset (reconnect)";
   const HINT_DEMO = "Fetch the ROMs to boot a real Apple ][+: <kbd>tools/get-apple2-roms.sh</kbd>";
   function setHint(booted) {
     const hint = document.getElementById("hint");
@@ -371,9 +376,19 @@
   };
 
   function sendKey(action, ev) {
-    // Perf HUD toggle (§6.4): the backtick ` is intercepted AHEAD of the wire. It is a confirmed guest
-    // no-op (MapDomCode has no Backquote arm → KeyCode.None), so swallowing it costs nothing — the keydown
-    // toggles the HUD and the key (down AND up) never reaches the machine.
+    // RESET = reconnect (Ctrl+`): the backtick is a confirmed guest no-op (MapDomCode has no Backquote arm →
+    // KeyCode.None), so when Ctrl is held we repurpose it as a reset. location.reload() does a fresh page load
+    // — a new /ws connection = a fresh machine (the surfaces are one-machine-per-socket) = a reset — and it
+    // preserves the ?tier URL param, so a JIT session resets back to JIT. (Reloading the page by hand does the
+    // same thing.) Swallow it ahead of the wire/HUD: no HUD toggle, nothing sent to the guest.
+    if (ev.ctrlKey && ev.code === "Backquote") {
+      ev.preventDefault();
+      if (action === "down") location.reload();
+      return;
+    }
+    // Perf HUD toggle (§6.4): the bare backtick ` (no Ctrl) is intercepted AHEAD of the wire. It is a confirmed
+    // guest no-op (KeyCode.None), so swallowing it costs nothing — the keydown toggles the HUD and the key
+    // (down AND up) never reaches the machine.
     if (ev.code === "Backquote") {
       if (action === "down") toggleHud();
       return;
