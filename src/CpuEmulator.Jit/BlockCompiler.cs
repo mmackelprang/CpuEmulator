@@ -84,6 +84,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// ran). Accumulates across Compiles (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
     internal int M8086FarFlowEmitSelections { get; private set; }
 
+    /// <summary>Row MD: how many times an 8086 MUL/IMUL/DIV/IDIV row (F6/F7 /4../7) was DISPATCHED to
+    /// <see cref="EmitM8086MulDiv"/> and EMITTED (the non-vacuity probe — asserted &gt; 0 in the gate). Bumped
+    /// only when the arm actually emits, so a still-falling-back MUL/DIV leaves it 0 (the discriminator that
+    /// the parity sweep, which already passes via fallback, cannot false-pass on). Accumulates across Compiles
+    /// (unlike <see cref="FallbackEmitCount"/>, which resets per Compile).</summary>
+    internal int M8086MulDivEmitSelections { get; private set; }
+
     // BlockDelegate arg indices (M2-ii — after inserting ChainDispatch as the 5th parameter;
     // M3.2 appended ioBus as the 8th so no existing index shifted):
     //   0 = cpu, 1 = bus, 2 = fastmem, 3 = dirty, 4 = chain (ChainDispatch),
@@ -282,6 +289,13 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     /// (TargetIsM8086, mnemonic) pair is the unambiguous arm discriminator — no opcode-level exclusion needed.</summary>
     private static bool IsM8086AluMnemonic(string m) =>
         m is "ADD" or "OR" or "ADC" or "SBB" or "AND" or "SUB" or "XOR" or "CMP" or "TEST" or "INC" or "DEC" or "NOT" or "NEG";
+
+    /// <summary>Row MD: is this an in-scope 8086 MUL/IMUL/DIV/IDIV row (F6/F7 /4../7)? The mnemonic gate is
+    /// the readable filter; the F6/F7 byte + the reg-extension subfield is the load-bearing one. d.Opcode is
+    /// the BYTE 0xF6/0xF7 for every F6/F7-group row; the /4../7 split is by the reg field, which the arm
+    /// re-decodes from the ModR/M at emit time (d carries only the byte, like the FF group).</summary>
+    private static bool IsM8086MulDivMnemonic(string m) =>
+        m is "MUL" or "IMUL" or "DIV" or "IDIV";
 
     /// <summary>M6 PR-D: is this an in-scope NEAR 8086 control-flow row (the EmitM8086Flow family)? The plain
     /// opcodes 70-7F/EB/E9/E8/C3/C2/E0-E3 (matched on the BYTE d.Opcode), PLUS the FF-group NEAR indirect CALL/JMP
@@ -652,6 +666,10 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         // F6/F7 NOT/NEG) writes RAM, so the intra-block SMC guard must arm. The conservative class-level gate
         // (TargetIsM8086 && ALU-mnemonic) is correct: a reg-dest ALU (and CMP/TEST, which never write back) leaves
         // SmcPageLocal at -1, so arming on every ALU row is harmless (a no-store op never trips the guard).
+        // Row MD: MUL/IMUL never write RAM (register-pair results only — no mayWriteRam needed); DIV/IDIV end the
+        // block (DECISION MD-1), so their divide-error fault-path stack writes are backstopped by EmitNormalExit's
+        // clean block-end + the cache's dirty-map (the same exclusion the flow/CALL push rows rely on), not the
+        // intra-block SMC guard — so they are deliberately absent from this predicate.
         bool mayWriteRam = d.Class is JitOpClass.Store or JitOpClass.Rmw
             || (TargetIsZ80 && d.Ops.Length > 0 && d.Ops[0].Kind is "StoreImm8" or "Store16" or "Push16")
             || (TargetIsM68000 && d.Class is JitOpClass.M68000Move or JitOpClass.M68000Alu or JitOpClass.M68000Shift)
@@ -677,6 +695,15 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 {
                     M8086AluEmitSelections++;        // M6 PR-C: the dead-arm-now-live probe (asserted > 0 in the non-vacuous gate)
                     EmitM8086Alu(ctx, pc, d, length, x86Seg);   // M6 PR-C (DECISION C-1..C-4)
+                    break;
+                }
+                // Row MD (ROADMAP #4): the F6/F7 /4../7 MUL/IMUL/DIV/IDIV rows. Runs AFTER the ALU check (which
+                // owns F6/F7 /0../3 TEST/NOT/NEG) and BEFORE the far-flow check. MUL/IMUL are straight-line;
+                // DIV/IDIV vector CS:IP on the divide-error and END the block (DECISION MD-1).
+                if (TargetIsM8086 && IsM8086MulDivMnemonic(d.Mnemonic))
+                {
+                    M8086MulDivEmitSelections++;     // Row MD: the dead-arm-now-live probe (asserted > 0 in the gate)
+                    EmitM8086MulDiv(ctx, pc, d, length, x86Seg);   // Row MD (DECISION MD-1/MD-2)
                     break;
                 }
                 // ADR 0019 FF-2: the FAR control-flow family (9A/EA/CB/CA + FF /3 /5 far indirect). It runs BEFORE

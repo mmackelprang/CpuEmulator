@@ -39,6 +39,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private const int M8086FlagSF = 1 << 7;    // sign (top bit of the width)
     private const int M8086FlagOF = 1 << 11;   // signed overflow (the spec's `V`)
 
+    // Row MD (DECISION MD-2): the IF/TF masks RaiseInterrupt clears on interrupt entry (M8086Cpu.Interrupt.cs:
+    // FlagIF = 1<<9 at Misc.cs:20, FlagTF = 1<<8 at Interrupt.cs:32 — the M8086Spec layout).
+    private const int M8086FlagIF = 1 << 9;    // interrupt-enable (cleared on interrupt entry)
+    private const int M8086FlagTF = 1 << 8;    // trap / single-step (cleared on interrupt entry)
+
     // The BitOperations.PopCount(uint) handle for the parity bit (resolved once; CPU-agnostic static — the
     // 8086 PF is the even-parity of the LOW 8 bits of the result, ParityEven, M8086Cpu.Alu.cs:44).
     private static readonly MethodInfo MPopCount =
@@ -1471,5 +1476,284 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     {
         if (mod == 3u) EmitLoadReg16(ctx, M8086Reg16[rm]);
         else EmitM8086LoadWordEa(ctx, mod, rm, disp, over);
+    }
+
+    // ── ROADMAP #4 Row MD: the 8086 MUL/IMUL/DIV/IDIV emit arm (F6/F7 /4../7). MUL/IMUL straight-line;
+    //    DIV/IDIV fault-capable (divide-error → INT0 via the shared EmitM8086RaiseInterrupt) → END the block
+    //    (DECISION MD-1). Transcribes AluMul/AluDiv (M8086Cpu.Alu.cs:369/412) one-for-one. ────────────────────
+
+    /// <summary>Row MD: emit one 8086 MUL/IMUL/DIV/IDIV instruction (F6/F7 /4../7). Decodes the ModR/M at
+    /// emit time (the EmitM8086Alu preamble), routes by reg (4 MUL, 5 IMUL, 6 DIV, 7 IDIV) and width
+    /// (F6 byte / F7 word). MUL/IMUL are straight-line (advance IP by length-1, like the ALU arm); DIV/IDIV
+    /// SELF-TERMINATE (the divide-error path vectors CS:IP — DECISION MD-1) so they set IP by length then
+    /// exit via EmitNormalExit. Transcribes AluMul/AluDiv (Alu.cs:369/412) one-for-one. The default throws
+    /// (the gate↔arm lockstep tripwire).</summary>
+    private void EmitM8086MulDiv(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
+    {
+        M8086Cpu_Override over = M8086OverrideFromByte(x86Seg);
+        int opcodePc = pc;
+        while (M8086IsPrefixByte(_bus.Read8(M8086CodePhys((ushort)opcodePc)))) opcodePc++;
+        byte opcode = _bus.Read8(M8086CodePhys((ushort)opcodePc));
+        int operandPc = opcodePc + 1;
+        bool width16 = opcode == 0xF7;
+
+        byte modrm = _bus.Read8(M8086CodePhys((ushort)operandPc)); operandPc++;
+        uint mod = (uint)(modrm >> 6) & 3u;
+        uint reg = (uint)(modrm >> 3) & 7u;
+        uint rm  = (uint)modrm & 7u;
+        int dispLen = mod switch { 0u => rm == 6u ? 2 : 0, 1u => 1, 2u => 2, _ => 0 };
+        ushort disp = 0;
+        if (dispLen == 1) disp = unchecked((ushort)(sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc)));
+        else if (dispLen == 2)
+            disp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                            | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+
+        switch (reg)
+        {
+            case 4u: EmitM8086Mul(ctx, width16, signed: false, mod, rm, disp, over); EmitMulDivStraightTail(ctx, length); break;
+            case 5u: EmitM8086Mul(ctx, width16, signed: true,  mod, rm, disp, over); EmitMulDivStraightTail(ctx, length); break;
+            case 6u: EmitM8086Div(ctx, pc, length, width16, signed: false, mod, rm, disp, over); break;
+            case 7u: EmitM8086Div(ctx, pc, length, width16, signed: true,  mod, rm, disp, over); break;
+            default:
+                throw new EmulationException(
+                    $"BlockCompiler: no 8086 MUL/DIV emit branch for F6/F7 reg {reg} (opcode 0x{opcode:X2}); "
+                  + "the gate (IsEmittableX86Family) admitted a form the arm does not handle — a lockstep bug.");
+        }
+    }
+
+    /// <summary>Row MD: the straight-line tail for MUL/IMUL (no CS:IP change) — advance IP by length-1
+    /// (EmitInstruction already advanced 1), matching the MOV/ALU arms. NOT used by DIV/IDIV (they end
+    /// the block).</summary>
+    private void EmitMulDivStraightTail(EmitContext ctx, int length)
+    {
+        int tail = length - 1;
+        if (tail > 0) EmitIncrementPC(ctx, tail);
+    }
+
+    /// <summary>Row MD: MUL/IMUL (AluMul, Alu.cs:369). Byte: AX = AL*src. Word: DX:AX = AX*src. CF=OF set
+    /// iff the upper half is significant (MUL: high != 0; IMUL: high != the sign-extension of the low).
+    /// SF/ZF/PF/AF are left UNTOUCHED (the 8086 leaves them undefined; the F6/F7 /4 /5 flags-mask excludes
+    /// them, so the corpus FLAGS compare ignores them — matching the interpreter's no-touch is exact). The
+    /// signed/unsigned cast (Conv_I1/Conv_I2 vs Conv_U1/Conv_U2 on BOTH factors before Mul) is the only
+    /// MUL-vs-IMUL difference; the upper-half significance predicate uses 0/0xFF (byte) or 0/0xFFFF (word).</summary>
+    private void EmitM8086Mul(EmitContext ctx, bool width16, bool signed, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        if (!width16)
+        {
+            // src -> M8086ALocal (the A survivor; loaded as a zero-extended byte 0..0xFF).
+            EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);
+            // product = (signed ? (sbyte)AL * (sbyte)src : (byte)AL * (byte)src) & 0xFFFF  -> AX.
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AL"));
+            il.Emit(signed ? OpCodes.Conv_I1 : OpCodes.Conv_U1);
+            il.Emit(OpCodes.Ldloc, ctx.M8086ALocal);
+            il.Emit(signed ? OpCodes.Conv_I1 : OpCodes.Conv_U1);
+            il.Emit(OpCodes.Mul);
+            il.Emit(OpCodes.Conv_U2);            // product & 0xFFFF (u16)
+            EmitStoreReg16(ctx, "AX");
+            // CF/OF: signed ? AH != ((AL & 0x80)!=0 ? 0xFF : 0x00) : AH != 0  — read the registers POST-store.
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AH"));   // AH (0..0xFF)
+            if (signed)
+            {
+                // sign-extension of AL: (AL & 0x80) != 0 ? 0xFF : 0x00
+                Label neg = il.DefineLabel(), have = il.DefineLabel();
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, RegField("AL"));
+                il.Emit(OpCodes.Ldc_I4, 0x80); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Brtrue, neg);
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Br, have);
+                il.MarkLabel(neg); il.Emit(OpCodes.Ldc_I4, 0xFF);
+                il.MarkLabel(have);
+                il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);   // (AH == signExt) ? 0 : 1  ⇒ AH != signExt
+            }
+            else
+            {
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);   // AH != 0
+            }
+            il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);    // stash the bool; SetFlag clobbers DataLocal, so re-load per flag
+            il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitM8086SetFlag(ctx, M8086FlagCF);
+            il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitM8086SetFlag(ctx, M8086FlagOF);
+        }
+        else
+        {
+            // src -> M8086ALocal (the A survivor; word 0..0xFFFF).
+            EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);
+            // product (32-bit) = signed ? (short)AX * (short)src : (uint)AX * src  -> M8086ResultLocal.
+            EmitLoadReg16(ctx, "AX");
+            il.Emit(signed ? OpCodes.Conv_I2 : OpCodes.Conv_U2);
+            il.Emit(OpCodes.Ldloc, ctx.M8086ALocal);
+            il.Emit(signed ? OpCodes.Conv_I2 : OpCodes.Conv_U2);
+            il.Emit(OpCodes.Mul);
+            il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);    // product (treated as uint for the >>16)
+            // AX = product & 0xFFFF
+            il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Conv_U2); EmitStoreReg16(ctx, "AX");
+            // DX = (product >> 16) & 0xFFFF   (logical shift — product is a uint per the oracle)
+            il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, 16); il.Emit(OpCodes.Shr_Un);
+            il.Emit(OpCodes.Conv_U2); EmitStoreReg16(ctx, "DX");
+            // CF/OF: signed ? DX != ((AX & 0x8000)!=0 ? 0xFFFF : 0x0000) : DX != 0  — read the registers POST-store.
+            EmitLoadReg16(ctx, "DX");
+            if (signed)
+            {
+                Label neg = il.DefineLabel(), have = il.DefineLabel();
+                EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Ldc_I4, 0x8000); il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Brtrue, neg);
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Br, have);
+                il.MarkLabel(neg); il.Emit(OpCodes.Ldc_I4, 0xFFFF);
+                il.MarkLabel(have);
+                il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);   // DX != signExt
+            }
+            else
+            {
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ceq);   // DX != 0
+            }
+            il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+            il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitM8086SetFlag(ctx, M8086FlagCF);
+            il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); EmitM8086SetFlag(ctx, M8086FlagOF);
+        }
+    }
+
+    /// <summary>Row MD (DECISION MD-2): emit the IVT push sequence for interrupt type <paramref name="vector"/>
+    /// (a compile-time constant — 0 for the divide-error, the imm8/3/4 for the INT ops in row II). Transcribes
+    /// RaiseInterrupt (Interrupt.cs:39) one-for-one: PushWord(FLAGS); clear IF and TF; PushWord(CS); PushWord(IP);
+    /// then IP = word @ [0:vector*4], CS = word @ [0:vector*4+2] (the IVT in segment 0, little-endian). The pushed
+    /// IP must already be the RETURN ip — the CALLER advances IP to the return point before calling this (for DIV
+    /// the IP is set to pc+length first; for INT n the arm sets IP += length first). Reused by row II's
+    /// EmitM8086Interrupt. Does NOT itself exit — the caller follows with EmitNormalExit (the vectored CS:IP is
+    /// dynamic data → not chainable).
+    /// <para>CLOBBERS: DataLocal, AddrLocal, M8086SegLocal, M8086OffsetLocal (the segment-0 IVT word reads stage
+    /// the survivor pair + assemble the words through them). A caller (e.g. row II's EmitM8086Interrupt) must not
+    /// have a live value in any of these locals across this call.</para></summary>
+    private void EmitM8086RaiseInterrupt(EmitContext ctx, int vector)
+    {
+        ILGenerator il = ctx.Il;
+        // 1. PushWord(FLAGS)
+        EmitM8086PushWord(ctx, () => { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!); });
+        // 2. clear IF (bit 9) and TF (bit 8): FLAGS &= ~(IF|TF)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _m8086FLAGS!);
+        il.Emit(OpCodes.Ldc_I4, ~(M8086FlagIF | M8086FlagTF)); il.Emit(OpCodes.And);
+        il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _m8086FLAGS!);
+        // 3. PushWord(CS)
+        EmitM8086PushWord(ctx, () => EmitLoadReg16(ctx, "CS"));
+        // 4. PushWord(IP) — the current IP (the caller set it to the return point).
+        EmitM8086PushWord(ctx, () => { il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fpc); });
+        // 5. IP = word @ Physical(0, vector*4); CS = word @ Physical(0, vector*4+2) — the segment-0 IVT read.
+        //    Seg 0 is a LITERAL (not a register), so it does NOT go through EmitLoadReg16: stage M8086SegLocal=0
+        //    and M8086OffsetLocal=tableOffset, then read each byte via the survivor-pair physical (offset-wrap).
+        int tableOffset = vector * 4;
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Stloc, ctx.M8086SegLocal);
+        il.Emit(OpCodes.Ldc_I4, tableOffset); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+        // IP = lo | hi<<8 @ (0:tableOffset)  -> _fpc
+        EmitM8086PushPhysical(ctx, offsetPlusOne: false); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        EmitM8086PushPhysical(ctx, offsetPlusOne: true);  LoadByteFromBus(ctx); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);            // the new IP word (survives the field store below)
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _fpc);
+        // CS = lo | hi<<8 @ (0:tableOffset+2)  -> _m8086CS  (advance the offset by 2; re-wrap is handled per byte).
+        il.Emit(OpCodes.Ldc_I4, (tableOffset + 2) & 0xFFFF); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+        EmitM8086PushPhysical(ctx, offsetPlusOne: false); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        EmitM8086PushPhysical(ctx, offsetPlusOne: true);  LoadByteFromBus(ctx); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.AddrLocal); il.Emit(OpCodes.Conv_U2); il.Emit(OpCodes.Stfld, _m8086CS!);
+    }
+
+    /// <summary>Row MD: DIV/IDIV (AluDiv, Alu.cs:412). Byte: AL=AX/d, AH=AX%d. Word: AX=DX:AX/d, DX=rem.
+    /// A divisor of 0 OR a quotient that overflows the destination (incl. the 8086 IDIV SYMMETRIC-RANGE quirk:
+    /// |quot| &gt; 127 byte / &gt; 32767 word) raises INT0 via the shared EmitM8086RaiseInterrupt(ctx, 0).
+    /// The arm SELF-TERMINATES (DECISION MD-1): it advances IP to the return point FIRST (so a fault pushes the
+    /// return IP and a non-fault leaves IP at the successor), branches fault-vs-valid, and EACH path ends with
+    /// its own EmitNormalExit (the post-op CS:IP is dynamic — vectored on fault, the successor offset on the
+    /// valid path; not statically chainable). Transcribes the byte/word × signed/unsigned arms line-for-line:
+    /// Div_Un/Rem_Un for unsigned, Div/Rem for signed, the exact dividend forms (word unsigned: ((uint)DX&lt;&lt;16)|AX).</summary>
+    private void EmitM8086Div(EmitContext ctx, ushort pc, int length, bool width16, bool signed,
+        uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        ushort returnIp = (ushort)(pc + length);
+
+        // Read the divisor into M8086ALocal (the A survivor): byte (0..0xFF) or word (0..0xFFFF).
+        if (!width16) EmitM8086LoadRmByteToA(ctx, mod, rm, disp, over);
+        else          EmitM8086LoadRmWordToA(ctx, mod, rm, disp, over);
+
+        Label fault = il.DefineLabel(), done = il.DefineLabel();
+
+        // d == 0 ⇒ fault.
+        il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Brfalse, fault);
+
+        if (!width16)
+        {
+            if (!signed)
+            {
+                // dividend = (uint)AX; quot = dividend / d; rem = dividend % d; if (quot > 0xFF) fault.
+                // Compute BOTH quot (M8086ResultLocal) and rem (M8086BLocal) BEFORE writing AL — writing AL would
+                // clobber AX (AL is its low byte), so the remainder must read AX while it is still the dividend.
+                EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Div_Un);
+                il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);   // quot
+                EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Rem_Un);
+                il.Emit(OpCodes.Stloc, ctx.M8086BLocal);        // rem
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, 0xFF); il.Emit(OpCodes.Cgt_Un); il.Emit(OpCodes.Brtrue, fault);
+                // AL = (byte)quot ; AH = (byte)rem
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField("AL"));
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField("AH"));
+            }
+            else
+            {
+                // dividend = (short)AX; quot = dividend / (sbyte)d; rem = dividend % (sbyte)d;
+                // if (quot < -127 || quot > 127) fault  (the 8086 byte-IDIV symmetric-range quirk, Alu.cs:439).
+                // Compute quot + rem BEFORE writing AL (same AX-clobber discipline as the unsigned arm).
+                EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Conv_I2);                 // (short)AX
+                il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Conv_I1);  // (sbyte)d
+                il.Emit(OpCodes.Div);
+                il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);   // quot (int)
+                EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Conv_I2);
+                il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Conv_I1);
+                il.Emit(OpCodes.Rem);
+                il.Emit(OpCodes.Stloc, ctx.M8086BLocal);        // rem (int)
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, -127); il.Emit(OpCodes.Blt, fault);
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldc_I4, 127);  il.Emit(OpCodes.Bgt, fault);
+                // AL = (byte)(sbyte)quot ; AH = (byte)(sbyte)rem
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField("AL"));
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Conv_U1); il.Emit(OpCodes.Stfld, RegField("AH"));
+            }
+        }
+        else
+        {
+            // dividend = ((uint)DX << 16) | AX  -> M8086ResultLocal (the full 32-bit DX:AX; no signed-int promotion).
+            EmitLoadReg16(ctx, "DX"); il.Emit(OpCodes.Ldc_I4, 16); il.Emit(OpCodes.Shl);
+            EmitLoadReg16(ctx, "AX"); il.Emit(OpCodes.Or);
+            il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);
+            if (!signed)
+            {
+                // quot = dividend / d; rem = dividend % d; if (quot > 0xFFFF) fault.
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Div_Un);
+                il.Emit(OpCodes.Stloc, ctx.M8086BLocal);        // quot (B survivor)
+                il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Ldc_I4, 0xFFFF); il.Emit(OpCodes.Cgt_Un); il.Emit(OpCodes.Brtrue, fault);
+                il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); EmitStoreReg16(ctx, "AX");                                      // AX = quot
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Rem_Un); EmitStoreReg16(ctx, "DX");   // DX = rem
+            }
+            else
+            {
+                // signedDividend = (int)dividend; quot = signedDividend / (short)d; rem = ... % (short)d;
+                // if (quot < -32767 || quot > 32767) fault  (the 8086 word-IDIV symmetric-range quirk, Alu.cs:463).
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Conv_I2); il.Emit(OpCodes.Div);
+                il.Emit(OpCodes.Stloc, ctx.M8086BLocal);        // quot (int)
+                il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Ldc_I4, -32767); il.Emit(OpCodes.Blt, fault);
+                il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); il.Emit(OpCodes.Ldc_I4, 32767);  il.Emit(OpCodes.Bgt, fault);
+                il.Emit(OpCodes.Ldloc, ctx.M8086BLocal); EmitStoreReg16(ctx, "AX");                                      // AX = (ushort)(short)quot
+                il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal); il.Emit(OpCodes.Ldloc, ctx.M8086ALocal); il.Emit(OpCodes.Conv_I2); il.Emit(OpCodes.Rem); EmitStoreReg16(ctx, "DX");   // DX = rem
+            }
+        }
+
+        // Valid path: IP at the successor, end the block (DECISION MD-1).
+        il.Emit(OpCodes.Br, done);
+
+        il.MarkLabel(fault);
+        EmitM8086SetIp(ctx, returnIp);              // the pushed IP is the return point (past the op)
+        EmitM8086RaiseInterrupt(ctx, 0);            // divide-error INT0 (the shared helper — vectors CS:IP)
+        EmitNormalExit(ctx);                         // DYNAMIC vectored CS:IP — not chainable; ends with ret
+
+        il.MarkLabel(done);
+        EmitM8086SetIp(ctx, returnIp);              // valid path: IP at the successor
+        EmitNormalExit(ctx);                         // end the block (DECISION MD-1); ends with ret
     }
 }

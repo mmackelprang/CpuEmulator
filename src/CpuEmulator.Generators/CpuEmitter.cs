@@ -4906,7 +4906,13 @@ internal static class CpuEmitter
         // ADR 0019 FF-2: the far-flow rows (9A/EA/CB/CA + FF /3 /5) also ride JitOpClass.Register and must END the
         // block (the EmitM8086FarFlow arm self-terminates via EmitChainOrExit/EmitNormalExit) — re-force endsBlock
         // for them too, the same way as the near family above (WITHOUT re-forcing fallback).
-        if (isX86 && (IsEmittableX86NearFlow(insn) || IsEmittableX86FarFlow(insn)))
+        // Row MD (ROADMAP #4): DIV/IDIV vector CS:IP on the divide-error (the EmitM8086MulDiv arm self-terminates),
+        // so they must END the block like the flow rows — re-force endsBlock (NOT fallback). MUL/IMUL stay
+        // endsBlock=false (straight-line). The reg-extension subfield (/6 /7) is the DIV/IDIV discriminator; the
+        // descriptor's Mnemonic is "DIV"/"IDIV" for the /6 /7 rows (verified against the generated table), so the
+        // mnemonic carries it.
+        if (isX86 && (IsEmittableX86NearFlow(insn) || IsEmittableX86FarFlow(insn)
+                      || insn.Mnemonic is "DIV" or "IDIV"))
             endsBlock = true;
 
         string ops = string.Join(", ", insn.Ops.Select(o => JitOpLiteral(o, flags)));
@@ -5089,12 +5095,14 @@ internal static class CpuEmitter
 
         // M6 PR-C: the integer-ALU families — the 00-3D standard forms + the 80/81/83 group + 84/85/A8/A9 TEST +
         // 40-4F INC/DEC r16 + FE/FF /0 /1 INC/DEC r/m + F6/F7 /0 /1 /2 /3 (TEST/NOT/NEG). Admitted by MNEMONIC.
-        // The MUL/IMUL/DIV/IDIV exclusion is AUTOMATIC: the F6/F7 /4../7 rows carry the MUL/IMUL/DIV/IDIV
-        // mnemonics (and the FF /2../6 rows CALL/JMP/PUSH), which are NOT in the ALU mnemonic set below, so they
-        // fail this whitelist and stay interpreter-fallback (ADR 0011 §2) — no opcode-level exclusion needed. The
-        // gate sees the BASE opcode for the reg-extension group rows; the arm normalizes (opcode<<3)|reg.
+        // Row MD (ROADMAP #4): the F6/F7 /4../7 MUL/IMUL/DIV/IDIV rows now EMIT (the EmitM8086MulDiv arm). They
+        // carry the MUL/IMUL/DIV/IDIV mnemonics, admitted here. DIV/IDIV vector CS:IP on the divide-error → they
+        // END the block (endsBlock re-forced below, like the flow rows); MUL/IMUL are straight-line. (The FF
+        // /2../6 rows CALL/JMP/PUSH stay out of this whitelist; the gate sees the BASE opcode for the reg-extension
+        // group rows; the arm normalizes (opcode<<3)|reg.)
         if (insn.Mnemonic is "ADD" or "OR" or "ADC" or "SBB" or "AND" or "SUB" or "XOR" or "CMP"
-            or "TEST" or "INC" or "DEC" or "NOT" or "NEG")
+            or "TEST" or "INC" or "DEC" or "NOT" or "NEG"
+            or "MUL" or "IMUL" or "DIV" or "IDIV")
             return true;
 
         // M6 PR-D: the NEAR control-flow family (Jcc/JMP/CALL/RET/LOOP + FF /2 /4 near indirect). Admitted via the
