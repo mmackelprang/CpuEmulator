@@ -15,6 +15,34 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        // The `--system <name>` override (deterministic launcher seam): scan a COPY of args BEFORE building the
+        // WebApplication. `--system list` prints the valid names and exits; a valid name forces the boot branch
+        // (DemoSession.ForcedSystem); an unknown name errors out. The ORIGINAL args pass through to
+        // CreateBuilder unchanged — ASP.NET treats an unknown `--key value` pair as inert config, so the
+        // auto-probe path (no `--system`) stays byte-for-byte identical.
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (!string.Equals(args[i], "--system", StringComparison.Ordinal))
+                continue;
+            string name = args[i + 1];
+            if (string.Equals(name, "list", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("Valid --system names: " + string.Join(", ", DemoSession.SystemNames));
+                return;
+            }
+            if (DemoSession.TryParseSystem(name, out DemoSession.WebSystem forced))
+            {
+                DemoSession.ForcedSystem = forced;
+            }
+            else
+            {
+                Console.Error.WriteLine($"Unknown --system '{name}'. Valid names: "
+                    + string.Join(", ", DemoSession.SystemNames));
+                Environment.Exit(2);
+            }
+            break;
+        }
+
         // Default the content root to the app's OWN directory (where wwwroot is published), not the
         // process CWD. Without this, launching the published DLL from anywhere but the project dir leaves
         // ASP.NET hunting for wwwroot under the CWD → "WebRootPath not found" → a 404 at "/". An explicit
@@ -76,7 +104,34 @@ internal static class DemoSession
 
     /// <summary>Which system the web server boots, in precedence order. The asset-probe order in
     /// <see cref="RunAsync"/> mirrors this; <see cref="SelectSystem"/> is the pure decision.</summary>
-    internal enum WebSystem { Apl2Cpm3Videx, SoftCardCpm22, Apple2, Spectrum, Demo }
+    internal enum WebSystem { Apl2Cpm3Videx, SoftCardCpm22, Apple2, Pascal, Spectrum, Demo }
+
+    /// <summary>A <c>--system &lt;name&gt;</c> override parsed in <see cref="Program.Main"/>: when non-null it
+    /// forces the boot branch in <see cref="RunAsync"/> regardless of asset precedence (the asset probes still
+    /// run so the forced branch has the inputs it needs). Null = the normal auto-probe (byte-for-byte
+    /// unchanged).</summary>
+    internal static WebSystem? ForcedSystem;
+
+    /// <summary>The friendly <c>--system</c> names, in the order they map to <see cref="WebSystem"/>. Surfaced
+    /// by <c>--system list</c> and the unknown-name error.</summary>
+    internal static readonly string[] SystemNames = { "cpm3", "cpm22", "apple2", "pascal", "spectrum", "demo" };
+
+    /// <summary>Map a friendly <c>--system</c> name (case-insensitive) to the <see cref="WebSystem"/> branch.
+    /// Returns false for an unknown name. <c>cpm3</c>→Apl2Cpm3Videx, <c>cpm22</c>→SoftCardCpm22,
+    /// <c>apple2</c>→Apple2, <c>pascal</c>→Pascal, <c>spectrum</c>→Spectrum, <c>demo</c>→Demo.</summary>
+    internal static bool TryParseSystem(string name, out WebSystem system)
+    {
+        switch (name.ToLowerInvariant())
+        {
+            case "cpm3": system = WebSystem.Apl2Cpm3Videx; return true;
+            case "cpm22": system = WebSystem.SoftCardCpm22; return true;
+            case "apple2": system = WebSystem.Apple2; return true;
+            case "pascal": system = WebSystem.Pascal; return true;
+            case "spectrum": system = WebSystem.Spectrum; return true;
+            case "demo": system = WebSystem.Demo; return true;
+            default: system = WebSystem.Demo; return false;
+        }
+    }
 
     /// <summary>The pure precedence decision (no I/O) — the single source of truth for which system the web
     /// server boots, given which assets are present. apl2cpm3 (80-col CP/M 3.1) takes priority over the 2.2
@@ -87,11 +142,16 @@ internal static class DemoSession
     /// without the real firmware the 80-col screen renders NOTHING (see Apl2Cpm3Vectors.TryGetVidexAssets /
     /// the Apl2Cpm3VidexFact doc). Requiring it avoids selecting a blank-screen apl2cpm3 boot; absent it we
     /// correctly fall through to the 2.2 (40-col) branch.</param>
+    /// <param name="pascalDisks">Whether BOTH Apple Pascal disks (APPLE1 boot + APPLE0 program) are cached.
+    /// Selects the Pascal branch (Apple ROM + the two Pascal disks → Pascal). Placed AFTER the CP/M branches
+    /// because it needs the Pascal disks the CP/M rigs don't stage; placed BEFORE the bare Apple ][+ because
+    /// Pascal needs MORE assets than the bare ][+ (which boots on the system ROM alone).</param>
     internal static WebSystem SelectSystem(bool appleRom, bool apl2cpm3Disk, bool videxFirmware,
-                                           bool cpm22Disk, bool spectrumRom)
+                                           bool cpm22Disk, bool pascalDisks, bool spectrumRom)
     {
         if (appleRom && apl2cpm3Disk && videxFirmware) return WebSystem.Apl2Cpm3Videx;
         if (appleRom && cpm22Disk) return WebSystem.SoftCardCpm22;
+        if (appleRom && pascalDisks) return WebSystem.Pascal;
         if (appleRom) return WebSystem.Apple2;
         if (spectrumRom) return WebSystem.Spectrum;
         return WebSystem.Demo;
@@ -114,11 +174,15 @@ internal static class DemoSession
         string? apl2cpm3DiskPath = null;
         byte[]? videxFirmware = null;   // the REAL $C800 firmware (load-bearing for the apl2cpm3 80-col console)
         string? cpmDisk = null;         // the 2.2 40-col .dsk
+        string? pascalBootPath = null;      // APPLE1 (drive 1): SYSTEM.APPLE + SYSTEM.PASCAL
+        string? pascalProgramPath = null;   // APPLE0 (drive 2): the compiler/editor set
         if (appleRom is not null)
         {
             apl2cpm3DiskPath = CpuEmulator.Machines.Apl2Cpm3.TryGetBootDiskPath();
             videxFirmware = CpuEmulator.Machines.VidexRom.TryLoadFirmware();   // non-null == the real firmware is cached
             cpmDisk = CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath();
+            pascalBootPath = CpuEmulator.Machines.Pascal.TryGetBootDiskPath();
+            pascalProgramPath = CpuEmulator.Machines.Pascal.TryGetProgramDiskPath();
         }
 
         // Hoist the Spectrum probe (like appleRom) so the branch below reuses the already-stat'd value
@@ -127,11 +191,15 @@ internal static class DemoSession
         // delete it). The Apple disk probes are skipped when there is no Apple ROM, so this stat always runs.
         string? spectrumRomPath = CpuEmulator.Machines.SpectrumRom.TryGetPath();
 
-        WebSystem system = SelectSystem(
+        // The `--system <name>` override (parsed in Main) forces the branch; otherwise the pure auto-probe
+        // decision. The probes above run REGARDLESS — a forced branch still needs its assets loaded below, and
+        // omitting `--system` keeps the selection byte-for-byte unchanged.
+        WebSystem system = DemoSession.ForcedSystem ?? SelectSystem(
             appleRom: appleRom is not null,
             apl2cpm3Disk: apl2cpm3DiskPath is not null,
             videxFirmware: videxFirmware is not null,
             cpm22Disk: cpmDisk is not null,
+            pascalDisks: pascalBootPath is not null && pascalProgramPath is not null,
             spectrumRom: spectrumRomPath is not null);
 
         // Hoisted per-branch state: each branch sets the host + slice/period (the pump is built ONCE after
@@ -197,6 +265,29 @@ internal static class DemoSession
             statusProvider = () => apple.Status() with { Asset = asset };   // real state, real asset string
             insertDisk = (drive, bytes, format, label) => apple.InsertDisk(drive, bytes, format, label);
             ejectDisk = drive => apple.EjectDisk(drive);
+        }
+        else if (system == WebSystem.Pascal)
+        {
+            // Apple Pascal (UCSD p-System) on the PR #153 board (reused via Pascal.CreateBoard inside
+            // CreatePascal). Each input guards its own null with a clear message so a forced `--system pascal`
+            // with missing assets fails loudly (and deterministically) rather than NRE-ing — the launcher
+            // script stages the disks first, but a bare override should still say what's missing.
+            byte[] sys = CpuEmulator.Machines.Apple2Rom.Load(appleRom
+                ?? throw new InvalidOperationException("--system pascal needs the Apple ][+ system ROM (apple2plus.rom) — run tools/get-apple2-roms."));
+            byte[] bootRom = CpuEmulator.Machines.Apple2Rom.TryLoadDiskRom()
+                ?? throw new InvalidOperationException("Apple Pascal needs the slot-6 Disk II boot ROM (disk2.rom) — run tools/get-apple2-roms.");
+            byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
+            string bootDisk = pascalBootPath
+                ?? throw new InvalidOperationException("Apple Pascal needs APPLE1.dsk (boot) — run tools/get-apple-pascal.");
+            string? programDisk = pascalProgramPath;   // APPLE0 (drive 2); the authentic two-drive boot needs it
+            Apple2Surface pascal = Apple2Surface.CreatePascal(sys, bootRom, charRom, bootDisk, programDisk,
+                f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
+            host = pascal.Host; slice = AppleSliceCycles; period = ApplePeriod;
+            assetState = "apple-pascal";
+            string asset = assetState;                                     // capture for the provider
+            statusProvider = () => pascal.Status() with { Asset = asset };
+            insertDisk = (drive, bytes, format, label) => pascal.InsertDisk(drive, bytes, format, label);
+            ejectDisk = drive => pascal.EjectDisk(drive);
         }
         else if (system == WebSystem.Spectrum)
         {
