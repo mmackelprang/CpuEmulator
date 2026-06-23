@@ -168,8 +168,9 @@ for future work. It is the single forward-looking index; the per-milestone detai
 > → `IFluxImage` bitstreams the live `Apple2DiskII` head reads, CRC32-verified, wired through
 > `DiskImageFactory`/upload/catalog; asset-free round-trip/CRC32/TMAP/rejection gates green, the asset-gated
 > headline gate skip-with-note (no public-domain WOZ2 located — W-8 fallback)**; a **real 68000 disassembler** (deferred #6 below —
-> a `FieldGrammar`-walking disassembler so the `--board m68000` monitor renders mnemonics, monitor-display-only,
-> no IL); and the **bench doc-reconciliation** (deferred #3 below — doc-only: the W3 profiler arm shipped in
+> a `FieldGrammar`-walking disassembler so the `--board 68000` monitor renders mnemonics, monitor-display-only,
+> no IL) — **✅ SHIPPED 2026-06-22 (PR #144): all 83 families wired, opword-aligned monitor walks, 6502/Z80/8086
+> disasm byte-for-byte unchanged**; and the **bench doc-reconciliation** (deferred #3 below — doc-only: the W3 profiler arm shipped in
 > `bc68ee7`, the W2 off-by-2 is accepted coarse-cycle slack per DECISION T2). Specs:
 > `docs/superpowers/specs/2026-06-22-{woz-flux-image,m68000-disassembler,bench-doc-reconciliation}-design.md`.
 > (The **[deferred]/[candidate]** tags on items #3 and #6 are updated to **[resolved]** / planned by their
@@ -267,10 +268,15 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
    emitter (with per-CPU flag/cycle plug-ins) once ≥2 CPUs' arms reveal what genuinely generalizes; the
    descriptor `Ops` bridge keeps this possible with no spec change.
 
-6. **[candidate] A real 68000 disassembler.** The monitor renders `???` for 68000 instructions —
-   the field-grammar 68000 has no flat per-opcode disassembly table (the generated `Disassemble`
-   is a stub). A field-grammar-walking disassembler would give the 68000 monitor host the same
-   mnemonic rendering the 6502/Z80/8086 already have. Surfaced by "CPUs → computers" piece #3.
+6. **[resolved] A real 68000 disassembler.** ✅ **SHIPPED 2026-06-22 (PR #144, queue row D68).** The
+   generator now emits a `FieldGrammar`-gated `EmitM68kDisassembler` that walks `Decode68k.Ops` (grammar
+   order, first match wins) rendering mnemonic family + size suffix + condition code + EA operand — all 83
+   families wired; extension-word operands render placeholders (`#<imm>`/`<abs>`/`<d16>`; the 3-byte
+   `IMonitorSupport` contract is not widened). The `--board 68000` monitor now renders real mnemonics, not
+   `???`, with opword-aligned multi-instruction walks. Monitor-display-only (no IL, no execution change);
+   the 6502/Z80/8086 disassembly is byte-for-byte unchanged (DECISION-R). Gated by a curated round-trip
+   corpus + a 65536-opword decoder-agreement sweep + monitor-host integration. Surfaced by "CPUs → computers"
+   piece #3.
 
 7. **[scheduled] `IAudioSink` + port-mapped I/O — the first-real-machine foundation.** Landed as Phase 1
    of the ZX Spectrum arc (`docs/superpowers/plans/2026-06-19-spectrum-1-extensions.md`): `IAudioSink`
