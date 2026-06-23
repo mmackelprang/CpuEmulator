@@ -121,12 +121,18 @@ internal static class DemoSession
             cpmDisk = CpuEmulator.Machines.SoftCardCpm.TryGetDiskPath();
         }
 
+        // Hoist the Spectrum probe (like appleRom) so the branch below reuses the already-stat'd value
+        // instead of re-probing — a naked TryGetPath()! on a fresh stat would null-deref if the cache file
+        // vanished between the SelectSystem probe and the branch (an owner-managed cache; the tooling can
+        // delete it). The Apple disk probes are skipped when there is no Apple ROM, so this stat always runs.
+        string? spectrumRomPath = CpuEmulator.Machines.SpectrumRom.TryGetPath();
+
         WebSystem system = SelectSystem(
             appleRom: appleRom is not null,
             apl2cpm3Disk: apl2cpm3DiskPath is not null,
             videxFirmware: videxFirmware is not null,
             cpm22Disk: cpmDisk is not null,
-            spectrumRom: CpuEmulator.Machines.SpectrumRom.TryGetPath() is not null);
+            spectrumRom: spectrumRomPath is not null);
 
         // Hoisted per-branch state: each branch sets the host + slice/period (the pump is built ONCE after
         // the branch, with the optional status pusher) and either the Apple status provider (the live ST
@@ -147,7 +153,7 @@ internal static class DemoSession
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
             byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();        // optional (synthetic fallback)
             byte[]? videxFw = videxFirmware;                                           // already probed (REAL firmware)
-            CpuEmulator.Core.IBlockDevice cpm3 = CpuEmulator.Machines.Apl2Cpm3.LoadBootDisk(apl2cpm3DiskPath);
+            CpuEmulator.Core.IBlockDevice cpm3 = CpuEmulator.Machines.Apl2Cpm3.LoadBootDisk(apl2cpm3DiskPath!);
             SoftCardVidexSurface softcard = SoftCardVidexSurface.CreateApl2Cpm3(sys, bootRom, charRom,
                 videxChar, videxFw, cpm3,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
@@ -167,7 +173,7 @@ internal static class DemoSession
             byte[]? charRom = CpuEmulator.Machines.Apple2Rom.TryLoadCharRom();
             byte[]? videxChar = CpuEmulator.Machines.VidexRom.TryLoadCharRom();      // optional (synthetic fallback)
             byte[]? videxFw = videxFirmware;                                         // optional (already probed)
-            CpuEmulator.Core.IBlockDevice cpm = CpuEmulator.Machines.SoftCardCpm.LoadBlockDevice(cpmDisk);
+            CpuEmulator.Core.IBlockDevice cpm = CpuEmulator.Machines.SoftCardCpm.LoadBlockDevice(cpmDisk!);
             SoftCardVidexSurface softcard = SoftCardVidexSurface.Create(sys, bootRom, charRom,
                 videxChar, videxFw, cpm,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
@@ -194,9 +200,9 @@ internal static class DemoSession
         }
         else if (system == WebSystem.Spectrum)
         {
-            // Re-probe the path here (only reached with no Apple ROM and the Spectrum ROM present) — a single
-            // file-stat on the Spectrum path, byte-for-byte the same boot the old re-probe branch did.
-            string romPath = CpuEmulator.Machines.SpectrumRom.TryGetPath()!;
+            // Reuse the hoisted probe (only reached with no Apple ROM and the Spectrum ROM present) — non-null
+            // by SelectSystem; no fresh stat, so no TOCTOU null-deref.
+            string romPath = spectrumRomPath!;
             byte[] rom = CpuEmulator.Machines.SpectrumRom.Load(romPath);
             SpectrumSurface spectrum = SpectrumSurface.Create(rom,
                 f => frames.Writer.TryWrite(f), a => audio.Writer.TryWrite(a));
