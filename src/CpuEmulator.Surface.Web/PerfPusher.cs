@@ -55,6 +55,12 @@ public sealed class PerfPusher
             if (dt > 0)
                 cyclesPerSecond = (cycleCount - _prevCycleCount) / dt;
         }
+        // Defensive: never put a non-finite rate on the wire. The dt>0 guard already prevents a divide,
+        // but a future non-monotonic CycleCount (e.g. a mid-session machine reset that zeroes the counter)
+        // could otherwise yield NaN/±Inf — and System.Text.Json THROWS on those by default, which would
+        // tear down the WS session (the opposite of the §8 calm-degenerate contract). Fall back to 0.
+        if (!double.IsFinite(cyclesPerSecond))
+            cyclesPerSecond = 0.0;
         _prevCycleCount = cycleCount;
         _prevSeconds = seconds;
         _primed = true;

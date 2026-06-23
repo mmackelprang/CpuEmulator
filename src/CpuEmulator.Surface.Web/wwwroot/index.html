@@ -90,6 +90,11 @@
       <div class="perf-row"><span class="perf-label">board</span><span class="perf-value" id="perf-board">—</span></div>
       <div class="perf-row"><span class="perf-label">fps</span><span class="perf-value" id="perf-fps">—</span></div>
       <div class="perf-row"><span class="perf-label">guest</span><span class="perf-value accent" id="perf-guest">—</span></div>
+      <!-- ips (instructions/sec, handoff §3 row 4) is a DEFERRED follow-on: an honest retired-instruction
+           counter needs a CpuSpecGenerator change + emitted-IL work on the JIT hot path (Architect call).
+           The placeholder row keeps its slot + ordering so the follow-on adds the counter + the PF `ips`
+           key with NO further index.html edit; it stays hidden until then. -->
+      <div class="perf-row" id="perf-ips-row" hidden><span class="perf-label">ips</span><span class="perf-value" id="perf-ips">—</span></div>
       <div class="perf-row"><span class="perf-label">mem</span><span class="perf-value" id="perf-mem">—</span></div>
       <div class="perf-row"><span class="perf-label">tier</span><span class="perf-value" id="perf-tier">—</span></div>
       <div class="perf-row" id="perf-jit-row" hidden><span class="perf-label">jit</span><span class="perf-value" id="perf-jit">—</span></div>

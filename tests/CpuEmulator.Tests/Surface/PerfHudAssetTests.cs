@@ -1,4 +1,7 @@
+using System.Net.WebSockets;
+using System.Text;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 
 // Alias the web host's Program (the test project also references CpuEmulator.SpecImporter, which has its
 // own top-level Program) so WebApplicationFactory<WebProgram> binds unambiguously.
@@ -52,6 +55,32 @@ public class PerfHudAssetTests : IClassFixture<WebApplicationFactory<WebProgram>
         Assert.Contains("window.perfStats", js, StringComparison.Ordinal);
         // The client-measured FPS ring (the only client-computed metric).
         Assert.Contains("noteFrameForFps", js, StringComparison.Ordinal);
+    }
+
+    // End-to-end: the live pump actually PUSHES a PF telemetry frame over the WebSocket within a couple
+    // seconds (the PerfPusher is wired into SurfacePump at ~3 Hz). Proves the producer runs in the real
+    // session — not just that the codec exists. Reads past the initial ST + binary frames to find a "PF ".
+    [Fact]
+    public async Task WebSocket_streams_a_PF_perf_frame()
+    {
+        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
+        var wsUri = new UriBuilder(_factory.Server.BaseAddress) { Scheme = "ws", Path = "/ws" }.Uri;
+        using WebSocket ws = await wsClient.ConnectAsync(wsUri, CancellationToken.None);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        byte[] buffer = new byte[8 + 280 * 192 * 4];
+        bool pfSeen = false;
+        // The PF frame pushes at ~3 Hz; a handful of frames (ST + FB + PF) arrive quickly. Scan until a
+        // "PF " text frame shows up or the budget elapses.
+        for (int i = 0; i < 200 && !pfSeen; i++)
+        {
+            WebSocketReceiveResult r = await ws.ReceiveAsync(buffer, cts.Token);
+            if (r.MessageType == WebSocketMessageType.Text
+                && Encoding.UTF8.GetString(buffer, 0, r.Count).StartsWith("PF ", StringComparison.Ordinal))
+                pfSeen = true;
+        }
+
+        Assert.True(pfSeen, "no PF perf frame arrived within the budget — the PerfPusher is not pushing.");
     }
 
     // Un-fakeable build-output check (paired with WebServerSmokeTests): under a real `dotnet run` the Web

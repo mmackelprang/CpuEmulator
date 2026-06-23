@@ -233,6 +233,8 @@ dotnet run --project src/CpuEmulator.Surface.Web
 
 With the ROM cached you get the BASIC copyright screen with a working keyboard; without it the server runs the SP0 demo unchanged. Click **enable sound** in the page for the beeper (Web Audio).
 
+**Perf HUD.** Press the backtick `` ` `` key to toggle a small, read-only performance overlay in the top-right corner of the display (off by default). It shows the board, the client-measured **fps**, the **guest** clock + real-time ratio, the emulated RAM-map size + host process memory, the execution **tier** (`JIT` in amber, or `interpreter`), and — when they apply — the JIT stats and the coprocessor state. It is pure instrumentation: it observes the running machine and changes nothing (the tier is fixed at boot; the HUD never controls it). The backtick is a HUD-only key — it never reaches the emulated machine.
+
 ---
 
 ## Known behaviors
