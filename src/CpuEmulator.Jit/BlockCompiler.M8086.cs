@@ -1259,6 +1259,11 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
     private bool EmitM8086FarFlow(EmitContext ctx, ushort pc, OpcodeDescriptor d, int length, byte x86Seg)
     {
         byte opcode = d.Opcode;
+        // Scan past any prefix byte(s) at the SEGMENTED physical to find the opcode position, exactly as the near
+        // arm does (:opcodePc loop) — the const operand reads (ptr16:16 imm / ModR/M / RETF imm16) start at
+        // operandPc = (opcode pos)+1, NOT pc+1 (pc points at the first prefix when a segment override precedes).
+        int opcodePc = pc;
+        while (M8086IsPrefixByte(_bus.Read8(M8086CodePhys((ushort)opcodePc)))) opcodePc++;
         switch (opcode)
         {
             // ── CB RETF / CA RETF imm16: pop IP (lower addr), then pop CS; CA also adds imm16 to SP. The popped
@@ -1272,7 +1277,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 EmitM8086PopWord(ctx); EmitM8086SetCsFromStack(ctx);   // CS = PopWord()  (the upper word)
                 if (opcode == 0xCA)                                    // SP += imm16
                 {
-                    int operandPc = pc + 1;
+                    int operandPc = opcodePc + 1;
                     ushort imm16 = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
                                             | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
                     il.Emit(OpCodes.Ldarg_0);
@@ -1288,7 +1293,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             //    constant uint → EmitChainOrExit chains ACROSS the segment change (the FF-1 widened-key payoff). ──
             case 0xEA:
             {
-                int operandPc = pc + 1;
+                int operandPc = opcodePc + 1;
                 ushort newIp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
                                         | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
                 ushort newCs = (ushort)(_bus.Read8(M8086CodePhys((ushort)(operandPc + 2)))
@@ -1306,7 +1311,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
             case 0x9A:
             {
                 ILGenerator il = ctx.Il;
-                int operandPc = pc + 1;
+                int operandPc = opcodePc + 1;
                 ushort newIp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
                                         | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
                 ushort newCs = (ushort)(_bus.Read8(M8086CodePhys((ushort)(operandPc + 2)))
@@ -1321,11 +1326,101 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
                 return true;
             }
 
-            // Task 6 fills FF /3 /5. Until then, fall through to false (the FF /3 /5 rows are un-forced in the gate,
-            // so the arm MUST own them by Task 6 — the near arm throws on FF /reg ∉ {2,4}).
+            // ── FF group: /3 far CALL indirect, /5 far JMP indirect (m16:16). Decode the ModR/M reg to route /3 /5
+            //    to far; return false for any other /reg so the near arm handles /2 /4 (or fallback). mod==3
+            //    (register-direct) is ILLEGAL for a far indirect (the operand must be memory) → return false
+            //    (interpreter fallback, matching the oracle). ──
+            case 0xFF:
+            {
+                M8086Cpu_Override over = M8086OverrideFromByte(x86Seg);
+                int operandPc = opcodePc + 1;
+                byte modrm = _bus.Read8(M8086CodePhys((ushort)operandPc)); operandPc++;
+                uint mod = (uint)(modrm >> 6) & 3u;
+                uint reg = (uint)(modrm >> 3) & 7u;
+                uint rm  = (uint)modrm & 7u;
+                if (reg != 3u && reg != 5u)
+                    return false;   // /2 /4 (near) or /0 /1 /6 /7 (not far flow) — the near arm / fallback handles it
+
+                // NOTE on mod==3: the interpreter does NOT special-case register-direct far indirect — ComputeX86Ea
+                // ignores mod for the base+index sum, so FF /3 /5 with mod=11 resolves to a MEMORY EA (the rm
+                // base+index, disp=0) and reads a far pointer there. The JIT EA helpers (EmitM8086EaOffset /
+                // EmitM8086SegValue) mirror ComputeX86Ea / DefaultSegmentForX86Rm one-for-one, so the same path is
+                // byte-identical to the oracle for mod==3 — no special case needed (dispLen=0 below covers it).
+                int dispLen = mod switch { 0u => rm == 6u ? 2 : 0, 1u => 1, 2u => 2, _ => 0 };
+                ushort disp = 0;
+                if (dispLen == 1) disp = unchecked((ushort)(sbyte)_bus.Read8(M8086CodePhys((ushort)operandPc)));
+                else if (dispLen == 2)
+                    disp = (ushort)(_bus.Read8(M8086CodePhys((ushort)operandPc))
+                                    | (_bus.Read8(M8086CodePhys((ushort)(operandPc + 1))) << 8));
+
+                if (reg == 3u)        // FF /3 far CALL: push CS, push IP (return frame), then set IP,CS from mem.
+                {
+                    ushort fallThrough = (ushort)(pc + length);
+                    EmitM8086PushWord(ctx, () => EmitLoadReg16(ctx, "CS"));                       // PushWord(CS)
+                    EmitM8086PushWord(ctx, () => ctx.Il.Emit(OpCodes.Ldc_I4, (int)fallThrough));  // PushWord(IP)
+                    EmitM8086LoadFarPtr(ctx, mod, rm, disp, over);   // stages newCs then newIp (newIp on top)
+                    EmitM8086SetIpFromStack(ctx);   // IP = newIp (top)
+                    EmitM8086SetCsFromStack(ctx);   // CS = newCs
+                    EmitNormalExit(ctx);            // DYNAMIC (CS:IP from memory) — NOT chainable
+                    return true;
+                }
+                else                  // reg == 5u — FF /5 far JMP: set IP,CS from mem (no push).
+                {
+                    EmitM8086LoadFarPtr(ctx, mod, rm, disp, over);
+                    EmitM8086SetIpFromStack(ctx);
+                    EmitM8086SetCsFromStack(ctx);
+                    EmitNormalExit(ctx);
+                    return true;
+                }
+            }
+
             default:
                 return false;
         }
+    }
+
+    /// <summary>ADR 0019 FF-2: read a far pointer m16:16 from the operand EA — the offset word at EA (the new IP)
+    /// and the segment word at EA+2 (the new CS). The operand's segment is the DS default (SS for BP-based forms)
+    /// threaded with any override, exactly as EmitM8086LoadWordEa resolves it. The four bytes are read at the
+    /// segment-relative offset+0..+3, each offset wrapped at 16 bits (the same offset-wrap the word EA reads use).
+    /// Leaves the IL stack as <c>..., newCs, newIp</c> (newIp on TOP) so the caller's EmitM8086SetIpFromStack (top)
+    /// then EmitM8086SetCsFromStack consume them in order. DYNAMIC (the pointer is read at runtime).
+    /// <para>CLOBBERS ctx.DataLocal, ctx.M8086SegLocal, ctx.M8086OffsetLocal, ctx.M8086ResultLocal, ctx.AddrLocal.</para></summary>
+    private void EmitM8086LoadFarPtr(EmitContext ctx, uint mod, uint rm, ushort disp, M8086Cpu_Override over)
+    {
+        ILGenerator il = ctx.Il;
+        // Resolve (segValue, offset) into the survivor locals (the EmitM8086LoadWordEa preamble).
+        EmitM8086SegValue(ctx, mod, rm, over); il.Emit(OpCodes.Stloc, ctx.M8086SegLocal);
+        EmitM8086EaOffset(ctx, mod, rm, disp); il.Emit(OpCodes.Stloc, ctx.M8086OffsetLocal);
+
+        // newIp = word @ (offset+0) | word @ (offset+1)<<8 — read into M8086ResultLocal.
+        EmitFarPtrPhysical(ctx, 0); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        EmitFarPtrPhysical(ctx, 1); LoadByteFromBus(ctx); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.M8086ResultLocal);   // newIp staged
+
+        // newCs = byte @ (offset+2) | byte @ (offset+3)<<8 — read into AddrLocal.
+        EmitFarPtrPhysical(ctx, 2); LoadByteFromBus(ctx); il.Emit(OpCodes.Stloc, ctx.DataLocal);
+        EmitFarPtrPhysical(ctx, 3); LoadByteFromBus(ctx); il.Emit(OpCodes.Ldc_I4_8); il.Emit(OpCodes.Shl);
+        il.Emit(OpCodes.Ldloc, ctx.DataLocal); il.Emit(OpCodes.Or);
+        il.Emit(OpCodes.Stloc, ctx.AddrLocal);          // newCs staged
+
+        // Stage on the IL stack: newCs first (lower), then newIp (top) — the …FromStack consume order.
+        il.Emit(OpCodes.Ldloc, ctx.AddrLocal);          // newCs
+        il.Emit(OpCodes.Ldloc, ctx.M8086ResultLocal);   // newIp (top)
+    }
+
+    /// <summary>ADR 0019 FF-2: push Physical(M8086SegLocal, (M8086OffsetLocal + delta) &amp; 0xFFFF) as uint — the
+    /// segment-relative offset-wrap for a far-pointer byte read at byte index <paramref name="delta"/> (0..3).
+    /// The +delta wraps the OFFSET at 16 bits (the same wrap EmitM8086PushPhysical does for delta 0/1), so a
+    /// pointer near a 64 KB boundary reads the wrapped bytes the interpreter does.</summary>
+    private void EmitFarPtrPhysical(EmitContext ctx, int delta)
+    {
+        ILGenerator il = ctx.Il;
+        il.Emit(OpCodes.Ldloc, ctx.M8086SegLocal); il.Emit(OpCodes.Ldc_I4_4); il.Emit(OpCodes.Shl);   // seg<<4
+        il.Emit(OpCodes.Ldloc, ctx.M8086OffsetLocal);
+        if (delta != 0) { il.Emit(OpCodes.Ldc_I4, delta); il.Emit(OpCodes.Add); il.Emit(OpCodes.Ldc_I4, 0xFFFF); il.Emit(OpCodes.And); }
+        il.Emit(OpCodes.Add); il.Emit(OpCodes.Ldc_I4, 0xFFFFF); il.Emit(OpCodes.And);
     }
 
     /// <summary>M6 PR-D: IP = (ushort)target (a compile-time constant) — the resolved IP field (_fpc, "IP").</summary>

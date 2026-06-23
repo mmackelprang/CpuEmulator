@@ -204,4 +204,129 @@ public class M8086FarFlowEmitTests
         Assert.Equal((byte)(cs & 0xFF), jbus.Read8(stackPhys + 2));              // CS lo (upper word)
         Assert.Equal((byte)(cs >> 8), jbus.Read8(stackPhys + 3));               // CS hi
     }
+
+    // ─────────────────────────── far indirect JMP (FF /5) / CALL (FF /3) — m16:16 from memory ───────────────────────────
+
+    /// <summary>FF /5 far JMP indirect (m16:16): CS:IP load from the far pointer in memory — offset at EA, segment
+    /// at EA+2. FF 2E 00 02 = JMP FAR [0x0200] (mod=00, reg=5, rm=110 disp16). Far pointer at DS:0x0200.</summary>
+    [Fact]
+    public void Far_jmp_indirect_ff5_loads_cs_ip_from_memory()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        const ushort cs = 0x2000, ip = 0x0000;
+        const ushort newIp = 0x0100, newCs = 0x4000;
+        byte[] code = [0xFF, 0x2E, 0x00, 0x02];   // FF /5 mod=00 rm=110 (disp16) → JMP FAR [0x0200]
+
+        var jbus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        jbus.MapMemory(0, new byte[0x100000], writable: true);
+        uint cphys = (uint)(((cs << 4) + ip) & 0xFFFFF);
+        for (int i = 0; i < code.Length; i++) jbus.Write8(cphys + (uint)i, code[i]);
+        jbus.Write8(0x0200, unchecked((byte)newIp)); jbus.Write8(0x0201, (byte)(newIp >> 8));   // DS=0 → far ptr at 0x0200
+        jbus.Write8(0x0202, unchecked((byte)newCs)); jbus.Write8(0x0203, (byte)(newCs >> 8));
+        var inner = new M8086Cpu(jbus);
+        inner.SetRegister("CS", cs); inner.SetRegister("IP", ip); inner.SetRegister("DS", 0x0000);
+        var jit = new JittedCpu<M8086Cpu>(inner, M8086Cpu.JitTarget, jbus);
+        long budget = 1; jit.Run(ref budget);
+
+        var ibus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        ibus.MapMemory(0, new byte[0x100000], writable: true);
+        for (int i = 0; i < code.Length; i++) ibus.Write8(cphys + (uint)i, code[i]);
+        ibus.Write8(0x0200, unchecked((byte)newIp)); ibus.Write8(0x0201, (byte)(newIp >> 8));
+        ibus.Write8(0x0202, unchecked((byte)newCs)); ibus.Write8(0x0203, (byte)(newCs >> 8));
+        var interp = new M8086Cpu(ibus);
+        interp.SetRegister("CS", cs); interp.SetRegister("IP", ip); interp.SetRegister("DS", 0x0000);
+        interp.Step();
+
+        Assert.True(jit.M8086FarFlowEmitSelections > 0, "far JMP indirect FF /5 was not emitted.");
+        Assert.Equal(interp.GetRegister("IP"), inner.GetRegister("IP"));   // == newIp
+        Assert.Equal(interp.GetRegister("CS"), inner.GetRegister("CS"));   // == newCs
+        Assert.Equal((ushort)newIp, (ushort)inner.GetRegister("IP"));
+        Assert.Equal((ushort)newCs, (ushort)inner.GetRegister("CS"));
+    }
+
+    /// <summary>FF /3 far CALL indirect (m16:16): read (IP,CS) from memory, push the far return frame (CS then IP),
+    /// set CS:IP. FF 1E 00 02 = CALL FAR [0x0200]. Asserts CS:IP + SP -= 4 + the pushed frame vs the oracle.</summary>
+    [Fact]
+    public void Far_call_indirect_ff3_pushes_frame_and_loads_cs_ip_from_memory()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        const ushort cs = 0x2000, ip = 0x0000, ss = 0x3000, sp = 0x0100;
+        const ushort newIp = 0x0100, newCs = 0x4000;
+        byte[] code = [0xFF, 0x1E, 0x00, 0x02];   // FF /3 mod=00 rm=110 (disp16) → CALL FAR [0x0200]
+
+        var jbus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        jbus.MapMemory(0, new byte[0x100000], writable: true);
+        uint cphys = (uint)(((cs << 4) + ip) & 0xFFFFF);
+        for (int i = 0; i < code.Length; i++) jbus.Write8(cphys + (uint)i, code[i]);
+        jbus.Write8(0x0200, unchecked((byte)newIp)); jbus.Write8(0x0201, (byte)(newIp >> 8));
+        jbus.Write8(0x0202, unchecked((byte)newCs)); jbus.Write8(0x0203, (byte)(newCs >> 8));
+        var inner = new M8086Cpu(jbus);
+        inner.SetRegister("CS", cs); inner.SetRegister("IP", ip); inner.SetRegister("DS", 0x0000);
+        inner.SetRegister("SS", ss); inner.SetRegister("SP", sp);
+        var jit = new JittedCpu<M8086Cpu>(inner, M8086Cpu.JitTarget, jbus);
+        long budget = 1; jit.Run(ref budget);
+
+        var ibus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        ibus.MapMemory(0, new byte[0x100000], writable: true);
+        for (int i = 0; i < code.Length; i++) ibus.Write8(cphys + (uint)i, code[i]);
+        ibus.Write8(0x0200, unchecked((byte)newIp)); ibus.Write8(0x0201, (byte)(newIp >> 8));
+        ibus.Write8(0x0202, unchecked((byte)newCs)); ibus.Write8(0x0203, (byte)(newCs >> 8));
+        var interp = new M8086Cpu(ibus);
+        interp.SetRegister("CS", cs); interp.SetRegister("IP", ip); interp.SetRegister("DS", 0x0000);
+        interp.SetRegister("SS", ss); interp.SetRegister("SP", sp);
+        interp.Step();
+
+        Assert.True(jit.M8086FarFlowEmitSelections > 0, "far CALL indirect FF /3 was not emitted.");
+        Assert.Equal(interp.GetRegister("IP"), inner.GetRegister("IP"));   // == newIp
+        Assert.Equal(interp.GetRegister("CS"), inner.GetRegister("CS"));   // == newCs
+        Assert.Equal(interp.GetRegister("SP"), inner.GetRegister("SP"));   // SP -= 4
+        // The pushed far frame (IP at the lower word, CS above) — byte-identical to the oracle.
+        uint stackPhys = (uint)(((ss << 4) + interp.GetRegister("SP")) & 0xFFFFF);
+        for (uint k = 0; k < 4; k++)
+            Assert.Equal(ibus.Read8(stackPhys + k), jbus.Read8(stackPhys + k));
+        const ushort retIp = ip + 4;   // fallThrough = pc + length(FF 1E 00 02) = $0004
+        Assert.Equal((byte)(retIp & 0xFF), jbus.Read8(stackPhys));
+        Assert.Equal((byte)(cs & 0xFF), jbus.Read8(stackPhys + 2));
+    }
+
+    /// <summary>FF /5 with mod=11 (FF EB = mod=11, reg=5, rm=3=BP+DI): the interpreter does NOT special-case
+    /// register-direct far indirect — ComputeX86Ea ignores mod, so it resolves to the MEMORY EA [BP+DI] (SS-based)
+    /// and reads a far pointer there. The JIT EA machinery mirrors that one-for-one, so the emitted CS:IP must be
+    /// byte-identical to the interpreter. Seed BP/DI and a far pointer at SS:[BP+DI]; assert CS:IP match.</summary>
+    [Fact]
+    public void Far_jmp_indirect_mod11_resolves_to_memory_like_the_oracle()
+    {
+        if (!System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported) return;
+        const ushort cs = 0x2000, ip = 0x0000, ss = 0x1000, bp = 0x0100, di = 0x0020;
+        const ushort newIp = 0x0ABC, newCs = 0x3000;
+        byte[] code = [0xFF, 0xEB];   // FF /5 mod=11 rm=3 → EA = [BP+DI] (SS default, no disp)
+        // far pointer at SS:[BP+DI] = phys (ss<<4)+(bp+di) = 0x10000 + 0x0120 = 0x10120
+        uint ptrPhys = (uint)(((ss << 4) + ((bp + di) & 0xFFFF)) & 0xFFFFF);
+
+        var jbus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        jbus.MapMemory(0, new byte[0x100000], writable: true);
+        uint cphys = (uint)(((cs << 4) + ip) & 0xFFFFF);
+        for (int i = 0; i < code.Length; i++) jbus.Write8(cphys + (uint)i, code[i]);
+        jbus.Write8(ptrPhys, unchecked((byte)newIp)); jbus.Write8(ptrPhys + 1, (byte)(newIp >> 8));
+        jbus.Write8(ptrPhys + 2, unchecked((byte)newCs)); jbus.Write8(ptrPhys + 3, (byte)(newCs >> 8));
+        var inner = new M8086Cpu(jbus);
+        inner.SetRegister("CS", cs); inner.SetRegister("IP", ip);
+        inner.SetRegister("SS", ss); inner.SetRegister("BP", bp); inner.SetRegister("DI", di);
+        var jit = new JittedCpu<M8086Cpu>(inner, M8086Cpu.JitTarget, jbus);
+        long budget = 1; jit.Run(ref budget);
+
+        var ibus = new AddressSpace(AddressSpaceKind.Program, addressBits: 20);
+        ibus.MapMemory(0, new byte[0x100000], writable: true);
+        for (int i = 0; i < code.Length; i++) ibus.Write8(cphys + (uint)i, code[i]);
+        ibus.Write8(ptrPhys, unchecked((byte)newIp)); ibus.Write8(ptrPhys + 1, (byte)(newIp >> 8));
+        ibus.Write8(ptrPhys + 2, unchecked((byte)newCs)); ibus.Write8(ptrPhys + 3, (byte)(newCs >> 8));
+        var interp = new M8086Cpu(ibus);
+        interp.SetRegister("CS", cs); interp.SetRegister("IP", ip);
+        interp.SetRegister("SS", ss); interp.SetRegister("BP", bp); interp.SetRegister("DI", di);
+        interp.Step();
+
+        Assert.True(jit.M8086FarFlowEmitSelections > 0, "far JMP indirect (mod=11) was not emitted.");
+        Assert.Equal(interp.GetRegister("IP"), inner.GetRegister("IP"));   // byte-identical EA resolution
+        Assert.Equal(interp.GetRegister("CS"), inner.GetRegister("CS"));
+    }
 }
