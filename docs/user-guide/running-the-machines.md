@@ -116,8 +116,9 @@ Then open the URL the server prints (Kestrel's default is typically `http://loca
 canvas that streams video frames out and key events in over a WebSocket, with an optional **enable sound**
 button (Web Audio) for the systems that have audio.
 
-> **One machine per connection.** Each new browser/WebSocket connection boots a fresh machine. There is **no
-> `--board` switch for the web surface** — the server probes the asset cache and picks a system automatically.
+> **One machine per connection.** Each new browser/WebSocket connection boots a fresh machine. The server
+> normally probes the asset cache and picks a system **automatically** (below). To force a specific one — e.g.
+> for a deterministic launcher — pass **`--system <name>`** (see [Forcing a system](#forcing-a-system-with---system)).
 
 ### How the web server picks a system
 
@@ -136,9 +137,14 @@ The server decides which machine to boot by **probing the asset cache in a fixed
    **and** the 2.2 CP/M disk (`cpm/softcard-cpm.dsk`) are cached. (The CP/M discs + Videx firmware are only
    stat-checked when the Apple ROM is present.) This runs on the same Videx-capable `SoftCardVidexSurface`, but
    the 2.2 master is a 40-column console that never engages the Videx, so you get 40 columns.
-3. **Apple ][+** — else, boots if the Apple ][+ system ROM (`apple2/apple2plus.rom`) is cached.
-4. **ZX Spectrum 48K** — else, boots if the Spectrum ROM (`spectrum/48.rom`) is cached.
-5. **SP0 demo board** — else, the built-in fallback (no assets required).
+3. **Apple Pascal (UCSD p-System)** — else, boots if the Apple ][+ system ROM (`apple2/apple2plus.rom`)
+   **and** both Pascal disks (`pascal/APPLE1.dsk` boot + `pascal/APPLE0.dsk` program) are cached. Boots to the
+   interactive UCSD p-System `COMMAND:` line on the Apple ][+ 40-column screen (no SoftCard — Pascal is a 6502
+   p-code interpreter). Placed *after* the CP/M branches (it needs the Pascal disks the CP/M rigs don't stage)
+   and *before* the bare Apple ][+ (it needs more than the system ROM alone).
+4. **Apple ][+** — else, boots if the Apple ][+ system ROM (`apple2/apple2plus.rom`) is cached.
+5. **ZX Spectrum 48K** — else, boots if the Spectrum ROM (`spectrum/48.rom`) is cached.
+6. **SP0 demo board** — else, the built-in fallback (no assets required).
 
 Each later probe only runs when the earlier branch was *not* taken, so the common boot path does no extra
 file-stat work. **The priority is asset-driven, not a preference you set** — e.g. if you have the Apple ROM
@@ -155,7 +161,38 @@ Spectrum or the demo, the Apple/CP/M assets must not be present in the cache.
 The sections below are ordered simplest-asset-first (Spectrum's single ROM → the Apple ][+ ROMs → the
 multi-asset CP/M rigs → the no-asset demo), **not** by the probe priority above. Remember the probe order when
 reasoning about *which* system actually boots: if you have several asset sets cached, the SoftCard CP/M →
-Apple ][+ → Spectrum → demo priority decides the winner.
+Apple Pascal → Apple ][+ → Spectrum → demo priority decides the winner.
+
+### Forcing a system with `--system`
+
+To boot a **specific** system regardless of what else is cached — the deterministic launcher path — pass
+`--system <name>`:
+
+```
+dotnet run --project src/CpuEmulator.Surface.Web -- --system pascal
+```
+
+This **bypasses the asset auto-probe** and forces the named branch. When `--system` is **omitted, the
+auto-probe above is unchanged** (byte-for-byte). The forced system still needs its assets in the cache — a
+forced branch with missing assets fails with a clear message telling you which `tools/get-*` script to run.
+
+| `--system` name | Forces |
+|---|---|
+| `cpm3` | CP/M 3.1 + Videx (80-column) |
+| `cpm22` | SoftCard CP/M 2.2 (40-column) |
+| `apple2` | Apple ][+ (bare, to the BASIC prompt) |
+| `pascal` | Apple Pascal (UCSD p-System) → `COMMAND:` |
+| `spectrum` | ZX Spectrum 48K |
+| `demo` | SP0 demo board |
+
+List the valid names at runtime:
+
+```
+dotnet run --project src/CpuEmulator.Surface.Web -- --system list
+```
+
+An unknown name prints the valid list and exits non-zero. The one-command **`tools/start-apple-pascal`**
+launcher (below) uses `--system pascal` so it boots Pascal deterministically.
 
 ---
 
@@ -259,10 +296,31 @@ Two findings from the bring-up (**ADR 0021**):
 and **`APPLE0` in drive 2** (the program/compiler volume). Booting `APPLE0` alone reaches the genuine
 `NO FILE SYSTEM.APPLE` halt — the boot loader works; the interpreter just isn't on that volume.
 
-**To run it:** stage your owner-supplied Pascal disks with `tools/get-apple-pascal.ps1` (or `sh
-tools/get-apple-pascal.sh`) — never vendored — then boot headless via `tools/BootProbe --apple-pascal`.
-80-column Pascal via the Videx (given the right p-System 80-column driver) is plausible but **not yet
-verified**; the 40-column boot above is confirmed.
+**To run it in the browser (the one-command path):**
+
+```bash
+sh tools/start-apple-pascal.sh
+```
+```powershell
+tools/start-apple-pascal.ps1
+```
+
+`start-apple-pascal` stages the Pascal disks (chains `get-apple-pascal`, idempotent), confirms the Apple ][+
+ROMs are cached (`apple2plus.rom` + the slot-6 `disk2.rom` — both required to boot the disk; it fails clearly
+if either is missing), and launches the web server with **`--system pascal`** so it boots Pascal
+deterministically regardless of what else is cached. Open the URL the server prints (typically
+`http://localhost:5000`) — the canvas streams the Apple ][+ 40-column screen and the keyboard is live, so you
+get the **interactive UCSD p-System `COMMAND:` menu** in the browser. (You still supply the Apple ROMs
+separately — run `tools/setup-apple2` or `tools/get-apple2-roms` first.)
+
+If the Pascal disks are cached the **auto-probe** also picks Pascal (priority 3 above, after the CP/M rigs);
+`--system pascal` just makes the choice explicit and reproducible. To force it without the launcher script:
+`dotnet run --project src/CpuEmulator.Surface.Web -- --system pascal`.
+
+**To run it headless** (no browser — the screenshot / gate path): stage the disks as above, then
+`tools/BootProbe --apple-pascal` (the human-visible screenshot) — the `Apple2/PascalBootTests` gate is the
+arbiter. 80-column Pascal via the Videx (given the right p-System 80-column driver) is plausible but **not yet
+verified**; the 40-column boot is confirmed in the browser and headless.
 
 ---
 
@@ -407,7 +465,7 @@ The demo board has no audio device.
 | Apple ][+ | `apple2plus.rom` (12 KiB); `disk2.rom` (256 B) to boot a disk; `char.rom` (2 KiB) optional | `apple2/` | Apple copyright; owner-supplied (placeholder URLs) |
 | SoftCard CP/M 2.2 (40-col) | Apple ROMs + `softcard-cpm.dsk` (143,360 B) | `apple2/`, `cpm/softcard-cpm.dsk` | Apple ROMs (copyright); CP/M `.dsk` owner-supplied / fetch-on-demand |
 | CP/M 3.1 + Videx (80-col) | Apple ROMs + `CPM3.1_Disk_1.dsk` + real Videx firmware (`videx-firmware.rom`) | `apple2/`, `cpm/apl2cpm3/`, `videx/` | Apple ROMs (copyright); CP/M 3.1 disk + Videx ROMs owner-supplied. The web server boots this 80-col path automatically when all three are cached (the real firmware is load-bearing — without it the server falls through to the 2.2 disk). |
-| Apple Pascal (UCSD p-System) | Apple ROMs + **your** p-System boot disks | `apple2/`, plus your disk images | Apple ROMs (copyright); p-System disks owner-supplied. **✅ Verified (PR #153) — boots to `COMMAND:`.** |
+| Apple Pascal (UCSD p-System) | Apple ROMs + `APPLE1.dsk` (boot) + `APPLE0.dsk` (program) | `apple2/`, `pascal/` | Apple ROMs (copyright); p-System disks owner-supplied (`tools/get-apple-pascal`). **✅ Verified — boots to `COMMAND:` (PR #153 headless; PR #155 in the browser).** Launch in a browser with `tools/start-apple-pascal` (forces `--system pascal`); auto-probed at priority 3 when both disks are cached. |
 | SP0 demo board | *none* | — | Built-in |
 
 **Setup scripts:**
@@ -419,9 +477,11 @@ The demo board has no audio device.
 | `tools/get-softcard-cpm.{sh,ps1}` | — | CP/M 2.2 `.dsk` |
 | `tools/get-apl2cpm3.{sh,ps1}` | — | CP/M 3.1 Disk 1 |
 | `tools/get-videx-roms.{sh,ps1}` | — | Videx firmware + char ROMs |
+| `tools/get-apple-pascal.{sh,ps1}` | — | Apple Pascal disks (`APPLE1`/`APPLE0`) |
 | `tools/get-woz-disks.{sh,ps1}` | — | A public-domain `.woz` (owner-supplied via `WOZ_DISK_URL`) |
 | **`tools/setup-apple2.{sh,ps1}`** | `get-apple2-roms` (+ `get-woz-disks` if `WOZ_DISK_URL` set) | The Apple ][+ rig |
 | **`tools/setup-cpm-videx.{sh,ps1}`** | `get-apl2cpm3` + `get-videx-roms` | The 80-column CP/M 3.1 rig (supply Apple ROMs separately) |
+| **`tools/start-apple-pascal.{sh,ps1}`** | `get-apple-pascal` + launches the server `--system pascal` | One-command Apple Pascal in the browser (supply Apple ROMs separately) |
 
 ### Sample disks (WOZ)
 

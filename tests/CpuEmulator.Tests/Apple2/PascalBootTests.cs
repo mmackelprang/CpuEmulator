@@ -44,15 +44,9 @@ public class PascalBootTests
         // boot ROM at $C600. Drive 1 = APPLE1 (boot), drive 2 = APPLE0 (program) -- both re-nibblized with the
         // DOS-3.3 on-disk order (Pascal.Order). The cold Autostart scan finds the slot-6 signature in the real
         // disk2.rom, JMP ($C600)s into it, and the P5/P6 boot reads track 0 sector 0 into $0800 and runs the
-        // Pascal boot block, which loads the interpreter into the Language Card RAM.
-        var state = new Apple2VideoState();
-        var lc = new Apple2LanguageCard(systemRom);
-        var bootDrive = new DskFluxImage(Pascal.LoadBlockDevice(bootDiskPath), Pascal.Order);
-        var disk2 = new Apple2DiskII(bootDrive);
-        disk2.Insert(2, new DskFluxImage(Pascal.LoadBlockDevice(programDiskPath), Pascal.Order));
-        var iou = new Apple2Iou(state, lc, disk2);
-        BoardSpec spec = Apple2Board.SpecWithSystem(systemRom, iou, disk2, diskBootRom);
-        Machine machine = BoardMachineFactory.Build(spec);
+        // Pascal boot block, which loads the interpreter into the Language Card RAM. The canonical board is built
+        // ONCE in Pascal.CreateBoard (the single source of truth — BootProbe + the web surface reuse it).
+        Machine machine = Pascal.CreateBoard(systemRom, diskBootRom, bootDiskPath, programDiskPath).Machine;
 
         machine.Reset();
         machine.Run(BootCycles);
