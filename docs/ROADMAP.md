@@ -416,6 +416,16 @@ These were surfaced and explicitly scoped-out during the M6 arc, in **owner-set 
 
 **Further candidates (unprioritized):**
 
+- **[parked 2026-06-23 — owner] 80-column Apple Pascal on the Videx.** Apple Pascal 1.1 boots to `COMMAND:` in
+  **40 columns** (PR #153/#155, `tools/start-apple-pascal`). 80-col is *possible* but a real arc — investigated +
+  parked per owner: Apple Pascal attaches an 80-col card via its **firmware-card protocol** (the p-System scans each
+  slot's `$C300` ROM for the signature `$Cn05=$38`/`$Cn07=$18`/`$Cn0B=$01`). Our Videx models only the CP/M
+  direct-call surfaces (`$C0Bx` CRTC, `$C800` firmware, `$CC00` VRAM), **not the `$C300` slot ROM**, so Pascal's slot
+  scan finds nothing in slot 3 and stays 40-col (live-traced: zero `$C0Bx` accesses, `ActiveIndex==0`). 80-col would
+  need a new `$C300` Videx slot-ROM peripheral (the Pascal-1.1 protocol signature + console-driver entry points) + the
+  full **2 KB** Videoterm ROM (we have only the 1 KB firmware window), and/or a SETUP/`SYSTEM.MISCINFO` change to the
+  read-only disks. Revisit if a Videx-Pascal arc is wanted.
+
 - **[candidate] 8086 intra-block SMC guard page-index is IP-space, not physical-space (pre-existing, surfaced by the FF-1 review).**
   In `BlockCompiler.PagesSpanned`, a block's spanned-page set is computed from the 16-bit IP offset
   (`((ip + b) & 0xFFFF) >> 8`), but the emitted SMC dirty-mark for an 8086 data store uses the **20-bit physical**
