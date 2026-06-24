@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    STANDING performance profiler for ADR 0022 (the performance feedback loop) — item A.
+    The successor to the throwaway bench/hotop-profiler/: a developer/agent-invoked dev tool, NOT in
+    any shipping/runtime/test graph and NOT in CpuEmulator.slnx (same posture as hotop-profiler, so a
+    whole-tree `dotnet build`/`dotnet test` does not take it as a hard dependency). It drives BOTH the
+    bench W-kernels (always available) AND the real machine boots (DOS 3.3, CP/M 2.2, apl2cpm3 CP/M 3.1,
+    Apple Pascal, Spectrum) through the SAME factories the live machines use, captures both tiers where
+    applicable (the hot-op histogram + the IJitMetrics counters incl. the new chain/dispatch + block-cache
+    hit/miss counters), and emits a versioned, diffable profile.json per system x workload plus a
+    generated INDEX.md.
+
+    Run via: dotnet run -c Release (project bench/profiler).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>profiler</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core: Machine, IJitMetrics, ICpuCore, AddressSpaceKind. -->
+    <ProjectReference Include="..\..\src\CpuEmulator.Core\CpuEmulator.Core.csproj" />
+    <!-- The CPU cores (for the bench-kernel JitTarget decode + the JIT kernel runs). -->
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Mos6502\CpuEmulator.Cpus.Mos6502.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.Z80\CpuEmulator.Cpus.Z80.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.M68000\CpuEmulator.Cpus.M68000.csproj" />
+    <ProjectReference Include="..\..\src\CpuEmulator.Cpus.M8086\CpuEmulator.Cpus.M8086.csproj" />
+    <!-- The JIT (JittedCpu — the kernel-path JIT runs read counters via the IJitMetrics cast). -->
+    <ProjectReference Include="..\..\src\CpuEmulator.Jit\CpuEmulator.Jit.csproj" />
+    <!-- The board/surface factories + asset loaders for the real boots, and ExecutionTier. -->
+    <ProjectReference Include="..\..\src\CpuEmulator.Machines\CpuEmulator.Machines.csproj" />
+    <!-- The peripherals the real boots wire (Disk II flux images, Videx, Spectrum ULA). -->
+    <ProjectReference Include="..\..\src\CpuEmulator.Peripherals\CpuEmulator.Peripherals.csproj" />
+    <!-- The bench library: the frozen W-kernel Workloads (kernel hot-op + throughput input). -->
+    <ProjectReference Include="..\CpuEmulator.Benchmarks\CpuEmulator.Benchmarks.csproj" />
+  </ItemGroup>
+
+</Project>

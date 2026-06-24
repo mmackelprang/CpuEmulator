@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:56:30.1038104Z",
+  "commit": "e29a196",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "apple2-dos33",
+  "workload": "boot-to-basic",
+  "frozenBudget": 5000000,
+  "budgetUnit": "cycles",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 1347523,
+      "cyclesPerSecond": 51468530.10083708,
+      "realtimeRatio": 50.435411139064485,
+      "hotOps": [
+        {
+          "mnemonic": "BNE",
+          "count": 343426,
+          "pct": 25.4857,
+          "cumPct": 25.4857
+        },
+        {
+          "mnemonic": "INC",
+          "count": 325014,
+          "pct": 24.1194,
+          "cumPct": 49.6051
+        },
+        {
+          "mnemonic": "BPL",
+          "count": 323567,
+          "pct": 24.012,
+          "cumPct": 73.6171
+        },
+        {
+          "mnemonic": "BIT",
+          "count": 323564,
+          "pct": 24.0118,
+          "cumPct": 97.6288
+        },
+        {
+          "mnemonic": "SBC",
+          "count": 19429,
+          "pct": 1.4418,
+          "cumPct": 99.0707
+        },
+        {
+          "mnemonic": "PHA",
+          "count": 2432,
+          "pct": 0.1805,
+          "cumPct": 99.2511
+        },
+        {
+          "mnemonic": "PLA",
+          "count": 2431,
+          "pct": 0.1804,
+          "cumPct": 99.4315
+        },
+        {
+          "mnemonic": "STA",
+          "count": 1537,
+          "pct": 0.1141,
+          "cumPct": 99.5456
+        },
+        {
+          "mnemonic": "BCC",
+          "count": 1021,
+          "pct": 0.0758,
+          "cumPct": 99.6214
+        },
+        {
+          "mnemonic": "INY",
+          "count": 961,
+          "pct": 0.0713,
+          "cumPct": 99.6927
+        },
+        {
+          "mnemonic": "CPY",
+          "count": 961,
+          "pct": 0.0713,
+          "cumPct": 99.764
+        },
+        {
+          "mnemonic": "LDA",
+          "count": 707,
+          "pct": 0.0525,
+          "cumPct": 99.8165
+        },
+        {
+          "mnemonic": "CMP",
+          "count": 430,
+          "pct": 0.0319,
+          "cumPct": 99.8484
+        },
+        {
+          "mnemonic": "EOR",
+          "count": 370,
+          "pct": 0.0275,
+          "cumPct": 99.8758
+        },
+        {
+          "mnemonic": "JSR",
+          "count": 298,
+          "pct": 0.0221,
+          "cumPct": 99.898
+        }
+      ],
+      "allocBytesPerWindow": 172493248
+    },
+    "jit": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 20127297.026394922,
+      "realtimeRatio": 19.723285251307146,
+      "emitCoverage": null,
+      "fallbackByOpcode": [],
+      "compileCount": 107,
+      "totalRecompiles": 0,
+      "totalEvictions": 0,
+      "smcHotPcCount": 0,
+      "chainEdgesTaken": 339658,
+      "dispatcherEntries": 329217,
+      "blockCacheHits": 668768,
+      "blockCacheMisses": 107,
+      "allocBytesPerWindow": 1803584
+    }
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "DOS 3.3 cold-boot to the BASIC prompt via SpecWithDiskII (no $C600 boot ROM \u2014 the live web-surface cold path).",
+    "synthetic flux image (no real DOS 3.3 disk wired); a boot-to-BASIC profile does not need one.",
+    "interpreter hot-op histogram is a per-instruction PC walk (OFFLINE); JIT tier captures throughput \u002B IJitMetrics counters via machine.Run.",
+    "fallbackByOpcode empty \u002B emitCoverage null \u2014 ADR 0022 item D (deferred)."
+  ]
+}

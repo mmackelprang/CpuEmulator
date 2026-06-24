@@ -33,6 +33,8 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
                                        // the live PC via _inner.GetRegister(_pcName) — interface-only,
                                        // no concrete CPU field; resolved once at construction)
     private long _chainStepCount;   // test seam: chain edges taken without a dispatcher round-trip
+    private long _dispatcherEntries; // ADR 0022 C: dispatcher round-trips (the cost a chain edge avoids —
+                                     // the ADR-0012 floor signal; FREE, incremented once per block dispatch)
 
     // The chain-edge callback + its mutable scratch, allocated ONCE per JittedCpu (not per chain
     // step). RunChain writes _chainPredecessor before each emitted block runs; the emitted chain
@@ -99,10 +101,26 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
     long IJitMetrics.TotalRecompiles => TotalRecompiles;
     long IJitMetrics.TotalEvictions => TotalEvictions;
     int IJitMetrics.SmcHotPcCount => SmcHotPcCount;
+    // ADR 0022 C: the four FREE chain/dispatch + block-cache counters. ChainEdgesTaken forwards the
+    // existing _chainStepCount (in-frame chain hops that avoided a round-trip); DispatcherEntries forwards
+    // the new _dispatcherEntries (block dispatches via GetOrCompile); the two cache counters forward the
+    // cache. The ADR-0012 floor signal is the ChainEdgesTaken : DispatcherEntries ratio.
+    long IJitMetrics.ChainEdgesTaken => _chainStepCount;
+    long IJitMetrics.DispatcherEntries => _dispatcherEntries;
+    long IJitMetrics.BlockCacheHits => _cache.BlockCacheHits;
+    long IJitMetrics.BlockCacheMisses => _cache.BlockCacheMisses;
 
     /// <summary>Test seam: how many chain edges have been taken without a dispatcher round-trip
     /// (the chaining pins read this; 0 with <see cref="JitOptions.DisableChaining"/> or M2-i).</summary>
     internal long ChainStepCount => _chainStepCount;
+
+    /// <summary>ADR 0022 C test seams: the FREE chain/dispatch + block-cache hit/miss counters surfaced on
+    /// IJitMetrics. ChainEdgesTaken is an alias of <see cref="ChainStepCount"/> (the IJitMetrics name);
+    /// DispatcherEntries is dispatcher round-trips; the cache pair forwards the block cache.</summary>
+    internal long ChainEdgesTaken => _chainStepCount;
+    internal long DispatcherEntries => _dispatcherEntries;
+    internal long BlockCacheHits => _cache.BlockCacheHits;
+    internal long BlockCacheMisses => _cache.BlockCacheMisses;
 
     /// <summary>Test seam (ADR 0019 FF-1): is a block cached under this exact 32-bit linear key? The
     /// 8086 near-chain-key pin reads this to prove a near edge keys the successor on the linear
@@ -206,6 +224,11 @@ public sealed class JittedCpu<TCpu> : ICpuCore, IMonitorSupport, IMapInvalidatio
                 _cache.NoteInterpretedDispatch(key);
                 continue;                         // re-tops to InterruptPending/Halted/InvalidateIfDirty
             }
+            // ADR 0022 C: this iteration reaches the block-dispatch path — one dispatcher round-trip (the
+            // cost a chain edge avoids; the ADR-0012 floor). Counted here, AFTER the InterruptPending /
+            // Halted / ShouldInterpret `continue`s above (those are not JIT-block round-trips), so it
+            // pairs exactly with the GetOrCompile+RunChain that follows.
+            _dispatcherEntries++;
             CompiledBlock<TCpu> block = _cache.GetOrCompile(key, _compiler);
             RunChain(block, ref cycleBudget);    // run the block + follow its static chain edges
             // Normal/Budget/Recompile all return here for a dispatcher round-trip: the loop tops

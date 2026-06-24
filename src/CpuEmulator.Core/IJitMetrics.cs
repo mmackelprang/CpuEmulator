@@ -21,4 +21,19 @@ public interface IJitMetrics
 
     /// <summary>How many distinct PCs ever tripped the recompile cap (the SMC-hot-PC count).</summary>
     int SmcHotPcCount { get; }
+
+    /// <summary>Chain edges followed without a dispatcher round-trip (the ADR-0012 floor signal —
+    /// high vs DispatcherEntries means chaining is carrying the hot path). Run-lifetime, monotonic, FREE.</summary>
+    long ChainEdgesTaken { get; }
+
+    /// <summary>Dispatcher round-trips — block dispatches via GetOrCompile (the cost a chain edge avoids).
+    /// The ADR-0012 floor: a low ChainEdgesTaken : DispatcherEntries ratio means the hot path is
+    /// dispatcher-bound. Run-lifetime, monotonic, FREE.</summary>
+    long DispatcherEntries { get; }
+
+    /// <summary>Block-cache hits — a dispatch found the block already compiled (no recompile). FREE.</summary>
+    long BlockCacheHits { get; }
+
+    /// <summary>Block-cache misses — a dispatch had to compile (first compile OR recompile). FREE.</summary>
+    long BlockCacheMisses { get; }
 }

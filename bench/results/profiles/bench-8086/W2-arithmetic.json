@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-06-23T23:56:14.9895562Z",
+  "commit": "e29a196",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "os": "Microsoft Windows 10.0.26220",
+    "dotnet": "10.0.9"
+  },
+  "system": "bench-8086",
+  "workload": "W2-arithmetic",
+  "frozenBudget": 20000000,
+  "budgetUnit": "instructions",
+  "tiers": {
+    "interpreter": {
+      "instructionsRetired": 20000000,
+      "cyclesPerSecond": 14307664.812717963,
+      "realtimeRatio": null,
+      "hotOps": [
+        {
+          "mnemonic": "ADD",
+          "count": 4985394,
+          "pct": 24.927,
+          "cumPct": 24.927
+        },
+        {
+          "mnemonic": "SUB",
+          "count": 4985394,
+          "pct": 24.927,
+          "cumPct": 49.8539
+        },
+        {
+          "mnemonic": "DEC",
+          "count": 4985394,
+          "pct": 24.927,
+          "cumPct": 74.7809
+        },
+        {
+          "mnemonic": "JNE",
+          "count": 4985394,
+          "pct": 24.927,
+          "cumPct": 99.7079
+        },
+        {
+          "mnemonic": "MOV",
+          "count": 38950,
+          "pct": 0.1948,
+          "cumPct": 99.9026
+        },
+        {
+          "mnemonic": "JMP",
+          "count": 19474,
+          "pct": 0.0974,
+          "cumPct": 100
+        }
+      ],
+      "allocBytesPerWindow": 4000002448
+    },
+    "jit": {
+      "instructionsRetired": 0,
+      "cyclesPerSecond": 56995288.199524544,
+      "realtimeRatio": null,
+      "emitCoverage": null,
+      "fallbackByOpcode": [],
+      "compileCount": 6,
+      "totalRecompiles": 0,
+      "totalEvictions": 0,
+      "smcHotPcCount": 0,
+      "chainEdgesTaken": 10009733,
+      "dispatcherEntries": 10,
+      "blockCacheHits": 10009737,
+      "blockCacheMisses": 6,
+      "allocBytesPerWindow": 65600
+    }
+  },
+  "perPeripheralFrameCostNs": null,
+  "notes": [
+    "kernel hot-op histogram is interpreter-tier, stepped per-instruction (OFFLINE).",
+    "fallbackByOpcode is empty \u002B emitCoverage null \u2014 full execution-weighted per-opcode attribution is ADR 0022 item D (deferred).",
+    "kernels declare no nominal clock, so realtimeRatio is null.",
+    "JIT tier is a bulk-Run window (chaining exercised honestly, not budget-1); instructionsRetired is left 0 (not attributed for the bulk window \u2014 the chain/dispatch/cache counters are the signal)."
+  ]
+}
