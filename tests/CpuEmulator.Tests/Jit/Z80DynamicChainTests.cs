@@ -95,6 +95,42 @@ public class Z80DynamicChainTests
         Assert.Equal(0x07ul, cpu.GetRegister("B"));
     }
 
+    // ── ISOLATED non-vacuity: a RET whose entry block has NO static chain edge before it, so the ONLY
+    //    possible chain step is the RET's dynamic edge (the CALL/RET tests' `chains > 0` could be satisfied
+    //    by the CALL's static chain alone — pre-merge review finding 1). Here PC enters the subroutine
+    //    directly and the return address is pre-pushed, so a non-zero ChainStepCount proves the RET chained.
+    [Fact]
+    public void Ret_dynamic_edge_chains_in_isolation_from_any_static_edge()
+    {
+        void Poke9000(AddressSpace bus)
+        {
+            // pre-push the return address 0x9100 (lo at SP, hi at SP+1; SP grows down)
+            bus.Write8(0xFFEE, 0x00); bus.Write8(0xFFEF, 0x91);   // [0xFFEE]=0x00 [0xFFEF]=0x91 -> 0x9100
+            Poke(bus, 0x9000, 0x06, 0x07);                        // LD B,0x07
+            Poke(bus, 0x9002, 0xC9);                              // RET -> pops 0x9100 (DYNAMIC edge)
+            Poke(bus, 0x9100, 0x3E, 0x42);                        // LD A,0x42 (the chained successor)
+            Poke(bus, 0x9102, 0x76);                              // HALT
+        }
+        void Seed9000(Z80Cpu cpu)
+        {
+            cpu.SetRegister("PC", 0x9000);
+            cpu.SetRegister("SP", 0xFFEE);   // points at the pre-pushed return address
+        }
+
+        var (on, onBus, onChains) = RunJit(Poke9000, Seed9000, 200, new JitOptions());
+        var (off, offBus, offChains) =
+            RunJit(Poke9000, Seed9000, 200, new JitOptions { DisableChaining = true });
+
+        Assert.True(onChains > 0, "the RET's dynamic edge is the ONLY chain edge — it must chain");
+        Assert.True(offChains == 0, "chaining-OFF must take zero chain steps (the isolation is genuine)");
+        Assert.Equal(0x42ul, on.GetRegister("A"));   // the chained successor ran
+        Assert.Equal(0x07ul, on.GetRegister("B"));
+        AssertSameState(off, on, offBus, onBus);      // and chaining the RET is byte-identical to round-tripping
+
+        var (refCpu, refBus) = RunInterp(Poke9000, Seed9000, 200);
+        AssertSameState(refCpu, on, refBus, onBus);   // == interpreter oracle
+    }
+
     [Fact]
     public void Ret_chaining_is_byte_identical_to_round_tripping()
     {
@@ -138,11 +174,11 @@ public class Z80DynamicChainTests
     public void Ret_cc_taken_chains_and_is_byte_identical()
     {
         var (on, onBus, onChains) = RunJit(PokeCallRetCc, SeedTopAnz, 200, new JitOptions());
-        var (off, offBus, _) =
+        var (off, offBus, offChains) =
             RunJit(PokeCallRetCc, SeedTopAnz, 200, new JitOptions { DisableChaining = true });
         var (refCpu, refBus) = RunInterp(PokeCallRetCc, SeedTopAnz, 200);
 
-        Assert.True(onChains > 0, "RET NZ taken chained on the popped PC");
+        Assert.True(onChains > offChains, "RET NZ taken dynamic edge chained (more chain steps than chaining-OFF)");
         Assert.Equal(0x55ul, on.GetRegister("A"));   // the return landed and ran LD A,0x55
         AssertSameState(off, on, offBus, onBus);      // chaining ON == OFF
         AssertSameState(refCpu, on, refBus, onBus);   // == interpreter oracle
