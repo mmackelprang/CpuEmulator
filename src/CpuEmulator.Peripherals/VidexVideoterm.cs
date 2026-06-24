@@ -55,9 +55,12 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
     /// <summary>The guest-driven active-display signal (ADR 0016 Decision 2): true when the Videx becomes
     /// the live terminal (its $C800 window enabled), false when the Apple video is re-selected. The host
     /// DisplayMultiplexer subscribes this and calls SetActive (PR-O). Engagement is raised either by a VRAM
-    /// bank-select ($C0B8-$C0BF) OR by a CRTC-data write ($C0B1) -- the latter is the firmware bringing the
-    /// 80-col display online for a CRT80 build (apl2cpm3) that paints VRAM linearly and never bank-selects
-    /// (ADR 0018-C OQ1 / V80-3 -- the auto-engage trigger). The transition no-op guard means it fires once.</summary>
+    /// bank-select WRITE ($C0B8-$C0BF) OR by a CRTC-data write ($C0B1) -- the latter is the firmware bringing
+    /// the 80-col display online for a CRT80 build (apl2cpm3) whose ?odcrt paints VRAM via the $CC00 window
+    /// (ADR 0018-C OQ1 / V80-3 -- the auto-engage trigger). NOTE: bank SELECTION itself happens on EVERY
+    /// $C0Bx access incl. reads (see Access -- the firmware banks the 2 KiB VRAM by READING $C0B0/$C0B4/
+    /// $C0B8/$C0BC), but the engagement EDGE is only these two WRITE triggers -- a read never raises
+    /// ActiveChanged, so the CPM-5 2.2 ActiveIndex==0 invariant holds. The transition no-op guard fires once.</summary>
     public event Action<bool>? ActiveChanged;
 
     /// <param name="charRom">Optional 256x8 char-gen ROM. A null OR a STRUCTURALLY-INVALID image (one that is
@@ -103,14 +106,30 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
 
     /// <summary>The IOU delegate entry for $C0B0-$C0BF (mirrors the LC's $C08x Access, but the Videx CRTC
     /// needs the WRITTEN value — unlike a value-agnostic soft switch — so writeValue is threaded from the
-    /// IOU's Write). A read's side effect rides the returned value; a write programs the selected register
-    /// or selects a VRAM bank. offset is the low byte ($B0-$BF).</summary>
+    /// IOU's Write). A read's side effect rides the returned value; a write programs the selected register.
+    /// offset is the low byte ($B0-$BF).
+    ///
+    /// THE LOAD-BEARING HARDWARE RULE (MAME a2videoterm read_c0nx/write_c0nx, verified live against the
+    /// 0.287 oracle): EVERY $C0Bx access — READ OR WRITE, at ANY offset 0-$F — selects the active 512-byte
+    /// VRAM bank as bank = (offset>>2)&3, IN ADDITION to any 6845 register access. The Videx firmware
+    /// (ROM 2.4) banks its 2 KiB VRAM into the 512-byte $CC00 window by READING $C0B0/$C0B4/$C0B8/$C0BC
+    /// (an `LDA $C0B0,X` with X in {0,4,8,$C}, the helper at $CA59/$CA69) BEFORE each character store, so
+    /// the high address bits choose the bank and the low 9 bits index the window. The bank-select is a READ
+    /// side effect, not a write — handling it on writes only (or only on $C0B8-$C0BF) froze _bank at 0, so
+    /// every character piled into bank 0 while the 6845 scanout (correctly) reads the full 2 KiB; once the
+    /// console scrolled past the 512-byte bank-0 boundary the rendered columns sheared (the apl2cpm3 80-col
+    /// scroll column-shift). MAME produces the IDENTICAL R12/R13 free-run-to-2048 start-address sequence we
+    /// do — the divergence was never the scanout base, it was the missing read-path bank-select.</summary>
     public byte Access(byte offset, bool isRead, byte writeValue = 0x00)
     {
         byte o = (byte)(offset & 0x0F);   // $C0B0-$C0BF low nibble
-        if (isRead) return ReadReg(o);
-        WriteReg(o, writeValue);
-        return 0x00;
+        byte result = isRead ? ReadReg(o) : (byte)0x00;
+        if (!isRead) WriteReg(o, writeValue);
+        // EVERY $C0Bx access (read AND write, all offsets) selects the bank -- the MAME read_c0nx/write_c0nx
+        // trailing `m_rambank = ((offset>>2)&3)*512`. This MUST run after ReadReg/WriteReg so the 6845
+        // register access still happens; the bank-select is an additional, always-applied side effect.
+        SelectBank((o >> 2) & 0x03);
+        return result;
     }
 
     private byte ReadReg(byte o)
@@ -118,8 +137,10 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
         // offset 1 ($C0B1) reads the selected CRTC register (only R14-R17 are truly readable on a 6845;
         // returning the stored value is adequate for the cursor/status the firmware polls). The register
         // index is guarded to [0,17] (_crtcAddr is masked to 0-31 on write; % 18 keeps the array index
-        // in range — the 6845 has 18 registers).
-        return o == 1 ? _crtc[_crtcAddr % 18] : (byte)0x00;
+        // in range — the 6845 has 18 registers). A non-data offset returns open-bus $FF (MAME read_c0nx
+        // returns 0xff for everything except offset 1) -- the firmware's bank-select `LDA $C0B0,X` discards
+        // the value and uses only the access's bank side effect (applied by Access), so the byte is moot.
+        return o == 1 ? _crtc[_crtcAddr % 18] : (byte)0xFF;
     }
 
     private void WriteReg(byte o, byte value)
@@ -134,21 +155,18 @@ public sealed class VidexVideoterm : IPeripheral, IDisplayDevice
                     _crtc[_crtcAddr] = value;
                 // Programming the CRTC is the firmware bringing the 80-col display online -- it is the
                 // active-display engagement signal for a CRT80 build (apl2cpm3) that paints VRAM linearly
-                // and never does a $C0B8-$C0BF bank-select (ADR 0018-C OQ1 -- the auto-engage trigger).
-                // SetActive has a transition no-op guard, so ActiveChanged(true) fires exactly once. A 40-col
-                // SoftCard master (CP/M 2.2) issues ZERO $C0Bx, so it never engages -- ActiveIndex stays 0
-                // (the CPM-5 gate's load-bearing invariant, kept byte-for-byte).
+                // (ADR 0018-C OQ1 -- the auto-engage trigger). SetActive has a transition no-op guard, so
+                // ActiveChanged(true) fires exactly once. A 40-col SoftCard master (CP/M 2.2) issues ZERO
+                // $C0Bx, so it never engages -- ActiveIndex stays 0 (the CPM-5 gate's load-bearing
+                // invariant, kept byte-for-byte: no $C0Bx access => no SetActive, no SelectBank).
                 SetActive(true);
                 break;
             default:
-                // $C0B8-$C0BF region: VRAM bank select (research §8: bank = ((offset>>2)&3)). A bank-select
-                // access also enables the Videx (the active-display signal): the first enable raises
-                // ActiveChanged(true).
+                // $C0B8-$C0BF region: a WRITE bank-select also enables the Videx (the active-display
+                // signal). The bank itself is selected for EVERY access in Access(); this case only adds
+                // the engagement edge a write to the bank window implies.
                 if (o is >= 0x08 and <= 0x0F)
-                {
-                    SelectBank((o >> 2) & 0x03);
                     SetActive(true);
-                }
                 break;
         }
     }
