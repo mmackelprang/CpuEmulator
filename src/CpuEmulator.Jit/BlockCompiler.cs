@@ -564,6 +564,43 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         return (BlockDelegate<TCpu>)dm.CreateDelegate(typeof(BlockDelegate<TCpu>));
     }
 
+    /// <summary>Test seam (ADR 0023 D0 — the dynamic-chain-edge proof). Compiles a ZERO-instruction
+    /// block whose only body is <see cref="EmitDynamicChainOrExit"/> reading the CPU's live PC field.
+    /// A real dynamic arm (RTS/JMP-(ind)/RET) sets <c>cpu.PC</c> to its runtime successor BEFORE this
+    /// helper runs; the probe instead leaves PC as the test pre-set it, so invoking the delegate proves
+    /// the helper reads <c>cpu.PC</c> at run time and passes it to the ChainDispatch callback (chains to
+    /// a RUNTIME PC) — and, when a gate (budget &lt;= 0 / dirty.Any / InterruptPending) fires, that it
+    /// degrades to a plain EmitNormalExit round-trip (the ChainDispatch is NOT invoked). No production
+    /// caller — exists only for the D0 gate.</summary>
+    internal BlockDelegate<TCpu> CompileDynamicChainProbe(bool foldM8086CodePhysBase = false)
+    {
+        var dm = new DynamicMethod(
+            "dynamic_chain_probe", typeof(void),
+            [typeof(TCpu), typeof(IAddressSpace), typeof(Fastmem),
+             typeof(DirtyMap), typeof(ChainDispatch),
+             typeof(long).MakeByRefType(), typeof(BlockExit).MakeByRefType(),
+             typeof(IAddressSpace)],
+            typeof(BlockCompiler<TCpu>).Module, skipVisibility: true);
+        ILGenerator il = dm.GetILGenerator();
+        var ctx = new EmitContext(il, new System.Collections.Generic.HashSet<int>());
+        EmitDynamicChainOrExit(ctx, foldM8086CodePhysBase);   // THE helper under test
+        return (BlockDelegate<TCpu>)dm.CreateDelegate(typeof(BlockDelegate<TCpu>));
+    }
+
+    /// <summary>Test seam (ADR 0023 D0): the baked CS&lt;&lt;4 code-phys base for the 8086 near-return
+    /// chain-key fold, exposed so the D0 probe can assert <see cref="CompileDynamicChainProbe"/> with
+    /// <c>foldM8086CodePhysBase: true</c> projects the live IP to <c>(base + IP) &amp; 0xFFFFF</c>. Set
+    /// per Discover/Compile; 0 until a Discover runs (the D0 probe sets it by compiling a real block
+    /// first, or the test reads it after a Discover). Non-8086 CPUs leave it 0.</summary>
+    internal uint M8086CodePhysBaseForTest => _m8086CodePhysBase;
+
+    /// <summary>Test seam (ADR 0023 D0): force the 8086 code-phys base from the live CS without a
+    /// full Discover, so the D0 fold probe is deterministic.</summary>
+    internal void PrimeM8086CodePhysBaseForTest()
+        => _m8086CodePhysBase = TargetIsM8086 && _m8086CS is not null
+            ? ((uint)(ushort)_m8086CS.GetValue(_cpu)! << 4) & 0xFFFFFu
+            : 0u;
+
     private static System.Collections.Generic.HashSet<int> PagesSpanned(
         System.Collections.Generic.List<(ushort Pc, OpcodeDescriptor D, int Length, byte X86Seg)> run)
     {
@@ -1525,6 +1562,75 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         il.Emit(OpCodes.Ldc_I4, unchecked((int)staticTargetKey));
         // No Conv_U2 — the chain target is now the full uint linear key (ADR 0019 FF-1). The chain
         // callback (ChainDispatch) takes uint; pushing the 32-bit constant as-is matches the stack type.
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);            // ref long budget
+        il.Emit(OpCodes.Ldarg_S, ArgExit);              // out BlockExit exit
+        il.Emit(OpCodes.Callvirt, MChainInvoke);
+        il.Emit(OpCodes.Ret);
+
+        il.MarkLabel(toDispatcher);
+        EmitNormalExit(ctx);
+    }
+
+    /// <summary>ADR 0023 — emit a DYNAMIC-target chainable exit. A near-clone of <see
+    /// cref="EmitChainOrExit"/> with ONE difference: the chain target is read from the RUNTIME
+    /// <c>cpu.PC</c> (the value the dynamic arm just stored — RTS popped it, JMP-(ind) read it)
+    /// rather than baked as a compile-time constant. The dynamic arm has ALREADY set <c>cpu.PC</c>
+    /// to the computed successor before calling here (exactly as it did before the dispatcher
+    /// round-trip it replaces), so chaining and the dispatcher fall-back agree on PC.
+    ///
+    /// PARITY (ADR §4): the dispatcher round-trip this replaces would compute the block key as
+    /// <c>ProjectBlockKey(cpu)</c> and dispatch it; for a flat CPU that key IS <c>(uint)cpu.PC</c>
+    /// (CpuEmitter ProjectBlockKey identity), so passing <c>(uint)cpu.PC</c> to the chain callback
+    /// resolves the SAME successor block, with the SAME CPU state at entry. The three gates (budget,
+    /// dirty.Any, InterruptPending) are byte-identical to <see cref="EmitChainOrExit"/>, so when any
+    /// gate fires this degrades to exactly today's <see cref="EmitNormalExit"/> round-trip.
+    ///
+    /// SMC (ADR §5): the dirty.Any gate blocks chaining into a self-modified page; ResolveChain
+    /// resolves BY PC through the live cache (recompiles on a miss); the predecessor registers in
+    /// the SAME ChainTable an eviction severs. Zero new state, zero new link table.
+    ///
+    /// 8086 (ADR §3.1): the 8086 block key is the linear <c>(CS&lt;&lt;4)+IP</c>, NOT the bare IP, so the
+    /// segmented near return must fold the baked code-phys base over the runtime IP — the runtime
+    /// analogue of <see cref="M8086NearChainKey"/>. <paramref name="foldM8086CodePhysBase"/> selects
+    /// that fold; a near transfer cannot change CS, so the live IP is in the block's baked segment
+    /// and <c>(_m8086CodePhysBase + IP) &amp; 0xFFFFF</c> equals the dispatcher's ProjectBlockKey. Flat
+    /// CPUs pass false (the identity projection).</summary>
+    private void EmitDynamicChainOrExit(EmitContext ctx, bool foldM8086CodePhysBase = false)
+    {
+        ILGenerator il = ctx.Il;
+        Label toDispatcher = il.DefineLabel();
+
+        // (2) budget <= 0 -> dispatcher (PC already at the target; the next slice resumes there)
+        il.Emit(OpCodes.Ldarg_S, ArgBudget);
+        il.Emit(OpCodes.Ldind_I8);
+        il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Conv_I8);
+        il.Emit(OpCodes.Ble, toDispatcher);
+
+        // (3) dirty.Any -> dispatcher (the SMC coarse backstop — Ground truth B; identical to the static edge)
+        il.Emit(OpCodes.Ldarg_3);                       // DirtyMap dirty
+        il.Emit(OpCodes.Callvirt, MDirtyAny);           // dirty.Any (bool)
+        il.Emit(OpCodes.Brtrue, toDispatcher);
+
+        // (4) cpu.InterruptPending -> dispatcher (sample the irq at the chain edge)
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Callvirt, _mInterruptPending);
+        il.Emit(OpCodes.Brtrue, toDispatcher);
+
+        // (5)-(7) chain.Invoke((uint)cpu.PC [+ base fold for the 8086], ref budget, out exit); ret
+        // ── the ONLY difference from EmitChainOrExit: load the runtime PC, not a baked constant ──
+        il.Emit(OpCodes.Ldarg_S, ArgChain);             // ChainDispatch chain
+        il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, _fpc);   // cpu.PC (the arm's runtime successor)
+        il.Emit(OpCodes.Conv_U4);                       // widen to the uint chain key
+        if (foldM8086CodePhysBase)
+        {
+            // 8086 near return: project the bare IP to the linear key (CS<<4 baked at Compile time —
+            // a near transfer cannot change CS, so the base is exact for the block's life). This is
+            // the runtime form of M8086NearChainKey(ip) — ((CS<<4) + IP) & 0xFFFFF.
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)_m8086CodePhysBase));
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldc_I4, unchecked((int)0xFFFFFu));
+            il.Emit(OpCodes.And);
+        }
         il.Emit(OpCodes.Ldarg_S, ArgBudget);            // ref long budget
         il.Emit(OpCodes.Ldarg_S, ArgExit);              // out BlockExit exit
         il.Emit(OpCodes.Callvirt, MChainInvoke);
