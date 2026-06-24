@@ -1,5 +1,31 @@
 # Builder Queue
 
+> **Last updated:** 2026-06-23 (Builder — **ADR 0022 PERFORMANCE FEEDBACK LOOP — FIRST MOVE SHIPPED (items A + C).**
+> The standing measurement engine now exists. **C (free counters):** four additive zero-cost run-lifetime counters on
+> `IJitMetrics` — `ChainEdgesTaken`/`DispatcherEntries` (the ADR-0012 floor signal: in-frame chain hops vs dispatcher
+> round-trips) + `BlockCacheHits`/`BlockCacheMisses` — incremented on existing paths (no per-instruction cost, default
+> behavior unchanged, Core stays AOT-clean, perf-overlay wire untouched per ADR §5). Red→green gated
+> (`ChainDispatchCountersTests`): the counters read REAL values (> 0 after a JITted run, distinct under
+> chaining-disabled). **A (standing profiler):** new `bench/profiler/` (dev tool, NOT in the .sln — the
+> `bench/hotop-profiler/` successor; the old M6 throwaway is preserved for the `BenchDocReconciliationTests` pin)
+> drives the real boots (DOS 3.3, CP/M 2.2, apl2cpm3 CP/M 3.1, Apple Pascal, Spectrum) through the live
+> `BoardMachineFactory`/surface factories + the bench W-kernels (skip-with-note absent), captures both tiers (hot-op
+> histogram, JIT churn + the new chain/dispatch + cache counters, real-time ratio, allocations), and emits a versioned
+> diffable `profile.json` per system×workload under `bench/results/profiles/` + a generated `INDEX.md`. **First run:
+> 17 committed profiles = the FIRST MEASURED ranked backlog** (`bench/results/profiles/INDEX.md`). **Pre-merge review
+> (`feature-dev:code-reviewer`): MERGEABLE, 0 HIGH / 2 MEDIUM — both FIXED:** (1) kernel `chain:disp` was a budget-1
+> harness artifact (always 0.0) — switched the kernel JIT capture to a bulk Run so chaining is exercised honestly
+> (kernels now show real ratios; Klaus/zexdoc show the SMC-thrash floor); (2) the `instructionBudget` field held cycles
+> for real boots — renamed to `frozenBudget` (with `budgetUnit`). **Headline findings:** the JIT is SLOWER than the
+> interpreter on every real boot (DOS 60.8×→23.2× real-time; Spectrum 29.5×→22.6×) — the cold-compile +
+> dispatcher-round-trip floor dominates a short boot; the SoftCard/apl2cpm3 dual-CPU boots NEVER engage the JIT
+> (`Machine.RunDualCpu` drives the primary via `Cpu.Step()` → interpreter; a structural finding). **Deferred with a
+> note:** B (`ips` runtime counter — needs `CpuSpecGenerator` + emitted-IL work, PR #160's deferral confirmed) and D
+> (execution-weighted fallback-by-opcode + emit coverage) are the next profiler increments. **Full suite green: 9711
+> passed / 0 failed / 4 skipped (pre-existing asset/quota gates), warning-clean** (foreground slices: Jit+ChainDispatch+
+> ProfilerFormatSmoke+BenchDocReconciliation 2869/0; remaining 2246/0; TomHarte 4596/0). The conditional arcs (E
+> per-bank, F hot-peripheral, G/L JIT-under-translation) are now EVIDENCE-GATED on this profile data rather than
+> assumed. PR + merge below. Prior Builder log:
 > **Last updated:** 2026-06-23 (Builder — **II SHIPPED (PR #151) — the 8086 INT/INT3/INTO/IRET ops now emit through
 > the JIT; ROADMAP #4 is COMPLETE and the AUTONOMOUS ROADMAP RUN IS DONE.** The soft-interrupt vectoring — `CD` INT
 > imm8, `CC` INT3 (vector 3), `CE` INTO (vector 4 iff OF set), `CF` IRET — emits via the new `EmitM8086Interrupt`
