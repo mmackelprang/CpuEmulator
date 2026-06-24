@@ -952,14 +952,18 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         EmitChainOrExit(ctx, (ushort)vec);                           // STATIC vector — chainable
     }
 
-    // RET — pop PC; WZ = popped; DYNAMIC target → exit. 10 T = fetch1 + 2 reads + residual 7.
+    // RET — pop PC; WZ = popped; DYNAMIC target → chain on the runtime PC (ADR 0023 D2). 10 T = fetch1 + 2 reads + residual 7.
     private void EmitZ80Ret(EmitContext ctx)
     {
         EmitZ80PopPc(ctx);                                           // PC = pop (2 reads); leaves PC set
         EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                          // WZ = popped PC
         EmitZ80ClearQ(ctx);
         EmitChargeCycles(ctx, 7);                                    // 10 T = fetch1 + 2 reads + 7
-        EmitNormalExit(ctx);                                         // DYNAMIC (popped) target — NOT chainable
+        // ADR 0023 D2: the popped PC is a real successor PC the cache can key on (the Z80 block key is
+        // (uint)PC — identity). Chain on it through the runtime cpu.PC instead of round-tripping; degrades
+        // to EmitNormalExit on the budget/dirty.Any/IRQ gates. The headline edge for the Spectrum boot
+        // (RET ≈ CALL in count; every CALL chained in, now every RET chains out).
+        EmitDynamicChainOrExit(ctx);                                 // DYNAMIC (popped) target — now chainable
     }
 
     /// <summary>M6 PR-3: SP-=1, WriteBus(SP,(byte)(PC>>8)); SP-=1, WriteBus(SP,(byte)PC). Two writes (each +1 cyc).
@@ -1128,7 +1132,7 @@ internal sealed partial class BlockCompiler<TCpu> where TCpu : class
         EmitZ80PopPc(ctx);
         EmitLoadPC(ctx); EmitZ80SetWZ(ctx);                        // WZ = popped (taken only)
         EmitChargeCycles(ctx, 4);                                   // taken penalty (5→11 minus the 2 reads charged inline)
-        EmitNormalExit(ctx);                                       // DYNAMIC popped target — NOT chainable
+        EmitDynamicChainOrExit(ctx);                               // ADR 0023 D2: DYNAMIC popped target — now chainable
         il.MarkLabel(notTaken);
         EmitChainOrExit(ctx, fallThrough);                         // not-taken fall-through IS static — chainable
     }
