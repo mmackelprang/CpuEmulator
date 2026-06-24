@@ -1,6 +1,17 @@
 # ADR 0023 — JIT block chaining the dynamic-target floor (cutting the dispatcher round-trip on real boots)
 
-> **Status:** PROPOSED (2026-06-23). Owner review + approval required before any Planner/Builder work.
+> **Status:** **MEASURED → REFUTED → PARKED (owner, 2026-06-24).** D0 (the `EmitDynamicChainOrExit` helper)
+> shipped (PR #164, parity-clean). D2 (Z80 RET/RET-cc chaining) was implemented + rigorously A/B-measured and
+> **refuted the core thesis below**: chaining works exactly as designed (Spectrum `chain:disp` 0.284 → 0.506,
+> ~125k fewer dispatcher round-trips, byte-identical parity) **but throughput stayed flat** (JIT ~23.7× vs
+> interpreter ~30.3×) — so the dispatcher round-trip is **not** the dominant cost on this host. The real
+> Spectrum bottleneck is the **interpreter-fallback tail** (un-emitted ops the JIT must `inner.Step` — §6).
+> Per the ADR-0012 discipline the arc stopped at D2 (left unmerged on `feat/jit-dynamic-chain-d2-z80`) and was
+> **parked by the owner**: the two-tier design is validated (interpreter wins fallback-heavy boots, JIT wins hot
+> kernels), the machines already run 23–64× real-time, and the profiler + chain/dispatch counters now stand as a
+> regression instrument. **The real lever — emit coverage for the Spectrum fallback tail — is the recorded
+> follow-on candidate** if JIT-on-boots is ever pursued; do NOT re-chase the dispatcher floor without new
+> evidence. Original status: PROPOSED 2026-06-23; the §1-§7 design stands as the (throughput-refuted) record.
 > This is the **first measured optimization** the ADR-0022 feedback loop surfaced and the owner picked: the
 > real-boot JIT is *slower than the interpreter* because roughly half (DOS 3.3) to four-fifths (Spectrum) of
 > hot block transitions **round-trip through the dispatcher instead of chaining**. This ADR root-causes the
